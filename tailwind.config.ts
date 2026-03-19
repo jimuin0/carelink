@@ -9,8 +9,14 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        primary: "var(--primary)",
+        "primary-dark": "var(--primary-dark)",
+        accent: "var(--accent)",
         background: "var(--background)",
         foreground: "var(--foreground)",
+      },
+      fontFamily: {
+        sans: ['"Noto Sans JP"', 'sans-serif'],
       },
     },
   },
