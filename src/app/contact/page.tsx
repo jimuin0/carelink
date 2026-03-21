@@ -1,12 +1,14 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { supabase } from '@/lib/supabase';
 import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 const contactSchema = z.object({
   name: z.string().min(1, 'お名前を入力してください'),
@@ -20,6 +22,8 @@ type ContactForm = z.infer<typeof contactSchema>;
 export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
 
   const {
     register,
@@ -30,13 +34,18 @@ export default function ContactPage() {
     resolver: zodResolver(contactSchema),
   });
 
+  const handleConfirmSubmit = () => {
+    setShowConfirm(false);
+    handleSubmit(onSubmit)();
+  };
+
   const onSubmit = async (data: ContactForm) => {
     setSubmitting(true);
     try {
       const { error } = await supabase.from('contacts').insert(data);
       if (error) throw error;
-      setToast({ message: 'お問い合わせを受け付けました。2営業日以内にご返信いたします。', type: 'success' });
       reset();
+      setSubmitted(true);
     } catch {
       setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
     } finally {
@@ -52,66 +61,88 @@ export default function ContactPage() {
           ご質問やご不明点がございましたら、お気軽にお問い合わせください。
         </p>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
-          <div>
-            <label className="form-label">
-              お名前 <span className="text-red-500">*</span>
-            </label>
-            <input {...register('name')} className="form-input" placeholder="山田 太郎" />
-            {errors.name && <p className="form-error">{errors.name.message}</p>}
+        {submitted ? (
+          <div className="card text-center py-12">
+            <div className="text-5xl mb-4">&#9993;</div>
+            <h3 className="text-2xl font-bold mb-3">送信が完了しました</h3>
+            <p className="text-gray-600 mb-8">
+              お問い合わせありがとうございます。<br />
+              2営業日以内にご返信いたします。
+            </p>
+            <Link href="/" className="btn-primary">
+              トップページへ戻る
+            </Link>
           </div>
+        ) : (
+          <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="space-y-6">
+            <div>
+              <label className="form-label">
+                お名前 <span className="text-red-500">*</span>
+              </label>
+              <input {...register('name')} className="form-input" placeholder="山田 太郎" />
+              {errors.name && <p className="form-error">{errors.name.message}</p>}
+            </div>
 
-          <div>
-            <label className="form-label">
-              メールアドレス <span className="text-red-500">*</span>
-            </label>
-            <input
-              {...register('email')}
-              type="email"
-              className="form-input"
-              placeholder="example@email.com"
-            />
-            {errors.email && <p className="form-error">{errors.email.message}</p>}
-          </div>
+            <div>
+              <label className="form-label">
+                メールアドレス <span className="text-red-500">*</span>
+              </label>
+              <input
+                {...register('email')}
+                type="email"
+                className="form-input"
+                placeholder="example@email.com"
+              />
+              {errors.email && <p className="form-error">{errors.email.message}</p>}
+            </div>
 
-          <div>
-            <label className="form-label">
-              お問い合わせ種別 <span className="text-red-500">*</span>
-            </label>
-            <select {...register('inquiry_type')} className="form-input">
-              <option value="">選択してください</option>
-              <option value="掲載について">掲載について</option>
-              <option value="求職について">求職について</option>
-              <option value="その他">その他</option>
-            </select>
-            {errors.inquiry_type && <p className="form-error">{errors.inquiry_type.message}</p>}
-          </div>
+            <div>
+              <label className="form-label">
+                お問い合わせ種別 <span className="text-red-500">*</span>
+              </label>
+              <select {...register('inquiry_type')} className="form-input">
+                <option value="">選択してください</option>
+                <option value="掲載について">掲載について</option>
+                <option value="求職について">求職について</option>
+                <option value="その他">その他</option>
+              </select>
+              {errors.inquiry_type && <p className="form-error">{errors.inquiry_type.message}</p>}
+            </div>
 
-          <div>
-            <label className="form-label">
-              内容 <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              {...register('message')}
-              className="form-input min-h-[150px]"
-              placeholder="お問い合わせ内容をご記入ください"
-            />
-            {errors.message && <p className="form-error">{errors.message.message}</p>}
-          </div>
+            <div>
+              <label className="form-label">
+                内容 <span className="text-red-500">*</span>
+              </label>
+              <textarea
+                {...register('message')}
+                className="form-input min-h-[150px]"
+                placeholder="お問い合わせ内容をご記入ください"
+              />
+              {errors.message && <p className="form-error">{errors.message.message}</p>}
+            </div>
 
-          <button type="submit" disabled={submitting} className="btn-primary w-full">
-            {submitting ? (
-              <span className="flex items-center gap-2">
-                <Spinner />
-                送信中...
-              </span>
-            ) : (
-              '送信する'
-            )}
-          </button>
-        </form>
+            <button type="submit" disabled={submitting} className="btn-primary w-full">
+              {submitting ? (
+                <span className="flex items-center justify-center gap-2">
+                  <Spinner />
+                  送信中...
+                </span>
+              ) : (
+                '送信する'
+              )}
+            </button>
+          </form>
+        )}
       </div>
 
+      <ConfirmDialog
+        open={showConfirm}
+        title="送信内容の確認"
+        message="お問い合わせ内容を送信します。よろしいですか？"
+        confirmLabel="送信する"
+        onConfirm={handleConfirmSubmit}
+        onCancel={() => setShowConfirm(false)}
+      />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );

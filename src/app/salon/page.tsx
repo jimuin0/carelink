@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
@@ -41,6 +42,7 @@ export default function SalonPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -142,13 +144,10 @@ export default function SalonPage() {
       const { error } = await supabase.from('salons').insert(insertData);
       if (error) throw error;
 
-      setToast({
-        message: '登録が完了しました。担当者より2営業日以内にご連絡いたします。',
-        type: 'success',
-      });
       reset();
       setStep(1);
       setPhotoFile(null);
+      setSubmitted(true);
     } catch {
       setToast({
         message: '送信に失敗しました。時間をおいて再度お試しください。',
@@ -239,6 +238,20 @@ export default function SalonPage() {
         <div className="section-container">
           <h2 className="section-title">無料掲載登録</h2>
           <div className="max-w-2xl mx-auto">
+            {submitted ? (
+              <div className="card text-center py-12">
+                <div className="text-5xl mb-4">&#10003;</div>
+                <h3 className="text-2xl font-bold mb-3">登録が完了しました</h3>
+                <p className="text-gray-600 mb-8">
+                  担当者より2営業日以内にご連絡いたします。<br />
+                  しばらくお待ちください。
+                </p>
+                <Link href="/" className="btn-primary">
+                  トップページへ戻る
+                </Link>
+              </div>
+            ) : (
+            <>
             <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
 
             <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="card">
@@ -372,6 +385,8 @@ export default function SalonPage() {
                 </div>
               )}
             </form>
+            </>
+            )}
           </div>
         </div>
       </section>

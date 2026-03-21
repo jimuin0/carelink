@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'プライバシーポリシー',
@@ -97,7 +98,7 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-bold mb-4">第9条（お問い合わせ窓口）</h2>
           <p className="text-gray-600">
             個人情報の取扱いに関するお問い合わせは、
-            <a href="/contact" className="text-primary hover:underline">お問い合わせページ</a>
+            <Link href="/contact" className="text-primary hover:underline">お問い合わせページ</Link>
             よりご連絡ください。
           </p>
         </section>

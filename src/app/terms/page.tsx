@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: '利用規約',
@@ -64,7 +65,7 @@ export default function TermsPage() {
           <h2 className="text-xl font-bold mb-4">第6条（個人情報の取扱い）</h2>
           <p className="text-gray-600">
             利用者の個人情報の取扱いについては、別途定める
-            <a href="/privacy" className="text-primary hover:underline">プライバシーポリシー</a>
+            <Link href="/privacy" className="text-primary hover:underline">プライバシーポリシー</Link>
             に従います。
           </p>
         </section>
