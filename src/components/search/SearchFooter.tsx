@@ -18,7 +18,7 @@ export default function SearchFooter() {
               CareLink
             </Link>
             <p className="text-gray-400 text-sm mt-2">
-              医療・福祉・美容の施設検索サイト
+              美容・医療・福祉のサロン・クリニック検索
             </p>
           </div>
 

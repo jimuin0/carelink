@@ -18,7 +18,7 @@ function formatDuration(minutes: number | null) {
 
 export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
   if (menus.length === 0) {
-    return <p className="text-gray-400 text-center py-8">メニュー情報はまだ登録されていません</p>;
+    return <p className="text-gray-400 text-center py-8">メニュー情報はまだ登録されていません。</p>;
   }
 
   // Group by category

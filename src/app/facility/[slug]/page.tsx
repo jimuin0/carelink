@@ -17,7 +17,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { facility } = await getFacilityBySlug(params.slug);
-  if (!facility) return { title: '施設が見つかりません | CareLink' };
+  if (!facility) return { title: 'ページが見つかりません | CareLink' };
 
   const title = `${facility.name} | ${facility.business_type} | CareLink`;
   const description = facility.catch_copy || `${facility.prefecture}${facility.city}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
@@ -140,7 +140,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
         <div>
           <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
-            施設紹介
+            こだわり・紹介
           </h3>
           <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{facility.description}</p>
         </div>

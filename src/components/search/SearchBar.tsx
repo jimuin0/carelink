@@ -28,7 +28,7 @@ export default function SearchBar() {
           type="text"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          placeholder="キーワード（施設名・エリアなど）"
+          placeholder="キーワード（店名・エリアなど）"
           className="form-input sm:col-span-2"
         />
         <select

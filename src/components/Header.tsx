@@ -20,7 +20,7 @@ export default function Header() {
               href="/search"
               className="text-gray-700 hover:text-primary font-medium transition-colors"
             >
-              施設を探す
+              サロンを探す
             </Link>
             <Link
               href="/salon"
@@ -76,7 +76,7 @@ export default function Header() {
               className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
-              施設を探す
+              サロンを探す
             </Link>
             <Link
               href="/salon"

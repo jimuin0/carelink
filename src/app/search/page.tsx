@@ -35,7 +35,7 @@ export default async function SearchPage({ searchParams }: Props) {
       {/* Hero */}
       <section className="bg-gradient-to-br from-sky-50 to-white">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
-          <h1 className="text-2xl sm:text-3xl font-bold text-center mb-6">施設を探す</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-center mb-6">サロン・クリニックを探す</h1>
           <Suspense>
             <SearchBar />
           </Suspense>
@@ -47,7 +47,7 @@ export default async function SearchPage({ searchParams }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <p className="text-gray-600 text-sm">
-            <span className="font-bold text-gray-900 text-lg">{total}</span> 件の施設が見つかりました
+            <span className="font-bold text-gray-900 text-lg">{total}</span> 件見つかりました
           </p>
           <div className="flex items-center gap-2">
             <SortLink current={params.sort} value="newest" label="新着順" searchParams={searchParams} />
@@ -64,7 +64,7 @@ export default async function SearchPage({ searchParams }: Props) {
           </div>
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl shadow-sm">
-            <p className="text-gray-400 text-lg mb-2">該当する施設が見つかりませんでした</p>
+            <p className="text-gray-400 text-lg mb-2">該当するサロン・クリニックが見つかりませんでした</p>
             <p className="text-gray-400 text-sm">条件を変えて再度お試しください</p>
           </div>
         )}
