@@ -1,0 +1,30 @@
+'use client';
+
+import { usePathname } from 'next/navigation';
+import Header from '@/components/Header';
+import Footer from '@/components/Footer';
+import SearchHeader from '@/components/search/SearchHeader';
+import SearchFooter from '@/components/search/SearchFooter';
+
+export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const isSearchSite = pathname.startsWith('/search') || pathname.startsWith('/facility');
+
+  if (isSearchSite) {
+    return (
+      <>
+        <SearchHeader />
+        <main className="flex-1">{children}</main>
+        <SearchFooter />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Header />
+      <main className="flex-1">{children}</main>
+      <Footer />
+    </>
+  );
+}
