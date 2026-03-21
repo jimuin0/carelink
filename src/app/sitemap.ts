@@ -6,6 +6,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const updated = new Date('2026-03-21');
   return [
     { url: baseUrl, lastModified: updated, changeFrequency: 'weekly', priority: 1 },
+    { url: `${baseUrl}/search`, lastModified: updated, changeFrequency: 'daily', priority: 0.9 },
     { url: `${baseUrl}/salon`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },
     { url: `${baseUrl}/recruit`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },
     { url: `${baseUrl}/jobs`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },

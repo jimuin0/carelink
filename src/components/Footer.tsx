@@ -20,6 +20,9 @@ export default function Footer() {
           <div>
             <h3 className="text-white font-bold text-sm mb-4">サービス</h3>
             <nav className="flex flex-col gap-2 text-sm">
+              <Link href="/search" className="hover:text-white transition-colors">
+                施設を探す
+              </Link>
               <Link href="/salon" className="hover:text-white transition-colors">
                 集客したい方
               </Link>

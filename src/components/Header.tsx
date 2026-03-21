@@ -17,6 +17,12 @@ export default function Header() {
           {/* Desktop nav */}
           <nav className="hidden sm:flex items-center gap-6">
             <Link
+              href="/search"
+              className="text-gray-700 hover:text-primary font-medium transition-colors"
+            >
+              施設を探す
+            </Link>
+            <Link
               href="/salon"
               className="text-gray-700 hover:text-primary font-medium transition-colors"
             >
@@ -65,6 +71,13 @@ export default function Header() {
           }`}
         >
           <nav className="pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4">
+            <Link
+              href="/search"
+              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              施設を探す
+            </Link>
             <Link
               href="/salon"
               className="text-gray-700 font-medium hover:text-primary transition-colors"

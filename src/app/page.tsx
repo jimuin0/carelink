@@ -32,6 +32,9 @@ export default function Home() {
           </FadeIn>
           <FadeIn delay={300}>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <Link href="/search" className="btn-accent text-lg">
+                施設を探す
+              </Link>
               <Link href="/salon" className="btn-primary text-lg">
                 集客したい方はこちら
               </Link>
