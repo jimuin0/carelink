@@ -61,7 +61,7 @@ const targetJobs = [
 export default function JobsPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
-  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitted, setSubmitted] = useState(false);

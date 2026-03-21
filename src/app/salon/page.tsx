@@ -251,8 +251,34 @@ export default function SalonPage() {
         </div>
       </section>
 
+      {/* Flow */}
+      <section className="bg-white">
+        <div className="section-container">
+          <h2 className="section-title">ご利用の流れ</h2>
+          <div className="grid sm:grid-cols-4 gap-6 max-w-4xl mx-auto">
+            {[
+              { step: '1', title: 'フォーム入力', desc: '基本情報とPR文を入力（約3分）' },
+              { step: '2', title: '担当者連絡', desc: '2営業日以内にご連絡します' },
+              { step: '3', title: '掲載開始', desc: '内容確認後、すぐに掲載スタート' },
+              { step: '4', title: '集客・採用', desc: 'マッチした求職者・顧客が届きます' },
+            ].map((item, i) => (
+              <div key={item.step} className="text-center">
+                <div className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold mx-auto mb-4 bg-primary">
+                  {item.step}
+                </div>
+                <h3 className="font-bold mb-2">{item.title}</h3>
+                <p className="text-gray-600 text-sm">{item.desc}</p>
+                {i < 3 && (
+                  <div className="hidden sm:block text-primary text-2xl mt-4">&rarr;</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* Form */}
-      <section className="bg-white" ref={formRef}>
+      <section className="bg-gray-50" ref={formRef}>
         <div className="section-container">
           <h2 className="section-title">無料掲載登録</h2>
           <div className="max-w-2xl mx-auto">
