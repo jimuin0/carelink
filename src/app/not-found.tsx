@@ -11,9 +11,17 @@ export default function NotFound() {
         <p className="text-gray-600 mb-8">
           お探しのページは存在しないか、移動した可能性があります。
         </p>
-        <Link href="/" className="btn-primary">
-          トップページへ戻る
-        </Link>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <Link href="/" className="btn-primary">
+            トップページへ戻る
+          </Link>
+          <Link href="/salon" className="btn-outline">
+            施設の方
+          </Link>
+          <Link href="/jobs" className="btn-outline">
+            求職者の方
+          </Link>
+        </div>
       </div>
     </div>
   );

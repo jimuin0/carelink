@@ -38,7 +38,7 @@ export default function Header() {
 
           {/* Mobile hamburger */}
           <button
-            className="sm:hidden p-2"
+            className="sm:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setIsOpen(!isOpen)}
             aria-label="メニュー"
           >
@@ -55,7 +55,7 @@ export default function Header() {
         {/* Mobile menu */}
         <div
           className={`sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${
-            isOpen ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'
+            isOpen ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
           <nav className="pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4">

@@ -49,8 +49,8 @@ export default function Footer() {
           <div className="sm:col-span-3 pt-6 border-t border-gray-700 mt-2">
             <h3 className="text-white font-bold text-sm mb-3">運営会社</h3>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm text-gray-400">
-              <dt>会社名</dt>
-              <dd>HALグループ</dd>
+              <dt>運営</dt>
+              <dd>神原良祐（HALグループ）</dd>
               <dt>所在地</dt>
               <dd>大阪府堺市</dd>
               <dt>事業内容</dt>

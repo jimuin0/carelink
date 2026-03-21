@@ -1,5 +1,7 @@
 'use client';
 
+import { useEffect, useCallback } from 'react';
+
 interface ConfirmDialogProps {
   open: boolean;
   title: string;
@@ -19,13 +21,32 @@ export default function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const handleKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onCancel();
+    },
+    [onCancel]
+  );
+
+  useEffect(() => {
+    if (open) {
+      document.addEventListener('keydown', handleKeyDown);
+      return () => document.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [open, handleKeyDown]);
+
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-dialog-title"
+    >
       <div className="fixed inset-0 bg-black/50" onClick={onCancel} />
       <div className="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
-        <h3 className="text-lg font-bold mb-2">{title}</h3>
+        <h3 id="confirm-dialog-title" className="text-lg font-bold mb-2">{title}</h3>
         <p className="text-gray-600 text-sm mb-6">{message}</p>
         <div className="flex gap-3">
           <button
