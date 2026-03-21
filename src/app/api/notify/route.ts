@@ -1,78 +1,56 @@
 import { NextResponse } from 'next/server';
-import { Resend } from 'resend';
 
 export const dynamic = 'force-dynamic';
-
-const NOTIFY_TO = 'tokuhal.jimuin0@gmail.com';
-
-function getResend() {
-  return new Resend(process.env.RESEND_API_KEY);
-}
 
 type NotifyPayload =
   | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
   | { type: 'job_seeker'; data: { full_name: string; job_type: string; phone: string; email: string } }
   | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } };
 
-function buildEmail(payload: NotifyPayload): { subject: string; html: string } {
+function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
     case 'salon':
-      return {
-        subject: `【CareLink】施設掲載の新規登録: ${payload.data.facility_name}`,
-        html: `
-          <h2>施設掲載の新規登録がありました</h2>
-          <table style="border-collapse:collapse;width:100%;max-width:500px">
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">施設名</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.facility_name)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">業種</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.business_type)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">代表者名</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.representative_name)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">電話番号</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.phone)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">メール</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.email)}</td></tr>
-          </table>
-        `,
-      };
+      return [
+        ':office: *施設掲載の新規登録*',
+        `> *施設名:* ${payload.data.facility_name}`,
+        `> *業種:* ${payload.data.business_type}`,
+        `> *代表者:* ${payload.data.representative_name}`,
+        `> *電話:* ${payload.data.phone}`,
+        `> *メール:* ${payload.data.email}`,
+      ].join('\n');
     case 'job_seeker':
-      return {
-        subject: `【CareLink】求職者の新規登録: ${payload.data.full_name}`,
-        html: `
-          <h2>求職者の新規登録がありました</h2>
-          <table style="border-collapse:collapse;width:100%;max-width:500px">
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">氏名</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.full_name)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">職種</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.job_type)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">電話番号</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.phone)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">メール</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.email)}</td></tr>
-          </table>
-        `,
-      };
+      return [
+        ':bust_in_silhouette: *求職者の新規登録*',
+        `> *氏名:* ${payload.data.full_name}`,
+        `> *職種:* ${payload.data.job_type}`,
+        `> *電話:* ${payload.data.phone}`,
+        `> *メール:* ${payload.data.email}`,
+      ].join('\n');
     case 'contact':
-      return {
-        subject: `【CareLink】お問い合わせ: ${payload.data.inquiry_type}（${payload.data.name}様）`,
-        html: `
-          <h2>お問い合わせがありました</h2>
-          <table style="border-collapse:collapse;width:100%;max-width:500px">
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">お名前</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.name)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">種別</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.inquiry_type)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">メール</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.email)}</td></tr>
-            <tr><td style="padding:8px;border:1px solid #ddd;font-weight:bold">内容</td><td style="padding:8px;border:1px solid #ddd">${esc(payload.data.message)}</td></tr>
-          </table>
-        `,
-      };
+      return [
+        ':envelope: *お問い合わせ*',
+        `> *お名前:* ${payload.data.name}`,
+        `> *種別:* ${payload.data.inquiry_type}`,
+        `> *メール:* ${payload.data.email}`,
+        `> *内容:* ${payload.data.message}`,
+      ].join('\n');
   }
 }
 
-function esc(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-}
-
 export async function POST(request: Request) {
+  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
+  if (!webhookUrl) {
+    return NextResponse.json({ ok: false, error: 'SLACK_WEBHOOK_URL not set' }, { status: 500 });
+  }
+
   try {
     const payload: NotifyPayload = await request.json();
-    const { subject, html } = buildEmail(payload);
+    const text = buildSlackMessage(payload);
 
-    await getResend().emails.send({
-      from: 'CareLink <onboarding@resend.dev>',
-      to: NOTIFY_TO,
-      subject,
-      html,
+    await fetch(webhookUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
     });
 
     return NextResponse.json({ ok: true });
