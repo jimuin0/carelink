@@ -18,6 +18,7 @@ import PhotoUpload from '@/components/PhotoUpload';
 import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
 import FAQ from '@/components/FAQ';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -39,6 +40,7 @@ export default function SalonPage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -89,6 +91,11 @@ export default function SalonPage() {
   };
 
   const prevStep = () => setStep(step - 1);
+
+  const handleConfirmSubmit = () => {
+    setShowConfirm(false);
+    handleSubmit(onSubmit)();
+  };
 
   const onSubmit = async (data: SalonFormValues) => {
     setSubmitting(true);
@@ -233,7 +240,7 @@ export default function SalonPage() {
           <div className="max-w-2xl mx-auto">
             <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
 
-            <form onSubmit={handleSubmit(onSubmit)} className="card">
+            <form onSubmit={(e) => { e.preventDefault(); setShowConfirm(true); }} className="card">
               {/* Step 1 */}
               {step === 1 && (
                 <div className="space-y-5">
@@ -376,6 +383,14 @@ export default function SalonPage() {
         </div>
       </section>
 
+      <ConfirmDialog
+        open={showConfirm}
+        title="登録内容の確認"
+        message="入力内容を送信します。よろしいですか？"
+        confirmLabel="登録する"
+        onConfirm={handleConfirmSubmit}
+        onCancel={() => setShowConfirm(false)}
+      />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </>
   );

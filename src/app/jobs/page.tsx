@@ -22,6 +22,7 @@ import PhotoUpload from '@/components/PhotoUpload';
 import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
 import FAQ from '@/components/FAQ';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 const stepSchemas = [jobStep1Schema, jobStep2Schema, jobStep3Schema];
 const stepLabels = ['基本情報', '職歴・資格', '希望条件'];
@@ -47,6 +48,7 @@ export default function JobsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -100,6 +102,11 @@ export default function JobsPage() {
   };
 
   const prevStep = () => setStep(step - 1);
+
+  const handleConfirmSubmit = () => {
+    setShowConfirm(false);
+    handleSubmit(onSubmit)();
+  };
 
   const onSubmit = async (data: JobFormValues) => {
     setSubmitting(true);
@@ -277,7 +284,7 @@ export default function JobsPage() {
           <div className="max-w-2xl mx-auto">
             <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
 
-            <form onSubmit={handleSubmit(onSubmit)} className="card">
+            <form onSubmit={(e) => { e.preventDefault(); setShowConfirm(true); }} className="card">
               {/* Step 1 */}
               {step === 1 && (
                 <div className="space-y-5">
@@ -461,6 +468,14 @@ export default function JobsPage() {
         </div>
       </section>
 
+      <ConfirmDialog
+        open={showConfirm}
+        title="登録内容の確認"
+        message="入力内容を送信します。よろしいですか？"
+        confirmLabel="登録する"
+        onConfirm={handleConfirmSubmit}
+        onCancel={() => setShowConfirm(false)}
+      />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </>
   );

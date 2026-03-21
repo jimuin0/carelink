@@ -10,7 +10,7 @@ export default function Header() {
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <Link href="/" className="text-2xl font-bold" style={{ color: 'var(--primary)' }}>
+          <Link href="/" className="text-2xl font-bold text-primary">
             CareLink
           </Link>
 
@@ -28,6 +28,9 @@ export default function Header() {
             >
               求職者の方
             </Link>
+            <Link href="/contact" className="text-gray-700 hover:text-primary font-medium transition-colors">
+              お問い合わせ
+            </Link>
           </nav>
 
           {/* Mobile hamburger */}
@@ -36,7 +39,7 @@ export default function Header() {
             onClick={() => setIsOpen(!isOpen)}
             aria-label="メニュー"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isOpen ? (
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               ) : (
@@ -47,24 +50,35 @@ export default function Header() {
         </div>
 
         {/* Mobile menu */}
-        {isOpen && (
-          <nav className="sm:hidden pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4">
+        <div
+          className={`sm:hidden overflow-hidden transition-all duration-300 ease-in-out ${
+            isOpen ? 'max-h-48 opacity-100' : 'max-h-0 opacity-0'
+          }`}
+        >
+          <nav className="pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4">
             <Link
               href="/salon"
-              className="text-gray-700 font-medium"
+              className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
               施設の方
             </Link>
             <Link
               href="/jobs"
-              className="text-gray-700 font-medium"
+              className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
               求職者の方
             </Link>
+            <Link
+              href="/contact"
+              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              お問い合わせ
+            </Link>
           </nav>
-        )}
+        </div>
       </div>
     </header>
   );
