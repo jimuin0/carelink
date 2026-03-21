@@ -1,11 +1,13 @@
 import type { MetadataRoute } from 'next';
 
+const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink.jp';
+
 export default function robots(): MetadataRoute.Robots {
   return {
     rules: {
       userAgent: '*',
       allow: '/',
     },
-    sitemap: 'https://carelink.jp/sitemap.xml',
+    sitemap: `${baseUrl}/sitemap.xml`,
   };
 }

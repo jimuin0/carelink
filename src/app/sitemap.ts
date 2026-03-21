@@ -1,8 +1,8 @@
 import type { MetadataRoute } from 'next';
 
-export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = 'https://carelink.jp';
+const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink.jp';
 
+export default function sitemap(): MetadataRoute.Sitemap {
   return [
     { url: baseUrl, lastModified: new Date(), changeFrequency: 'weekly', priority: 1 },
     { url: `${baseUrl}/salon`, lastModified: new Date(), changeFrequency: 'weekly', priority: 0.9 },
