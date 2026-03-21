@@ -24,6 +24,7 @@ export default function ContactPage() {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const {
     register,
@@ -121,7 +122,20 @@ export default function ContactPage() {
               {errors.message && <p className="form-error">{errors.message.message}</p>}
             </div>
 
-            <button type="submit" disabled={submitting} className="btn-primary w-full">
+            <label className="flex items-start gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={agreed}
+                onChange={(e) => setAgreed(e.target.checked)}
+                className="mt-0.5 rounded border-gray-300"
+              />
+              <span>
+                <a href="/privacy" target="_blank" className="text-primary underline">プライバシーポリシー</a>
+                に同意する
+              </span>
+            </label>
+
+            <button type="submit" disabled={submitting || !agreed} className="btn-primary w-full">
               {submitting ? (
                 <span className="flex items-center justify-center gap-2">
                   <Spinner />

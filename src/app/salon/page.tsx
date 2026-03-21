@@ -43,6 +43,7 @@ export default function SalonPage() {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -85,14 +86,24 @@ export default function SalonPage() {
     formRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
+  const scrollToFormTop = () => {
+    setTimeout(() => formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
+
   const nextStep = async () => {
     const schema = stepSchemas[step - 1];
     const fields = Object.keys(schema.shape) as (keyof SalonFormValues)[];
     const valid = await trigger(fields);
-    if (valid) setStep(step + 1);
+    if (valid) {
+      setStep(step + 1);
+      scrollToFormTop();
+    }
   };
 
-  const prevStep = () => setStep(step - 1);
+  const prevStep = () => {
+    setStep(step - 1);
+    scrollToFormTop();
+  };
 
   const handleConfirmSubmit = () => {
     setShowConfirm(false);
@@ -166,7 +177,7 @@ export default function SalonPage() {
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black mb-6 leading-tight">
             あなたの施設を、
             <br />
-            <span style={{ color: 'var(--primary)' }}>必要な人に届ける</span>
+            <span className="text-primary">必要な人に届ける</span>
           </h1>
           <p className="text-gray-600 text-lg sm:text-xl mb-8">
             掲載無料・登録3分・すぐに集客開始
@@ -290,6 +301,7 @@ export default function SalonPage() {
                     <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
                     <input
                       {...register('phone')}
+                      type="tel"
                       onChange={handlePhoneChange}
                       className="form-input"
                       placeholder="090-1234-5678"
@@ -367,11 +379,25 @@ export default function SalonPage() {
                     <label className="form-label">希望掲載開始日</label>
                     <input {...register('desired_start_date')} type="date" className="form-input" />
                   </div>
+                  <label className="flex items-start gap-2 text-sm text-gray-600">
+                    <input
+                      type="checkbox"
+                      checked={agreed}
+                      onChange={(e) => setAgreed(e.target.checked)}
+                      className="mt-0.5 rounded border-gray-300"
+                    />
+                    <span>
+                      <a href="/privacy" target="_blank" className="text-primary underline">プライバシーポリシー</a>
+                      および
+                      <a href="/terms" target="_blank" className="text-primary underline">利用規約</a>
+                      に同意する
+                    </span>
+                  </label>
                   <div className="flex gap-4">
                     <button type="button" onClick={prevStep} className="btn-outline flex-1">
                       戻る
                     </button>
-                    <button type="submit" disabled={submitting} className="btn-primary flex-1">
+                    <button type="submit" disabled={submitting || !agreed} className="btn-primary flex-1">
                       {submitting ? (
                         <span className="flex items-center justify-center gap-2">
                           <Spinner />
