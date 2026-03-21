@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -64,7 +64,7 @@ export default function SalonPage() {
     setValue,
     watch,
     reset,
-    formState: { errors },
+    formState: { errors, dirtyFields },
   } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
@@ -87,6 +87,16 @@ export default function SalonPage() {
   });
 
   const prText = watch('pr_text') || '';
+
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!submitted && (step > 1 || Object.keys(dirtyFields).length > 0)) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [step, submitted, dirtyFields]);
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhone(e.target.value);

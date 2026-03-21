@@ -18,10 +18,11 @@ body {
 @layer components {
   .btn-primary {
     @apply inline-flex items-center justify-center px-8 py-4 text-white font-bold rounded-lg
-           transition-all duration-200 hover:opacity-90 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed;
+           transition-all duration-200 active:scale-95
+           disabled:bg-gray-300 disabled:text-gray-500 disabled:cursor-not-allowed disabled:active:scale-100;
     background-color: var(--primary);
   }
-  .btn-primary:hover {
+  .btn-primary:hover:not(:disabled) {
     background-color: var(--primary-dark);
   }
   .btn-accent {
@@ -45,16 +46,13 @@ body {
     @apply block text-sm font-medium text-gray-700 mb-1;
   }
   .form-input {
-    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:border-transparent;
-    --tw-ring-color: var(--primary);
-  }
-  .form-input:focus {
+    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-offset-1 focus:border-transparent transition-colors;
     --tw-ring-color: var(--primary);
   }
   .form-error {
     @apply text-red-500 text-sm mt-1;
   }
   .card {
-    @apply bg-white rounded-2xl shadow-lg p-6 sm:p-8;
+    @apply bg-white rounded-2xl shadow-lg p-6 sm:p-8 transition-shadow duration-200 hover:shadow-xl;
   }
 }

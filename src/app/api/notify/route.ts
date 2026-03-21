@@ -2,6 +2,20 @@ import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
+// Simple in-memory rate limiting (per serverless instance)
+const requestLog = new Map<string, number[]>();
+const RATE_LIMIT = 5; // max requests
+const RATE_WINDOW = 60_000; // per 60 seconds
+
+function isRateLimited(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = (requestLog.get(ip) || []).filter((t) => now - t < RATE_WINDOW);
+  if (timestamps.length >= RATE_LIMIT) return true;
+  timestamps.push(now);
+  requestLog.set(ip, timestamps);
+  return false;
+}
+
 type NotifyPayload =
   | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
   | { type: 'job_seeker'; data: { full_name: string; job_type: string; phone: string; email: string } }
@@ -38,6 +52,11 @@ function buildSlackMessage(payload: NotifyPayload): string {
 }
 
 export async function POST(request: Request) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (isRateLimited(ip)) {
+    return NextResponse.json({ ok: false, error: 'Too many requests' }, { status: 429 });
+  }
+
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
   if (!webhookUrl) {
     return NextResponse.json({ ok: false, error: 'SLACK_WEBHOOK_URL not set' }, { status: 500 });
