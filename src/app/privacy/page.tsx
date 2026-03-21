@@ -45,7 +45,7 @@ export default function PrivacyPage() {
           <p className="text-gray-600 mb-2">取得した個人情報は、以下の目的で利用します。</p>
           <ul className="list-disc pl-6 text-gray-600 space-y-1">
             <li>本サービスの提供・運営</li>
-            <li>施設と求職者のマッチング</li>
+            <li>施設情報・求人情報の掲載および求職者への情報提供</li>
             <li>お問い合わせへの対応</li>
             <li>サービス改善のための分析</li>
             <li>重要なお知らせの通知</li>
@@ -55,7 +55,7 @@ export default function PrivacyPage() {
         <section className="mb-8">
           <h2 className="text-xl font-bold mb-4">第4条（第三者提供）</h2>
           <p className="text-gray-600">
-            当事業者は、法令に基づく場合を除き、本人の同意なく個人情報を第三者に提供することはありません。ただし、本サービスのマッチング機能において、求職者情報を掲載施設に、施設情報を求職者に提供する場合があります。
+            当事業者は、法令に基づく場合を除き、本人の同意なく個人情報を第三者に提供することはありません。ただし、本サービスにおいて、施設情報を求職者に公開する場合があります。
           </p>
         </section>
 

@@ -242,9 +242,9 @@ export default function SalonPage() {
                 desc: '業界特化だからこそ、あなたの施設を必要としている人に確実に届きます。',
               },
               {
-                icon: '🤖',
-                title: 'AI自動マッチング',
-                desc: 'AIがお客様と施設を自動でマッチング。効率的に集客を実現します。',
+                icon: '📢',
+                title: '業界特化の掲載',
+                desc: '業界に特化しているから、あなたの施設を探している人に情報が届きます。',
               },
             ].map((item) => (
               <div key={item.title} className="card text-center">
@@ -264,7 +264,7 @@ export default function SalonPage() {
           <div className="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
               { icon: '📋', title: '店舗プロフィール掲載', desc: 'メニュー・料金・写真を掲載して、あなたの施設の魅力を求職者・お客様に届けます。' },
-              { icon: '🤖', title: 'AIマッチング', desc: 'AIがあなたの施設に合った求職者を自動でマッチング。ミスマッチのない採用を実現します。' },
+              { icon: '👥', title: '求人情報の掲載', desc: '業界特化だから、あなたの施設で働きたい求職者に求人情報が届きます。' },
               { icon: '📊', title: '専任担当サポート', desc: '掲載から採用まで、専任の担当者がサポート。運用の手間を最小限に抑えます。' },
             ].map((item) => (
               <div key={item.title} className="card text-center">
@@ -286,7 +286,7 @@ export default function SalonPage() {
               { step: '1', title: 'フォーム入力', desc: '基本情報とPR文を入力（約3分）' },
               { step: '2', title: '担当者連絡', desc: '2営業日以内にご連絡します' },
               { step: '3', title: '掲載開始', desc: '内容確認後、すぐに掲載スタート' },
-              { step: '4', title: '集客・採用', desc: 'マッチした求職者・顧客が届きます' },
+              { step: '4', title: '集客・採用', desc: '求職者・顧客からの反響が届きます' },
             ].map((item, i) => (
               <div key={item.step} className="text-center">
                 <div className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold mx-auto mb-4 bg-primary">
