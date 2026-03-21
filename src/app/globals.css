@@ -13,7 +13,6 @@
 body {
   color: var(--foreground);
   background: var(--background);
-  font-family: 'Noto Sans JP', sans-serif;
 }
 
 @layer components {

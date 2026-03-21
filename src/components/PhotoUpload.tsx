@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef } from 'react';
+import Image from 'next/image';
 
 interface PhotoUploadProps {
   onChange: (file: File | null) => void;
@@ -53,7 +54,7 @@ export default function PhotoUpload({ onChange, error }: PhotoUploadProps) {
     <div>
       {preview ? (
         <div className="relative inline-block">
-          <img src={preview} alt="プレビュー" className="w-32 h-32 object-cover rounded-lg border" />
+          <Image src={preview} alt="プレビュー" width={128} height={128} className="w-32 h-32 object-cover rounded-lg border" unoptimized />
           <button
             type="button"
             onClick={handleRemove}
