@@ -7,7 +7,7 @@ export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
 
   let query = supabase
-    .from('facilities')
+    .from('facility_profiles')
     .select(
       'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url',
       { count: 'exact' }
@@ -39,7 +39,7 @@ export async function searchFacilities(params: SearchParams) {
 export async function getFacilityBySlug(slug: string) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facilities')
+    .from('facility_profiles')
     .select('*')
     .eq('slug', slug)
     .eq('status', 'published')
