@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
-// Phone format helper
-const phoneRegex = /^[\d-]+$/;
+// Phone format helper (Japanese phone: 090-1234-5678, 03-1234-5678, etc.)
+const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
 const katakanaRegex = /^[ァ-ヶー]+$/;
 
 // Salon form schemas (per step)
@@ -15,7 +15,7 @@ export const salonStep1Schema = z.object({
 });
 
 export const salonStep2Schema = z.object({
-  postal_code: z.string().regex(/^(\d{7})?$/, '7桁の数字で入力してください').or(z.literal('')).optional(),
+  postal_code: z.string().regex(/^(\d{3}-?\d{4})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
   address: z.string().optional(),
   business_hours: z.string().optional(),
   regular_holiday: z.string().optional(),
@@ -39,7 +39,7 @@ export const jobStep1Schema = z.object({
   gender: z.string().optional(),
   phone: z.string().min(1, '電話番号を入力してください').regex(phoneRegex, '正しい電話番号を入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください'),
-  postal_code: z.string().regex(/^(\d{7})?$/, '7桁の数字で入力してください').or(z.literal('')).optional(),
+  postal_code: z.string().regex(/^(\d{3}-?\d{4})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
   address: z.string().optional(),
 });
 

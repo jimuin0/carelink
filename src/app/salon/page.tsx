@@ -387,9 +387,9 @@ export default function SalonPage() {
                       className="mt-0.5 rounded border-gray-300"
                     />
                     <span>
-                      <a href="/privacy" target="_blank" className="text-primary underline">プライバシーポリシー</a>
+                      <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">プライバシーポリシー</a>
                       および
-                      <a href="/terms" target="_blank" className="text-primary underline">利用規約</a>
+                      <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">利用規約</a>
                       に同意する
                     </span>
                   </label>

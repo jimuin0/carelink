@@ -77,7 +77,7 @@ export default function Home() {
             <FadeIn delay={100}>
               <div className="card border-2 border-sky-100 hover:border-primary transition-colors h-full">
                 <div className="text-center mb-6">
-                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl">
+                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl" role="img" aria-label="施設">
                     🏢
                   </span>
                 </div>
@@ -105,7 +105,7 @@ export default function Home() {
             <FadeIn delay={200}>
               <div className="card border-2 border-sky-100 hover:border-primary transition-colors h-full">
                 <div className="text-center mb-6">
-                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl">
+                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl" role="img" aria-label="求職者">
                     👤
                   </span>
                 </div>
@@ -159,7 +159,7 @@ export default function Home() {
             ].map((item, i) => (
               <FadeIn key={item.title} delay={i * 100}>
                 <div className="card text-center h-full">
-                  <div className="text-4xl mb-4">{item.icon}</div>
+                  <div className="text-4xl mb-4" role="img" aria-label={item.title}>{item.icon}</div>
                   <h3 className="text-xl font-bold mb-3">{item.title}</h3>
                   <p className="text-gray-600">{item.desc}</p>
                 </div>
@@ -209,7 +209,7 @@ export default function Home() {
             ].map((item, i) => (
               <FadeIn key={item.title} delay={i * 100}>
                 <div className="flex items-start gap-4 bg-white rounded-xl p-5">
-                  <span className="text-2xl flex-shrink-0">{item.icon}</span>
+                  <span className="text-2xl flex-shrink-0" role="img" aria-label={item.title}>{item.icon}</span>
                   <div>
                     <h3 className="font-bold mb-1">{item.title}</h3>
                     <p className="text-gray-600 text-sm">{item.desc}</p>

@@ -156,7 +156,7 @@ export default function JobsPage() {
         address: data.address || null,
         job_type: data.job_type,
         certifications: data.certifications?.length ? data.certifications : null,
-        experience_years: data.experience_years ? parseInt(data.experience_years) || null : null,
+        experience_years: data.experience_years || null,
         education: data.education || null,
         previous_job: data.previous_job || null,
         desired_employment_type: data.desired_employment_type?.length ? data.desired_employment_type : null,
@@ -472,9 +472,9 @@ export default function JobsPage() {
                       className="mt-0.5 rounded border-gray-300"
                     />
                     <span>
-                      <a href="/privacy" target="_blank" className="text-primary underline">プライバシーポリシー</a>
+                      <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">プライバシーポリシー</a>
                       および
-                      <a href="/terms" target="_blank" className="text-primary underline">利用規約</a>
+                      <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">利用規約</a>
                       に同意する
                     </span>
                   </label>

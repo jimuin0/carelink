@@ -13,6 +13,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 const contactSchema = z.object({
   name: z.string().min(1, 'お名前を入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください'),
+  phone: z.string().optional(),
   inquiry_type: z.string().min(1, 'お問い合わせ種別を選択してください'),
   message: z.string().min(1, '内容を入力してください'),
 });
@@ -98,6 +99,16 @@ export default function ContactPage() {
             </div>
 
             <div>
+              <label className="form-label">電話番号</label>
+              <input
+                {...register('phone')}
+                type="tel"
+                className="form-input"
+                placeholder="090-1234-5678"
+              />
+            </div>
+
+            <div>
               <label className="form-label">
                 お問い合わせ種別 <span className="text-red-500">*</span>
               </label>
@@ -130,7 +141,7 @@ export default function ContactPage() {
                 className="mt-0.5 rounded border-gray-300"
               />
               <span>
-                <a href="/privacy" target="_blank" className="text-primary underline">プライバシーポリシー</a>
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">プライバシーポリシー</a>
                 に同意する
               </span>
             </label>
