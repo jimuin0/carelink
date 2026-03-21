@@ -20,7 +20,13 @@ export default function Header() {
               href="/salon"
               className="text-gray-700 hover:text-primary font-medium transition-colors"
             >
-              施設の方
+              集客したい方
+            </Link>
+            <Link
+              href="/recruit"
+              className="text-gray-700 hover:text-primary font-medium transition-colors"
+            >
+              採用したい方
             </Link>
             <Link
               href="/jobs"
@@ -64,7 +70,14 @@ export default function Header() {
               className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
-              施設の方
+              集客したい方
+            </Link>
+            <Link
+              href="/recruit"
+              className="text-gray-700 font-medium hover:text-primary transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              採用したい方
             </Link>
             <Link
               href="/jobs"

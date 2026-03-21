@@ -16,7 +16,10 @@ export default function NotFound() {
             トップページへ戻る
           </Link>
           <Link href="/salon" className="btn-outline">
-            施設の方
+            集客したい方
+          </Link>
+          <Link href="/recruit" className="btn-outline">
+            採用したい方
           </Link>
           <Link href="/jobs" className="btn-outline">
             求職者の方

@@ -22,6 +22,7 @@ function escSlack(s: string): string {
 
 type NotifyPayload =
   | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
+  | { type: 'recruit'; data: { facility_name: string; business_type: string; job_category: string; representative_name: string; phone: string; email: string } }
   | { type: 'job_seeker'; data: { full_name: string; job_type: string; phone: string; email: string } }
   | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } };
 
@@ -32,6 +33,16 @@ function buildSlackMessage(payload: NotifyPayload): string {
         ':office: *施設掲載の新規登録*',
         `> *施設名:* ${escSlack(payload.data.facility_name)}`,
         `> *業種:* ${escSlack(payload.data.business_type)}`,
+        `> *代表者:* ${escSlack(payload.data.representative_name)}`,
+        `> *電話:* ${escSlack(payload.data.phone)}`,
+        `> *メール:* ${escSlack(payload.data.email)}`,
+      ].join('\n');
+    case 'recruit':
+      return [
+        ':mega: *採用掲載の新規登録*',
+        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
+        `> *業種:* ${escSlack(payload.data.business_type)}`,
+        `> *募集職種:* ${escSlack(payload.data.job_category)}`,
         `> *代表者:* ${escSlack(payload.data.representative_name)}`,
         `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,

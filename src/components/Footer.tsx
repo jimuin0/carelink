@@ -21,7 +21,10 @@ export default function Footer() {
             <h3 className="text-white font-bold text-sm mb-4">サービス</h3>
             <nav className="flex flex-col gap-2 text-sm">
               <Link href="/salon" className="hover:text-white transition-colors">
-                施設・サロンの方
+                集客したい方
+              </Link>
+              <Link href="/recruit" className="hover:text-white transition-colors">
+                採用したい方
               </Link>
               <Link href="/jobs" className="hover:text-white transition-colors">
                 求職者の方

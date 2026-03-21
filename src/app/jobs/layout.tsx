@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 export const metadata: Metadata = {
   title: '医療・福祉・美容の転職サイト',
   description:
-    '介護士・鍼灸師・アイリスト・看護師の転職に特化。完全無料で登録、あなたに合った求人がLINEで届きます。',
+    '介護士・鍼灸師・アイリスト・看護師の転職に特化。完全無料で登録、業界特化の求人情報をチェックできます。',
   alternates: {
     canonical: '/jobs',
   },

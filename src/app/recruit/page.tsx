@@ -6,13 +6,15 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
 import {
-  salonStep1Schema,
-  salonStep2Schema,
-  salonStep3Schema,
-  salonFullSchema,
-  type SalonFormValues,
+  recruitStep1Schema,
+  recruitStep2Schema,
+  recruitStep3Schema,
+  recruitFullSchema,
+  type RecruitFormValues,
   formatPhone,
   businessTypes,
+  jobTypes,
+  employmentTypes,
 } from '@/lib/validations';
 import StepIndicator from '@/components/StepIndicator';
 import PhotoUpload from '@/components/PhotoUpload';
@@ -21,33 +23,33 @@ import Toast from '@/components/Toast';
 import FAQ from '@/components/FAQ';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
-const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
-const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
+const stepSchemas = [recruitStep1Schema, recruitStep2Schema, recruitStep3Schema];
+const stepLabels = ['基本情報', '募集条件', 'PR情報'];
 
 const faqItems = [
   {
-    question: '掲載は本当に無料ですか？',
+    question: '求人掲載は本当に無料ですか？',
     answer: 'はい、完全無料でご利用いただけます。初期費用・月額費用・成果報酬など一切かかりません。費用を気にせず、まずはお気軽にご登録ください。',
   },
   {
     question: '掲載開始までどのくらいかかりますか？',
-    answer: 'フォーム送信後、2営業日以内に担当者よりご連絡いたします。内容確認後、すぐに掲載を開始できます。お急ぎの場合はお問い合わせフォームよりご相談ください。',
+    answer: 'フォーム送信後、2営業日以内に担当者よりご連絡いたします。内容確認後、すぐに求人掲載を開始できます。お急ぎの場合はお問い合わせフォームよりご相談ください。',
   },
   {
     question: '途中で掲載をやめることはできますか？',
     answer: 'はい、いつでも掲載停止・退会が可能です。違約金等は一切ございません。掲載停止後はデータを速やかに削除いたします。',
   },
   {
-    question: 'どのような業種が掲載できますか？',
-    answer: '美容サロン・アイラッシュ、鍼灸院・整骨院、介護施設・デイサービス、病院・クリニックなど、医療・福祉・美容業界の施設が対象です。対象か不明な場合はお気軽にお問い合わせください。',
+    question: 'どのような業種・職種が対象ですか？',
+    answer: '美容サロン・アイラッシュ、鍼灸院・整骨院、介護施設・デイサービス、病院・クリニックなど、医療・福祉・美容業界の施設が対象です。募集職種も介護士・鍼灸師・アイリスト・看護師など幅広く対応しています。',
   },
   {
     question: '掲載内容はあとから変更できますか？',
-    answer: 'はい、掲載後もいつでも内容の変更が可能です。メニューや料金の更新、写真の差し替えなど、担当者にご連絡いただければ対応いたします。',
+    answer: 'はい、掲載後もいつでも内容の変更が可能です。募集条件や給与の更新、写真の差し替えなど、担当者にご連絡いただければ対応いたします。',
   },
 ];
 
-export default function SalonPage() {
+export default function RecruitPage() {
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -65,8 +67,8 @@ export default function SalonPage() {
     watch,
     reset,
     formState: { errors, dirtyFields },
-  } = useForm<SalonFormValues>({
-    resolver: zodResolver(salonFullSchema),
+  } = useForm<RecruitFormValues>({
+    resolver: zodResolver(recruitFullSchema),
     mode: 'onTouched',
     defaultValues: {
       facility_name: '',
@@ -77,10 +79,13 @@ export default function SalonPage() {
       phone: '',
       postal_code: '',
       address: '',
-      business_hours: '',
-      regular_holiday: '',
-      seat_count: null,
-      staff_count: null,
+      job_category: '',
+      employment_type: '',
+      salary_range: '',
+      work_hours: '',
+      holidays: '',
+      benefits: '',
+      requirements: '',
       pr_text: '',
       desired_start_date: '',
     },
@@ -113,7 +118,7 @@ export default function SalonPage() {
 
   const nextStep = async () => {
     const schema = stepSchemas[step - 1];
-    const fields = Object.keys(schema.shape) as (keyof SalonFormValues)[];
+    const fields = Object.keys(schema.shape) as (keyof RecruitFormValues)[];
     const valid = await trigger(fields);
     if (valid) {
       setStep(step + 1);
@@ -131,8 +136,7 @@ export default function SalonPage() {
     handleSubmit(onSubmit)();
   };
 
-
-  const onSubmit = async (data: SalonFormValues) => {
+  const onSubmit = async (data: RecruitFormValues) => {
     setSubmitting(true);
     try {
       let photo_url: string | null = null;
@@ -140,7 +144,7 @@ export default function SalonPage() {
       if (photoFile) {
         const fileExt = photoFile.name.split('.').pop();
         const uuid = crypto.randomUUID();
-        const filePath = `salons/${uuid}/photo.${fileExt}`;
+        const filePath = `recruits/${uuid}/photo.${fileExt}`;
 
         const { error: uploadError } = await supabase.storage
           .from('carelink-uploads')
@@ -164,16 +168,19 @@ export default function SalonPage() {
         phone: data.phone,
         postal_code: data.postal_code || null,
         address: data.address || null,
-        business_hours: data.business_hours || null,
-        regular_holiday: data.regular_holiday || null,
-        seat_count: data.seat_count && !isNaN(data.seat_count) ? data.seat_count : null,
-        staff_count: data.staff_count && !isNaN(data.staff_count) ? data.staff_count : null,
+        job_category: data.job_category,
+        employment_type: data.employment_type || null,
+        salary_range: data.salary_range || null,
+        work_hours: data.work_hours || null,
+        holidays: data.holidays || null,
+        benefits: data.benefits || null,
+        requirements: data.requirements || null,
         pr_text: data.pr_text || null,
         photo_url,
         desired_start_date: data.desired_start_date || null,
       };
 
-      const { error } = await supabase.from('salons').insert(insertData);
+      const { error } = await supabase.from('recruits').insert(insertData);
       if (error) throw error;
 
       fetch('/api/notify', {
@@ -181,10 +188,11 @@ export default function SalonPage() {
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(10000),
         body: JSON.stringify({
-          type: 'salon',
+          type: 'recruit',
           data: {
             facility_name: data.facility_name,
             business_type: data.business_type,
+            job_category: data.job_category,
             representative_name: data.representative_name,
             phone: data.phone,
             email: data.email,
@@ -212,15 +220,15 @@ export default function SalonPage() {
       <section className="bg-gradient-to-br from-sky-50 to-white">
         <div className="section-container text-center">
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black mb-6 leading-tight">
-            あなたの施設を、
+            理想のスタッフに、
             <br />
-            <span className="text-primary">必要な人に届ける</span>
+            <span className="text-primary">出会える場所。</span>
           </h1>
           <p className="text-gray-600 text-lg sm:text-xl mb-8">
-            掲載無料・登録3分・すぐに集客開始
+            掲載無料・登録3分・すぐに採用活動を開始
           </p>
           <button onClick={scrollToForm} className="btn-primary text-lg">
-            無料で掲載登録する
+            無料で求人を掲載する
           </button>
         </div>
       </section>
@@ -233,18 +241,18 @@ export default function SalonPage() {
             {[
               {
                 icon: '💰',
-                title: '掲載・登録が完全無料',
-                desc: '初期費用・月額費用は一切かかりません。リスクゼロで集客を始められます。',
+                title: '採用コスト0円',
+                desc: '初期費用・月額費用・成果報酬は一切かかりません。リスクゼロで採用活動を始められます。',
               },
               {
                 icon: '🎯',
                 title: '医療・福祉・美容に特化',
-                desc: '業界特化だからこそ、あなたの施設を必要としている人に確実に届きます。',
+                desc: '業界特化だからこそ、あなたの施設で働きたい求職者に確実に届きます。',
               },
               {
-                icon: '📢',
-                title: '業界特化の掲載',
-                desc: '業界に特化しているから、あなたの施設を探している人に情報が届きます。',
+                icon: '🤝',
+                title: '専任担当がサポート',
+                desc: '求人掲載から採用まで、専任の担当者がしっかりサポートします。',
               },
             ].map((item) => (
               <div key={item.title} className="card text-center">
@@ -263,9 +271,9 @@ export default function SalonPage() {
           <h2 className="section-title">CareLink でできること</h2>
           <div className="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
-              { icon: '📋', title: '店舗プロフィール掲載', desc: 'メニュー・料金・写真を掲載して、あなたの施設の魅力を求職者・お客様に届けます。' },
-              { icon: '👥', title: '予約・来店促進', desc: '業界特化だから、あなたの施設を必要としているお客様に情報が届きます。' },
-              { icon: '📊', title: '専任担当サポート', desc: '掲載から採用まで、専任の担当者がサポート。運用の手間を最小限に抑えます。' },
+              { icon: '📋', title: '求人ページ掲載', desc: '募集条件・給与・福利厚生を掲載して、あなたの施設の魅力を求職者に届けます。' },
+              { icon: '👥', title: '求職者からの応募受付', desc: '業界特化だから、あなたの施設で働きたい求職者からの応募が届きます。' },
+              { icon: '📊', title: '専任担当サポート', desc: '求人掲載から採用まで、専任の担当者がサポート。運用の手間を最小限に抑えます。' },
             ].map((item) => (
               <div key={item.title} className="card text-center">
                 <div className="text-3xl mb-3">{item.icon}</div>
@@ -283,10 +291,10 @@ export default function SalonPage() {
           <h2 className="section-title">ご利用の流れ</h2>
           <div className="grid sm:grid-cols-4 gap-6 max-w-4xl mx-auto">
             {[
-              { step: '1', title: 'フォーム入力', desc: '基本情報とPR文を入力（約3分）' },
+              { step: '1', title: 'フォーム入力', desc: '基本情報と募集条件を入力（約3分）' },
               { step: '2', title: '担当者連絡', desc: '2営業日以内にご連絡します' },
-              { step: '3', title: '掲載開始', desc: '内容確認後、すぐに掲載スタート' },
-              { step: '4', title: '集客開始', desc: 'お客様からの反響が届きます' },
+              { step: '3', title: '掲載開始', desc: '内容確認後、すぐに求人掲載スタート' },
+              { step: '4', title: '応募受付開始', desc: '求職者からの応募が届きます' },
             ].map((item, i) => (
               <div key={item.step} className="text-center">
                 <div className="w-14 h-14 rounded-full flex items-center justify-center text-white text-xl font-bold mx-auto mb-4 bg-primary">
@@ -306,7 +314,7 @@ export default function SalonPage() {
       {/* Form */}
       <section className="bg-gray-50" ref={formRef}>
         <div className="section-container">
-          <h2 className="section-title">無料掲載登録</h2>
+          <h2 className="section-title">無料求人掲載登録</h2>
           <div className="max-w-2xl mx-auto">
             {submitted ? (
               <div className="card text-center py-12">
@@ -386,22 +394,31 @@ export default function SalonPage() {
                     <input {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
                   </div>
                   <div>
-                    <label className="form-label">営業時間</label>
-                    <input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" />
+                    <label className="form-label">募集職種 <span className="text-red-500">*</span></label>
+                    <select {...register('job_category')} className="form-input">
+                      <option value="">選択してください</option>
+                      {jobTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                    {errors.job_category && <p className="form-error">{errors.job_category.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">定休日</label>
-                    <input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" />
+                    <label className="form-label">雇用形態</label>
+                    <select {...register('employment_type')} className="form-input">
+                      <option value="">選択してください</option>
+                      {employmentTypes.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="form-label">席数・ベッド数</label>
-                      <input {...register('seat_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
-                    </div>
-                    <div>
-                      <label className="form-label">スタッフ数</label>
-                      <input {...register('staff_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
-                    </div>
+                  <div>
+                    <label className="form-label">給与</label>
+                    <input {...register('salary_range')} className="form-input" placeholder="例：月給25万〜30万円" />
+                  </div>
+                  <div>
+                    <label className="form-label">勤務時間</label>
+                    <input {...register('work_hours')} className="form-input" placeholder="例：9:00〜18:00" />
+                  </div>
+                  <div>
+                    <label className="form-label">休日</label>
+                    <input {...register('holidays')} className="form-input" placeholder="例：完全週休2日（土日祝）" />
                   </div>
                   <div className="flex gap-4">
                     <button type="button" onClick={prevStep} className="btn-outline flex-1">
@@ -417,6 +434,22 @@ export default function SalonPage() {
               {/* Step 3 */}
               {step === 3 && (
                 <div className="space-y-5">
+                  <div>
+                    <label className="form-label">福利厚生</label>
+                    <textarea
+                      {...register('benefits')}
+                      className="form-input min-h-[80px]"
+                      placeholder="例：社会保険完備、交通費支給、研修制度あり"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">応募条件</label>
+                    <textarea
+                      {...register('requirements')}
+                      className="form-input min-h-[80px]"
+                      placeholder="例：資格不問、実務経験1年以上"
+                    />
+                  </div>
                   <div>
                     <label className="form-label">PR文</label>
                     <textarea
@@ -435,7 +468,7 @@ export default function SalonPage() {
                     <PhotoUpload onChange={setPhotoFile} />
                   </div>
                   <div>
-                    <label className="form-label">希望掲載開始日</label>
+                    <label className="form-label">採用開始希望日</label>
                     <input {...register('desired_start_date')} type="date" className="form-input" />
                   </div>
                   <label className="flex items-start gap-2 text-sm text-gray-600">

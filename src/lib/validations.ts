@@ -120,3 +120,33 @@ export const employmentTypes = [
 
 // Gender options
 export const genderOptions = ['男性', '女性', 'その他', '回答しない'];
+
+// Recruit form schemas (per step)
+export const recruitStep1Schema = z.object({
+  facility_name: z.string().min(1, '施設名を入力してください'),
+  business_type: z.string().min(1, '業種を選択してください'),
+  representative_name: z.string().min(1, '代表者名を入力してください'),
+  contact_name: z.string().min(1, '担当者名を入力してください'),
+  email: z.string().email('正しいメールアドレスを入力してください'),
+  phone: z.string().min(1, '電話番号を入力してください').regex(phoneRegex, '正しい電話番号を入力してください'),
+});
+
+export const recruitStep2Schema = z.object({
+  postal_code: z.string().regex(/^(\d{3}-?\d{4}|\d{7})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
+  address: z.string().optional(),
+  job_category: z.string().min(1, '募集職種を選択してください'),
+  employment_type: z.string().optional(),
+  salary_range: z.string().optional(),
+  work_hours: z.string().optional(),
+  holidays: z.string().optional(),
+});
+
+export const recruitStep3Schema = z.object({
+  benefits: z.string().optional(),
+  requirements: z.string().optional(),
+  pr_text: z.string().max(500, '500文字以内で入力してください').optional(),
+  desired_start_date: z.string().optional(),
+});
+
+export const recruitFullSchema = recruitStep1Schema.merge(recruitStep2Schema).merge(recruitStep3Schema);
+export type RecruitFormValues = z.infer<typeof recruitFullSchema>;

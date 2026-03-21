@@ -252,8 +252,8 @@ export default function JobsPage() {
             {[
               {
                 icon: '📱',
-                title: 'あなたに合った求人がLINEで届く',
-                desc: '希望条件に合った求人だけをLINEでお届け。情報収集の手間がゼロに。',
+                title: '業界特化の求人情報',
+                desc: '医療・福祉・美容に特化した求人情報を掲載。業界の求人だけを効率よくチェックできます。',
               },
               {
                 icon: '💰',
@@ -298,7 +298,7 @@ export default function JobsPage() {
           <div className="grid sm:grid-cols-4 gap-6 max-w-4xl mx-auto">
             {[
               { step: '1', title: '登録', desc: '3分で簡単登録' },
-              { step: '2', title: '求人が届く', desc: 'LINEで希望の求人が届く' },
+              { step: '2', title: '求人を探す', desc: '掲載中の求人から希望条件で検索' },
               { step: '3', title: '応募', desc: '気になる求人に応募' },
               { step: '4', title: '採用', desc: '面接・内定・入社' },
             ].map((item, i) => (
@@ -330,7 +330,7 @@ export default function JobsPage() {
                 <h3 className="text-2xl font-bold mb-3">登録が完了しました</h3>
                 <p className="text-gray-600 mb-8">
                   ご登録ありがとうございます。<br />
-                  希望条件に合った求人情報をお届けします。
+                  掲載中の求人情報をご確認いただけます。
                 </p>
                 <Link href="/" className="btn-primary">
                   トップページへ戻る

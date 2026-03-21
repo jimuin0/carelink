@@ -27,13 +27,16 @@ export default function Home() {
             <p className="text-gray-600 text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
               施設の集客から求職者のキャリアまで。
               <br className="hidden sm:block" />
-              業界を知り尽くしたプラットフォームが最適なマッチングを実現します。
+              業界を知り尽くしたプラットフォームが、集客と採用をサポートします。
             </p>
           </FadeIn>
           <FadeIn delay={300}>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link href="/salon" className="btn-primary text-lg">
-                施設・サロンの方はこちら
+                集客したい方はこちら
+              </Link>
+              <Link href="/recruit" className="btn-outline text-lg">
+                採用したい方はこちら
               </Link>
               <Link href="/jobs" className="btn-outline text-lg">
                 求職者の方はこちら
@@ -73,15 +76,15 @@ export default function Home() {
           <FadeIn>
             <h2 className="section-title">こんな方におすすめ</h2>
           </FadeIn>
-          <div className="grid sm:grid-cols-2 gap-8 max-w-4xl mx-auto">
+          <div className="grid sm:grid-cols-3 gap-8 max-w-5xl mx-auto">
             <FadeIn delay={100}>
               <div className="card border-2 border-sky-100 hover:border-primary transition-colors h-full">
                 <div className="text-center mb-6">
-                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl" role="img" aria-label="施設">
+                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl" role="img" aria-label="集客">
                     🏢
                   </span>
                 </div>
-                <h3 className="text-xl font-bold text-center mb-4">施設・サロン経営者の方</h3>
+                <h3 className="text-xl font-bold text-center mb-4">お客様を増やしたい方</h3>
                 <ul className="space-y-3 text-gray-600">
                   <li className="flex items-start gap-2">
                     <span className="text-primary font-bold mt-0.5">&#10003;</span>
@@ -89,7 +92,7 @@ export default function Home() {
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-primary font-bold mt-0.5">&#10003;</span>
-                    採用コストを抑えたい
+                    施設の認知度を上げたい
                   </li>
                   <li className="flex items-start gap-2">
                     <span className="text-primary font-bold mt-0.5">&#10003;</span>
@@ -103,6 +106,34 @@ export default function Home() {
             </FadeIn>
 
             <FadeIn delay={200}>
+              <div className="card border-2 border-sky-100 hover:border-primary transition-colors h-full">
+                <div className="text-center mb-6">
+                  <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl" role="img" aria-label="採用">
+                    📋
+                  </span>
+                </div>
+                <h3 className="text-xl font-bold text-center mb-4">スタッフを採用したい方</h3>
+                <ul className="space-y-3 text-gray-600">
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary font-bold mt-0.5">&#10003;</span>
+                    採用コストを抑えたい
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary font-bold mt-0.5">&#10003;</span>
+                    業界経験のあるスタッフを採用したい
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-primary font-bold mt-0.5">&#10003;</span>
+                    手間なく求人を出したい
+                  </li>
+                </ul>
+                <Link href="/recruit" className="btn-primary w-full mt-6 text-base">
+                  無料で求人を掲載する
+                </Link>
+              </div>
+            </FadeIn>
+
+            <FadeIn delay={300}>
               <div className="card border-2 border-sky-100 hover:border-primary transition-colors h-full">
                 <div className="text-center mb-6">
                   <span className="inline-flex items-center justify-center w-16 h-16 bg-sky-50 rounded-2xl text-3xl" role="img" aria-label="求職者">
@@ -148,8 +179,8 @@ export default function Home() {
               },
               {
                 icon: '🤖',
-                title: 'AIマッチング',
-                desc: 'AIが施設と求職者を自動マッチング。最適な出会いを効率的に実現します。',
+                title: '業界特化の掲載',
+                desc: '業界に特化しているから、必要な人に施設情報・求人情報が届きます。',
               },
               {
                 icon: '💰',
@@ -178,7 +209,7 @@ export default function Home() {
           <div className="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
               { step: '1', title: '無料登録', desc: 'フォームに必要事項を入力するだけ。3分で完了します。' },
-              { step: '2', title: 'マッチング', desc: 'AIがあなたに最適な施設・求職者を自動でマッチングします。' },
+              { step: '2', title: '掲載・公開', desc: '担当者が内容を確認後、すぐにサービス上に掲載・公開します。' },
               { step: '3', title: 'スタート', desc: '集客開始・応募開始。担当者がサポートします。' },
             ].map((item, i) => (
               <FadeIn key={item.step} delay={i * 150}>
@@ -268,6 +299,12 @@ export default function Home() {
                 className="inline-flex items-center justify-center px-8 py-4 bg-white text-primary font-bold rounded-lg transition-all hover:bg-gray-100"
               >
                 無料で施設を掲載する
+              </Link>
+              <Link
+                href="/recruit"
+                className="inline-flex items-center justify-center px-8 py-4 bg-white text-primary font-bold rounded-lg transition-all hover:bg-gray-100"
+              >
+                無料で求人を掲載する
               </Link>
               <Link
                 href="/jobs"
