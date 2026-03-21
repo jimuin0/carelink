@@ -183,6 +183,20 @@ export default function JobsPage() {
       const { error } = await supabase.from('job_seekers').insert(insertData);
       if (error) throw error;
 
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'job_seeker',
+          data: {
+            full_name: data.full_name,
+            job_type: data.job_type,
+            phone: data.phone,
+            email: data.email,
+          },
+        }),
+      }).catch(() => {});
+
       reset();
       setStep(1);
       setPhotoFile(null);

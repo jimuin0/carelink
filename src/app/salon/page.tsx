@@ -166,6 +166,21 @@ export default function SalonPage() {
       const { error } = await supabase.from('salons').insert(insertData);
       if (error) throw error;
 
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'salon',
+          data: {
+            facility_name: data.facility_name,
+            business_type: data.business_type,
+            representative_name: data.representative_name,
+            phone: data.phone,
+            email: data.email,
+          },
+        }),
+      }).catch(() => {});
+
       reset();
       setStep(1);
       setPhotoFile(null);

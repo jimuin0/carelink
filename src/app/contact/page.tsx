@@ -46,6 +46,21 @@ export default function ContactPage() {
     try {
       const { error } = await supabase.from('contacts').insert(data);
       if (error) throw error;
+
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'contact',
+          data: {
+            name: data.name,
+            inquiry_type: data.inquiry_type,
+            email: data.email,
+            message: data.message,
+          },
+        }),
+      }).catch(() => {});
+
       reset();
       setSubmitted(true);
     } catch {
