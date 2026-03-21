@@ -179,6 +179,7 @@ export default function SalonPage() {
       fetch('/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000),
         body: JSON.stringify({
           type: 'salon',
           data: {

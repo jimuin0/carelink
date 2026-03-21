@@ -196,6 +196,7 @@ export default function JobsPage() {
       fetch('/api/notify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(10000),
         body: JSON.stringify({
           type: 'job_seeker',
           data: {
