@@ -97,6 +97,7 @@ export default function SalonPage() {
     handleSubmit(onSubmit)();
   };
 
+
   const onSubmit = async (data: SalonFormValues) => {
     setSubmitting(true);
     try {
@@ -240,7 +241,7 @@ export default function SalonPage() {
           <div className="max-w-2xl mx-auto">
             <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
 
-            <form onSubmit={(e) => { e.preventDefault(); setShowConfirm(true); }} className="card">
+            <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="card">
               {/* Step 1 */}
               {step === 1 && (
                 <div className="space-y-5">
