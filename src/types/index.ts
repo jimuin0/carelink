@@ -131,6 +131,27 @@ export interface FacilityCardData {
   main_photo_url: string | null;
 }
 
+export interface FacilityReview {
+  id: string;
+  facility_id: string;
+  reviewer_name: string;
+  rating: number;
+  comment: string | null;
+  status: 'published' | 'hidden';
+  created_at: string;
+}
+
+export interface FacilityInquiry {
+  id: string;
+  facility_id: string;
+  facility_name: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  message: string;
+  created_at: string;
+}
+
 export interface SearchParams {
   keyword?: string;
   type?: string;

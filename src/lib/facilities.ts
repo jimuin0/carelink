@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server';
-import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, SearchParams } from '@/types';
+import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams } from '@/types';
 
 const PER_PAGE = 20;
 
@@ -65,4 +65,15 @@ export async function getFacilityPhotos(facilityId: string) {
     .eq('facility_id', facilityId)
     .order('sort_order');
   return { photos: (data || []) as FacilityPhoto[], error };
+}
+
+export async function getFacilityReviews(facilityId: string) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('facility_reviews')
+    .select('*')
+    .eq('facility_id', facilityId)
+    .eq('status', 'published')
+    .order('created_at', { ascending: false });
+  return { reviews: (data || []) as FacilityReview[], error };
 }

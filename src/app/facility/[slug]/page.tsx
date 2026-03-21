@@ -1,11 +1,13 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
-import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos } from '@/lib/facilities';
+import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
 import PhotoGallery from '@/components/facility/PhotoGallery';
 import FacilityHeader from '@/components/facility/FacilityHeader';
 import TabNavigation from '@/components/facility/TabNavigation';
 import MenuList from '@/components/facility/MenuList';
 import AccessInfo from '@/components/facility/AccessInfo';
+import ReviewTab from '@/components/facility/ReviewTab';
+import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
 import type { Facility, FacilityMenu } from '@/types';
 
@@ -38,9 +40,10 @@ export default async function FacilityPage({ params }: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [{ menus }, { photos }] = await Promise.all([
+  const [{ menus }, { photos }, { reviews }] = await Promise.all([
     getFacilityMenus(facility.id),
     getFacilityPhotos(facility.id),
+    getFacilityReviews(facility.id),
   ]);
 
   const featuredMenus = menus.filter((m) => m.is_featured).slice(0, 3);
@@ -57,6 +60,11 @@ export default async function FacilityPage({ params }: Props) {
       content: <MenuList menus={menus} />,
     },
     {
+      key: 'review',
+      label: `口コミ(${reviews.length})`,
+      content: <ReviewTab facilityId={facility.id} initialReviews={reviews} />,
+    },
+    {
       key: 'access',
       label: 'アクセス',
       content: <AccessInfo facility={facility} />,
@@ -70,16 +78,19 @@ export default async function FacilityPage({ params }: Props) {
         <FacilityHeader facility={facility} />
         <TabNavigation tabs={tabs} />
 
-        {/* Contact section anchor */}
+        {/* Contact section */}
         <div id="contact-section" className="px-4 sm:px-6 py-8 border-t border-gray-100">
-          <h3 className="text-lg font-bold mb-4">お問い合わせ</h3>
+          <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
+            <span className="w-1 h-5 bg-sky-500 rounded-full" />
+            お問い合わせ
+          </h3>
           <p className="text-gray-500 text-sm mb-4">
-            ご予約・ご質問は、お電話またはお問い合わせフォームからお気軽にどうぞ。
+            ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。
           </p>
           {facility.phone && (
             <a
               href={`tel:${facility.phone}`}
-              className="inline-flex items-center gap-2 text-sky-600 font-bold text-lg hover:underline"
+              className="inline-flex items-center gap-2 text-sky-600 font-bold text-lg hover:underline mb-6"
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z" />
@@ -87,6 +98,7 @@ export default async function FacilityPage({ params }: Props) {
               {facility.phone}
             </a>
           )}
+          <InquiryForm facilityId={facility.id} facilityName={facility.name} />
         </div>
 
         {/* JSON-LD */}

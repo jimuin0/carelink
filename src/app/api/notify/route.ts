@@ -24,7 +24,8 @@ type NotifyPayload =
   | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
   | { type: 'recruit'; data: { facility_name: string; business_type: string; job_category: string; representative_name: string; phone: string; email: string } }
   | { type: 'job_seeker'; data: { full_name: string; job_type: string; phone: string; email: string } }
-  | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } };
+  | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } }
+  | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } };
 
 function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
@@ -61,6 +62,15 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *お名前:* ${escSlack(payload.data.name)}`,
         `> *種別:* ${escSlack(payload.data.inquiry_type)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,
+        `> *内容:* ${escSlack(payload.data.message)}`,
+      ].join('\n');
+    case 'facility_inquiry':
+      return [
+        ':hospital: *施設へのお問い合わせ*',
+        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
+        `> *お名前:* ${escSlack(payload.data.name)}`,
+        `> *メール:* ${escSlack(payload.data.email)}`,
+        `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *内容:* ${escSlack(payload.data.message)}`,
       ].join('\n');
   }
