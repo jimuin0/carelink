@@ -195,8 +195,53 @@ export default function Home() {
         </div>
       </section>
 
-      {/* Trust */}
+      {/* Voices */}
       <section className="bg-gray-50">
+        <div className="section-container">
+          <FadeIn>
+            <h2 className="section-title">ご利用者の声</h2>
+          </FadeIn>
+          <div className="grid sm:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {[
+              {
+                name: 'A様',
+                role: '美容サロン経営',
+                text: '掲載してすぐに問い合わせが来ました。無料でここまでできるとは思いませんでした。',
+              },
+              {
+                name: 'B様',
+                role: '介護施設 採用担当',
+                text: '業界に特化しているので、求めているスキルを持った方からの応募が多く助かっています。',
+              },
+              {
+                name: 'C様',
+                role: 'アイリスト（転職成功）',
+                text: '自分の資格が正しく評価される職場が見つかりました。登録から2週間で内定をいただきました。',
+              },
+            ].map((item, i) => (
+              <FadeIn key={item.name} delay={i * 100}>
+                <div className="card h-full flex flex-col">
+                  <div className="flex items-center gap-1 text-amber-400 mb-3">
+                    {[...Array(5)].map((_, j) => (
+                      <svg key={j} className="w-4 h-4 fill-current" viewBox="0 0 20 20">
+                        <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                      </svg>
+                    ))}
+                  </div>
+                  <p className="text-gray-600 text-sm leading-relaxed flex-1">&ldquo;{item.text}&rdquo;</p>
+                  <div className="mt-4 pt-4 border-t border-gray-100">
+                    <p className="font-bold text-sm">{item.name}</p>
+                    <p className="text-gray-400 text-xs">{item.role}</p>
+                  </div>
+                </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Trust */}
+      <section className="bg-white">
         <div className="section-container">
           <FadeIn>
             <h2 className="section-title">安心してご利用いただけます</h2>
@@ -208,13 +253,42 @@ export default function Home() {
               { icon: '📞', title: 'サポート体制', desc: 'お問い合わせは2営業日以内にご返信。安心のサポート体制。' },
             ].map((item, i) => (
               <FadeIn key={item.title} delay={i * 100}>
-                <div className="flex items-start gap-4 bg-white rounded-xl p-5">
+                <div className="flex items-start gap-4 bg-gray-50 rounded-xl p-5">
                   <span className="text-2xl flex-shrink-0" role="img" aria-label={item.title}>{item.icon}</span>
                   <div>
                     <h3 className="font-bold mb-1">{item.title}</h3>
                     <p className="text-gray-600 text-sm">{item.desc}</p>
                   </div>
                 </div>
+              </FadeIn>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section className="bg-gray-50">
+        <div className="section-container">
+          <FadeIn>
+            <h2 className="section-title">よくある質問</h2>
+          </FadeIn>
+          <div className="max-w-3xl mx-auto space-y-4">
+            {[
+              { q: '本当に無料ですか？', a: 'はい、施設の掲載も求職者の登録も完全無料です。初期費用・月額費用は一切かかりません。' },
+              { q: 'どんな業種が対象ですか？', a: '美容サロン・アイラッシュ、鍼灸院、整骨院、介護施設・デイサービス、病院・クリニックなど、医療・福祉・美容業界に幅広く対応しています。' },
+              { q: '登録後、すぐに利用開始できますか？', a: '登録後、2営業日以内に担当者よりご連絡いたします。内容を確認させていただいた後、すぐにサービスをご利用いただけます。' },
+              { q: '途中で退会できますか？', a: 'いつでも退会可能です。退会後はすべてのデータを削除いたします。違約金等は一切かかりません。' },
+            ].map((item, i) => (
+              <FadeIn key={i} delay={i * 50}>
+                <details className="group bg-white rounded-xl shadow-sm border border-gray-100">
+                  <summary className="flex items-center justify-between p-5 cursor-pointer font-bold text-gray-800 text-sm sm:text-base">
+                    <span>{item.q}</span>
+                    <svg className="w-5 h-5 text-gray-400 transition-transform group-open:rotate-180 flex-shrink-0 ml-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </summary>
+                  <p className="px-5 pb-5 text-gray-600 text-sm leading-relaxed">{item.a}</p>
+                </details>
               </FadeIn>
             ))}
           </div>

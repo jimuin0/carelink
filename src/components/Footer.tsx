@@ -44,6 +44,21 @@ export default function Footer() {
               </Link>
             </nav>
           </div>
+
+          {/* Company Info */}
+          <div className="sm:col-span-3 pt-6 border-t border-gray-700 mt-2">
+            <h3 className="text-white font-bold text-sm mb-3">運営会社</h3>
+            <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm text-gray-400">
+              <dt>会社名</dt>
+              <dd>HALグループ</dd>
+              <dt>所在地</dt>
+              <dd>大阪府堺市</dd>
+              <dt>事業内容</dt>
+              <dd>美容・医療・福祉分野の採用・集客支援</dd>
+              <dt>お問い合わせ</dt>
+              <dd><Link href="/contact" className="text-gray-300 hover:text-white transition-colors underline">お問い合わせフォーム</Link></dd>
+            </dl>
+          </div>
         </div>
 
         <div className="mt-10 pt-8 border-t border-gray-700 text-center text-sm text-gray-500">

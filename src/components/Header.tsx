@@ -31,6 +31,9 @@ export default function Header() {
             <Link href="/contact" className="text-gray-700 hover:text-primary font-medium transition-colors">
               お問い合わせ
             </Link>
+            <Link href="/salon" className="btn-primary !py-2 !px-5 text-sm">
+              無料で掲載する
+            </Link>
           </nav>
 
           {/* Mobile hamburger */}
@@ -76,6 +79,13 @@ export default function Header() {
               onClick={() => setIsOpen(false)}
             >
               お問い合わせ
+            </Link>
+            <Link
+              href="/salon"
+              className="btn-primary !py-2.5 text-center text-sm"
+              onClick={() => setIsOpen(false)}
+            >
+              無料で掲載する
             </Link>
           </nav>
         </div>

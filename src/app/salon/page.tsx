@@ -25,14 +25,25 @@ const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
 
 const faqItems = [
-  { question: '掲載は本当に無料ですか？', answer: 'はい、完全無料です。' },
+  {
+    question: '掲載は本当に無料ですか？',
+    answer: 'はい、完全無料でご利用いただけます。初期費用・月額費用・成果報酬など一切かかりません。費用を気にせず、まずはお気軽にご登録ください。',
+  },
   {
     question: '掲載開始までどのくらいかかりますか？',
-    answer: '登録後、2営業日以内に担当者よりご連絡いたします。',
+    answer: 'フォーム送信後、2営業日以内に担当者よりご連絡いたします。内容確認後、すぐに掲載を開始できます。お急ぎの場合はお問い合わせフォームよりご相談ください。',
   },
   {
     question: '途中で掲載をやめることはできますか？',
-    answer: 'いつでも退会・掲載停止が可能です。',
+    answer: 'はい、いつでも掲載停止・退会が可能です。違約金等は一切ございません。掲載停止後はデータを速やかに削除いたします。',
+  },
+  {
+    question: 'どのような業種が掲載できますか？',
+    answer: '美容サロン・アイラッシュ、鍼灸院・整骨院、介護施設・デイサービス、病院・クリニックなど、医療・福祉・美容業界の施設が対象です。対象か不明な場合はお気軽にお問い合わせください。',
+  },
+  {
+    question: '掲載内容はあとから変更できますか？',
+    answer: 'はい、掲載後もいつでも内容の変更が可能です。メニューや料金の更新、写真の差し替えなど、担当者にご連絡いただければ対応いたします。',
   },
 ];
 
@@ -226,16 +237,12 @@ export default function SalonPage() {
           <h2 className="section-title">CareLink でできること</h2>
           <div className="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
-              { title: '店舗プロフィール掲載', desc: 'メニュー・料金・写真を掲載して集客', available: true },
-              { title: '予約受付', desc: 'オンライン予約機能で機会を逃さない', available: false },
-              { title: '口コミ・レビュー管理', desc: '口コミで信頼度アップ', available: false },
+              { icon: '📋', title: '店舗プロフィール掲載', desc: 'メニュー・料金・写真を掲載して、あなたの施設の魅力を求職者・お客様に届けます。' },
+              { icon: '🤖', title: 'AIマッチング', desc: 'AIがあなたの施設に合った求職者を自動でマッチング。ミスマッチのない採用を実現します。' },
+              { icon: '📊', title: '専任担当サポート', desc: '掲載から採用まで、専任の担当者がサポート。運用の手間を最小限に抑えます。' },
             ].map((item) => (
-              <div key={item.title} className="card text-center relative">
-                {!item.available && (
-                  <span className="absolute top-4 right-4 text-xs bg-gray-200 text-gray-600 px-2 py-1 rounded-full">
-                    Coming Soon
-                  </span>
-                )}
+              <div key={item.title} className="card text-center">
+                <div className="text-3xl mb-3">{item.icon}</div>
                 <h3 className="text-lg font-bold mb-2">{item.title}</h3>
                 <p className="text-gray-600 text-sm">{item.desc}</p>
               </div>
