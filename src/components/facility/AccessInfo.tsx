@@ -90,7 +90,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
               src={`https://maps.google.com/maps?q=${facility.latitude},${facility.longitude}&z=16&output=embed`}
               width="100%"
               height="300"
-              style={{ border: 0 }}
+              className="border-0"
               allowFullScreen
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"

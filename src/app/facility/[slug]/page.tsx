@@ -12,7 +12,7 @@ import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
 import type { Facility, FacilityMenu } from '@/types';
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-ruddy-psi.vercel.app';
+const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
 
 export const revalidate = 3600;
 

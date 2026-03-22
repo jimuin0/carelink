@@ -33,9 +33,11 @@ export default function SearchBar() {
           autoComplete="off"
         />
         <select
+          name="type"
           value={type}
           onChange={(e) => setType(e.target.value)}
           className="form-input"
+          aria-label="業種を選択"
         >
           <option value="">すべての業種</option>
           {businessTypes.map((t) => (
@@ -43,9 +45,11 @@ export default function SearchBar() {
           ))}
         </select>
         <select
+          name="area"
           value={prefecture}
           onChange={(e) => setPrefecture(e.target.value)}
           className="form-input"
+          aria-label="エリアを選択"
         >
           <option value="">すべてのエリア</option>
           {prefectures.map((p) => (

@@ -67,22 +67,24 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
 
   return (
     <>
-      <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="space-y-4">
+      <form onSubmit={handleSubmit(() => setShowConfirm(true))} noValidate className="space-y-4">
         <div>
-          <label className="form-label">お名前 <span className="text-red-500">*</span></label>
-          <input {...register('reviewer_name')} className="form-input" placeholder="ニックネーム可" autoComplete="name" />
+          <label htmlFor="reviewer_name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+          <input {...register('reviewer_name')} id="reviewer_name" className="form-input" placeholder="ニックネーム可" autoComplete="name" />
           {errors.reviewer_name && <p className="form-error">{errors.reviewer_name.message}</p>}
         </div>
 
         <div>
-          <label className="form-label">評価 <span className="text-red-500">*</span></label>
-          <StarRating value={rating} onChange={(v) => setValue('rating', v, { shouldValidate: true })} />
+          <label className="form-label" id="rating-label">評価 <span className="text-red-500">*</span></label>
+          <div aria-labelledby="rating-label">
+            <StarRating value={rating} onChange={(v) => setValue('rating', v, { shouldValidate: true })} />
+          </div>
           {errors.rating && <p className="form-error">{errors.rating.message}</p>}
         </div>
 
         <div>
-          <label className="form-label">コメント</label>
-          <textarea {...register('comment')} className="form-input" rows={3} placeholder="ご感想をお聞かせください（500文字以内）" />
+          <label htmlFor="review_comment" className="form-label">コメント</label>
+          <textarea {...register('comment')} id="review_comment" className="form-input" rows={3} placeholder="ご感想をお聞かせください（500文字以内）" />
           {errors.comment && <p className="form-error">{errors.comment.message}</p>}
         </div>
 

@@ -31,9 +31,11 @@ export default function TabNavigation({ tabs }: Props) {
           {tabs.map((tab) => (
             <button
               key={tab.key}
+              id={`tab-${tab.key}`}
               role="tab"
               aria-selected={activeTab === tab.key}
               aria-controls={`tabpanel-${tab.key}`}
+              tabIndex={activeTab === tab.key ? 0 : -1}
               onClick={() => setActiveTab(tab.key)}
               className={`tab-btn whitespace-nowrap ${activeTab === tab.key ? 'tab-btn-active' : ''}`}
             >
@@ -42,7 +44,7 @@ export default function TabNavigation({ tabs }: Props) {
           ))}
         </div>
       </div>
-      <div className="px-4 sm:px-6 py-6" role="tabpanel" id={`tabpanel-${activeTab}`}>
+      <div className="px-4 sm:px-6 py-6" role="tabpanel" id={`tabpanel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
         {tabs.find((t) => t.key === activeTab)?.content}
       </div>
     </div>

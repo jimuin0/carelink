@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
@@ -88,7 +89,22 @@ export async function POST(request: Request) {
   }
 
   try {
-    const payload: NotifyPayload = await request.json();
+    const body = await request.json();
+
+    const payloadSchema = z.discriminatedUnion('type', [
+      z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string(), business_type: z.string(), representative_name: z.string(), phone: z.string(), email: z.string() }) }),
+      z.object({ type: z.literal('recruit'), data: z.object({ facility_name: z.string(), business_type: z.string(), job_category: z.string(), representative_name: z.string(), phone: z.string(), email: z.string() }) }),
+      z.object({ type: z.literal('job_seeker'), data: z.object({ full_name: z.string(), job_type: z.string(), phone: z.string(), email: z.string() }) }),
+      z.object({ type: z.literal('contact'), data: z.object({ name: z.string(), inquiry_type: z.string(), email: z.string(), message: z.string() }) }),
+      z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string(), name: z.string(), email: z.string(), phone: z.string(), message: z.string() }) }),
+    ]);
+
+    const result = payloadSchema.safeParse(body);
+    if (!result.success) {
+      return NextResponse.json({ ok: false, error: 'Invalid payload' }, { status: 400 });
+    }
+
+    const payload = result.data as NotifyPayload;
     const text = buildSlackMessage(payload);
 
     await fetch(webhookUrl, {

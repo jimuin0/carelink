@@ -3,13 +3,9 @@ import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
-  const filled = Math.floor(rating);
-  const hasHalf = rating - filled >= 0.5;
   return (
     <div className="flex items-center gap-1">
-      <span className="text-amber-400 text-sm">
-        {'★'.repeat(filled)}{hasHalf ? '☆' : ''}
-      </span>
+      <span className="text-amber-400 text-sm" aria-hidden="true">{'★'.repeat(Math.floor(rating))}</span>
       <span className="text-sm font-bold text-gray-700">{rating.toFixed(1)}</span>
       <span className="text-xs text-gray-400">({count}件)</span>
     </div>

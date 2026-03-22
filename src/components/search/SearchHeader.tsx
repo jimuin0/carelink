@@ -33,6 +33,8 @@ export default function SearchHeader() {
             className="md:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setIsOpen(!isOpen)}
             aria-label="メニュー"
+            aria-expanded={isOpen}
+            aria-controls="mobile-nav"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isOpen ? (
@@ -46,6 +48,7 @@ export default function SearchHeader() {
 
         {/* Mobile menu */}
         <div
+          id="mobile-nav"
           className={`md:hidden overflow-hidden transition-all duration-300 ease-in-out ${
             isOpen ? 'max-h-80 opacity-100' : 'max-h-0 opacity-0'
           }`}

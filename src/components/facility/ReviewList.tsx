@@ -28,7 +28,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 bg-sky-100 text-sky-600 rounded-full flex items-center justify-center text-sm font-bold">
-                {review.reviewer_name.charAt(0)}
+                {(review.reviewer_name || 'ユ').charAt(0)}
               </div>
               <div>
                 <p className="font-bold text-sm">{review.reviewer_name}</p>
