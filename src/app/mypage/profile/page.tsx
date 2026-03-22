@@ -49,24 +49,28 @@ export default function ProfileEditPage() {
   }, [reset]);
 
   const onSubmit = async (data: ProfileForm) => {
-    const res = await fetch('/api/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        display_name: data.display_name,
-        phone: data.phone || null,
-        prefecture: data.prefecture || null,
-        city: data.city || null,
-        birth_date: data.birth_date || null,
-        gender: data.gender || null,
-      }),
-    });
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name: data.display_name,
+          phone: data.phone || null,
+          prefecture: data.prefecture || null,
+          city: data.city || null,
+          birth_date: data.birth_date || null,
+          gender: data.gender || null,
+        }),
+      });
 
-    if (res.ok) {
-      setToast({ type: 'success', message: 'プロフィールを更新しました' });
-    } else {
-      const { error } = await res.json();
-      setToast({ type: 'error', message: error || '更新に失敗しました' });
+      if (res.ok) {
+        setToast({ type: 'success', message: 'プロフィールを更新しました' });
+      } else {
+        const body = await res.json().catch(() => null);
+        setToast({ type: 'error', message: body?.error || '更新に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '更新に失敗しました' });
     }
   };
 

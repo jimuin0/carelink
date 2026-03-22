@@ -44,15 +44,20 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
     if (!confirm('この予約をキャンセルしますか？')) return;
     setCancelling(true);
 
-    const res = await fetch(`/api/booking/${params.id}/cancel`, { method: 'POST' });
-    if (res.ok) {
-      setToast({ type: 'success', message: '予約をキャンセルしました' });
-      setBooking((prev) => prev ? { ...prev, status: 'cancelled' } : null);
-    } else {
-      const { error } = await res.json();
-      setToast({ type: 'error', message: error || 'キャンセルに失敗しました' });
+    try {
+      const res = await fetch(`/api/booking/${params.id}/cancel`, { method: 'POST' });
+      if (res.ok) {
+        setToast({ type: 'success', message: '予約をキャンセルしました' });
+        setBooking((prev) => prev ? { ...prev, status: 'cancelled' } : null);
+      } else {
+        const body = await res.json().catch(() => null);
+        setToast({ type: 'error', message: body?.error || 'キャンセルに失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: 'キャンセルに失敗しました' });
+    } finally {
+      setCancelling(false);
     }
-    setCancelling(false);
   };
 
   if (loading) {

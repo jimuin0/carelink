@@ -11,7 +11,13 @@ export async function GET(request: Request) {
   const rawDuration = parseInt(searchParams.get('duration') || '60');
   const duration = Number.isNaN(rawDuration) ? 60 : Math.min(Math.max(rawDuration, 15), 480);
 
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+
   if (!facilityId || !staffId || !date) {
+    return NextResponse.json({ slots: [] });
+  }
+  if (!uuidRegex.test(facilityId) || !uuidRegex.test(staffId) || !dateRegex.test(date)) {
     return NextResponse.json({ slots: [] });
   }
 

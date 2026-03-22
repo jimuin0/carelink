@@ -1,4 +1,5 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Booking } from '@/types';
 
@@ -13,11 +14,12 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 export default async function BookingsPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data } = await supabase
     .from('bookings')
     .select('*')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .order('booking_date', { ascending: false });
 
   const bookings = (data ?? []) as Booking[];

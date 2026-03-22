@@ -30,9 +30,9 @@ export default function StaffCard({ staff, facilitySlug }: { staff: StaffProfile
         {staff.position && (
           <p className="text-xs text-gray-500 mt-0.5">{staff.position}</p>
         )}
-        {staff.specialties.length > 0 && (
+        {staff.specialties?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-2">
-            {staff.specialties.slice(0, 3).map((s) => (
+            {staff.specialties?.slice(0, 3).map((s) => (
               <span key={s} className="text-[10px] bg-sky-50 text-sky-600 px-2 py-0.5 rounded-full">
                 {s}
               </span>

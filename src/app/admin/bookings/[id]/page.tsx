@@ -48,29 +48,34 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
     if (updating) return;
     setUpdating(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: membership } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .single();
-    if (!membership) return;
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: membership } = await supabase
+        .from('facility_members')
+        .select('facility_id')
+        .eq('user_id', user.id)
+        .single();
+      if (!membership) return;
 
-    const { error } = await supabase
-      .from('bookings')
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', params.id)
-      .eq('facility_id', membership.facility_id);
+      const { error } = await supabase
+        .from('bookings')
+        .update({ status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', params.id)
+        .eq('facility_id', membership.facility_id);
 
-    if (error) {
+      if (error) {
+        setToast({ type: 'error', message: '更新に失敗しました' });
+      } else {
+        setBooking((prev) => prev ? { ...prev, status: newStatus as Booking['status'] } : null);
+        setToast({ type: 'success', message: 'ステータスを更新しました' });
+      }
+    } catch {
       setToast({ type: 'error', message: '更新に失敗しました' });
-    } else {
-      setBooking((prev) => prev ? { ...prev, status: newStatus as Booking['status'] } : null);
-      setToast({ type: 'success', message: 'ステータスを更新しました' });
+    } finally {
+      setUpdating(false);
     }
-    setUpdating(false);
   };
 
   if (loading) {

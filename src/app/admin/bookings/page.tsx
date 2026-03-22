@@ -33,8 +33,13 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
     .eq('facility_id', membership.facility_id)
     .order('booking_date', { ascending: false });
 
-  if (searchParams.status) query = query.eq('status', searchParams.status);
-  if (searchParams.date) query = query.eq('booking_date', searchParams.date);
+  const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
+  if (searchParams.status && validStatuses.includes(searchParams.status)) {
+    query = query.eq('status', searchParams.status);
+  }
+  if (searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)) {
+    query = query.eq('booking_date', searchParams.date);
+  }
 
   const { data } = await query;
   const bookings = (data ?? []) as Booking[];

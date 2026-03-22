@@ -2,8 +2,13 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
+const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
   try {
+  if (!uuidRegex.test(params.id)) {
+    return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
+  }
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

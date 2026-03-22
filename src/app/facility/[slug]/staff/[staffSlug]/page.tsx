@@ -16,7 +16,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!staff) return {};
   return {
     title: `${staff.name} | ${facility.name} | CareLink`,
-    description: `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`,
+    description: `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties?.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`,
   };
 }
 
@@ -80,14 +80,14 @@ export default async function StaffDetailPage({ params }: Props) {
           </div>
 
           {/* Specialties */}
-          {staff.specialties.length > 0 && (
+          {staff.specialties?.length > 0 && (
             <div className="mb-6">
               <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
                 <span className="w-1 h-5 bg-sky-500 rounded-full" />
                 得意分野
               </h2>
               <div className="flex flex-wrap gap-2">
-                {staff.specialties.map((s) => (
+                {staff.specialties?.map((s) => (
                   <span key={s} className="text-xs bg-sky-50 text-sky-700 px-3 py-1.5 rounded-full font-medium">
                     {s}
                   </span>
