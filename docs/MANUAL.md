@@ -1,11 +1,13 @@
-# CareLink マニュアル v1.2
+# CareLink マニュアル v2.0
 
-**最終更新**: 2026年3月21日
-**バージョン**: 1.2
+**最終更新**: 2026年3月22日
+**バージョン**: 2.0
 **作成者**: Claude + 神原 良祐
 **プロジェクト**: ~/Projects/carelink/
 
-> 医療・福祉・美容業界に特化した採用×集客プラットフォーム。施設・サロンの集客支援と求職者の転職支援を目的とした情報掲載サービス。掲載無料・登録3分で集客・採用を開始できる。
+> 医療・福祉・美容業界に特化した採用×集客プラットフォーム。
+> - **LP（ランディングページ）**: 施設掲載登録・求職者登録・お問い合わせ
+> - **検索サイト**: 施設検索・施設詳細・口コミ・お問い合わせフォーム
 
 ---
 
@@ -24,13 +26,14 @@
 11. [コンポーネント設計](#11-コンポーネント設計)
 12. [SEO・構造化データ](#12-seo構造化データ)
 13. [セキュリティ](#13-セキュリティ)
-14. [アナリティクス](#14-アナリティクス)
-15. [デザインシステム](#15-デザインシステム)
-16. [法的対応](#16-法的対応)
-17. [運用手順](#17-運用手順)
-18. [トラブルシューティング](#18-トラブルシューティング)
-19. [テスト](#19-テスト)
-20. [既知の制限事項・今後の開発予定](#20-既知の制限事項今後の開発予定)
+14. [アクセシビリティ](#14-アクセシビリティ)
+15. [アナリティクス](#15-アナリティクス)
+16. [デザインシステム](#16-デザインシステム)
+17. [法的対応](#17-法的対応)
+18. [運用手順](#18-運用手順)
+19. [トラブルシューティング](#19-トラブルシューティング)
+20. [テスト](#20-テスト)
+21. [既知の制限事項・今後の開発予定](#21-既知の制限事項今後の開発予定)
 
 ---
 
@@ -43,19 +46,29 @@
 | サービス名 | CareLink |
 | 運営 | 神原良祐（HALグループ） |
 | 所在地 | 大阪府堺市 |
-| 用途 | 施設集客 + 求職者転職支援（情報掲載型） |
+| 用途 | 施設集客 + 求職者転職支援（情報掲載型）+ 施設検索 |
 | 料金 | 完全無料（施設掲載・求職者登録とも） |
 
-### 1.2 対象業種
+### 1.2 サイト構成（2つのサイトが同居）
+
+| サイト | パス | 用途 | ヘッダー/フッター |
+|--------|------|------|-------------------|
+| LP（ランディングページ） | `/`, `/salon`, `/jobs`, `/contact`, `/privacy`, `/terms` | 施設登録・求職者登録・お問い合わせ | Header + Footer |
+| 検索サイト | `/search`, `/facility/[slug]` | 施設検索・詳細・口コミ・問い合わせ | SearchHeader + SearchFooter |
+
+> `LayoutSwitch` コンポーネントが `usePathname()` でパスを判別し、LP用/検索用のヘッダー・フッターを自動切替する。
+
+### 1.3 対象業種
 
 - 美容サロン・アイラッシュ
 - 鍼灸院
 - 整骨院
 - 介護施設・デイサービス
 - 病院・クリニック
-- その他（医療・福祉・美容業界）
 
-### 1.3 技術スタック
+> LP登録フォームでは「その他」選択可。検索サイトでは上記5業種のみ。
+
+### 1.4 技術スタック
 
 | 技術 | 用途 | バージョン |
 |------|------|-----------|
@@ -72,85 +85,97 @@
 | Vercel Speed Insights | パフォーマンス | 2.0.0 |
 | Noto Sans JP | 日本語フォント | Google Fonts |
 
-### 1.4 本番URL
+### 1.5 本番URL
 
 | 画面 | URL | 備考 |
 |------|-----|------|
 | 本番（Vercel） | https://carelink-ruddy-psi.vercel.app | カスタムドメイン未設定 |
 | 予定ドメイン | https://carelink.jp | 取得・設定後 |
-| GitHub | eyelashsalon-halgroup/carelink | プライベート |
+| GitHub | jimuin0/carelink | プライベート |
 | Supabase Dashboard | https://supabase.com/dashboard/project/xzafxiupbflvgbarrihe | テーブル・Storage管理 |
 
-### 1.5 アクセス情報
-
-初めて開発に参加する場合、以下のサービスへのアクセス権が必要:
+### 1.6 アクセス情報
 
 | サービス | アクセス方法 | 管理者 |
 |---------|------------|--------|
-| GitHub リポジトリ | `eyelashsalon-halgroup` 組織に招待してもらう | 神原良祐 |
-| Vercel プロジェクト | `team_FxqzqrTMTrJeIfpVf2vYfqkX` チームに招待してもらう | 神原良祐 |
-| Supabase プロジェクト | Supabase Dashboard でチームメンバー追加してもらう | 神原良祐 |
-| Slack ワークスペース | ワークスペースに招待してもらう | 神原良祐 |
+| GitHub リポジトリ | `jimuin0` アカウントに招待 | 神原良祐 |
+| Vercel プロジェクト | `team_FxqzqrTMTrJeIfpVf2vYfqkX` チームに招待 | 神原良祐 |
+| Supabase プロジェクト | Dashboard でチームメンバー追加 | 神原良祐 |
+| Slack ワークスペース | ワークスペースに招待 | 神原良祐 |
 
-**Supabase anon key の取得場所**:
-```
-Supabase Dashboard → Settings → API → Project API keys → anon (public)
-```
+**Supabase プロジェクトURL**: `https://xzafxiupbflvgbarrihe.supabase.co`
 
-**Supabase プロジェクトURL**:
-```
-https://xzafxiupbflvgbarrihe.supabase.co
-```
-
-### 1.6 現在の外部サービス設定状況（2026-03-21時点）
+### 1.7 現在の外部サービス設定状況（2026-03-22時点）
 
 | サービス | 状態 | 備考 |
 |---------|:----:|------|
-| Supabase DB（テーブル・RLS） | ✅ 設定済み | 3テーブル + RLS |
+| Supabase DB（LP: 3テーブル） | ✅ 設定済み | salons / job_seekers / contacts + RLS |
+| Supabase DB（検索: 5テーブル） | ✅ 設定済み | facility_profiles / menus / photos / reviews / inquiries + RLS + トリガー |
 | Supabase Storage | ✅ 設定済み | carelink-uploads バケット |
-| Vercel デプロイ | ✅ 稼働中 | `carelink-ruddy-psi.vercel.app` |
+| Vercel デプロイ | ✅ 稼働中 | GitHub連携で自動デプロイ（push→自動ビルド） |
 | Slack Incoming Webhook | ❌ 未設定 | Webhook URL作成 + Vercel環境変数設定が必要 |
 | Google Analytics 4 | ❌ 未設定 | プロパティ作成 + 測定ID設定が必要 |
 | Microsoft Clarity | ❌ 未設定 | プロジェクト作成 + ID設定が必要 |
 | カスタムドメイン | ❌ 未設定 | ドメイン取得 + DNS設定が必要 |
 
-### 1.7 関連システム
-
-| システム | パス | 関係 |
-|---------|------|------|
-| salon-absence-system | ~/Projects/salon-absence-system/ | HAL豊中本店の予約・欠勤・シフト管理 |
-| cancel-fee | ~/Projects/cancel-fee/ | キャンセル料請求自動化 |
-
 ---
 
 ## 2. アーキテクチャ
 
+### 2.1 全体構成
+
 ```
 ユーザー（ブラウザ）
     |
-    | 施設登録 / 求職者登録 / お問い合わせ
+    | LP: 施設登録 / 求職者登録 / お問い合わせ
+    | 検索: 施設検索 / 施設詳細 / 口コミ投稿 / お問い合わせ
     v
 Vercel (Next.js App Router)
     |
-    |-- src/app/page.tsx              … トップページ（LP）
-    |-- src/app/salon/page.tsx        … 施設掲載登録（3ステップフォーム）
-    |-- src/app/jobs/page.tsx         … 求職者登録（3ステップフォーム）
-    |-- src/app/contact/page.tsx      … お問い合わせフォーム
-    |-- src/app/api/notify/route.ts   … Slack通知 API Route
+    |-- [LP側]
+    |   |-- src/app/page.tsx              … トップページ（LP）
+    |   |-- src/app/salon/page.tsx        … 施設掲載登録（3ステップフォーム）
+    |   |-- src/app/jobs/page.tsx         … 求職者登録（3ステップフォーム）
+    |   |-- src/app/contact/page.tsx      … お問い合わせフォーム
+    |   |-- src/app/api/notify/route.ts   … Slack通知 API Route
     |
-    |  フォーム送信の処理フロー:
+    |-- [検索側]
+    |   |-- src/app/search/page.tsx            … 施設検索（force-dynamic）
+    |   |-- src/app/facility/[slug]/page.tsx   … 施設詳細（ISR: 1時間）
+    |   |-- src/lib/facilities.ts              … DBクエリ（サーバーサイド）
+    |   |-- src/lib/supabase-server.ts         … サーバー用Supabaseクライアント
+    |
+    |  LP側フォーム送信の処理フロー:
     |  ├─ 1. Zodバリデーション（クライアント側）
     |  ├─ 2. 確認ダイアログ表示
     |  ├─ 3. Supabase INSERT（クライアント側・anon key使用）
     |  ├─ 4. 写真アップロード（施設のみ・Supabase Storage）
     |  ├─ 5. POST /api/notify（サーバー側 → Slack通知）
     |  └─ 6. 完了画面表示
+    |
+    |  検索側口コミ/問い合わせの処理フロー:
+    |  ├─ 1. Zodバリデーション（クライアント側）
+    |  ├─ 2. 確認ダイアログ表示
+    |  ├─ 3. Supabase INSERT（クライアント側・anon key使用）
+    |  ├─ 4. POST /api/notify（Slack通知・fire-and-forget）
+    |  └─ 5. トースト表示
     v
 Supabase (PostgreSQL + Storage)
-    |-- salons テーブル          … 施設登録データ
-    |-- job_seekers テーブル     … 求職者登録データ
-    |-- contacts テーブル        … お問い合わせデータ
-    |-- carelink-uploads バケット … 施設写真（Public read）
+    |-- [LP側テーブル]
+    |   |-- salons                    … 施設登録データ
+    |   |-- job_seekers               … 求職者登録データ
+    |   |-- contacts                  … お問い合わせデータ
+    |   |-- carelink-uploads バケット  … 施設写真（Public read）
+    |
+    |-- [検索側テーブル]
+    |   |-- facility_profiles         … 施設公開データ（検索・詳細表示）
+    |   |-- facility_menus            … メニュー（カテゴリ・価格・時間）
+    |   |-- facility_photos           … 写真（ソート順付き）
+    |   |-- facility_reviews          … 口コミ（星評価 + コメント）
+    |   |-- facility_inquiries        … 施設宛お問い合わせ
+    |
+    |-- [トリガー]
+    |   |-- update_facility_rating()  … reviews INSERT/UPDATE/DELETE時にrating_avg/countを自動再計算
 
 外部サービス:
     |-- Slack Incoming Webhook   … フォーム送信通知（管理者へ）
@@ -159,12 +184,15 @@ Supabase (PostgreSQL + Storage)
     |-- Vercel Analytics         … Web Vitals
 ```
 
-### 重要な設計ポイント
+### 2.2 重要な設計ポイント
 
 - **管理画面なし**: 登録データの確認・管理はSupabase Dashboardで直接行う
 - **クライアント側INSERT**: Supabase anon keyでクライアントから直接DBに書き込む（RLSでINSERTのみ許可）
 - **通知は補助機能**: Slack通知失敗でもフォーム送信は成功扱い（DB保存が優先）
-- **全ページStatic**: API Route以外は全てビルド時に静的生成
+- **LP側は全Static**: ビルド時に静的HTML生成（CDN配信）
+- **検索側はSSR/ISR**: search は `force-dynamic`（毎回DB取得）、facility は ISR（1時間キャッシュ）
+- **LayoutSwitch**: `usePathname()` で LP用/検索用のヘッダー・フッターを自動切替
+- **Supabaseクライアント2種**: クライアント用 (`supabase.ts`) とサーバー用 (`supabase-server.ts`)
 
 ---
 
@@ -173,59 +201,104 @@ Supabase (PostgreSQL + Storage)
 ```
 ~/Projects/carelink/
 ├── docs/
-│   └── MANUAL.md                 … このマニュアル
+│   └── MANUAL.md                     … このマニュアル
+├── supabase/
+│   └── migrations/
+│       └── 20260322_reviews_inquiries.sql  … 口コミ・問い合わせテーブル
 ├── public/
-│   ├── favicon.svg               … ファビコン
-│   ├── apple-touch-icon.png      … Apple Touch Icon
-│   └── og-image.png              … OGP画像（1200x630）
+│   ├── favicon.svg                   … ファビコン
+│   ├── apple-touch-icon.png          … Apple Touch Icon
+│   └── og-image.png                  … OGP画像（1200x630）
 ├── src/
 │   ├── app/
-│   │   ├── layout.tsx            … ルートレイアウト（メタデータ・構造化データ・GA4・Clarity）
-│   │   ├── page.tsx              … トップページ（LP）
-│   │   ├── loading.tsx           … スケルトンUI（ローディング）
-│   │   ├── error.tsx             … エラーページ
-│   │   ├── not-found.tsx         … 404ページ
-│   │   ├── globals.css           … グローバルCSS（Tailwindコンポーネント定義）
-│   │   ├── robots.ts             … robots.txt生成
-│   │   ├── sitemap.ts            … sitemap.xml生成
-│   │   ├── salon/
-│   │   │   ├── layout.tsx        … メタデータ・パンくず構造化データ
-│   │   │   └── page.tsx          … 施設掲載登録ページ（3ステップフォーム）
-│   │   ├── jobs/
-│   │   │   ├── layout.tsx        … メタデータ・パンくず構造化データ
-│   │   │   └── page.tsx          … 求職者登録ページ（3ステップフォーム）
-│   │   ├── contact/
-│   │   │   ├── layout.tsx        … メタデータ
-│   │   │   └── page.tsx          … お問い合わせページ
+│   │   ├── layout.tsx                … ルートレイアウト（メタデータ・構造化データ・GA4・Clarity）
+│   │   ├── page.tsx                  … トップページ（LP）
+│   │   ├── loading.tsx               … ルートスケルトンUI
+│   │   ├── error.tsx                 … ルートエラーページ
+│   │   ├── not-found.tsx             … ルート404ページ（robots noindex）
+│   │   ├── globals.css               … グローバルCSS（Tailwindコンポーネント定義）
+│   │   ├── robots.ts                 … robots.txt生成
+│   │   ├── sitemap.ts                … 動的sitemap.xml生成（DB連携）
+│   │   │
+│   │   ├── search/                   … 【検索サイト】施設検索
+│   │   │   ├── page.tsx              … 検索結果ページ（force-dynamic）
+│   │   │   ├── layout.tsx            … メタデータ
+│   │   │   ├── loading.tsx           … 検索スケルトンUI
+│   │   │   └── error.tsx             … 検索エラーページ
+│   │   │
+│   │   ├── facility/                 … 【検索サイト】施設詳細
+│   │   │   └── [slug]/
+│   │   │       ├── page.tsx          … 施設詳細ページ（ISR: 1時間）
+│   │   │       ├── loading.tsx       … 詳細スケルトンUI
+│   │   │       ├── not-found.tsx     … 施設404ページ（robots noindex）
+│   │   │       └── error.tsx         … 施設エラーページ
+│   │   │
+│   │   ├── salon/                    … 【LP】施設掲載登録
+│   │   │   ├── page.tsx              … 3ステップフォーム
+│   │   │   └── layout.tsx            … メタデータ・パンくず構造化データ
+│   │   ├── jobs/                     … 【LP】求職者登録
+│   │   │   ├── page.tsx              … 3ステップフォーム
+│   │   │   └── layout.tsx            … メタデータ・パンくず構造化データ
+│   │   ├── contact/                  … 【LP】お問い合わせ
+│   │   │   ├── page.tsx
+│   │   │   └── layout.tsx
 │   │   ├── privacy/
-│   │   │   └── page.tsx          … プライバシーポリシー
+│   │   │   └── page.tsx              … プライバシーポリシー
 │   │   ├── terms/
-│   │   │   └── page.tsx          … 利用規約
+│   │   │   └── page.tsx              … 利用規約
 │   │   └── api/
 │   │       └── notify/
-│   │           └── route.ts      … Slack通知 API Route（レート制限付き）
+│   │           └── route.ts          … Slack通知API（Zod検証・レート制限付き）
+│   │
 │   ├── components/
-│   │   ├── Header.tsx            … ヘッダー（レスポンシブ・CTA付き）
-│   │   ├── Footer.tsx            … フッター（運営会社情報付き）
-│   │   ├── FadeIn.tsx            … スクロールフェードインアニメーション
-│   │   ├── FAQ.tsx               … FAQアコーディオン
-│   │   ├── StepIndicator.tsx     … フォームステップインジケーター
-│   │   ├── PhotoUpload.tsx       … 写真アップロード（プレビュー・バリデーション付き）
-│   │   ├── ConfirmDialog.tsx     … 確認ダイアログ（a11y対応）
-│   │   ├── Spinner.tsx           … ローディングスピナー
-│   │   └── Toast.tsx             … トースト通知
+│   │   ├── LayoutSwitch.tsx          … LP/検索のヘッダー・フッター自動切替
+│   │   ├── ConfirmDialog.tsx         … 確認ダイアログ（フォーカストラップ付き）
+│   │   ├── Toast.tsx                 … トースト通知（role="alert"）
+│   │   ├── Header.tsx                … LP用ヘッダー
+│   │   ├── Footer.tsx                … LP用フッター
+│   │   ├── FadeIn.tsx                … スクロールフェードインアニメーション
+│   │   ├── FAQ.tsx                   … FAQアコーディオン
+│   │   ├── StepIndicator.tsx         … フォームステップインジケーター
+│   │   ├── PhotoUpload.tsx           … 写真アップロード（プレビュー付き）
+│   │   ├── Spinner.tsx               … ローディングスピナー
+│   │   │
+│   │   ├── search/                   … 【検索サイト用コンポーネント】
+│   │   │   ├── SearchHeader.tsx      … 検索用スティッキーヘッダー（業種ナビ）
+│   │   │   ├── SearchFooter.tsx      … 検索用ダークフッター
+│   │   │   ├── SearchBar.tsx         … 検索フォーム（キーワード/業種/エリア）
+│   │   │   ├── FacilityCard.tsx      … 施設カード（画像/評価/所在地）
+│   │   │   └── Pagination.tsx        … ページネーション（省略記号付き）
+│   │   │
+│   │   └── facility/                 … 【施設詳細用コンポーネント】
+│   │       ├── PhotoGallery.tsx      … 写真ギャラリー（メイン+サムネイル）
+│   │       ├── FacilityHeader.tsx    … 施設名・業種バッジ・評価表示
+│   │       ├── TabNavigation.tsx     … スティッキータブ（Top/Menu/口コミ/Access）
+│   │       ├── MenuList.tsx          … カテゴリ別メニュー一覧
+│   │       ├── AccessInfo.tsx        … アクセス・営業時間・Google Map
+│   │       ├── ReviewTab.tsx         … 口コミタブ（一覧+評価グラフ+投稿フォーム）
+│   │       ├── ReviewList.tsx        … 口コミカード一覧
+│   │       ├── ReviewForm.tsx        … 口コミ投稿フォーム
+│   │       ├── InquiryForm.tsx       … 施設お問い合わせフォーム
+│   │       ├── StarRating.tsx        … 星評価コンポーネント（入力/表示兼用）
+│   │       └── StickyBookingBar.tsx  … 固定下部バー（電話/お問い合わせ）
+│   │
 │   ├── lib/
-│   │   ├── supabase.ts           … Supabaseクライアント初期化
-│   │   └── validations.ts        … Zodスキーマ・バリデーション・選択肢定義
+│   │   ├── supabase.ts              … クライアント用Supabaseインスタンス
+│   │   ├── supabase-server.ts       … サーバー用Supabaseクライアント
+│   │   ├── facilities.ts            … 施設DBクエリ（検索/詳細/メニュー/写真/口コミ）
+│   │   ├── constants.ts             … 都道府県・業種・特徴・曜日定数
+│   │   └── validations.ts           … LP用Zodスキーマ・バリデーション
+│   │
 │   └── types/
-│       └── index.ts              … 型定義
-├── .env.example                  … 環境変数テンプレート
-├── next.config.mjs               … Next.js設定（セキュリティヘッダー・画像最適化）
-├── tailwind.config.ts            … Tailwind設定
-├── tsconfig.json                 … TypeScript設定
-├── postcss.config.mjs            … PostCSS設定
-├── package.json                  … 依存関係
-└── .eslintrc.json                … ESLint設定
+│       └── index.ts                 … 全型定義
+│
+├── .env.example                     … 環境変数テンプレート
+├── next.config.mjs                  … Next.js設定（セキュリティヘッダー・画像最適化）
+├── tailwind.config.ts               … Tailwind設定
+├── tsconfig.json                    … TypeScript設定
+├── postcss.config.mjs               … PostCSS設定
+├── package.json                     … 依存関係
+└── .eslintrc.json                   … ESLint設定
 ```
 
 ---
@@ -238,7 +311,7 @@ Supabase (PostgreSQL + Storage)
 |------|------|:----:|---------|---------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL | ✅ | クライアント | Vercel + .env.local |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | ✅ | クライアント | Vercel + .env.local |
-| `NEXT_PUBLIC_BASE_URL` | 本番URL（metadataBase・sitemap用） | - | クライアント | Vercel + .env.local |
+| `NEXT_PUBLIC_BASE_URL` | 本番URL（metadataBase・sitemap・canonical用） | - | クライアント | Vercel + .env.local |
 | `NEXT_PUBLIC_GA_ID` | Google Analytics 4 測定ID | - | クライアント | Vercel のみ |
 | `NEXT_PUBLIC_CLARITY_ID` | Microsoft Clarity プロジェクトID | - | クライアント | Vercel のみ |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | - | サーバーのみ | Vercel + .env.local |
@@ -250,7 +323,7 @@ Supabase (PostgreSQL + Storage)
 
 ```bash
 # 1. リポジトリクローン
-git clone https://github.com/eyelashsalon-halgroup/carelink.git
+git clone https://github.com/jimuin0/carelink.git
 cd carelink
 
 # 2. Node.jsバージョン確認（v20推奨）
@@ -275,7 +348,7 @@ npm run dev
 NEXT_PUBLIC_SUPABASE_URL=https://xzafxiupbflvgbarrihe.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
 
-# 本番URL（省略時: https://carelink.jp）
+# 本番URL（省略時: https://carelink-ruddy-psi.vercel.app）
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
 
 # Slack通知（省略時: 通知なし・500レスポンス）
@@ -292,13 +365,17 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/REDACTED
 
 ### 5.1 デプロイ方法
 
+**GitHub連携で自動デプロイ**が設定済み。`git push origin main` するだけで自動的にビルド・デプロイされる。
+
 ```bash
-# Vercel CLI で本番デプロイ
-npx vercel --prod
+# 通常の開発フロー（pushで自動デプロイ）
+git add <変更ファイル>
+git commit -m "変更内容"
+git push origin main
+# → Vercelが自動検知してビルド・デプロイ
 ```
 
-> **注意**: GitHub連携での自動デプロイは組織権限の制約により未設定。手動CLI (`vercel --prod`) でデプロイ。
-> `git push` しただけでは本番に反映されない。
+> 手動デプロイが必要な場合: `npx vercel --prod`
 
 ### 5.2 Vercel設定
 
@@ -307,6 +384,7 @@ npx vercel --prod
 | プロジェクト名 | `carelink` |
 | プロジェクトID | `prj_bckwxIcEfm4bcQ3k4dVdPmWez3aB` |
 | 組織ID | `team_FxqzqrTMTrJeIfpVf2vYfqkX` |
+| GitHub連携 | `jimuin0/carelink` → main ブランチ自動デプロイ |
 | フレームワーク | Next.js（自動検出） |
 | ビルドコマンド | `next build`（デフォルト） |
 | 出力ディレクトリ | `.next`（デフォルト） |
@@ -323,8 +401,6 @@ vercel env add NEXT_PUBLIC_GA_ID
 vercel env add NEXT_PUBLIC_CLARITY_ID
 ```
 
-> Vercel Dashboard → Settings → Environment Variables からも設定可能
-
 ### 5.4 カスタムドメイン設定（未実施）
 
 ```bash
@@ -336,30 +412,24 @@ vercel domains add carelink.jp
 # NEXT_PUBLIC_BASE_URL=https://carelink.jp
 ```
 
-### 5.5 デプロイ手順（完全版）
-
-```bash
-# 1. ローカルで動作確認
-npm run dev
-
-# 2. ビルドチェック（エラーがないことを確認）
-npm run build
-
-# 3. コミット・プッシュ
-git add <変更ファイル>
-git commit -m "変更内容"
-git push origin main
-
-# 4. 本番デプロイ
-npx vercel --prod
-# → Aliased URL が本番URL
-```
-
 ---
 
 ## 6. DB設計（Supabase）
 
-### 6.1 テーブル作成SQL（DDL）
+### 6.1 テーブル一覧
+
+| テーブル | 用途 | サイト |
+|---------|------|--------|
+| `salons` | 施設掲載登録データ | LP |
+| `job_seekers` | 求職者登録データ | LP |
+| `contacts` | LP問い合わせデータ | LP |
+| `facility_profiles` | 施設公開プロフィール（検索・詳細表示） | 検索 |
+| `facility_menus` | 施設メニュー（カテゴリ・価格・時間） | 検索 |
+| `facility_photos` | 施設写真（ソート順付き） | 検索 |
+| `facility_reviews` | 口コミ（星評価+コメント） | 検索 |
+| `facility_inquiries` | 施設宛お問い合わせ | 検索 |
+
+### 6.2 LP側テーブル（DDL）
 
 #### salons テーブル
 
@@ -384,7 +454,6 @@ CREATE TABLE salons (
   desired_start_date TEXT
 );
 
--- RLS有効化 + INSERT許可
 ALTER TABLE salons ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow anonymous insert" ON salons FOR INSERT WITH CHECK (true);
 ```
@@ -435,42 +504,172 @@ ALTER TABLE contacts ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow anonymous insert" ON contacts FOR INSERT WITH CHECK (true);
 ```
 
-### 6.2 RLS（Row Level Security）
+### 6.3 検索側テーブル（DDL）
 
-全テーブルで **INSERT のみ許可**（anon ロール）。SELECT / UPDATE / DELETE は anon からは不可。
-
-| 操作 | anon ロール | service_role | Dashboard |
-|------|:----------:|:-----------:|:---------:|
-| INSERT | ✅ | ✅ | ✅ |
-| SELECT | ❌ | ✅ | ✅ |
-| UPDATE | ❌ | ✅ | ✅ |
-| DELETE | ❌ | ✅ | ✅ |
-
-> 登録データの閲覧・編集・削除は Supabase Dashboard の Table Editor から行う。
-
-### 6.3 Storage（写真アップロード）
-
-#### バケット作成手順
-
-1. Supabase Dashboard → Storage → New Bucket
-2. バケット名: `carelink-uploads`
-3. Public bucket: **ON**（公開読み取り）
-4. File size limit: 10MB
-5. Allowed MIME types: `image/jpeg, image/png, image/webp, image/gif`
-
-#### Storage ポリシー設定
+#### facility_profiles テーブル
 
 ```sql
--- 誰でもアップロード可能
-CREATE POLICY "Allow public upload"
-ON storage.objects FOR INSERT
-WITH CHECK (bucket_id = 'carelink-uploads');
+CREATE TABLE facility_profiles (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW() NOT NULL,
+  name TEXT NOT NULL,
+  slug TEXT UNIQUE NOT NULL,
+  business_type TEXT NOT NULL,
+  catch_copy TEXT,
+  description TEXT,
+  prefecture TEXT,
+  city TEXT,
+  address TEXT,
+  building TEXT,
+  phone TEXT,
+  website_url TEXT,
+  access_info TEXT,
+  business_hours JSONB,          -- {"mon": {"open":"10:00","close":"19:00"}, "tue": null, ...}
+  regular_holiday TEXT,
+  features TEXT[],                -- ["駐車場あり", "個室あり", "WiFi完備", ...]
+  seat_count INTEGER,
+  staff_count INTEGER,
+  has_parking BOOLEAN DEFAULT false,
+  accepts_credit_card BOOLEAN DEFAULT false,
+  main_photo_url TEXT,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
+  rating_avg NUMERIC(2,1) DEFAULT 0,   -- トリガーで自動計算
+  rating_count INTEGER DEFAULT 0,       -- トリガーで自動計算
+  status TEXT DEFAULT 'published' CHECK (status IN ('draft','published','suspended')),
+  CONSTRAINT valid_rating CHECK (rating_avg >= 0 AND rating_avg <= 5)
+);
 
--- 誰でも閲覧可能
-CREATE POLICY "Allow public read"
-ON storage.objects FOR SELECT
-USING (bucket_id = 'carelink-uploads');
+ALTER TABLE facility_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read" ON facility_profiles FOR SELECT USING (status = 'published');
 ```
+
+#### facility_menus テーブル
+
+```sql
+CREATE TABLE facility_menus (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  facility_id UUID REFERENCES facility_profiles(id) ON DELETE CASCADE NOT NULL,
+  category TEXT,
+  name TEXT NOT NULL,
+  description TEXT,
+  price INTEGER,
+  price_note TEXT,              -- "要相談" など自由テキスト
+  duration_minutes INTEGER,
+  is_featured BOOLEAN DEFAULT false,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE facility_menus ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read" ON facility_menus FOR SELECT USING (true);
+```
+
+#### facility_photos テーブル
+
+```sql
+CREATE TABLE facility_photos (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  facility_id UUID REFERENCES facility_profiles(id) ON DELETE CASCADE NOT NULL,
+  url TEXT NOT NULL,
+  alt_text TEXT,
+  photo_type TEXT DEFAULT 'interior',  -- interior / exterior / menu / staff / other
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE facility_photos ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read" ON facility_photos FOR SELECT USING (true);
+```
+
+#### facility_reviews テーブル
+
+```sql
+CREATE TABLE facility_reviews (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  facility_id UUID REFERENCES facility_profiles(id) ON DELETE CASCADE NOT NULL,
+  reviewer_name TEXT NOT NULL,
+  rating INTEGER NOT NULL CHECK (rating >= 1 AND rating <= 5),
+  comment TEXT,
+  status TEXT DEFAULT 'published' CHECK (status IN ('published','hidden')),
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE facility_reviews ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read published" ON facility_reviews FOR SELECT USING (status = 'published');
+CREATE POLICY "Allow anonymous insert" ON facility_reviews FOR INSERT WITH CHECK (true);
+```
+
+#### facility_inquiries テーブル
+
+```sql
+CREATE TABLE facility_inquiries (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  facility_id UUID REFERENCES facility_profiles(id) ON DELETE CASCADE NOT NULL,
+  facility_name TEXT,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT,
+  message TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+ALTER TABLE facility_inquiries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow anonymous insert" ON facility_inquiries FOR INSERT WITH CHECK (true);
+```
+
+### 6.4 トリガー（口コミ→評価自動更新）
+
+```sql
+CREATE OR REPLACE FUNCTION update_facility_rating()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE facility_profiles SET
+    rating_avg = COALESCE(
+      (SELECT ROUND(AVG(rating)::numeric, 1) FROM facility_reviews
+       WHERE facility_id = COALESCE(NEW.facility_id, OLD.facility_id)
+       AND status = 'published'), 0),
+    rating_count = COALESCE(
+      (SELECT COUNT(*) FROM facility_reviews
+       WHERE facility_id = COALESCE(NEW.facility_id, OLD.facility_id)
+       AND status = 'published'), 0),
+    updated_at = NOW()
+  WHERE id = COALESCE(NEW.facility_id, OLD.facility_id);
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trigger_update_facility_rating
+AFTER INSERT OR UPDATE OR DELETE ON facility_reviews
+FOR EACH ROW EXECUTE FUNCTION update_facility_rating();
+```
+
+> 口コミのINSERT/UPDATE/DELETE時に `facility_profiles.rating_avg` と `rating_count` を自動再計算。
+
+### 6.5 RLS（Row Level Security）まとめ
+
+| テーブル | anon SELECT | anon INSERT | 条件 |
+|---------|:----------:|:----------:|------|
+| salons | ❌ | ✅ | LP登録のみ |
+| job_seekers | ❌ | ✅ | LP登録のみ |
+| contacts | ❌ | ✅ | LP問い合わせのみ |
+| facility_profiles | ✅ | ❌ | status='published'のみ読み取り可 |
+| facility_menus | ✅ | ❌ | 全件読み取り可 |
+| facility_photos | ✅ | ❌ | 全件読み取り可 |
+| facility_reviews | ✅ | ✅ | SELECT: status='published'のみ / INSERT: 誰でも投稿可 |
+| facility_inquiries | ❌ | ✅ | 投稿のみ（閲覧はDashboard） |
+
+### 6.6 Storage（写真アップロード）
+
+#### バケット設定
+
+| 項目 | 値 |
+|------|-----|
+| バケット名 | `carelink-uploads` |
+| 公開設定 | Public read |
+| サイズ制限 | 10MB |
+| 対応形式 | JPEG, PNG, WebP, GIF |
 
 #### ファイルパス形式
 
@@ -478,122 +677,76 @@ USING (bucket_id = 'carelink-uploads');
 carelink-uploads/salons/{uuid}/photo.{ext}
 ```
 
-- `{uuid}`: `crypto.randomUUID()` で生成
-- `{ext}`: アップロードファイルの拡張子（jpg, png, webp, gif）
+### 6.7 登録データの確認方法
 
-#### 写真アップロードの制約
+管理画面がないため、登録データは以下の方法で確認:
 
-| 項目 | 値 |
-|------|-----|
-| 対応形式 | JPEG, PNG, WebP, GIF |
-| 最大サイズ | 10MB |
-| プレビュー | FileReaderでクライアント側プレビュー（data URL） |
-| 削除 | プレビュー上の×ボタンで削除可能 |
-| ドラッグ&ドロップ | 非対応（クリック選択のみ） |
-
-### 6.4 登録データの確認方法
-
-このシステムには管理画面がないため、登録データは以下の方法で確認する:
-
-1. **Supabase Dashboard（推奨）**
-   ```
-   https://supabase.com/dashboard/project/xzafxiupbflvgbarrihe
-   → Table Editor → salons / job_seekers / contacts
-   ```
-   - フィルター・ソート・検索が可能
-   - CSVエクスポート可能
-   - 行のクリックで詳細表示・編集・削除
-
-2. **Slack通知（リアルタイム）**
-   - フォーム送信のたびにSlackチャンネルに通知
-   - 通知内容は要約（全フィールドは含まない）
-   - 詳細はSupabase Dashboardで確認
-
-3. **Supabase SQL Editor（集計・分析）**
-   ```sql
-   -- 今日の施設登録数
-   SELECT COUNT(*) FROM salons WHERE created_at::date = CURRENT_DATE;
-
-   -- 全求職者一覧（新しい順）
-   SELECT * FROM job_seekers ORDER BY created_at DESC;
-
-   -- 業種別の登録数
-   SELECT business_type, COUNT(*) FROM salons GROUP BY business_type;
-   ```
+1. **Supabase Dashboard（推奨）**: `https://supabase.com/dashboard/project/xzafxiupbflvgbarrihe` → Table Editor
+2. **Slack通知（リアルタイム）**: フォーム送信のたびに通知
+3. **SQL Editor（集計）**: Supabase Dashboard → SQL Editor
 
 ---
 
 ## 7. 業務フロー（全体像）
 
-### 7.1 施設掲載登録フロー
+### 7.1 施設掲載登録フロー（LP: /salon）
 
 ```
 【顧客】/salon にアクセス
-  │
-  ├─ Step 1: 基本情報入力（施設名・業種・代表者・担当者・メール・電話）
-  ├─ Step 2: 詳細情報入力（郵便番号・住所・営業時間・定休日・席数・スタッフ数）
-  ├─ Step 3: PR情報入力（PR文・写真・希望開始日）
-  │
-  ├─ プライバシーポリシー・利用規約に同意
-  ├─ 「登録する」ボタン → 確認ダイアログ
-  │
-  ├─ クライアント処理:
-  │   ├─ 写真ファイル → Supabase Storage アップロード → photo_url取得
-  │   ├─ フォームデータ + photo_url → Supabase salons テーブル INSERT
-  │   └─ POST /api/notify → Slack通知（失敗しても無視）
-  │
-  └─ 完了画面表示: 「担当者より2営業日以内にご連絡いたします。」
+  ├─ Step 1: 基本情報（施設名・業種・代表者・担当者・メール・電話）
+  ├─ Step 2: 詳細情報（郵便番号・住所・営業時間・定休日・席数・スタッフ数）
+  ├─ Step 3: PR情報（PR文・写真・希望開始日）
+  ├─ 同意チェック → 確認ダイアログ
+  ├─ Supabase INSERT + Storage upload + Slack通知
+  └─ 完了画面: 「担当者より2営業日以内にご連絡いたします。」
 
 【管理者】
-  ├─ Slack通知で登録を認知（施設名・業種・代表者・電話・メール）
-  ├─ Supabase Dashboard で詳細データを確認
-  └─ 2営業日以内に電話またはメールで連絡
+  ├─ Slack通知で認知 → Supabase Dashboardで詳細確認
+  └─ 2営業日以内に連絡
 ```
 
-### 7.2 求職者登録フロー
+### 7.2 求職者登録フロー（LP: /jobs）
 
 ```
 【求職者】/jobs にアクセス
-  │
-  ├─ Step 1: 基本情報入力（氏名・フリガナ・生年月日・性別・電話・メール・住所）
-  ├─ Step 2: 経歴入力（職種・資格・経験年数・学歴・前職）
-  ├─ Step 3: 希望条件入力（雇用形態・勤務地・年収・自己PR）
-  │
-  ├─ プライバシーポリシー・利用規約に同意
-  ├─ 「登録する」ボタン → 確認ダイアログ
-  │
-  ├─ クライアント処理:
-  │   ├─ フォームデータ → Supabase job_seekers テーブル INSERT
-  │   └─ POST /api/notify → Slack通知
-  │
-  └─ 完了画面表示
+  ├─ Step 1: 基本情報（氏名・フリガナ・電話・メール等）
+  ├─ Step 2: 経歴（職種・資格・経験年数等）
+  ├─ Step 3: 希望条件（雇用形態・勤務地・年収・自己PR）
+  ├─ 同意チェック → 確認ダイアログ
+  ├─ Supabase INSERT + Slack通知
+  └─ 完了画面
 
 【管理者】
-  ├─ Slack通知で登録を認知（氏名・職種・電話・メール）
-  └─ Supabase Dashboard で詳細データを確認・対応
+  └─ Supabase Dashboardで確認・対応
 ```
 
-### 7.3 お問い合わせフロー
+### 7.3 施設検索フロー（検索: /search）
 
 ```
-【ユーザー】/contact にアクセス
-  │
-  ├─ 入力（名前・メール・電話・種別・内容）
-  ├─ プライバシーポリシーに同意
-  ├─ 「送信する」ボタン → 確認ダイアログ
-  │
-  ├─ クライアント処理:
-  │   ├─ Supabase contacts テーブル INSERT
-  │   └─ POST /api/notify → Slack通知
-  │
-  └─ 完了画面: 「2営業日以内にご返信いたします。」
+【ユーザー】/search にアクセス
+  ├─ キーワード・業種・エリアで検索
+  ├─ 並び替え（新着順 / 評価順）
+  ├─ 施設カード一覧（20件/ページ）
+  ├─ ページネーション
+  └─ カードクリック → /facility/[slug] 施設詳細ページ
+```
+
+### 7.4 施設詳細フロー（検索: /facility/[slug]）
+
+```
+【ユーザー】/facility/[slug] にアクセス
+  ├─ パンくずナビ: CareLink > 施設名
+  ├─ 写真ギャラリー → タブ切替（Top / メニュー / 口コミ / アクセス）
+  ├─ 口コミ投稿: 名前・星評価・コメント → 確認ダイアログ → Supabase INSERT
+  ├─ お問い合わせフォーム: 名前・メール・電話・メッセージ → 確認ダイアログ → Supabase INSERT + Slack通知
+  └─ StickyBookingBar: 電話 / お問い合わせ（#contact-sectionにスクロール）
 
 【管理者】
-  ├─ Slack通知で問い合わせを認知（名前・種別・メール・内容）
-  └─ 2営業日以内にメールで返信
+  ├─ 口コミ: Supabase Dashboardで status を published/hidden で管理
+  └─ 問い合わせ: facility_inquiries テーブルで確認
 ```
 
-### 7.4 Slack通知メッセージ例
+### 7.5 Slack通知メッセージ例
 
 **施設掲載の新規登録:**
 ```
@@ -605,22 +758,14 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 > *メール:* salon@example.com
 ```
 
-**求職者の新規登録:**
+**施設へのお問い合わせ（検索サイト）:**
 ```
-:bust_in_silhouette: *求職者の新規登録*
-> *氏名:* 佐藤 花子
-> *職種:* アイリスト・美容師
-> *電話:* 080-9876-5432
+:envelope: *施設へのお問い合わせ*
+> *施設名:* HAL eyelash 堺店
+> *お名前:* 佐藤 花子
 > *メール:* hanako@example.com
-```
-
-**お問い合わせ:**
-```
-:envelope: *お問い合わせ*
-> *お名前:* 田中 一郎
-> *種別:* 掲載について
-> *メール:* tanaka@example.com
-> *内容:* 掲載の詳細について質問があります。
+> *電話:* 080-1234-5678
+> *内容:* 予約について質問があります。
 ```
 
 ---
@@ -629,63 +774,74 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 ### 8.1 ページ一覧
 
-| パス | ファイル | レンダリング | 説明 |
-|------|---------|:----------:|------|
-| `/` | `page.tsx` | Static | トップページ（LP） |
-| `/salon` | `salon/page.tsx` | Static | 施設掲載登録 |
-| `/jobs` | `jobs/page.tsx` | Static | 求職者登録 |
-| `/contact` | `contact/page.tsx` | Static | お問い合わせ |
-| `/privacy` | `privacy/page.tsx` | Static | プライバシーポリシー |
-| `/terms` | `terms/page.tsx` | Static | 利用規約 |
-| `/api/notify` | `api/notify/route.ts` | Dynamic | Slack通知API（POST） |
-| `/sitemap.xml` | `sitemap.ts` | Static | サイトマップ |
-| `/robots.txt` | `robots.ts` | Static | robots.txt |
+| パス | ファイル | レンダリング | サイト | 説明 |
+|------|---------|:----------:|:------:|------|
+| `/` | `page.tsx` | Static | LP | トップページ |
+| `/salon` | `salon/page.tsx` | Static | LP | 施設掲載登録 |
+| `/jobs` | `jobs/page.tsx` | Static | LP | 求職者登録 |
+| `/contact` | `contact/page.tsx` | Static | LP | お問い合わせ |
+| `/privacy` | `privacy/page.tsx` | Static | 共通 | プライバシーポリシー |
+| `/terms` | `terms/page.tsx` | Static | 共通 | 利用規約 |
+| `/search` | `search/page.tsx` | Dynamic | 検索 | 施設検索（force-dynamic） |
+| `/facility/[slug]` | `facility/[slug]/page.tsx` | ISR(1h) | 検索 | 施設詳細 |
+| `/api/notify` | `api/notify/route.ts` | Dynamic | 共通 | Slack通知API（POST） |
+| `/sitemap.xml` | `sitemap.ts` | Dynamic | 共通 | 動的サイトマップ |
+| `/robots.txt` | `robots.ts` | Static | 共通 | robots.txt |
 
-> Static = ビルド時に静的HTML生成（CDN配信）。Dynamic = リクエストごとにサーバー実行。
+> **Static** = ビルド時に静的HTML生成（CDN配信）
+> **Dynamic** = リクエストごとにサーバー実行
+> **ISR** = Incremental Static Regeneration（キャッシュ + バックグラウンド再生成）
 
 ### 8.2 特殊ページ（エラー・ローディング・404）
 
-| ファイル | 表示タイミング | 内容 |
-|---------|--------------|------|
-| `loading.tsx` | ページ遷移中（React Suspense） | スケルトンUI（ヒーロー + 3カードの灰色パルスアニメーション） |
-| `error.tsx` | ランタイムエラー発生時 | 「エラーが発生しました」+ 「もう一度試す」ボタン（`reset()`で再試行） |
-| `not-found.tsx` | 存在しないURLアクセス時 | 404メッセージ + トップ・施設・求職者ページへのリンク |
+| ファイル | スコープ | 内容 |
+|---------|--------|------|
+| `app/loading.tsx` | ルート | ヒーロー+3カードのスケルトン |
+| `app/error.tsx` | ルート | 「エラーが発生しました」+ リトライ |
+| `app/not-found.tsx` | ルート | 404 + 3つのリンク（robots noindex） |
+| `search/loading.tsx` | 検索 | 検索バー+カードグリッドのスケルトン |
+| `search/error.tsx` | 検索 | 「検索結果を表示できません」+ リトライ |
+| `facility/[slug]/loading.tsx` | 施設詳細 | パンくず+ギャラリー+タブのスケルトン |
+| `facility/[slug]/not-found.tsx` | 施設詳細 | 「施設が見つかりません」（robots noindex） |
+| `facility/[slug]/error.tsx` | 施設詳細 | 「ページを表示できません」+ リトライ |
 
-> `error.tsx` は `'use client'` 必須（Next.js App Router の仕様）。Supabase障害時もこの画面が表示される。
-
-### 8.2 トップページ構成（`/`）
+### 8.3 トップページ構成（`/`）
 
 | セクション | 内容 |
 |-----------|------|
-| Hero | キャッチコピー「採用も、集客も。CareLinkがつなぎます。」+ 施設/求職者CTAボタン |
+| Hero | 「採用も、集客も。CareLinkがつなぎます。」+ 施設/求職者CTA |
 | Numbers | 0円 / 3分 / 5業種+ / 24h |
 | こんな方におすすめ | 施設経営者 / 求職者の2カラムカード |
 | CareLink の特長 | 業界特化 / 業界特化の掲載 / 完全無料 |
-| ご利用の流れ | 無料登録 → 掲載・公開 → スタート（3ステップ） |
-| 安心してご利用いただけます | SSL暗号化 / 個人情報保護 / サポート体制 |
-| よくある質問 | 4問のFAQ（アコーディオン） |
-| CTA | 施設掲載 / 求職者登録ボタン（Skyメインカラー背景） |
+| ご利用の流れ | 3ステップ |
+| 安心してご利用いただけます | SSL / 個人情報保護 / サポート |
+| よくある質問 | 4問FAQ |
+| CTA | 施設掲載 / 求職者登録ボタン |
 
-### 8.3 施設掲載ページ構成（`/salon`）
-
-| セクション | 内容 |
-|-----------|------|
-| Hero | 「あなたの施設を、必要な人に届ける」+ CTAボタン（フォームへスクロール） |
-| CareLink が選ばれる理由 | 完全無料 / 業界特化 / 業界特化の掲載（3カード） |
-| CareLink でできること | プロフィール掲載 / 求人情報掲載 / 専任サポート |
-| ご利用の流れ | 4ステップ（フォーム入力→担当者連絡→掲載開始→集客・採用） |
-| 無料掲載登録フォーム | 3ステップフォーム（基本→詳細→PR） |
-| よくある質問 | 5問のFAQ |
-
-### 8.4 求職者ページ構成（`/jobs`）
+### 8.4 検索ページ構成（`/search`）
 
 | セクション | 内容 |
 |-----------|------|
-| Hero | 「あなたのスキルを、正しく評価してくれる職場へ」+ CTAボタン |
-| CareLink が選ばれる理由 | 完全無料 / 業界特化 / 非公開求人掲載 |
-| ご利用の流れ | 3ステップ（登録→求人を探す→応募） |
-| 求職者登録フォーム | 3ステップフォーム（基本→経歴→希望条件） |
-| よくある質問 | 5問のFAQ |
+| SearchBar | キーワード / 業種セレクト / エリアセレクト / 検索ボタン |
+| 結果ヘッダー | 「○件の施設が見つかりました」+ 並び替え（新着順/評価順） |
+| カードグリッド | FacilityCard × 20件/ページ（2列レスポンシブ） |
+| Pagination | ページネーション（省略記号付き、ARIA対応） |
+| Empty State | 「条件に一致する施設が見つかりませんでした」 |
+
+### 8.5 施設詳細ページ構成（`/facility/[slug]`）
+
+| セクション | コンポーネント | 内容 |
+|-----------|--------------|------|
+| パンくず | `<nav>` | CareLink > 施設名 |
+| 写真 | `PhotoGallery` | メイン画像+サムネイル行+カウンター |
+| ヘッダー | `FacilityHeader` | 業種バッジ・評価・施設名・キャッチコピー |
+| タブ | `TabNavigation` | Top / メニュー / 口コミ(件数) / アクセス |
+| Topタブ | - | 紹介文・おすすめメニュー3件・特徴タグ・基本情報 |
+| メニュータブ | `MenuList` | カテゴリ別メニュー一覧（価格・時間） |
+| 口コミタブ | `ReviewTab` | 評価サマリー+棒グラフ+口コミ一覧+投稿フォーム |
+| アクセスタブ | `AccessInfo` | 住所・営業時間・特徴・Google Map |
+| お問い合わせ | `InquiryForm` | 名前・メール・電話・メッセージ |
+| 固定バー | `StickyBookingBar` | 電話ボタン + お問い合わせボタン |
 
 ---
 
@@ -696,111 +852,63 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | ライブラリ | 用途 |
 |-----------|------|
 | **Zod** | スキーマ定義・バリデーションルール |
-| **React Hook Form** | フォーム状態管理（`mode: 'onTouched'` = 入力離脱時にバリデーション） |
+| **React Hook Form** | フォーム状態管理（`mode: 'onTouched'`） |
 | **@hookform/resolvers** | Zod ↔ React Hook Form 連携 |
 
-### 9.2 施設掲載フォーム（3ステップ）
+### 9.2 LP: 施設掲載フォーム（3ステップ）
 
 **Step 1: 基本情報（全て必須）**
 
-| フィールド | バリデーション | エラーメッセージ |
-|-----------|--------------|----------------|
-| 施設名 | 1文字以上 | 「施設名を入力してください」 |
-| 業種 | セレクト必須 | 「業種を選択してください」 |
-| 代表者名 | 1文字以上 | 「代表者名を入力してください」 |
-| 担当者名 | 1文字以上 | 「担当者名を入力してください」 |
-| メールアドレス | Email形式 | 「正しいメールアドレスを入力してください」 |
-| 電話番号 | `0`始まり数字+ハイフン | 「正しい電話番号を入力してください」 |
+| フィールド | バリデーション |
+|-----------|--------------|
+| 施設名 | 1文字以上 |
+| 業種 | セレクト必須（6業種+その他） |
+| 代表者名 | 1文字以上 |
+| 担当者名 | 1文字以上 |
+| メールアドレス | Email形式 |
+| 電話番号 | `0`始まり数字+ハイフン |
 
-**Step 2: 詳細情報（全て任意）**
+**Step 2: 詳細情報（全て任意）**: 郵便番号（7桁）/ 住所 / 営業時間 / 定休日 / 席数 / スタッフ数
 
-| フィールド | バリデーション | 備考 |
-|-----------|--------------|------|
-| 郵便番号 | 7桁数字 or 3-4形式 | ハイフンなし可 |
-| 住所 | - | - |
-| 営業時間 | - | 例: 10:00〜20:00 |
-| 定休日 | - | 例: 毎週月曜日 |
-| 席数 | 整数 ≥ 0 | - |
-| スタッフ数 | 整数 ≥ 0 | - |
+**Step 3: PR情報（全て任意）**: PR文（500文字以内）/ 施設写真（10MB以下）/ 希望掲載開始日
 
-**Step 3: PR情報（全て任意）**
+### 9.3 LP: 求職者登録フォーム（3ステップ）
 
-| フィールド | バリデーション | 備考 |
-|-----------|--------------|------|
-| PR文 | 500文字以内 | 文字数カウンター付き |
-| 施設写真 | JPEG/PNG/WebP/GIF, 10MB以下 | プレビュー表示 |
-| 希望掲載開始日 | date形式 | - |
+**Step 1**: 氏名(必須) / フリガナ(必須・カタカナ) / 生年月日 / 性別 / 電話(必須) / メール(必須) / 郵便番号 / 住所
+**Step 2**: 職種(必須) / 保有資格(複数選択) / 経験年数 / 学歴 / 前職
+**Step 3**: 希望雇用形態(複数選択) / 希望勤務地 / 希望年収 / 自己PR(1000文字以内)
 
-**業種の選択肢** (`validations.ts`):
-- 美容サロン・アイラッシュ
-- 鍼灸院
-- 整骨院
-- 介護施設・デイサービス
-- 病院・クリニック
-- その他
+### 9.4 LP: お問い合わせフォーム
 
-### 9.3 求職者登録フォーム（3ステップ）
+名前(必須) / メール(必須) / 電話 / 問い合わせ種別(必須) / 内容(必須)
 
-**Step 1: 基本情報**
+### 9.5 検索: 口コミ投稿フォーム（ReviewForm）
 
 | フィールド | 必須 | バリデーション |
 |-----------|:----:|--------------|
-| 氏名 | ✅ | 1文字以上 |
-| フリガナ | ✅ | 全角カタカナ（スペース許可） |
-| 生年月日 | - | date形式 |
-| 性別 | - | 男性/女性/その他/回答しない |
-| 電話番号 | ✅ | 電話番号形式 |
-| メールアドレス | ✅ | Email形式 |
-| 郵便番号 | - | 7桁数字 |
-| 住所 | - | - |
+| ニックネーム | ✅ | 1文字以上、autocomplete="name" |
+| 星評価 | ✅ | 1〜5（StarRatingコンポーネント、aria-labelledby） |
+| コメント | - | 500文字以内 |
 
-**Step 2: 経歴**
+### 9.6 検索: 施設お問い合わせフォーム（InquiryForm）
 
-| フィールド | 必須 | バリデーション |
-|-----------|:----:|--------------|
-| 職種 | ✅ | セレクト必須 |
-| 保有資格 | - | チェックボックス複数選択 |
-| 経験年数 | - | セレクト |
-| 学歴 | - | - |
-| 前職 | - | - |
+| フィールド | 必須 | バリデーション | autocomplete |
+|-----------|:----:|--------------|-------------|
+| お名前 | ✅ | 1文字以上 | name |
+| メールアドレス | ✅ | Email形式 | email |
+| 電話番号 | - | 電話番号形式 | tel |
+| お問い合わせ内容 | ✅ | 1〜1000文字 | - |
 
-**職種の選択肢**: 介護士・ヘルパー / 鍼灸師・柔道整復師 / アイリスト・美容師 / 看護師・准看護師 / その他
+### 9.7 共通UX機能
 
-**資格の選択肢**: 介護福祉士 / ヘルパー2級 / はり師 / きゅう師 / 柔道整復師 / 看護師 / 准看護師 / アイリスト検定 / その他
-
-**Step 3: 希望条件**
-
-| フィールド | 必須 | バリデーション |
-|-----------|:----:|--------------|
-| 希望雇用形態 | - | チェックボックス複数選択 |
-| 希望勤務地 | - | - |
-| 希望年収 | - | - |
-| 自己PR | - | 1000文字以内 |
-
-### 9.4 お問い合わせフォーム
-
-| フィールド | 必須 | バリデーション | エラーメッセージ |
-|-----------|:----:|--------------|----------------|
-| お名前 | ✅ | 1文字以上 | 「お名前を入力してください」 |
-| メールアドレス | ✅ | Email形式 | 「正しいメールアドレスを入力してください」 |
-| 電話番号 | - | 電話番号形式 | 「正しい電話番号を入力してください」 |
-| 問い合わせ種別 | ✅ | セレクト必須 | 「お問い合わせ種別を選択してください」 |
-| 内容 | ✅ | 1文字以上 | 「内容を入力してください」 |
-
-**問い合わせ種別**: 掲載について / 求職について / その他
-
-### 9.5 共通UX機能
-
-| 機能 | 説明 | 対象フォーム |
-|------|------|------------|
-| ステップインジケーター | 現在のステップを色分け表示 | salon, jobs |
-| 確認ダイアログ | 「送信します。よろしいですか？」 | 全フォーム |
-| beforeunload警告 | 入力中にページ離脱で「変更が失われます」警告 | salon, jobs |
-| プライバシーポリシー同意 | チェックしないと送信ボタンが無効化（グレー） | 全フォーム |
-| 送信完了画面 | フォームが消えて完了メッセージ表示 | 全フォーム |
-| 電話番号自動ハイフン | `09012345678` → `090-1234-5678` | salon |
-| エラー表示 | フィールド直下に赤字でエラーメッセージ | 全フォーム |
-| 送信中スピナー | ボタンにスピナー + 「送信中...」表示、二重送信防止 | 全フォーム |
+| 機能 | 説明 | 対象 |
+|------|------|------|
+| 確認ダイアログ | フォーカストラップ・ESCで閉じる | 全フォーム |
+| トースト通知 | role="alert"・4秒後自動消去 | 検索側フォーム |
+| noValidate | ブラウザネイティブバリデーション無効化（Zod優先） | 検索側フォーム |
+| htmlFor/id関連付け | ラベルとinputの明示的紐付け | 検索側フォーム |
+| beforeunload警告 | 入力中のページ離脱警告 | LP側フォーム |
+| 二重送信防止 | 送信中ボタン無効化+スピナー | 全フォーム |
 
 ---
 
@@ -812,10 +920,22 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 
 **エンドポイント**: `POST /api/notify`
 
-**リクエスト形式**:
+**Zodバリデーション**: `z.discriminatedUnion('type', [...])` で5つのペイロードタイプを厳密に検証。
+
+**対応タイプ**:
+
+| type | 用途 | サイト |
+|------|------|--------|
+| `salon` | 施設掲載登録 | LP |
+| `recruit` | 求人掲載登録 | LP |
+| `job_seeker` | 求職者登録 | LP |
+| `contact` | 一般お問い合わせ | LP |
+| `facility_inquiry` | 施設宛お問い合わせ | 検索 |
+
+**リクエスト例**:
 
 ```json
-// 施設掲載
+// 施設掲載（LP）
 {
   "type": "salon",
   "data": {
@@ -827,97 +947,89 @@ Slack Incoming Webhook を使ったフォーム送信通知。
   }
 }
 
-// 求職者
+// 施設お問い合わせ（検索）
 {
-  "type": "job_seeker",
+  "type": "facility_inquiry",
   "data": {
-    "full_name": "佐藤 花子",
-    "job_type": "アイリスト・美容師",
-    "phone": "080-9876-5432",
-    "email": "hanako@example.com"
-  }
-}
-
-// お問い合わせ
-{
-  "type": "contact",
-  "data": {
-    "name": "田中 一郎",
-    "inquiry_type": "掲載について",
-    "email": "tanaka@example.com",
-    "message": "掲載の詳細について質問があります。"
+    "facility_name": "HAL eyelash 堺店",
+    "name": "佐藤 花子",
+    "email": "hanako@example.com",
+    "phone": "080-1234-5678",
+    "message": "予約について質問があります。"
   }
 }
 ```
 
 **レスポンス**:
 
-| ステータス | ボディ | 条件 |
-|-----------|--------|------|
-| `200` | `{"ok": true}` | 正常送信 |
-| `429` | `{"ok": false, "error": "Too many requests"}` | レート制限超過 |
-| `500` | `{"ok": false, "error": "SLACK_WEBHOOK_URL not set"}` | 環境変数未設定 |
-| `500` | `{"ok": false}` | その他エラー |
-
-**レート制限**: IPアドレスごとに 5リクエスト / 60秒（in-memory Map）
+| ステータス | 条件 |
+|-----------|------|
+| `200` | 正常送信 |
+| `400` | Zodバリデーション失敗 |
+| `429` | レート制限超過（IPごとに5回/60秒） |
+| `500` | SLACK_WEBHOOK_URL未設定 or その他エラー |
 
 **セキュリティ対策**:
-- ユーザー入力のSlackエスケープ: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`
-- `export const dynamic = 'force-dynamic'`（サーバーサイド実行を強制、ビルド時実行を防止）
-
-**クライアント側の呼び出しパターン**:
-
-```typescript
-// DB保存成功後に呼び出し（通知失敗は無視）
-fetch('/api/notify', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  signal: AbortSignal.timeout(10000),  // 10秒タイムアウト
-  body: JSON.stringify({ type: 'salon', data: { ... } }),
-}).catch(() => {});  // ← 失敗しても何もしない
-```
-
-> **重要**: 通知は補助機能。DB保存（Supabase INSERT）が成功すればフォーム送信は成功扱い。通知失敗でもユーザーにエラーは表示しない。
+- Zodスキーマ検証（不正ペイロード拒否）
+- Slackエスケープ: `&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`
+- IPベースレート制限（in-memory Map）
+- `force-dynamic`（サーバーサイド実行を強制）
 
 ---
 
 ## 11. コンポーネント設計
 
-### 11.1 共通コンポーネント一覧
+### 11.1 共通コンポーネント
 
-| コンポーネント | ファイル | Props | 説明 |
-|---------------|---------|-------|------|
-| `Header` | `Header.tsx` | なし | スティッキーヘッダー、デスクトップ+モバイルナビ |
-| `Footer` | `Footer.tsx` | なし | 3カラム（ブランド/サービス/その他）+ 運営会社 |
-| `FadeIn` | `FadeIn.tsx` | `delay?: number` | IntersectionObserver ベースのフェードイン |
-| `FAQ` | `FAQ.tsx` | `items: {question, answer}[]` | `<details>` アコーディオン |
-| `StepIndicator` | `StepIndicator.tsx` | `currentStep, totalSteps, labels` | ステップ進行表示 |
-| `PhotoUpload` | `PhotoUpload.tsx` | `onChange, error?` | 写真選択+プレビュー |
-| `ConfirmDialog` | `ConfirmDialog.tsx` | `open, title, message, onConfirm, onCancel` | 確認モーダル |
-| `Spinner` | `Spinner.tsx` | なし | SVGスピナー |
-| `Toast` | `Toast.tsx` | `message, type, onClose` | 通知トースト |
+| コンポーネント | ファイル | 特徴 |
+|---------------|---------|------|
+| `LayoutSwitch` | `LayoutSwitch.tsx` | usePathname()でLP/検索のHeader・Footer自動切替 |
+| `ConfirmDialog` | `ConfirmDialog.tsx` | role="dialog", フォーカストラップ, ESCで閉じる, フォーカス復元 |
+| `Toast` | `Toast.tsx` | role="alert", aria-live="assertive", 4秒自動消去, success/error/info |
+| `Header` | `Header.tsx` | LP用スティッキーヘッダー（半透明backdrop-blur） |
+| `Footer` | `Footer.tsx` | LP用3カラムフッター（運営会社情報付き） |
+| `FadeIn` | `FadeIn.tsx` | IntersectionObserverベースのフェードイン |
+| `FAQ` | `FAQ.tsx` | `<details>`アコーディオン |
+| `StepIndicator` | `StepIndicator.tsx` | マルチステップフォーム進行表示 |
+| `PhotoUpload` | `PhotoUpload.tsx` | 写真選択+プレビュー（10MB制限） |
+| `Spinner` | `Spinner.tsx` | SVGスピナー |
 
-### 11.2 Header
+### 11.2 検索コンポーネント（`components/search/`）
 
-- **スティッキー**: `sticky top-0 z-50` + 半透明 (`bg-white/95 backdrop-blur`)
-- **デスクトップ（640px〜）**: ナビリンク（施設の方 / 求職者の方 / お問い合わせ）+ CTA「無料で掲載する」ボタン
-- **モバイル**: ハンバーガーメニュー（44×44px タッチターゲット）、アニメーション付きスライドダウン
-- メニュークリックで自動閉じる
+| コンポーネント | 説明 |
+|---------------|------|
+| `SearchHeader` | 検索サイト用スティッキーヘッダー。業種ナビ（デスクトップ）+ ハンバーガー（モバイル）。aria-expanded, aria-controls |
+| `SearchFooter` | ダークフッター。業種リンク + Copyright |
+| `SearchBar` | 検索フォーム。keyword(type="search") + 業種select + エリアselect。name属性・aria-label付き |
+| `FacilityCard` | 施設カード。画像（グラデーションplaceholder）+ 業種バッジ + 星評価 + 所在地。line-clamp |
+| `Pagination` | ページネーション。省略記号(...) + aria-current="page" + aria-label |
 
-### 11.3 ConfirmDialog
+### 11.3 施設詳細コンポーネント（`components/facility/`）
 
-- `role="dialog"` / `aria-modal="true"` / `aria-labelledby="confirm-dialog-title"`
-- **ESCキー**で閉じる（`useEffect` + `useCallback` + `keydown` イベント）
-- **オーバーレイ背景クリック**で閉じる
-- 確認ボタン + キャンセルボタン
+| コンポーネント | 説明 |
+|---------------|------|
+| `PhotoGallery` | メイン画像+サムネイル行。写真カウンター("1/5")。エラーフォールバック。lazy loading |
+| `FacilityHeader` | 業種バッジ + 星評価+件数 + 施設名 + キャッチコピー |
+| `TabNavigation` | IntersectionObserverでsticky検出。role="tablist/tab/tabpanel"。aria-selected, aria-controls, id |
+| `MenuList` | カテゴリ別グルーピング。価格/時間/おすすめバッジ。空状態対応 |
+| `AccessInfo` | 基本情報テーブル + 営業時間テーブル(dayOrder) + 特徴タグ + Google Map(iframe) |
+| `ReviewTab` | 評価サマリーカード(平均/件数/棒グラフ) + ReviewList + ReviewForm |
+| `ReviewList` | 口コミカード一覧。アバター + 名前 + 日付(JST) + 星 + コメント |
+| `ReviewForm` | Zod + react-hook-form。StarRating入力。ConfirmDialog + Toast。noValidate, htmlFor/id |
+| `InquiryForm` | 名前/メール/電話/メッセージ。Supabase INSERT + Slack通知。autocomplete属性 |
+| `StarRating` | 入力/表示兼用。readonly時: role="img" + aria-label。入力時: hover:scale-110 + aria-label="X点を選択" |
+| `StickyBookingBar` | 固定下部バー。電話(tel:リンク) + お問い合わせ(#contact-sectionスクロール) |
 
-### 11.4 PhotoUpload
+### 11.4 ConfirmDialog 詳細
 
-- **対応形式**: JPEG, PNG, WebP, GIF（`ACCEPTED_TYPES` 配列で定義）
-- **最大サイズ**: 10MB（`MAX_SIZE` 定数）
-- **プレビュー**: FileReader → data URL → next/image（`unoptimized` でdata URL直接表示）
-- **削除**: ×ボタンでプレビュー消去 + input value リセット
-- **エラー**: 形式不正 / サイズ超過時にフィールド下にエラー表示
+```
+- role="dialog" / aria-modal="true" / aria-labelledby
+- ESCキーで閉じる
+- オーバーレイ背景クリックで閉じる（aria-hidden="true"）
+- フォーカストラップ: Tab/Shift+Tab がダイアログ内で循環
+- 開く時: 最初のボタンに自動フォーカス
+- 閉じる時: 元のフォーカス位置に復元（previousFocusRef）
+```
 
 ---
 
@@ -927,59 +1039,60 @@ fetch('/api/notify', {
 
 | ページ | title | description |
 |--------|-------|-------------|
-| `/` | CareLink &#124; 医療・福祉・美容の採用×集客プラットフォーム | 医療・福祉・美容に特化した採用×集客プラットフォーム。サロン・施設の集客と求職者の転職をサポート |
-| `/salon` | 【無料掲載】医療・福祉・美容の集客サイト | 美容サロン・鍼灸院・整骨院・介護施設の集客に。掲載無料・登録3分で集客開始。業界特化で効率的にお客様を獲得 |
-| `/jobs` | 医療・福祉・美容の転職サイト | 介護士・鍼灸師・アイリスト・看護師の転職に特化。完全無料で登録、業界特化の求人情報をチェック |
-| `/contact` | お問い合わせ | ご質問やご不明点がございましたら、お気軽にお問い合わせください |
-| `/privacy` | プライバシーポリシー | - |
-| `/terms` | 利用規約 | - |
+| `/` | CareLink &#124; 医療・福祉・美容の採用×集客プラットフォーム | 医療・福祉・美容に特化した採用×集客プラットフォーム |
+| `/salon` | 【無料掲載】医療・福祉・美容の集客サイト | 掲載無料・登録3分で集客開始 |
+| `/jobs` | 医療・福祉・美容の転職サイト | 完全無料で登録、業界特化の求人情報 |
+| `/search` | 施設・サロンを探す | 施設検索ページ |
+| `/facility/[slug]` | {施設名} - {業種} | {キャッチコピー} or {紹介文先頭160文字} |
 
 ### 12.2 構造化データ (JSON-LD)
 
 | ページ | Schema.org Type | 内容 |
 |--------|----------------|------|
 | 全ページ（layout.tsx） | `WebSite` | サイト名・URL・説明・publisher |
-| 全ページ（layout.tsx） | `LocalBusiness` | 事業者名・住所（大阪府堺市）・料金帯（無料） |
-| 全ページ（layout.tsx） | `FAQPage` | よくある質問4問（無料？/業種？/いつから？/退会？） |
+| 全ページ（layout.tsx） | `LocalBusiness` | 事業者名・住所（大阪府堺市）・料金帯 |
+| 全ページ（layout.tsx） | `FAQPage` | よくある質問4問 |
 | `/salon`（layout.tsx） | `BreadcrumbList` | トップ → 施設・サロンの方 |
 | `/jobs`（layout.tsx） | `BreadcrumbList` | トップ → 求職者の方 |
+| `/facility/[slug]` | `LocalBusiness` | 施設名・住所・電話・評価・営業時間 |
+| `/facility/[slug]` | `BreadcrumbList` | トップ → 施設名 |
 
 ### 12.3 Canonical URL
 
-各ページに `alternates.canonical` を設定（重複コンテンツ防止）:
-- `/` → `/`
-- `/salon` → `/salon`
-- `/jobs` → `/jobs`
-- `/contact` → `/contact`
+各ページに `alternates.canonical` を設定。施設詳細ページは `{BASE_URL}/facility/{slug}`。
 
-### 12.4 OGP（Open Graph Protocol）
+### 12.4 OGP
 
 | 項目 | 値 |
 |------|-----|
 | og:type | website |
 | og:locale | ja_JP |
 | og:site_name | CareLink |
-| og:image | /og-image.png（1200×630px） |
+| og:image | /og-image.png（LP）/ 施設メイン写真（施設詳細） |
+| twitter:card | summary_large_image（施設詳細のみ） |
 
-各ページに個別の `og:title` / `og:description` を設定。
+### 12.5 sitemap.xml（動的生成）
 
-### 12.5 sitemap.xml
+```typescript
+// src/app/sitemap.ts
+// 静的ページ + 全published施設を動的に生成
+```
 
-| URL | 更新頻度 | 優先度 | lastModified |
-|-----|---------|:------:|:----------:|
-| `/` | weekly | 1.0 | 2026-03-21 |
-| `/salon` | weekly | 0.9 | 2026-03-21 |
-| `/jobs` | weekly | 0.9 | 2026-03-21 |
-| `/contact` | monthly | 0.5 | 2026-03-21 |
-| `/privacy` | monthly | 0.3 | 2026-03-19 |
-| `/terms` | monthly | 0.3 | 2026-03-19 |
+| URL | 頻度 | 優先度 |
+|-----|------|:------:|
+| `/` | weekly | 1.0 |
+| `/search` | daily | 0.9 |
+| `/salon`, `/jobs` | weekly | 0.9 |
+| `/facility/{slug}` | weekly | 0.8（DB全件） |
+| `/contact` | monthly | 0.5 |
+| `/privacy`, `/terms` | monthly | 0.3 |
 
 ### 12.6 robots.txt
 
 ```
 User-agent: *
 Allow: /
-Sitemap: https://carelink.jp/sitemap.xml
+Sitemap: https://carelink-ruddy-psi.vercel.app/sitemap.xml
 ```
 
 ---
@@ -988,365 +1101,338 @@ Sitemap: https://carelink.jp/sitemap.xml
 
 ### 13.1 HTTPセキュリティヘッダー
 
-`next.config.mjs` で全ページ (`/(.*)`) に設定:
+`next.config.mjs` で全ページに設定:
 
 | ヘッダー | 値 | 効果 |
 |---------|-----|------|
 | `X-Content-Type-Options` | `nosniff` | MIMEスニッフィング防止 |
-| `X-Frame-Options` | `DENY` | iframeへの埋め込み禁止（クリックジャッキング防止） |
-| `X-XSS-Protection` | `1; mode=block` | ブラウザXSSフィルター有効化 |
-| `Referrer-Policy` | `strict-origin-when-cross-origin` | 外部サイトへのリファラー情報を制限 |
+| `X-Frame-Options` | `DENY` | iframe埋め込み禁止 |
+| `X-XSS-Protection` | `1; mode=block` | XSSフィルター有効化 |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | リファラー情報制限 |
 
 ### 13.2 データベースセキュリティ
 
-| 対策 | 説明 |
-|------|------|
-| RLS | 全テーブルでINSERTのみ許可。SELECT/UPDATE/DELETEはanon不可 |
-| anon key | クライアントに公開されるが、RLSにより書き込みのみ可能 |
-| Storage | Public readだがアップロード先パスにUUIDを使用 |
+- **RLS**: 全テーブルで適切なポリシー設定（6.5参照）
+- **anon key**: RLSにより操作制限。検索側はSELECTのみ、LP側はINSERTのみ
+- **サーバーサイドクエリ**: 検索・詳細の読み取りは `supabase-server.ts` 経由
 
 ### 13.3 APIセキュリティ
 
-| 対策 | 説明 |
-|------|------|
-| レート制限 | IPごとに5リクエスト/60秒（in-memory Map） |
-| 入力エスケープ | Slack通知の `&` `<` `>` をHTMLエンティティに変換 |
-| タイムアウト | クライアント→API: 10秒（AbortSignal.timeout） |
-| force-dynamic | API Routeをビルド時ではなくリクエスト時に実行 |
+- **Zodスキーマ検証**: 不正ペイロードを400で拒否
+- **レート制限**: IPごとに5リクエスト/60秒（in-memory Map）
+- **入力エスケープ**: Slack通知の `&` `<` `>` をHTMLエンティティに変換
+- **force-dynamic**: ビルド時実行を防止
 
 ### 13.4 フォームセキュリティ
 
-| 対策 | 説明 |
-|------|------|
-| Zodバリデーション | クライアント側でスキーマ検証 |
-| beforeunload | 入力中のページ離脱を警告 |
-| 同意チェック | 未同意時は送信ボタンを無効化（`disabled`） |
-| 二重送信防止 | 送信中はボタンを無効化 + スピナー表示 |
-
-### 13.5 画像最適化
-
-- `next.config.mjs` の `images.formats`: WebP + AVIF 自動変換
-- PhotoUpload のプレビュー: `unoptimized` 使用（data URLはNext.js画像最適化対象外）
+- **Zodバリデーション**: クライアント側でスキーマ検証
+- **noValidate**: ブラウザネイティブバリデーション無効化（Zod優先）
+- **同意チェック**: 未同意時は送信ボタン無効化
+- **二重送信防止**: 送信中ボタン無効化+スピナー
+- **beforeunload**: 入力中のページ離脱警告（LP側）
 
 ---
 
-## 14. アナリティクス
+## 14. アクセシビリティ
 
-### 14.1 対応ツール
+### 14.1 WAI-ARIA対応
+
+| コンポーネント | ARIA属性 |
+|---------------|---------|
+| `TabNavigation` | role="tablist/tab/tabpanel", aria-selected, aria-controls, aria-labelledby, id, tabIndex |
+| `ConfirmDialog` | role="dialog", aria-modal, aria-labelledby, aria-hidden(overlay) |
+| `Toast` | role="alert", aria-live="assertive" |
+| `SearchHeader` | aria-expanded, aria-controls (ハンバーガーメニュー) |
+| `Pagination` | aria-label, aria-current="page" |
+| `StarRating` | readonly: role="img" + aria-label / 入力: aria-label="X点を選択" |
+| `SearchBar` | type="search", name属性, aria-label (select要素) |
+
+### 14.2 キーボード操作
+
+| 操作 | 動作 |
+|------|------|
+| Tab | フォーカス移動（ConfirmDialog内はトラップ） |
+| Shift+Tab | 逆方向フォーカス移動 |
+| Escape | ConfirmDialog/Toast を閉じる |
+| Enter/Space | ボタン・リンクの実行 |
+
+### 14.3 フォーカス管理
+
+- ConfirmDialog: 開く時に最初のボタンに自動フォーカス、閉じる時に元の位置に復元
+- フォーム: htmlFor/id でラベルとinputを明示的に紐付け
+- StarRating: readonly時はtabIndex={-1}でフォーカス除外
+
+---
+
+## 15. アナリティクス
+
+### 15.1 対応ツール
 
 | ツール | 環境変数 | 用途 | 設定状態 |
 |--------|---------|------|---------|
-| Vercel Analytics | 自動 | Web Vitals（LCP, FID, CLS） | 有効 |
+| Vercel Analytics | 自動 | Web Vitals | 有効 |
 | Vercel Speed Insights | 自動 | ページ表示速度 | 有効 |
-| Google Analytics 4 | `NEXT_PUBLIC_GA_ID` | PV・ユーザー数・流入経路 | 未設定 |
-| Microsoft Clarity | `NEXT_PUBLIC_CLARITY_ID` | ヒートマップ・セッション録画 | 未設定 |
-
-### 14.2 読み込み方式
-
-| ツール | 読み込み方式 | 未設定時の動作 |
-|--------|------------|--------------|
-| GA4 | `next/script` `afterInteractive` | `<Script>`タグ自体が出力されない |
-| Clarity | `next/script` `afterInteractive` | 同上 |
-| Vercel Analytics | `<Analytics />` Reactコンポーネント | Vercelデプロイ以外では無効 |
-| Speed Insights | `<SpeedInsights />` Reactコンポーネント | 同上 |
+| Google Analytics 4 | `NEXT_PUBLIC_GA_ID` | PV・流入経路 | 未設定 |
+| Microsoft Clarity | `NEXT_PUBLIC_CLARITY_ID` | ヒートマップ | 未設定 |
 
 > 環境変数未設定時はコード変更不要で自動スキップ。
 
 ---
 
-## 15. デザインシステム
+## 16. デザインシステム
 
-### 15.1 カラーパレット
+### 16.1 カラーパレット
 
 | 用途 | CSS変数 | 値 | Tailwind相当 |
 |------|--------|-----|-------------|
-| Primary | `--primary` | `#0EA5E9` | Sky-500 |
-| Primary Dark | `--primary-dark` | `#0284C7` | Sky-600（ホバー） |
-| Accent | `--accent` | `#F59E0B` | Amber-500 |
-| Background | `--background` | `#ffffff` | White |
-| Foreground | `--foreground` | `#171717` | Neutral-900 |
+| Primary | `--primary` | `#0EA5E9` | sky-500 |
+| Primary Dark | `--primary-dark` | `#0284C7` | sky-600（ホバー） |
+| Accent | `--accent` | `#F59E0B` | amber-500 |
+| Background | `--background` | `#ffffff` | white |
+| Foreground | `--foreground` | `#171717` | neutral-900 |
 
-### 15.2 共通CSSクラス（`globals.css` `@layer components`）
+### 16.2 共通CSSクラス（`globals.css` `@layer components`）
 
 | クラス | 説明 |
 |--------|------|
-| `.btn-primary` | メインボタン。Skyカラー、ホバーでダーク、クリックで95%縮小、disabled時グレー化+cursor禁止 |
-| `.btn-accent` | アクセントボタン。Amberカラー |
+| `.btn-primary` | メインボタン。Sky、ホバーでダーク、クリックで95%縮小、disabled時グレー |
+| `.btn-accent` | アクセントボタン。Amber |
 | `.btn-outline` | アウトラインボタン。Sky枠線+Sky文字 |
-| `.section-container` | セクション共通コンテナ。`max-w-6xl` `px-4 sm:px-6 lg:px-8` `py-16 sm:py-20` |
-| `.section-title` | セクション見出し。`text-2xl sm:text-3xl` 中央揃え `mb-12` |
-| `.form-label` | フォームラベル。`text-sm font-medium text-gray-700` |
-| `.form-input` | フォーム入力。ボーダー、フォーカスリング（Skyカラー）、リングオフセット |
-| `.form-error` | バリデーションエラー。`text-red-500 text-sm` |
-| `.card` | カード。白背景、`rounded-2xl` `shadow-lg`、ホバーで`shadow-xl` |
+| `.section-container` | `max-w-6xl` `px-4 sm:px-6 lg:px-8` `py-16 sm:py-20` |
+| `.section-title` | `text-2xl sm:text-3xl` 中央揃え `mb-12` |
+| `.form-label` | `text-sm font-medium text-gray-700 mb-1` |
+| `.form-input` | ボーダー、フォーカスリング（Sky）、リングオフセット |
+| `.form-error` | `text-red-500 text-sm mt-1` |
+| `.card` | 白背景、`rounded-2xl shadow-lg`、ホバーで`shadow-xl` |
+| `.badge` | `text-xs font-bold px-2.5 py-1 rounded-full` |
+| `.badge-primary` | `bg-sky-100 text-sky-700` |
+| `.facility-card` | 施設カード。`rounded-2xl shadow-md`、ホバーで`shadow-xl` |
+| `.tab-btn` | タブボタン。`text-gray-500 border-b-2 border-transparent` |
+| `.tab-btn-active` | アクティブタブ。`color: var(--primary); border-color: var(--primary)` |
+| `.sticky-bar` | 固定下部バー。`fixed bottom-0 shadow-[...]` |
 
-### 15.3 フォント
+### 16.3 ユーティリティ（`@layer utilities`）
+
+| クラス | 説明 |
+|--------|------|
+| `.scrollbar-hide` | スクロールバー非表示（-webkit + Firefox対応） |
+
+### 16.4 フォント
 
 - **Noto Sans JP**: Google Fonts
-- Weight: 400（本文）/ 500（見出し補助）/ 700（見出し）/ 900（メインキャッチ）
+- Weight: 400 / 500 / 700 / 900
 - `display: "swap"`（FOUT対策）
 
-### 15.4 レスポンシブブレークポイント
+### 16.5 レスポンシブブレークポイント
 
 | ブレークポイント | 幅 | 主な変化 |
 |-----------------|-----|---------|
-| デフォルト（モバイル） | 〜639px | 1カラム、ハンバーガーメニュー |
-| `sm` | 640px〜 | 2〜4カラムグリッド、デスクトップナビ |
-| `lg` | 1024px〜 | ヒーロー文字サイズ拡大 |
+| デフォルト | 〜639px | 1カラム、ハンバーガー |
+| `sm` (640px) | 640px〜 | 2〜4カラムグリッド、デスクトップナビ |
+| `lg` (1024px) | 1024px〜 | ヒーロー文字拡大 |
 
 ---
 
-## 16. 法的対応
+## 17. 法的対応
 
-### 16.1 現在のサービス形態
+### 17.1 サービス形態
 
-**情報掲載プラットフォーム**（広告型）として運営。
+**情報掲載プラットフォーム**（広告型）として運営。仲介・マッチング・職業紹介は行わない（届出取得まで）。
 
-- 施設情報の掲載（広告）
-- 求人情報の掲載（広告）
-- 求職者の登録（情報収集）
+### 17.2 「マッチング」表現の削除（2026-03-21）
 
-> **仲介・マッチング・職業紹介は行わない**（届出取得まで）
+コード全体から「AIマッチング」「マッチング機能」「仲介」等の表現を削除済み。代替: 「業界特化の掲載」「情報提供」。
 
-### 16.2 職業安定法への対応
-
-| サービス形態 | 許可/届出 | 現在の対応 |
-|-------------|---------|-----------|
-| 求人広告の掲載 | 不要 | ✅ 現在の形態 |
-| 無料職業紹介事業 | 厚労大臣への届出が必要 | 未取得（将来予定） |
-| 有料職業紹介事業 | 厚労大臣の許可が必要 | 未取得 |
-
-> 職業紹介事業 = 求職者と求人者の間に立ち、雇用関係の成立を仲介する事業（職業安定法 第4条）
-> 届出取得前に「マッチング」「仲介」表現を使うと、無届での職業紹介事業と見なされるリスクあり
-
-### 16.3 「マッチング」表現の削除（2026-03-21）
-
-コード全体から以下の表現を削除済み:
-- 「AIマッチング」「AI自動マッチング」
-- 「マッチング機能」「マッチング」
-- 「仲介」
-
-**代替表現**:
-- 「業界特化の掲載」
-- 「求人情報の掲載」
-- 「情報提供」
-
-**対象ファイル**: `page.tsx`, `salon/page.tsx`, `salon/layout.tsx`, `jobs/page.tsx`, `jobs/layout.tsx`, `terms/page.tsx`, `privacy/page.tsx`
-
-**grepで確認済み**: ソースコード内に「マッチング」は0件
-
-### 16.4 法的ドキュメント
+### 17.3 法的ドキュメント
 
 | ページ | 制定日 | 概要 |
 |--------|--------|------|
-| `/privacy` | 2026年3月19日 | 取得情報・利用目的・第三者提供・Cookie/分析ツール・開示請求 |
+| `/privacy` | 2026年3月19日 | 取得情報・利用目的・第三者提供・Cookie・開示請求 |
 | `/terms` | 2026年3月19日 | サービス概要・利用条件・禁止事項・免責・準拠法（大阪地裁） |
 
 ---
 
-## 17. 運用手順
+## 18. 運用手順
 
-### 17.1 日常運用（フォーム送信対応）
+### 18.1 日常運用
 
 ```
-1. Slackチャンネルに通知が届く
-   → 施設掲載 / 求職者登録 / お問い合わせ のいずれか
-
-2. Supabase Dashboard で詳細確認
-   → https://supabase.com/dashboard/project/xzafxiupbflvgbarrihe
-   → Table Editor → 該当テーブル
-
-3. 対応
-   → 施設掲載: 2営業日以内に電話またはメールで連絡
-   → 求職者: 条件に合った求人があれば連絡
-   → お問い合わせ: 2営業日以内にメールで返信
+1. Slack通知が届く → Supabase Dashboardで詳細確認
+2. 施設掲載: 2営業日以内に電話/メールで連絡
+3. 求職者: 条件に合った求人があれば連絡
+4. お問い合わせ: 2営業日以内にメールで返信
+5. 口コミ管理: facility_reviews の status を published/hidden で制御
 ```
 
-### 17.2 コード変更・デプロイ
+### 18.2 コード変更・デプロイ
 
 ```bash
 # 1. ローカルで変更・動作確認
 npm run dev
 
-# 2. ビルドチェック（TypeScriptエラー・ESLintエラーがないこと）
+# 2. ビルドチェック
 npm run build
 
-# 3. コミット・プッシュ
+# 3. コミット・プッシュ（自動デプロイ）
 git add <変更ファイル>
 git commit -m "変更内容"
 git push origin main
-
-# 4. 本番デプロイ（これを忘れると本番に反映されない）
-npx vercel --prod
+# → Vercelが自動でビルド・デプロイ
 ```
 
-### 17.3 Slack Incoming Webhook 設定手順
+### 18.3 施設データの追加・編集
 
-1. https://api.slack.com/apps にアクセス
-2. 「Create New App」→ 「From scratch」
-3. アプリ名（例: CareLink通知）+ ワークスペース選択
-4. 左メニュー「Incoming Webhooks」→ 「Activate Incoming Webhooks」をON
-5. 「Add New Webhook to Workspace」→ 通知先チャンネル選択 → 「許可する」
-6. Webhook URL をコピー（`https://hooks.slack.com/services/REDACTED.../B.../xxx`）
-7. Vercel環境変数に設定:
-   ```bash
-   vercel env add SLACK_WEBHOOK_URL
-   # → Webhook URLを貼り付け
-   ```
-8. 再デプロイ: `npx vercel --prod`
+施設データは Supabase Dashboard から直接操作:
 
-### 17.4 Google Analytics 4 設定手順
+```
+1. facility_profiles にレコード追加（slug, name, business_type, prefecture, city 必須）
+2. facility_menus にメニューデータ追加
+3. facility_photos に写真URL追加
+4. status を 'published' に設定 → 検索結果に表示される
+```
 
-1. https://analytics.google.com/ でプロパティ作成
-2. データストリーム追加（Web）→ サイトURL入力
-3. 測定ID（`G-XXXXXXXXXX`）をコピー
-4. Vercel環境変数に設定:
-   ```bash
-   vercel env add NEXT_PUBLIC_GA_ID
-   # → G-XXXXXXXXXX を入力
-   ```
-5. 再デプロイ: `npx vercel --prod`
+### 18.4 外部サービス設定手順
 
-### 17.5 Microsoft Clarity 設定手順
+#### Slack Incoming Webhook
 
-1. https://clarity.microsoft.com/ でプロジェクト作成
-2. プロジェクトID（英数字列）をコピー
-3. Vercel環境変数に設定:
-   ```bash
-   vercel env add NEXT_PUBLIC_CLARITY_ID
-   # → プロジェクトIDを入力
-   ```
-4. 再デプロイ: `npx vercel --prod`
+1. https://api.slack.com/apps → Create New App → Incoming Webhooks → ON
+2. Webhook URL をコピー → Vercel環境変数 `SLACK_WEBHOOK_URL` に設定
+3. 再デプロイ（pushまたは `npx vercel --prod`）
 
-### 17.6 カスタムドメイン設定手順
+#### Google Analytics 4
 
-1. ドメインレジストラで `carelink.jp` を取得
-2. Vercelでドメイン追加:
-   ```bash
-   vercel domains add carelink.jp
-   ```
-3. DNSレコード設定（レジストラ側）:
-   - タイプ: `CNAME`
-   - ホスト: `@` または空
-   - 値: `cname.vercel-dns.com`
-4. Vercel環境変数を更新:
-   ```bash
-   vercel env add NEXT_PUBLIC_BASE_URL
-   # → https://carelink.jp
-   ```
-5. 再デプロイ: `npx vercel --prod`
-6. SSL証明書は Vercel が自動発行（Let's Encrypt）
+1. https://analytics.google.com/ でプロパティ作成 → 測定ID取得
+2. Vercel環境変数 `NEXT_PUBLIC_GA_ID` に設定 → 再デプロイ
 
-### 17.7 データエクスポート
+#### Microsoft Clarity
 
-Supabase Dashboard からCSVエクスポート:
+1. https://clarity.microsoft.com/ でプロジェクト作成 → ID取得
+2. Vercel環境変数 `NEXT_PUBLIC_CLARITY_ID` に設定 → 再デプロイ
 
-1. Table Editor → 対象テーブル選択
-2. 右上「Export」→ 「Download as CSV」
-3. 全データまたはフィルター適用後のデータをダウンロード
+#### カスタムドメイン
+
+1. `carelink.jp` 取得 → `vercel domains add carelink.jp`
+2. DNS: CNAME → `cname.vercel-dns.com`
+3. `NEXT_PUBLIC_BASE_URL=https://carelink.jp` に更新 → 再デプロイ
 
 ---
 
-## 18. トラブルシューティング
+## 19. トラブルシューティング
 
-### 18.1 よくある問題
+### 19.1 よくある問題
 
 | 症状 | 原因 | 対処 |
 |------|------|------|
-| フォーム送信で「送信に失敗しました」 | Supabase URL/Key 不正 | Vercel環境変数 `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` を確認 |
-| フォーム送信で「送信に失敗しました」 | RLSポリシー未設定 | Supabase Dashboard → Authentication → Policies で INSERT ポリシーを確認 |
-| Slack通知が来ない | `SLACK_WEBHOOK_URL` 未設定 | Vercel環境変数を設定 → 再デプロイ |
-| Slack通知が来ない | Webhook URLが無効 | Slack API Dashboard でWebhookがアクティブか確認 |
-| `npm run build` でエラー | TypeScript型エラー | エラーメッセージを確認して該当ファイルを修正 |
-| `npm run build` でエラー | 環境変数未設定 | `.env.local` に `NEXT_PUBLIC_SUPABASE_URL` 等を設定 |
-| 写真アップロード失敗 | Storageバケット未作成 | Supabase Dashboard → Storage → `carelink-uploads` バケットを作成 |
-| 写真アップロード失敗 | Storageポリシー未設定 | INSERT + SELECT ポリシーを設定（6.3参照） |
+| フォーム送信で「送信に失敗しました」 | Supabase URL/Key 不正 | Vercel環境変数を確認 |
+| フォーム送信で「送信に失敗しました」 | RLSポリシー未設定 | Supabase → Policies でINSERTポリシー確認 |
+| Slack通知が来ない | `SLACK_WEBHOOK_URL` 未設定 | Vercel環境変数設定 → 再デプロイ |
+| 検索結果が空 | facility_profiles にデータなし or status≠published | Supabase Dashboardでデータ・statusを確認 |
+| 施設詳細が404 | slugが不一致 or status≠published | facility_profiles.slug を確認 |
+| 口コミが表示されない | status≠published | facility_reviews.status を確認 |
+| 星評価が0のまま | トリガー未作成 or reviews が全てhidden | トリガー存在確認・reviews statusを確認 |
+| `npm run build` でエラー | TypeScript型エラー | エラーメッセージで該当ファイル修正 |
+| 写真アップロード失敗 | Storageバケット/ポリシー未設定 | Supabase → Storage で確認 |
 | OGP画像が表示されない | `/public/og-image.png` 未配置 | 1200×630pxの画像を配置 |
-| GA4が計測されない | `NEXT_PUBLIC_GA_ID` 未設定 | 環境変数設定 → 再デプロイ |
-| 404ページ表示 | URLパス間違い | ページファイルが `src/app/パス/page.tsx` に存在するか確認 |
-| レート制限エラー（429） | 60秒内に5回以上API呼び出し | 60秒待って再試行。in-memoryなのでデプロイで解消 |
-| `vercel --prod` で失敗 | Vercel CLI未ログイン | `vercel login` を実行 |
-| `vercel --prod` で失敗 | プロジェクト未リンク | `vercel link` を実行 |
+| レート制限エラー（429） | 60秒内に5回以上 | 60秒待って再試行 |
 
-### 18.2 ビルド・コード品質チェック
+### 19.2 ビルド・品質チェック
 
 ```bash
-# ローカルビルド（本番と同じ出力を確認）
-npm run build
-
-# TypeScript型チェックのみ
-npx tsc --noEmit
-
-# ESLint
-npm run lint
-
-# 特定のキーワードがコード内に残っていないか確認
-# 例: マッチング表現の残留チェック
-grep -r "マッチング" src/
+npm run build      # ローカルビルド
+npx tsc --noEmit   # 型チェックのみ
+npm run lint        # ESLint
 ```
 
-### 18.3 Supabase ダッシュボード
+### 19.3 Supabase ダッシュボード
 
 ```
 URL: https://supabase.com/dashboard/project/xzafxiupbflvgbarrihe
 
-テーブル確認:     Table Editor → salons / job_seekers / contacts
-Storage確認:      Storage → carelink-uploads
-RLSポリシー確認:  Authentication → Policies
-SQL実行:          SQL Editor（直接クエリ実行）
-ログ確認:         Logs → API / Postgres
-```
-
-### 18.4 Vercel ダッシュボード
-
-```
-URL: https://vercel.com（ログイン後）
-
-デプロイ履歴:     プロジェクト → Deployments
-環境変数:         Settings → Environment Variables
-ドメイン設定:     Settings → Domains
-ログ:             Deployments → 該当デプロイ → Functions → Logs
-Analytics:        Analytics タブ
+テーブル:  Table Editor → 各テーブル
+Storage:   Storage → carelink-uploads
+RLS:       Authentication → Policies
+SQL:       SQL Editor
+ログ:      Logs → API / Postgres
 ```
 
 ---
 
-## 19. テスト
+## 20. テスト
 
-現時点で自動テストは未実装。バリデーションは Zod スキーマで定義されているため、テスト導入時は以下が優先:
+現時点で自動テストは未実装。テスト導入時の優先順位:
 
-1. **Zodスキーマのユニットテスト** — `validations.ts` の各スキーマに対する入力パターン検証
-2. **API Routeのテスト** — `/api/notify` のレート制限・エスケープ・エラーハンドリング
-3. **E2Eテスト** — フォーム送信→完了画面表示の一連の流れ（Playwright推奨）
+1. **Zodスキーマのユニットテスト** — `validations.ts` の各スキーマ
+2. **API Routeのテスト** — `/api/notify` のレート制限・Zod検証・エスケープ
+3. **E2Eテスト** — フォーム送信→完了表示、検索→詳細遷移（Playwright推奨）
 
-手動テスト時は `npm run dev` でローカル起動し、各フォームから送信して Supabase に INSERT されることを確認。
+手動テスト: `npm run dev` → 各フォーム送信 → Supabase INSERT確認。
 
 ---
 
-## 20. 既知の制限事項・今後の開発予定
+## 21. 既知の制限事項・今後の開発予定
 
-### 20.1 現在の制限事項
+### 21.1 現在の制限事項
 
-| 制限 | 説明 | 影響 |
-|------|------|------|
-| 管理画面なし | 登録データはSupabase Dashboardでのみ確認可能 | 非エンジニアが確認しづらい |
-| 求人掲載ページなし | 登録された施設・求人の一覧ページがない | 求職者が求人を閲覧できない |
-| メール通知なし | 管理者への通知はSlackのみ（メール未対応） | Slackを使わない場合通知がない |
-| GitHub自動デプロイ不可 | 組織権限の制約でVercel連携未設定 | `vercel --prod` 手動実行が必要 |
-| レート制限がin-memory | サーバーレス環境ではインスタンスごとにリセット | 完全なレート制限にはならない |
+| 制限 | 説明 |
+|------|------|
+| 管理画面なし | Supabase Dashboardでのみデータ管理 |
+| 検索データがダミー | 実際の施設データへの移行が必要 |
+| メール通知なし | Slackのみ |
+| レート制限がin-memory | サーバーレス環境ではインスタンスごとにリセット |
 
-### 20.2 今後の開発予定
+### 21.2 今後の開発予定
 
 | 優先度 | 機能 | 説明 |
 |:------:|------|------|
 | 高 | Slack Webhook設定 | フォーム送信通知の有効化 |
 | 高 | カスタムドメイン | `carelink.jp` の取得・設定 |
 | 高 | GA4 / Clarity設定 | アクセス解析の有効化 |
-| 中 | 管理画面 | 登録データの閲覧・CSV出力・対応ステータス管理 |
-| 中 | 求人一覧ページ | 登録された施設・求人を求職者が閲覧できるページ |
-| 中 | 職業紹介事業届出 | 届出取得後にマッチング機能を実装 |
-| 低 | メール通知 | Resend等でフォーム送信時にメール通知 |
-| 低 | 自動テスト | Vitest + Playwright でテスト自動化 |
+| 高 | 実データ移行 | ダミー施設データを実際の施設に置換 |
+| 中 | 管理画面 | データ閲覧・CSV出力・ステータス管理 |
+| 中 | 職業紹介事業届出 | 届出取得後にマッチング機能実装 |
+| 低 | メール通知 | Resend等でメール通知追加 |
+| 低 | 自動テスト | Vitest + Playwright |
+
+---
+
+## 型定義一覧（`src/types/index.ts`）
+
+| 型名 | 用途 | サイト |
+|------|------|--------|
+| `Salon` | 施設掲載登録データ | LP |
+| `JobSeeker` | 求職者登録データ | LP |
+| `Contact` | お問い合わせデータ | LP |
+| `Facility` | 施設公開プロフィール（全カラム） | 検索 |
+| `FacilityCardData` | 検索結果カード用（軽量版） | 検索 |
+| `FacilityMenu` | メニュー項目 | 検索 |
+| `FacilityPhoto` | 写真データ | 検索 |
+| `FacilityReview` | 口コミデータ | 検索 |
+| `FacilityInquiry` | 施設宛お問い合わせ | 検索 |
+| `SearchParams` | 検索クエリパラメータ | 検索 |
+
+---
+
+## DBクエリ関数一覧（`src/lib/facilities.ts`）
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `searchFacilities(params)` | keyword, type, prefecture, page, sort | 施設検索（20件/ページ、ILIKE） |
+| `getFacilityBySlug(slug)` | slug | 施設詳細取得 |
+| `getFacilityMenus(facilityId)` | UUID | メニュー取得（sort_order順） |
+| `getFacilityPhotos(facilityId)` | UUID | 写真取得（sort_order順） |
+| `getFacilityReviews(facilityId)` | UUID | 口コミ取得（published, 新しい順） |
+
+---
+
+## 定数一覧（`src/lib/constants.ts`）
+
+| エクスポート名 | 内容 |
+|---------------|------|
+| `prefectures` | 全47都道府県の配列 |
+| `businessTypes` | 5業種の配列（「その他」なし） |
+| `facilityFeatures` | 16個の施設特徴タグ |
+| `dayOrder` | 曜日順序配列 `['mon','tue',...,'sun']` |
+| `dayLabels` | 曜日ラベル `{mon:'月', tue:'火', ...}` |
 
 ---
 
@@ -1354,6 +1440,7 @@ Analytics:        Analytics タブ
 
 | 日付 | バージョン | 内容 |
 |------|-----------|------|
-| 2026-03-21 | 1.2 | アクセス情報（GitHub/Vercel/Supabase）追加、現在の設定状況一覧追加、エラー/ローディング/404ページ説明追加、テスト状況追加、制限事項・今後の開発予定追加、Supabase anon key取得場所追加 |
-| 2026-03-21 | 1.1 | テーブル作成SQL追加、業務フロー図追加、Slack通知メッセージ例追加、Storage設定手順追加、写真アップロード制約追加、データ確認方法追加、.env.example作成、Node.jsバージョン追記、トラブルシューティング拡充 |
+| 2026-03-22 | 2.0 | **大規模更新**: 検索サイト全機能追加（/search, /facility/[slug]）、検索側DB5テーブル+トリガー追加、全コンポーネント（16個）追加、LayoutSwitch追加、アクセシビリティ章追加、Zodバリデーション追加、動的sitemap、エラーバウンダリ、型定義一覧、DBクエリ関数一覧、定数一覧。GitHub移行(jimuin0)・自動デプロイ反映 |
+| 2026-03-21 | 1.2 | アクセス情報追加、設定状況一覧追加、エラー/ローディング/404追加、テスト追加、制限事項追加 |
+| 2026-03-21 | 1.1 | テーブルSQL追加、業務フロー追加、Slack通知例追加、Storage手順追加 |
 | 2026-03-21 | 1.0 | 初版作成 |
