@@ -40,7 +40,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         setCustomerName(user.user_metadata?.display_name || '');
         setEmail(user.email || '');
       }
-    });
+    }).catch(() => {});
   }, []);
 
   // Fetch available slots

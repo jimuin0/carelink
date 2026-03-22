@@ -60,17 +60,17 @@ export default function NewCouponPage() {
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
-          <label className="form-label">クーポン名 <span className="text-red-500">*</span></label>
-          <input value={name} onChange={(e) => setName(e.target.value)} className="form-input" placeholder="新規限定20%OFF" />
+          <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
+          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" placeholder="新規限定20%OFF" />
         </div>
         <div>
-          <label className="form-label">説明</label>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={2} />
+          <label htmlFor="coupon-desc" className="form-label">説明</label>
+          <textarea id="coupon-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={2} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">対象</label>
-            <select value={couponType} onChange={(e) => setCouponType(e.target.value)} className="form-input">
+            <label htmlFor="coupon-type" className="form-label">対象</label>
+            <select id="coupon-type" value={couponType} onChange={(e) => setCouponType(e.target.value)} className="form-input">
               <option value="all">全員</option>
               <option value="new_customer">新規</option>
               <option value="repeat">リピーター</option>
@@ -78,8 +78,8 @@ export default function NewCouponPage() {
             </select>
           </div>
           <div>
-            <label className="form-label">割引タイプ</label>
-            <select value={discountType} onChange={(e) => setDiscountType(e.target.value)} className="form-input">
+            <label htmlFor="coupon-discount-type" className="form-label">割引タイプ</label>
+            <select id="coupon-discount-type" value={discountType} onChange={(e) => setDiscountType(e.target.value)} className="form-input">
               <option value="fixed">定額割引</option>
               <option value="percentage">割合割引</option>
               <option value="special_price">特別価格</option>
@@ -88,23 +88,23 @@ export default function NewCouponPage() {
         </div>
         {discountType !== 'special_price' ? (
           <div>
-            <label className="form-label">割引額{discountType === 'percentage' ? '(%)' : '(円)'}</label>
-            <input type="number" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="form-input" />
+            <label htmlFor="coupon-value" className="form-label">割引額{discountType === 'percentage' ? '(%)' : '(円)'}</label>
+            <input id="coupon-value" type="number" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="form-input" />
           </div>
         ) : (
           <div>
-            <label className="form-label">特別価格(円)</label>
-            <input type="number" value={specialPrice} onChange={(e) => setSpecialPrice(e.target.value)} className="form-input" />
+            <label htmlFor="coupon-special" className="form-label">特別価格(円)</label>
+            <input id="coupon-special" type="number" value={specialPrice} onChange={(e) => setSpecialPrice(e.target.value)} className="form-input" />
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">有効期限（開始）</label>
-            <input type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className="form-input" />
+            <label htmlFor="coupon-from" className="form-label">有効期限（開始）</label>
+            <input id="coupon-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className="form-input" />
           </div>
           <div>
-            <label className="form-label">有効期限（終了）</label>
-            <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="form-input" />
+            <label htmlFor="coupon-until" className="form-label">有効期限（終了）</label>
+            <input id="coupon-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="form-input" />
           </div>
         </div>
 

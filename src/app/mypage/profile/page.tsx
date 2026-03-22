@@ -45,7 +45,7 @@ export default function ProfileEditPage() {
       }
       setLoading(false);
     };
-    loadProfile();
+    loadProfile().catch(() => setLoading(false));
   }, [reset]);
 
   const onSubmit = async (data: ProfileForm) => {

@@ -35,7 +35,7 @@ export default function EditBlogPage() {
       }
       setLoading(false);
     };
-    load();
+    load().catch(() => setLoading(false));
   }, [postId]);
 
   const handleSave = async () => {
@@ -66,7 +66,11 @@ export default function EditBlogPage() {
     if (!confirm('この記事を削除しますか？')) return;
 
     const supabase = createBrowserSupabaseClient();
-    await supabase.from('blog_posts').delete().eq('id', postId);
+    const { error } = await supabase.from('blog_posts').delete().eq('id', postId);
+    if (error) {
+      setToast({ type: 'error', message: '削除に失敗しました' });
+      return;
+    }
     router.push('/admin/blog');
   };
 
@@ -84,12 +88,12 @@ export default function EditBlogPage() {
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
-          <label className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" />
+          <label htmlFor="blog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
+          <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" />
         </div>
         <div>
-          <label className="form-label">本文 <span className="text-red-500">*</span></label>
-          <textarea value={content} onChange={(e) => setContent(e.target.value)} className="form-input" rows={12} />
+          <label htmlFor="blog-content" className="form-label">本文 <span className="text-red-500">*</span></label>
+          <textarea id="blog-content" value={content} onChange={(e) => setContent(e.target.value)} className="form-input" rows={12} />
         </div>
         <div className="flex items-center gap-2">
           <input type="checkbox" id="publish" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />

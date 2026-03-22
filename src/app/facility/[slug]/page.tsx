@@ -182,7 +182,7 @@ export default async function FacilityPage({ params }: Props) {
                   longitude: facility.longitude,
                 },
               }),
-            }),
+            }).replace(/</g, '\\u003c'),
           }}
         />
         {/* JSON-LD: BreadcrumbList */}
@@ -197,7 +197,7 @@ export default async function FacilityPage({ params }: Props) {
                 { '@type': 'ListItem', position: 2, name: facility.business_type, item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` },
                 { '@type': 'ListItem', position: 3, name: facility.name },
               ],
-            }),
+            }).replace(/</g, '\\u003c'),
           }}
         />
       </div>

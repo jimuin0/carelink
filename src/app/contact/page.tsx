@@ -94,18 +94,19 @@ export default function ContactPage() {
         ) : (
           <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="space-y-6">
             <div>
-              <label className="form-label">
+              <label htmlFor="contact-name" className="form-label">
                 お名前 <span className="text-red-500">*</span>
               </label>
-              <input {...register('name')} className="form-input" placeholder="山田 太郎" />
+              <input id="contact-name" {...register('name')} className="form-input" placeholder="山田 太郎" />
               {errors.name && <p className="form-error">{errors.name.message}</p>}
             </div>
 
             <div>
-              <label className="form-label">
+              <label htmlFor="contact-email" className="form-label">
                 メールアドレス <span className="text-red-500">*</span>
               </label>
               <input
+                id="contact-email"
                 {...register('email')}
                 type="email"
                 className="form-input"
@@ -115,8 +116,9 @@ export default function ContactPage() {
             </div>
 
             <div>
-              <label className="form-label">電話番号</label>
+              <label htmlFor="contact-phone" className="form-label">電話番号</label>
               <input
+                id="contact-phone"
                 {...register('phone')}
                 type="tel"
                 className="form-input"
@@ -125,10 +127,10 @@ export default function ContactPage() {
             </div>
 
             <div>
-              <label className="form-label">
+              <label htmlFor="contact-inquiry-type" className="form-label">
                 お問い合わせ種別 <span className="text-red-500">*</span>
               </label>
-              <select {...register('inquiry_type')} className="form-input">
+              <select id="contact-inquiry-type" {...register('inquiry_type')} className="form-input">
                 <option value="">選択してください</option>
                 <option value="掲載について">掲載について</option>
                 <option value="求職について">求職について</option>
@@ -138,10 +140,11 @@ export default function ContactPage() {
             </div>
 
             <div>
-              <label className="form-label">
+              <label htmlFor="contact-message" className="form-label">
                 内容 <span className="text-red-500">*</span>
               </label>
               <textarea
+                id="contact-message"
                 {...register('message')}
                 className="form-input min-h-[150px]"
                 placeholder="お問い合わせ内容をご記入ください"

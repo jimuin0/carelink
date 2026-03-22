@@ -1,11 +1,21 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getCatalogsByFacility } from '@/lib/catalogs';
 
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) return {};
+  return {
+    title: `ヘアカタログ | ${facility.name} | CareLink`,
+    description: `${facility.name}のヘアカタログ・スタイル一覧`,
+  };
 }
 
 export default async function CatalogPage({ params }: Props) {

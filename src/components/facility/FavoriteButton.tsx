@@ -30,7 +30,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
       setIsFavorited(!!data);
       setLoading(false);
     };
-    checkStatus();
+    checkStatus().catch(() => setLoading(false));
   }, [facilityId]);
 
   const handleToggle = async () => {

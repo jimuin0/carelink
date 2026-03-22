@@ -31,7 +31,7 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
       }
       setLoading(false);
     };
-    load();
+    load().catch(() => setLoading(false));
   }, [params.id]);
 
   const handleSave = async () => {
@@ -70,29 +70,29 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
-          <label className="form-label">名前 <span className="text-red-500">*</span></label>
-          <input value={name} onChange={(e) => setName(e.target.value)} className="form-input" />
+          <label htmlFor="staff-name" className="form-label">名前 <span className="text-red-500">*</span></label>
+          <input id="staff-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" />
         </div>
         <div>
-          <label className="form-label">役職</label>
-          <input value={position} onChange={(e) => setPosition(e.target.value)} className="form-input" placeholder="店長、スタイリスト等" />
+          <label htmlFor="staff-position" className="form-label">役職</label>
+          <input id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} className="form-input" placeholder="店長、スタイリスト等" />
         </div>
         <div>
-          <label className="form-label">自己紹介</label>
-          <textarea value={bio} onChange={(e) => setBio(e.target.value)} className="form-input" rows={4} />
+          <label htmlFor="staff-bio" className="form-label">自己紹介</label>
+          <textarea id="staff-bio" value={bio} onChange={(e) => setBio(e.target.value)} className="form-input" rows={4} />
         </div>
         <div>
-          <label className="form-label">得意分野（カンマ区切り）</label>
-          <input value={specialties} onChange={(e) => setSpecialties(e.target.value)} className="form-input" placeholder="カット, カラー, パーマ" />
+          <label htmlFor="staff-specialties" className="form-label">得意分野（カンマ区切り）</label>
+          <input id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} className="form-input" placeholder="カット, カラー, パーマ" />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="form-label">経験年数</label>
-            <input type="number" value={yearsExperience} onChange={(e) => setYearsExperience(e.target.value)} className="form-input" />
+            <label htmlFor="staff-years" className="form-label">経験年数</label>
+            <input id="staff-years" type="number" value={yearsExperience} onChange={(e) => setYearsExperience(e.target.value)} className="form-input" />
           </div>
           <div>
-            <label className="form-label">Instagram URL</label>
-            <input value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" />
+            <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
+            <input id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" />
           </div>
         </div>
 

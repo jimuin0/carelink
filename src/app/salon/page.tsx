@@ -329,36 +329,37 @@ export default function SalonPage() {
               {step === 1 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">施設名 <span className="text-red-500">*</span></label>
-                    <input {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
+                    <label htmlFor="salon-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
+                    <input id="salon-facility-name" {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
                     {errors.facility_name && <p className="form-error">{errors.facility_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">業種 <span className="text-red-500">*</span></label>
-                    <select {...register('business_type')} className="form-input">
+                    <label htmlFor="salon-business-type" className="form-label">業種 <span className="text-red-500">*</span></label>
+                    <select id="salon-business-type" {...register('business_type')} className="form-input">
                       <option value="">選択してください</option>
                       {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                     {errors.business_type && <p className="form-error">{errors.business_type.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">代表者名 <span className="text-red-500">*</span></label>
-                    <input {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
+                    <label htmlFor="salon-representative" className="form-label">代表者名 <span className="text-red-500">*</span></label>
+                    <input id="salon-representative" {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
                     {errors.representative_name && <p className="form-error">{errors.representative_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">担当者名 <span className="text-red-500">*</span></label>
-                    <input {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
+                    <label htmlFor="salon-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
+                    <input id="salon-contact-name" {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
                     {errors.contact_name && <p className="form-error">{errors.contact_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                    <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
+                    <label htmlFor="salon-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                    <input id="salon-email" {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
                     {errors.email && <p className="form-error">{errors.email.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                    <label htmlFor="salon-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
                     <input
+                      id="salon-phone"
                       {...register('phone')}
                       type="tel"
                       onChange={handlePhoneChange}
@@ -377,30 +378,30 @@ export default function SalonPage() {
               {step === 2 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">郵便番号</label>
-                    <input {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
+                    <label htmlFor="salon-postal-code" className="form-label">郵便番号</label>
+                    <input id="salon-postal-code" {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
                     {errors.postal_code && <p className="form-error">{errors.postal_code.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">住所</label>
-                    <input {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
+                    <label htmlFor="salon-address" className="form-label">住所</label>
+                    <input id="salon-address" {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
                   </div>
                   <div>
-                    <label className="form-label">営業時間</label>
-                    <input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" />
+                    <label htmlFor="salon-business-hours" className="form-label">営業時間</label>
+                    <input id="salon-business-hours" {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" />
                   </div>
                   <div>
-                    <label className="form-label">定休日</label>
-                    <input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" />
+                    <label htmlFor="salon-regular-holiday" className="form-label">定休日</label>
+                    <input id="salon-regular-holiday" {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="form-label">席数・ベッド数</label>
-                      <input {...register('seat_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                      <label htmlFor="salon-seat-count" className="form-label">席数・ベッド数</label>
+                      <input id="salon-seat-count" {...register('seat_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
                     </div>
                     <div>
-                      <label className="form-label">スタッフ数</label>
-                      <input {...register('staff_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                      <label htmlFor="salon-staff-count" className="form-label">スタッフ数</label>
+                      <input id="salon-staff-count" {...register('staff_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
                     </div>
                   </div>
                   <div className="flex gap-4">
@@ -418,8 +419,9 @@ export default function SalonPage() {
               {step === 3 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">PR文</label>
+                    <label htmlFor="salon-pr-text" className="form-label">PR文</label>
                     <textarea
+                      id="salon-pr-text"
                       {...register('pr_text')}
                       className="form-input min-h-[120px]"
                       placeholder="施設のアピールポイントをご記入ください"
@@ -435,8 +437,8 @@ export default function SalonPage() {
                     <PhotoUpload onChange={setPhotoFile} />
                   </div>
                   <div>
-                    <label className="form-label">希望掲載開始日</label>
-                    <input {...register('desired_start_date')} type="date" className="form-input" />
+                    <label htmlFor="salon-start-date" className="form-label">希望掲載開始日</label>
+                    <input id="salon-start-date" {...register('desired_start_date')} type="date" className="form-input" />
                   </div>
                   <label className="flex items-start gap-2 text-sm text-gray-600">
                     <input

@@ -107,11 +107,15 @@ export async function POST(request: Request) {
     const payload = result.data as NotifyPayload;
     const text = buildSlackMessage(payload);
 
-    await fetch(webhookUrl, {
+    const slackRes = await fetch(webhookUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
     });
+
+    if (!slackRes.ok) {
+      return NextResponse.json({ ok: false, error: 'Slack通知の送信に失敗しました' }, { status: 502 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch {

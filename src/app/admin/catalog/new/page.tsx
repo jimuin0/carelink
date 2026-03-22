@@ -50,16 +50,16 @@ export default function NewCatalogPage() {
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
-          <label className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" />
+          <label htmlFor="catalog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
+          <input id="catalog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" />
         </div>
         <div>
-          <label className="form-label">説明</label>
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={3} />
+          <label htmlFor="catalog-desc" className="form-label">説明</label>
+          <textarea id="catalog-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={3} />
         </div>
         <div>
-          <label className="form-label">タグ（カンマ区切り）</label>
-          <input value={tags} onChange={(e) => setTags(e.target.value)} className="form-input" placeholder="ショートヘア, ボブ, カラー" />
+          <label htmlFor="catalog-tags" className="form-label">タグ（カンマ区切り）</label>
+          <input id="catalog-tags" value={tags} onChange={(e) => setTags(e.target.value)} className="form-input" placeholder="ショートヘア, ボブ, カラー" />
         </div>
 
         <div className="flex gap-3 pt-4">
