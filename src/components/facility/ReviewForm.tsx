@@ -70,7 +70,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
       <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="space-y-4">
         <div>
           <label className="form-label">お名前 <span className="text-red-500">*</span></label>
-          <input {...register('reviewer_name')} className="form-input" placeholder="ニックネーム可" />
+          <input {...register('reviewer_name')} className="form-input" placeholder="ニックネーム可" autoComplete="name" />
           {errors.reviewer_name && <p className="form-error">{errors.reviewer_name.message}</p>}
         </div>
 

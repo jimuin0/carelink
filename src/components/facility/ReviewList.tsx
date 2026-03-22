@@ -4,8 +4,12 @@ import type { FacilityReview } from '@/types';
 import StarRating from './StarRating';
 
 function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日`;
+  return new Date(dateStr).toLocaleDateString('ja-JP', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    timeZone: 'Asia/Tokyo',
+  });
 }
 
 export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {

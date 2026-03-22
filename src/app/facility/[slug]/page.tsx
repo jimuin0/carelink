@@ -213,7 +213,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
                   {menu.description && <p className="text-gray-500 text-xs mt-1">{menu.description}</p>}
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-sm" style={{ color: 'var(--primary)' }}>
+                  <p className="font-bold text-sm text-sky-500">
                     {menu.price_note || (menu.price !== null ? `¥${menu.price.toLocaleString()}` : '-')}
                   </p>
                   {menu.duration_minutes && (

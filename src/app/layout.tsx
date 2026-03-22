@@ -13,7 +13,7 @@ const notoSansJP = Noto_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink.jp'),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app'),
   title: {
     default: "CareLink | 医療・福祉・美容の採用×集客プラットフォーム",
     template: "%s | CareLink",

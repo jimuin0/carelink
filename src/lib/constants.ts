@@ -23,6 +23,8 @@ export const facilityFeatures = [
   '送迎あり', '訪問対応可', '保険適用', '初回カウンセリング無料',
 ];
 
+export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
+
 export const dayLabels: Record<string, string> = {
   mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日',
 };

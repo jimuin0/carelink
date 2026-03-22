@@ -1,7 +1,5 @@
 import type { Facility } from '@/types';
-import { dayLabels } from '@/lib/constants';
-
-const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+import { dayOrder, dayLabels } from '@/lib/constants';
 
 export default function AccessInfo({ facility }: { facility: Facility }) {
   const fullAddress = `${facility.prefecture}${facility.city}${facility.address}${facility.building ? ` ${facility.building}` : ''}`;

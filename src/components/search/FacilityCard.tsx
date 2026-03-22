@@ -23,7 +23,7 @@ export default function FacilityCard({ facility }: { facility: FacilityCardData 
         {facility.main_photo_url ? (
           <Image
             src={facility.main_photo_url}
-            alt={facility.name}
+            alt={`${facility.name} - ${facility.business_type}`}
             fill
             sizes="(max-width: 640px) 100vw, 50vw"
             className="object-cover"

@@ -1,4 +1,11 @@
 import Link from 'next/link';
+import type { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  title: 'ページが見つかりません',
+  description: 'お探しのページは存在しないか、公開が終了した可能性があります。',
+  robots: { index: false, follow: false },
+};
 
 export default function FacilityNotFound() {
   return (

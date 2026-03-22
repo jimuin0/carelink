@@ -25,32 +25,33 @@ export default function Pagination({ currentPage, totalPages, baseUrl }: Props) 
   };
 
   return (
-    <nav className="flex items-center justify-center gap-2 mt-8">
+    <nav className="flex items-center justify-center gap-2 mt-8" aria-label="ページナビゲーション">
       {currentPage > 1 && (
-        <Link href={getUrl(currentPage - 1)} className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">
+        <Link href={getUrl(currentPage - 1)} className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" aria-label="前のページ">
           前へ
         </Link>
       )}
       {pages.map((p, i) =>
         p === '...' ? (
-          <span key={`dot-${i}`} className="px-2 text-gray-400">...</span>
+          <span key={`dot-${i}`} className="px-2 text-gray-400" aria-hidden="true">...</span>
         ) : (
           <Link
             key={p}
             href={getUrl(p)}
             className={`px-3 py-2 text-sm rounded-lg ${
               p === currentPage
-                ? 'bg-primary text-white font-bold'
+                ? 'bg-sky-500 text-white font-bold'
                 : 'border border-gray-300 hover:bg-gray-50'
             }`}
-            style={p === currentPage ? { backgroundColor: 'var(--primary)' } : undefined}
+            aria-label={`${p}ページ`}
+            {...(p === currentPage ? { 'aria-current': 'page' as const } : {})}
           >
             {p}
           </Link>
         )
       )}
       {currentPage < totalPages && (
-        <Link href={getUrl(currentPage + 1)} className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50">
+        <Link href={getUrl(currentPage + 1)} className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" aria-label="次のページ">
           次へ
         </Link>
       )}

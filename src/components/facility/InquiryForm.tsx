@@ -85,19 +85,19 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
       <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="space-y-4">
         <div>
           <label className="form-label">お名前 <span className="text-red-500">*</span></label>
-          <input {...register('name')} className="form-input" placeholder="山田 太郎" />
+          <input {...register('name')} className="form-input" placeholder="山田 太郎" autoComplete="name" />
           {errors.name && <p className="form-error">{errors.name.message}</p>}
         </div>
 
         <div>
           <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-          <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
+          <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" autoComplete="email" />
           {errors.email && <p className="form-error">{errors.email.message}</p>}
         </div>
 
         <div>
           <label className="form-label">電話番号</label>
-          <input {...register('phone')} type="tel" className="form-input" placeholder="090-1234-5678" />
+          <input {...register('phone')} type="tel" className="form-input" placeholder="090-1234-5678" autoComplete="tel" />
         </div>
 
         <div>

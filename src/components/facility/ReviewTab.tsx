@@ -35,7 +35,7 @@ export default function ReviewTab({ facilityId, initialReviews }: Props) {
       {reviews.length > 0 && (
         <div className="flex items-center gap-4 bg-sky-50 rounded-xl p-4">
           <div className="text-center">
-            <p className="text-3xl font-bold" style={{ color: 'var(--primary)' }}>{avg}</p>
+            <p className="text-3xl font-bold text-sky-500">{avg}</p>
             <StarRating value={Math.round(Number(avg))} readonly size="sm" />
             <p className="text-gray-500 text-xs mt-1">{reviews.length}件の口コミ</p>
           </div>

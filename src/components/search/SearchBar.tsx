@@ -2,8 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
-import { businessTypes } from '@/lib/validations';
-import { prefectures } from '@/lib/constants';
+import { businessTypes, prefectures } from '@/lib/constants';
 
 export default function SearchBar() {
   const router = useRouter();
@@ -25,11 +24,13 @@ export default function SearchBar() {
     <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
       <div className="grid sm:grid-cols-4 gap-3">
         <input
-          type="text"
+          type="search"
+          name="keyword"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
           placeholder="キーワード（店名・エリアなど）"
           className="form-input sm:col-span-2"
+          autoComplete="off"
         />
         <select
           value={type}
@@ -37,7 +38,7 @@ export default function SearchBar() {
           className="form-input"
         >
           <option value="">すべての業種</option>
-          {businessTypes.filter(t => t !== 'その他').map((t) => (
+          {businessTypes.map((t) => (
             <option key={t} value={t}>{t}</option>
           ))}
         </select>
