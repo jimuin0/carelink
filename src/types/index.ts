@@ -315,3 +315,51 @@ export interface CustomerVisit {
   note: string | null;
   created_at: string;
 }
+
+// Treatment Catalog（ヘアカタログ）
+export interface TreatmentCatalog {
+  id: string;
+  facility_id: string;
+  staff_id: string | null;
+  menu_id: string | null;
+  title: string;
+  description: string | null;
+  before_photo_url: string | null;
+  after_photo_url: string | null;
+  tags: string[];
+  created_at: string;
+}
+
+// Blog（ブログ）
+export interface BlogPost {
+  id: string;
+  facility_id: string;
+  author_id: string | null;
+  title: string;
+  slug: string;
+  content: string;
+  thumbnail_url: string | null;
+  is_published: boolean;
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Review Reply（口コミ返信）
+export interface ReviewReply {
+  id: string;
+  review_id: string;
+  user_id: string;
+  content: string;
+  created_at: string;
+}
+
+// User Points（ポイント）
+export interface UserPoint {
+  id: string;
+  user_id: string;
+  points: number;
+  reason: string;
+  booking_id: string | null;
+  created_at: string;
+}

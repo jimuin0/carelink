@@ -33,6 +33,12 @@ export default async function MyPageLayout({ children }: { children: React.React
             予約履歴
           </Link>
           <Link
+            href="/mypage/points"
+            className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
+          >
+            ポイント
+          </Link>
+          <Link
             href="/mypage/profile"
             className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
           >
