@@ -203,7 +203,7 @@ export default async function FacilityPage({ params }: Props) {
       </div>
 
       <ViewCount facilityId={facility.id} />
-      <StickyBookingBar phone={facility.phone} facilityName={facility.name} />
+      <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} />
     </div>
   );
 }

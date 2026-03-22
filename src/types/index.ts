@@ -249,3 +249,46 @@ export interface MenuStaff {
   menu_id: string;
   staff_id: string;
 }
+
+// Booking（予約）
+export interface Booking {
+  id: string;
+  facility_id: string;
+  user_id: string | null;
+  staff_id: string | null;
+  menu_id: string | null;
+  coupon_id: string | null;
+  booking_date: string;
+  start_time: string;
+  end_time: string;
+  customer_name: string;
+  email: string;
+  phone: string | null;
+  note: string | null;
+  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  total_price: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffSchedule {
+  id: string;
+  staff_id: string;
+  day_of_week: number;
+  start_time: string;
+  end_time: string;
+}
+
+export interface ScheduleOverride {
+  id: string;
+  staff_id: string;
+  date: string;
+  is_holiday: boolean;
+  start_time: string | null;
+  end_time: string | null;
+}
+
+export interface AvailableSlot {
+  slot_start: string;
+  slot_end: string;
+}
