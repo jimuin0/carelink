@@ -10,6 +10,8 @@ import AccessInfo from '@/components/facility/AccessInfo';
 import ReviewTab from '@/components/facility/ReviewTab';
 import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
+import FavoriteButton from '@/components/facility/FavoriteButton';
+import ViewCount from '@/components/facility/ViewCount';
 import type { Facility, FacilityMenu } from '@/types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
@@ -100,7 +102,12 @@ export default async function FacilityPage({ params }: Props) {
         </nav>
 
         <PhotoGallery photos={photos} facilityName={facility.name} />
-        <FacilityHeader facility={facility} />
+        <div className="flex items-start justify-between">
+          <FacilityHeader facility={facility} />
+          <div className="pt-5 pr-4">
+            <FavoriteButton facilityId={facility.id} />
+          </div>
+        </div>
         <TabNavigation tabs={tabs} />
 
         {/* Contact section */}
@@ -179,6 +186,7 @@ export default async function FacilityPage({ params }: Props) {
         />
       </div>
 
+      <ViewCount facilityId={facility.id} />
       <StickyBookingBar phone={facility.phone} facilityName={facility.name} />
     </div>
   );

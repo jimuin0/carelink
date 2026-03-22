@@ -8,7 +8,7 @@ import SearchFooter from '@/components/search/SearchFooter';
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const isSearchSite = pathname.startsWith('/search') || pathname.startsWith('/facility');
+  const isSearchSite = pathname.startsWith('/search') || pathname.startsWith('/facility') || pathname.startsWith('/mypage') || pathname.startsWith('/auth');
 
   if (isSearchSite) {
     return (

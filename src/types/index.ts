@@ -156,6 +156,39 @@ export interface SearchParams {
   keyword?: string;
   type?: string;
   prefecture?: string;
-  sort?: 'rating' | 'newest';
+  sort?: 'rating' | 'newest' | 'popular';
   page?: number;
+}
+
+// User Profile（認証ユーザー）
+export interface Profile {
+  id: string;
+  display_name: string;
+  avatar_url: string | null;
+  email: string | null;
+  phone: string | null;
+  prefecture: string | null;
+  city: string | null;
+  birth_date: string | null;
+  gender: 'male' | 'female' | 'other' | 'unspecified' | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Favorite（お気に入り）
+export interface Favorite {
+  id: string;
+  user_id: string;
+  facility_id: string;
+  created_at: string;
+}
+
+// Area（エリア階層）
+export interface Area {
+  id: string;
+  name: string;
+  slug: string;
+  area_type: 'region' | 'prefecture' | 'city' | 'station';
+  parent_id: string | null;
+  sort_order: number;
 }

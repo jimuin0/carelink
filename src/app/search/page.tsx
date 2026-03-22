@@ -15,7 +15,7 @@ export default async function SearchPage({ searchParams }: Props) {
     keyword: searchParams.keyword,
     type: searchParams.type,
     prefecture: searchParams.area,
-    sort: (searchParams.sort as 'rating' | 'newest') || 'newest',
+    sort: (searchParams.sort as 'rating' | 'newest' | 'popular') || 'newest',
     page: searchParams.page ? parseInt(searchParams.page) : 1,
   };
 
@@ -52,6 +52,7 @@ export default async function SearchPage({ searchParams }: Props) {
           <div className="flex items-center gap-2">
             <SortLink current={params.sort} value="newest" label="新着順" searchParams={searchParams} />
             <SortLink current={params.sort} value="rating" label="評価順" searchParams={searchParams} />
+            <SortLink current={params.sort} value="popular" label="人気順" searchParams={searchParams} />
           </div>
         </div>
 

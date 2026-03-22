@@ -24,6 +24,8 @@ export async function searchFacilities(params: SearchParams) {
 
   if (params.sort === 'rating') {
     query = query.order('rating_avg', { ascending: false });
+  } else if (params.sort === 'popular') {
+    query = query.order('view_count', { ascending: false, nullsFirst: false });
   } else {
     query = query.order('created_at', { ascending: false });
   }

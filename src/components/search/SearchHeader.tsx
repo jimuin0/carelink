@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { businessTypes } from '@/lib/constants';
+import AuthButton from '@/components/auth/AuthButton';
 
 export default function SearchHeader() {
   const [isOpen, setIsOpen] = useState(false);
@@ -26,9 +27,22 @@ export default function SearchHeader() {
                 {type}
               </Link>
             ))}
+            <Link
+              href="/search/area"
+              className="text-gray-600 hover:text-primary text-sm px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
+            >
+              エリア
+            </Link>
+            <div className="ml-2 pl-2 border-l border-gray-200">
+              <AuthButton />
+            </div>
           </nav>
 
           {/* Mobile hamburger */}
+          <div className="flex items-center gap-2 md:hidden">
+            <AuthButton />
+          </div>
+
           <button
             className="md:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setIsOpen(!isOpen)}
@@ -64,6 +78,13 @@ export default function SearchHeader() {
                 {type}
               </Link>
             ))}
+            <Link
+              href="/search/area"
+              className="text-gray-600 hover:text-primary text-sm px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              エリアから探す
+            </Link>
           </nav>
         </div>
       </div>
