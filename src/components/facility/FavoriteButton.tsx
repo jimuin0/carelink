@@ -42,16 +42,20 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
     const previousState = isFavorited;
     setIsFavorited(!previousState);
 
-    const res = await fetch('/api/favorites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ facilityId }),
-    });
+    try {
+      const res = await fetch('/api/favorites', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ facilityId }),
+      });
 
-    if (res.ok) {
-      const { isFavorited: newState } = await res.json();
-      setIsFavorited(newState);
-    } else {
+      if (res.ok) {
+        const body = await res.json().catch(() => null);
+        setIsFavorited(body?.isFavorited ?? !previousState);
+      } else {
+        setIsFavorited(previousState);
+      }
+    } catch {
       setIsFavorited(previousState);
     }
   };

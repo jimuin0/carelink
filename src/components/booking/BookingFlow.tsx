@@ -83,8 +83,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     if (res.ok) {
       router.push(`/facility/${facility.slug}/booking/complete`);
     } else {
-      const { error } = await res.json();
-      setToast({ type: 'error', message: error || '予約に失敗しました' });
+      const body = await res.json().catch(() => null);
+      setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
     }
     setSubmitting(false);
   };
@@ -379,7 +379,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             {calculatePrice() !== null && (
               <div className="flex justify-between text-sm border-t pt-3">
                 <span className="text-gray-500">合計金額</span>
-                <span className="font-bold text-lg">¥{calculatePrice()!.toLocaleString()}</span>
+                <span className="font-bold text-lg">¥{calculatePrice()?.toLocaleString()}</span>
               </div>
             )}
           </div>

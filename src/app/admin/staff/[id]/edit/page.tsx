@@ -44,27 +44,32 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
     if (saving || !name || !facilityId) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase
-      .from('staff_profiles')
-      .update({
-        name,
-        position: position || null,
-        bio: bio || null,
-        specialties: specialties ? specialties.split(',').map((s) => s.trim()) : [],
-        years_experience: yearsExperience ? parseInt(yearsExperience) : null,
-        instagram_url: instagramUrl || null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.id)
-      .eq('facility_id', facilityId);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { error } = await supabase
+        .from('staff_profiles')
+        .update({
+          name,
+          position: position || null,
+          bio: bio || null,
+          specialties: specialties ? specialties.split(',').map((s) => s.trim()) : [],
+          years_experience: yearsExperience ? parseInt(yearsExperience) : null,
+          instagram_url: instagramUrl || null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', params.id)
+        .eq('facility_id', facilityId);
 
-    if (error) {
-      setToast({ type: 'error', message: '保存に失敗しました' });
-    } else {
-      setToast({ type: 'success', message: '保存しました' });
+      if (error) {
+        setToast({ type: 'error', message: '保存に失敗しました' });
+      } else {
+        setToast({ type: 'success', message: '保存しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   if (loading) {
