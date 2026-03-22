@@ -8,6 +8,12 @@ import SearchFooter from '@/components/search/SearchFooter';
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+
+  // Admin has its own layout
+  if (pathname.startsWith('/admin')) {
+    return <main className="flex-1">{children}</main>;
+  }
+
   const isSearchSite = pathname.startsWith('/search') || pathname.startsWith('/facility') || pathname.startsWith('/mypage') || pathname.startsWith('/auth');
 
   if (isSearchSite) {

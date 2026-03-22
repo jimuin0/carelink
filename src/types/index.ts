@@ -292,3 +292,26 @@ export interface AvailableSlot {
   slot_start: string;
   slot_end: string;
 }
+
+// Admin（管理）
+export interface FacilityMember {
+  id: string;
+  user_id: string;
+  facility_id: string;
+  role: 'owner' | 'admin' | 'staff';
+  created_at: string;
+}
+
+export interface CustomerVisit {
+  id: string;
+  facility_id: string;
+  booking_id: string | null;
+  customer_email: string;
+  customer_name: string;
+  visit_date: string;
+  menu_name: string | null;
+  staff_name: string | null;
+  amount: number | null;
+  note: string | null;
+  created_at: string;
+}

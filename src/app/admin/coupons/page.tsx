@@ -1,0 +1,69 @@
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { getCouponsByFacility } from '@/lib/coupons';
+import Link from 'next/link';
+import CouponBadge from '@/components/facility/CouponBadge';
+
+export default async function AdminCouponsPage() {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data: membership } = await supabase
+    .from('facility_members')
+    .select('facility_id')
+    .eq('user_id', user!.id)
+    .single();
+
+  const coupons = await getCouponsByFacility(membership!.facility_id);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">クーポン管理</h1>
+        <Link href="/admin/coupons/new" className="btn-primary text-sm !py-2 !px-4">
+          新規作成
+        </Link>
+      </div>
+
+      {coupons.length === 0 ? (
+        <div className="bg-white rounded-xl p-8 text-center">
+          <p className="text-gray-400 mb-3">クーポンがありません</p>
+          <Link href="/admin/coupons/new" className="text-sm text-primary hover:underline">
+            最初のクーポンを作成
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {coupons.map((coupon) => (
+            <div key={coupon.id} className="bg-white rounded-xl p-4 shadow-sm">
+              <div className="flex items-start justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <CouponBadge type={coupon.coupon_type} />
+                    {coupon.valid_until && (
+                      <span className="text-[10px] text-gray-400">
+                        ~{new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
+                      </span>
+                    )}
+                  </div>
+                  <p className="font-bold">{coupon.name}</p>
+                  {coupon.description && <p className="text-sm text-gray-500 mt-1">{coupon.description}</p>}
+                </div>
+                <div className="text-right">
+                  {coupon.discount_type === 'fixed' && coupon.discount_value && (
+                    <p className="font-bold text-red-500">¥{coupon.discount_value.toLocaleString()}OFF</p>
+                  )}
+                  {coupon.discount_type === 'percentage' && coupon.discount_value && (
+                    <p className="font-bold text-red-500">{coupon.discount_value}%OFF</p>
+                  )}
+                  {coupon.discount_type === 'special_price' && coupon.special_price !== null && (
+                    <p className="font-bold text-red-500">¥{coupon.special_price.toLocaleString()}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
