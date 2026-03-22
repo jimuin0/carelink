@@ -4,7 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const updated = new Date('2026-03-22');
+  const updated = new Date();
 
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [

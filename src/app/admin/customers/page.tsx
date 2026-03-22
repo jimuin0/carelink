@@ -1,18 +1,21 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getUniqueCustomers } from '@/lib/admin';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 export default async function AdminCustomersPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
-  const customers = await getUniqueCustomers(membership!.facility_id);
+  const customers = await getUniqueCustomers(membership.facility_id);
 
   return (
     <div>

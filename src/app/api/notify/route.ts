@@ -16,6 +16,12 @@ function isRateLimited(ip: string): boolean {
   if (timestamps.length >= RATE_LIMIT) return true;
   timestamps.push(now);
   requestLog.set(ip, timestamps);
+  // Prevent unbounded growth
+  if (requestLog.size > 1000) {
+    Array.from(requestLog.entries()).forEach(([key, ts]) => {
+      if (ts.every((t) => now - t >= RATE_WINDOW)) requestLog.delete(key);
+    });
+  }
   return false;
 }
 

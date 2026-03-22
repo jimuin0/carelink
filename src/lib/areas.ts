@@ -33,7 +33,8 @@ export async function getAreaBreadcrumb(area: Area): Promise<Area[]> {
   const breadcrumb: Area[] = [area];
   let current = area;
 
-  while (current.parent_id) {
+  let depth = 0;
+  while (current.parent_id && depth < 10) {
     const { data } = await supabase
       .from('areas')
       .select('*')
@@ -42,6 +43,7 @@ export async function getAreaBreadcrumb(area: Area): Promise<Area[]> {
     if (!data) break;
     breadcrumb.unshift(data as Area);
     current = data as Area;
+    depth++;
   }
 
   return breadcrumb;

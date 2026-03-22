@@ -1,18 +1,20 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 export default async function AdminDashboard() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
-  const facilityId = membership?.facility_id;
-  if (!facilityId) return <p>施設が見つかりません</p>;
+  const facilityId = membership.facility_id;
 
   const today = new Date().toISOString().split('T')[0];
 

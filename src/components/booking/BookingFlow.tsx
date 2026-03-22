@@ -317,6 +317,10 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                   setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
                   return;
                 }
+                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+                  setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
+                  return;
+                }
                 setStep('confirm');
               }}
               className="btn-primary flex-1 !py-3"

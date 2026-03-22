@@ -8,7 +8,8 @@ export async function GET(request: Request) {
   const facilityId = searchParams.get('facilityId');
   const staffId = searchParams.get('staffId');
   const date = searchParams.get('date');
-  const duration = parseInt(searchParams.get('duration') || '60');
+  const rawDuration = parseInt(searchParams.get('duration') || '60');
+  const duration = Number.isNaN(rawDuration) ? 60 : Math.min(Math.max(rawDuration, 15), 480);
 
   if (!facilityId || !staffId || !date) {
     return NextResponse.json({ slots: [] });

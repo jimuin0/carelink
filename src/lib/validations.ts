@@ -82,15 +82,8 @@ export function formatPhone(value: string): string {
   return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
 }
 
-// Business types
-export const businessTypes = [
-  '美容サロン・アイラッシュ',
-  '鍼灸院',
-  '整骨院',
-  '介護施設・デイサービス',
-  '病院・クリニック',
-  'その他',
-];
+// Re-export from constants for single source of truth
+export { businessTypes } from './constants';
 
 // Job types
 export const jobTypes = [

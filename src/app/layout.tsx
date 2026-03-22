@@ -37,8 +37,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const gaId = process.env.NEXT_PUBLIC_GA_ID;
-  const clarityId = process.env.NEXT_PUBLIC_CLARITY_ID;
+  const rawGaId = process.env.NEXT_PUBLIC_GA_ID;
+  const rawClarityId = process.env.NEXT_PUBLIC_CLARITY_ID;
+  const gaId = rawGaId && /^G-[A-Z0-9]+$/.test(rawGaId) ? rawGaId : undefined;
+  const clarityId = rawClarityId && /^[a-z0-9]+$/i.test(rawClarityId) ? rawClarityId : undefined;
 
   return (
     <html lang="ja">

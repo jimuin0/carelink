@@ -15,7 +15,7 @@ const contactSchema = z.object({
   email: z.string().email('正しいメールアドレスを入力してください'),
   phone: z.string().regex(/^$|^0\d{1,4}-?\d{1,4}-?\d{3,4}$/, '正しい電話番号を入力してください').optional().or(z.literal('')),
   inquiry_type: z.string().min(1, 'お問い合わせ種別を選択してください'),
-  message: z.string().min(1, '内容を入力してください'),
+  message: z.string().min(1, '内容を入力してください').max(5000, '5000文字以内で入力してください'),
 });
 
 type ContactForm = z.infer<typeof contactSchema>;

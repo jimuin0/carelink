@@ -1,21 +1,24 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { BlogPost } from '@/types';
 
 export default async function AdminBlogPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
   const { data } = await supabase
     .from('blog_posts')
     .select('*')
-    .eq('facility_id', membership!.facility_id)
+    .eq('facility_id', membership.facility_id)
     .order('created_at', { ascending: false });
 
   const posts = (data ?? []) as BlogPost[];

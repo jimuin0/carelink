@@ -14,6 +14,7 @@ export const businessTypes = [
   '整骨院',
   '介護施設・デイサービス',
   '病院・クリニック',
+  'その他',
 ];
 
 export const facilityFeatures = [

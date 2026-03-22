@@ -230,8 +230,6 @@ export default function Home() {
       </section>
 
       {/* Trust */}
-
-      {/* Trust */}
       <section className="bg-white">
         <div className="section-container">
           <FadeIn>

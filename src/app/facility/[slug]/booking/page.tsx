@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus } from '@/lib/facilities';
 import { getStaffByFacility } from '@/lib/staff';
 import { getCouponsByFacility } from '@/lib/coupons';
@@ -6,6 +7,15 @@ import BookingFlow from '@/components/booking/BookingFlow';
 
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) return {};
+  return {
+    title: `予約 | ${facility.name} | CareLink`,
+    description: `${facility.name}のオンライン予約ページ`,
+  };
 }
 
 export default async function BookingPage({ params }: Props) {

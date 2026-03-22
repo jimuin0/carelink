@@ -15,7 +15,7 @@ export default async function SearchPage({ searchParams }: Props) {
     keyword: searchParams.keyword,
     type: searchParams.type,
     prefecture: searchParams.area,
-    sort: (searchParams.sort as 'rating' | 'newest' | 'popular') || 'newest',
+    sort: (['rating', 'newest', 'popular'] as const).includes(searchParams.sort as 'rating' | 'newest' | 'popular') ? (searchParams.sort as 'rating' | 'newest' | 'popular') : 'newest',
     page: searchParams.page ? (parseInt(searchParams.page) || 1) : 1,
   };
 
