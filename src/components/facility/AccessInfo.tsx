@@ -22,7 +22,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
             {facility.staff_count && <InfoRow label="スタッフ数" value={`${facility.staff_count}名`} />}
             {facility.parking && <InfoRow label="駐車場" value="あり" />}
             {facility.credit_card && <InfoRow label="クレジットカード" value="利用可" />}
-            {facility.website_url && (
+            {facility.website_url && /^https?:\/\//.test(facility.website_url) && (
               <InfoRow
                 label="Webサイト"
                 value={

@@ -64,9 +64,22 @@ export type JobFormValues = z.infer<typeof jobFullSchema>;
 // Phone auto-hyphen
 export function formatPhone(value: string): string {
   const digits = value.replace(/\D/g, '');
+  // 携帯番号（090/080/070/050）: 3-4-4
+  if (/^0[5789]0/.test(digits)) {
+    if (digits.length <= 3) return digits;
+    if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
+  }
+  // 固定電話（03/06等 2桁市外局番）: 2-4-4
+  if (/^0[36]/.test(digits)) {
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 6) return `${digits.slice(0, 2)}-${digits.slice(2)}`;
+    return `${digits.slice(0, 2)}-${digits.slice(2, 6)}-${digits.slice(6, 10)}`;
+  }
+  // その他固定電話（3桁市外局番）: 3-3-4
   if (digits.length <= 3) return digits;
-  if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
-  return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7, 11)}`;
+  if (digits.length <= 6) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
+  return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6, 10)}`;
 }
 
 // Business types

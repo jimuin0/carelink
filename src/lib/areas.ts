@@ -29,11 +29,11 @@ export async function getAreaBySlug(slug: string): Promise<Area | null> {
 }
 
 export async function getAreaBreadcrumb(area: Area): Promise<Area[]> {
+  const supabase = createServerSupabaseClient();
   const breadcrumb: Area[] = [area];
   let current = area;
 
   while (current.parent_id) {
-    const supabase = createServerSupabaseClient();
     const { data } = await supabase
       .from('areas')
       .select('*')

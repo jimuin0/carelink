@@ -54,6 +54,7 @@ export default function ConfirmDialog({
     if (open) {
       previousFocusRef.current = document.activeElement as HTMLElement;
       document.addEventListener('keydown', handleKeyDown);
+      document.body.style.overflow = 'hidden';
       // Focus first button after render
       requestAnimationFrame(() => {
         const firstBtn = dialogRef.current?.querySelector<HTMLElement>('button');
@@ -61,6 +62,7 @@ export default function ConfirmDialog({
       });
       return () => {
         document.removeEventListener('keydown', handleKeyDown);
+        document.body.style.overflow = '';
         previousFocusRef.current?.focus();
       };
     }

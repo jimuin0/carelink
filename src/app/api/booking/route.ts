@@ -56,6 +56,10 @@ export async function POST(request: Request) {
     });
 
   if (error) {
+    // DB制約違反（二重予約）の場合
+    if (error.code === '23505') {
+      return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+    }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
 

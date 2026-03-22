@@ -39,7 +39,8 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
       return;
     }
 
-    setIsFavorited(!isFavorited);
+    const previousState = isFavorited;
+    setIsFavorited(!previousState);
 
     const res = await fetch('/api/favorites', {
       method: 'POST',
@@ -51,7 +52,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
       const { isFavorited: newState } = await res.json();
       setIsFavorited(newState);
     } else {
-      setIsFavorited(isFavorited);
+      setIsFavorited(previousState);
     }
   };
 

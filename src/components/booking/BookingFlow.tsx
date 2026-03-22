@@ -169,13 +169,15 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       {step === 'staff' && (
         <div className="space-y-3">
           <h2 className="font-bold">スタッフを選択</h2>
-          <button
-            onClick={() => { setSelectedStaff(staff[0] ?? null); setStep('date'); }}
-            className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
-          >
-            <p className="font-bold text-sm">指名なし</p>
-            <p className="text-xs text-gray-500">空いているスタッフが対応します</p>
-          </button>
+          {staff.length > 0 && (
+            <button
+              onClick={() => { setSelectedStaff(staff[0]); setStep('date'); }}
+              className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
+            >
+              <p className="font-bold text-sm">指名なし</p>
+              <p className="text-xs text-gray-500">空いているスタッフが対応します</p>
+            </button>
+          )}
           {staff.map((s) => (
             <button
               key={s.id}
