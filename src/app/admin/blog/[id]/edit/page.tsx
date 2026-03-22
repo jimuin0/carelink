@@ -16,15 +16,22 @@ export default function EditBlogPage() {
   const [isPublished, setIsPublished] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
       const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).single();
+      if (!membership) { setLoading(false); return; }
+      setFacilityId(membership.facility_id);
       const { data } = await supabase
         .from('blog_posts')
         .select('*')
         .eq('id', postId)
+        .eq('facility_id', membership.facility_id)
         .single();
 
       if (data) {
@@ -39,7 +46,7 @@ export default function EditBlogPage() {
   }, [postId]);
 
   const handleSave = async () => {
-    if (saving || !title || !content) return;
+    if (saving || !title || !content || !facilityId) return;
     setSaving(true);
 
     const supabase = createBrowserSupabaseClient();
@@ -51,7 +58,8 @@ export default function EditBlogPage() {
         is_published: isPublished,
         published_at: isPublished ? new Date().toISOString() : null,
       })
-      .eq('id', postId);
+      .eq('id', postId)
+      .eq('facility_id', facilityId);
 
     if (error) {
       setToast({ type: 'error', message: '保存に失敗しました' });
@@ -66,7 +74,7 @@ export default function EditBlogPage() {
     if (!confirm('この記事を削除しますか？')) return;
 
     const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('blog_posts').delete().eq('id', postId);
+    const { error } = await supabase.from('blog_posts').delete().eq('id', postId).eq('facility_id', facilityId ?? '');
     if (error) {
       setToast({ type: 'error', message: '削除に失敗しました' });
       return;

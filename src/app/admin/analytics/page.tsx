@@ -1,43 +1,50 @@
+import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 
 export default async function AdminAnalyticsPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
-  const facilityId = membership!.facility_id;
+  const facilityId = membership.facility_id;
 
-  // 月別売上（直近6ヶ月）
-  const months: { month: string; revenue: number; count: number }[] = [];
-  for (let i = 5; i >= 0; i--) {
+  // 月別設定を事前生成
+  const monthConfigs = Array.from({ length: 6 }, (_, i) => {
     const d = new Date();
-    d.setMonth(d.getMonth() - i);
+    d.setMonth(d.getMonth() - (5 - i));
     const year = d.getFullYear();
     const month = d.getMonth() + 1;
     const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
     const endD = new Date(year, month, 0);
     const endDate = `${year}-${String(month).padStart(2, '0')}-${String(endD.getDate()).padStart(2, '0')}`;
+    return { label: `${month}月`, startDate, endDate };
+  });
 
-    const { data } = await supabase
-      .from('bookings')
-      .select('total_price')
-      .eq('facility_id', facilityId)
-      .eq('status', 'completed')
-      .gte('booking_date', startDate)
-      .lte('booking_date', endDate);
+  // 並列クエリ（N+1解消）
+  const results = await Promise.all(
+    monthConfigs.map(({ startDate, endDate }) =>
+      supabase
+        .from('bookings')
+        .select('total_price')
+        .eq('facility_id', facilityId)
+        .eq('status', 'completed')
+        .gte('booking_date', startDate)
+        .lte('booking_date', endDate)
+    )
+  );
 
-    const revenue = (data ?? []).reduce((sum, b) => sum + (b.total_price ?? 0), 0);
-    months.push({
-      month: `${month}月`,
-      revenue,
-      count: data?.length ?? 0,
-    });
-  }
+  const months = monthConfigs.map((config, i) => {
+    const data = results[i].data ?? [];
+    const revenue = data.reduce((sum, b) => sum + (b.total_price ?? 0), 0);
+    return { month: config.label, revenue, count: data.length };
+  });
 
   const totalRevenue = months.reduce((sum, m) => sum + m.revenue, 0);
   const totalBookings = months.reduce((sum, m) => sum + m.count, 0);

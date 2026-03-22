@@ -108,7 +108,10 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const dateOptions = Array.from({ length: 30 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i + 1);
-    return d.toISOString().split('T')[0];
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
   });
 
   const steps: { key: Step; label: string }[] = [

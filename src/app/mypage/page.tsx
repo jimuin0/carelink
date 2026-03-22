@@ -1,20 +1,22 @@
+import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 
 export default async function MyPageDashboard() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: profile } = await supabase
     .from('profiles')
     .select('display_name')
-    .eq('id', user!.id)
+    .eq('id', user.id)
     .single();
 
   const { count: favoriteCount } = await supabase
     .from('favorites')
     .select('id', { count: 'exact', head: true })
-    .eq('user_id', user!.id);
+    .eq('user_id', user.id);
 
   return (
     <div className="space-y-6">

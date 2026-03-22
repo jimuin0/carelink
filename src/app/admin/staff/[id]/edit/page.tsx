@@ -15,12 +15,18 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
   const [instagramUrl, setInstagramUrl] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const load = async () => {
       const supabase = createBrowserSupabaseClient();
-      const { data } = await supabase.from('staff_profiles').select('*').eq('id', params.id).single();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).single();
+      if (!membership) { setLoading(false); return; }
+      setFacilityId(membership.facility_id);
+      const { data } = await supabase.from('staff_profiles').select('*').eq('id', params.id).eq('facility_id', membership.facility_id).single();
       if (data) {
         setName(data.name || '');
         setPosition(data.position || '');
@@ -35,7 +41,7 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
   }, [params.id]);
 
   const handleSave = async () => {
-    if (saving || !name) return;
+    if (saving || !name || !facilityId) return;
     setSaving(true);
 
     const supabase = createBrowserSupabaseClient();
@@ -50,7 +56,8 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
         instagram_url: instagramUrl || null,
         updated_at: new Date().toISOString(),
       })
-      .eq('id', params.id);
+      .eq('id', params.id)
+      .eq('facility_id', facilityId);
 
     if (error) {
       setToast({ type: 'error', message: '保存に失敗しました' });

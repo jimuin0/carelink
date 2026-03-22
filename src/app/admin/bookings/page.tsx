@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import type { Booking } from '@/types';
@@ -17,17 +18,19 @@ interface Props {
 export default async function AdminBookingsPage({ searchParams }: Props) {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
   let query = supabase
     .from('bookings')
     .select('*')
-    .eq('facility_id', membership!.facility_id)
+    .eq('facility_id', membership.facility_id)
     .order('booking_date', { ascending: false });
 
   if (searchParams.status) query = query.eq('status', searchParams.status);

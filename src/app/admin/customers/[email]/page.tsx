@@ -1,3 +1,4 @@
+import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCustomerVisits } from '@/lib/admin';
 
@@ -9,14 +10,16 @@ export default async function CustomerDetailPage({ params }: Props) {
   const email = decodeURIComponent(params.email);
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
-  const visits = await getCustomerVisits(membership!.facility_id, email);
+  const visits = await getCustomerVisits(membership.facility_id, email);
   const totalSpent = visits.reduce((sum, v) => sum + (v.amount ?? 0), 0);
 
   return (
