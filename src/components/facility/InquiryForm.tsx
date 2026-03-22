@@ -117,7 +117,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
         message="入力内容を確認のうえ、送信してください。"
         confirmLabel="送信する"
         cancelLabel="戻る"
-        onConfirm={() => { setShowConfirm(false); handleSubmit(onSubmit)(); }}
+        onConfirm={() => { if (isSubmitting) return; setShowConfirm(false); handleSubmit(onSubmit)(); }}
         onCancel={() => setShowConfirm(false)}
       />
 

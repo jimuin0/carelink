@@ -99,7 +99,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
         message="投稿後の編集・削除はできません。"
         confirmLabel="投稿する"
         cancelLabel="戻る"
-        onConfirm={() => { setShowConfirm(false); handleSubmit(onSubmit)(); }}
+        onConfirm={() => { if (isSubmitting) return; setShowConfirm(false); handleSubmit(onSubmit)(); }}
         onCancel={() => setShowConfirm(false)}
       />
 
