@@ -3,8 +3,8 @@
 -- テーブル + RLS + ダミーデータ
 -- =============================================
 
--- 1. facilities テーブル
-CREATE TABLE IF NOT EXISTS facilities (
+-- 1. facility_profiles テーブル
+CREATE TABLE IF NOT EXISTS facility_profiles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at TIMESTAMPTZ DEFAULT now(),
   updated_at TIMESTAMPTZ DEFAULT now(),
@@ -36,18 +36,18 @@ CREATE TABLE IF NOT EXISTS facilities (
   status TEXT DEFAULT 'draft' CHECK (status IN ('draft','published','suspended'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_facilities_status ON facilities(status);
-CREATE INDEX IF NOT EXISTS idx_facilities_business_type ON facilities(business_type);
-CREATE INDEX IF NOT EXISTS idx_facilities_prefecture ON facilities(prefecture);
-CREATE INDEX IF NOT EXISTS idx_facilities_slug ON facilities(slug);
+CREATE INDEX IF NOT EXISTS idx_facility_profiles_status ON facility_profiles(status);
+CREATE INDEX IF NOT EXISTS idx_facility_profiles_business_type ON facility_profiles(business_type);
+CREATE INDEX IF NOT EXISTS idx_facility_profiles_prefecture ON facility_profiles(prefecture);
+CREATE INDEX IF NOT EXISTS idx_facility_profiles_slug ON facility_profiles(slug);
 
-ALTER TABLE facilities ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public read published" ON facilities FOR SELECT TO anon USING (status = 'published');
+ALTER TABLE facility_profiles ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Public read published" ON facility_profiles FOR SELECT TO anon USING (status = 'published');
 
 -- 2. facility_menus テーブル
 CREATE TABLE IF NOT EXISTS facility_menus (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  facility_id UUID NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+  facility_id UUID NOT NULL REFERENCES facility_profiles(id) ON DELETE CASCADE,
   category TEXT NOT NULL,
   name TEXT NOT NULL,
   description TEXT,
@@ -63,12 +63,12 @@ CREATE INDEX IF NOT EXISTS idx_facility_menus_facility ON facility_menus(facilit
 
 ALTER TABLE facility_menus ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read menus" ON facility_menus FOR SELECT TO anon
-  USING (EXISTS (SELECT 1 FROM facilities WHERE id = facility_menus.facility_id AND status = 'published'));
+  USING (EXISTS (SELECT 1 FROM facility_profiles WHERE id = facility_menus.facility_id AND status = 'published'));
 
 -- 3. facility_photos テーブル
 CREATE TABLE IF NOT EXISTS facility_photos (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  facility_id UUID NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+  facility_id UUID NOT NULL REFERENCES facility_profiles(id) ON DELETE CASCADE,
   photo_url TEXT NOT NULL,
   photo_type TEXT NOT NULL CHECK (photo_type IN ('main','interior','exterior','staff','menu','other')),
   caption TEXT,
@@ -80,14 +80,14 @@ CREATE INDEX IF NOT EXISTS idx_facility_photos_facility ON facility_photos(facil
 
 ALTER TABLE facility_photos ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public read photos" ON facility_photos FOR SELECT TO anon
-  USING (EXISTS (SELECT 1 FROM facilities WHERE id = facility_photos.facility_id AND status = 'published'));
+  USING (EXISTS (SELECT 1 FROM facility_profiles WHERE id = facility_photos.facility_id AND status = 'published'));
 
 -- =============================================
 -- ダミーデータ（10施設）
 -- =============================================
 
 -- 1. HAL eyelash salon 堺東店
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'HAL eyelash salon 堺東店',
   'hal-eyelash-sakai',
@@ -106,7 +106,7 @@ VALUES (
 );
 
 -- 2. hair design BLOOM 難波店
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'hair design BLOOM 難波店',
   'hair-bloom-namba',
@@ -125,7 +125,7 @@ VALUES (
 );
 
 -- 3. からだ鍼灸院 本町
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'からだ鍼灸院 本町',
   'karada-shinkyuin-honmachi',
@@ -144,7 +144,7 @@ VALUES (
 );
 
 -- 4. すこやか鍼灸整体院 天王寺
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'すこやか鍼灸整体院 天王寺',
   'sukoyaka-tennoji',
@@ -163,7 +163,7 @@ VALUES (
 );
 
 -- 5. さくら整骨院 梅田
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'さくら整骨院 梅田',
   'sakura-seikotsuin-umeda',
@@ -182,7 +182,7 @@ VALUES (
 );
 
 -- 6. スポーツ整骨院アクティブ 心斎橋
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'スポーツ整骨院アクティブ 心斎橋',
   'active-seikotsuin-shinsaibashi',
@@ -201,7 +201,7 @@ VALUES (
 );
 
 -- 7. デイサービスひまわり 堺中区
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'デイサービスひまわり 堺中区',
   'day-service-himawari-sakai',
@@ -220,7 +220,7 @@ VALUES (
 );
 
 -- 8. ケアホームやすらぎ 東大阪
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   'ケアホームやすらぎ 東大阪',
   'care-home-yasuragi-higashiosaka',
@@ -239,7 +239,7 @@ VALUES (
 );
 
 -- 9. 内科・皮膚科クリニック さかい
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   '内科・皮膚科クリニック さかい',
   'naika-hifuka-clinic-sakai',
@@ -258,7 +258,7 @@ VALUES (
 );
 
 -- 10. 美容皮膚科 GLOW CLINIC 梅田
-INSERT INTO facilities (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
+INSERT INTO facility_profiles (name, slug, business_type, catch_copy, description, postal_code, prefecture, city, address, access_info, phone, business_hours, regular_holiday, seat_count, staff_count, parking, credit_card, features, rating_avg, rating_count, main_photo_url, status)
 VALUES (
   '美容皮膚科 GLOW CLINIC 梅田',
   'glow-clinic-umeda',
@@ -282,103 +282,103 @@ VALUES (
 
 -- HAL eyelash salon メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'まつエク', 'シングルラッシュ 100本', 'ナチュラルな仕上がりの定番メニュー', 5500, 60, true, 1 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'まつエク', 'シングルラッシュ 100本', 'ナチュラルな仕上がりの定番メニュー', 5500, 60, true, 1 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'まつエク', 'シングルラッシュ 140本', 'しっかり目力アップ', 7700, 80, false, 2 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'まつエク', 'シングルラッシュ 140本', 'しっかり目力アップ', 7700, 80, false, 2 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'まつげパーマ', 'まつげパーマ（上）', '自まつ毛を活かしたナチュラルカール', 4400, 50, true, 3 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'まつげパーマ', 'まつげパーマ（上）', '自まつ毛を活かしたナチュラルカール', 4400, 50, true, 3 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'まつげパーマ', 'まつげパーマ（上下セット）', '上下セットでさらに印象的な目元に', 5500, 60, false, 4 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'まつげパーマ', 'まつげパーマ（上下セット）', '上下セットでさらに印象的な目元に', 5500, 60, false, 4 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '眉毛', '眉毛デザイン + ワックス', 'お顔の黄金比に合わせた眉毛デザイン', 3300, 30, false, 5 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, '眉毛', '眉毛デザイン + ワックス', 'お顔の黄金比に合わせた眉毛デザイン', 3300, 30, false, 5 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 
 -- hair design BLOOM メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'カット', 'カット + ブロー', '骨格に合わせた似合わせカット', 5500, 60, true, 1 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'カット', 'カット + ブロー', '骨格に合わせた似合わせカット', 5500, 60, true, 1 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'カラー', 'フルカラー', 'パーソナルカラー診断付き', 7700, 90, true, 2 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'カラー', 'フルカラー', 'パーソナルカラー診断付き', 7700, 90, true, 2 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'カラー', 'ハイライトカラー', '立体感のあるデザインカラー', 9900, 120, false, 3 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'カラー', 'ハイライトカラー', '立体感のあるデザインカラー', 9900, 120, false, 3 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'パーマ', 'デジタルパーマ', '持ちの良いゆるふわカール', 11000, 120, false, 4 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'パーマ', 'デジタルパーマ', '持ちの良いゆるふわカール', 11000, 120, false, 4 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'トリートメント', 'TOKIOトリートメント', '髪質改善トリートメント', 6600, 40, false, 5 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'トリートメント', 'TOKIOトリートメント', '髪質改善トリートメント', 6600, 40, false, 5 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 
 -- からだ鍼灸院 メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '鍼灸', '全身鍼灸コース', '肩こり・腰痛・疲労回復に', 6600, 60, true, 1 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, '鍼灸', '全身鍼灸コース', '肩こり・腰痛・疲労回復に', 6600, 60, true, 1 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '美容鍼', '美容鍼フルコース', 'お顔+デコルテの美容鍼灸', 8800, 70, true, 2 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, '美容鍼', '美容鍼フルコース', 'お顔+デコルテの美容鍼灸', 8800, 70, true, 2 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '鍼灸', '局所治療', '気になる部位を集中ケア', 4400, 30, false, 3 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, '鍼灸', '局所治療', '気になる部位を集中ケア', 4400, 30, false, 3 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'よもぎ蒸し', 'よもぎ蒸し + 鍼灸セット', '温活で体の芯から温める', 9900, 90, false, 4 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, 'よもぎ蒸し', 'よもぎ蒸し + 鍼灸セット', '温活で体の芯から温める', 9900, 90, false, 4 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 
 -- すこやか鍼灸整体院 メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '鍼灸', '鍼灸整体コース', '鍼灸+整体で根本改善', 7700, 60, true, 1 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, '鍼灸', '鍼灸整体コース', '鍼灸+整体で根本改善', 7700, 60, true, 1 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'マッサージ', '全身整体', '全身のバランスを整える', 5500, 50, false, 2 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, 'マッサージ', '全身整体', '全身のバランスを整える', 5500, 50, false, 2 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '鍼灸', 'スポーツ鍼灸', 'スポーツ障害の治療・予防', 6600, 50, true, 3 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, '鍼灸', 'スポーツ鍼灸', 'スポーツ障害の治療・予防', 6600, 50, true, 3 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'マッサージ', '産後骨盤ケア', '産後の骨盤矯正+ケア', 7700, 60, false, 4 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, 'マッサージ', '産後骨盤ケア', '産後の骨盤矯正+ケア', 7700, 60, false, 4 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 
 -- さくら整骨院 メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '骨盤矯正', '3Dバランス骨盤矯正', '独自の矯正法で骨盤のゆがみを改善', 5500, 40, true, 1 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, '骨盤矯正', '3Dバランス骨盤矯正', '独自の矯正法で骨盤のゆがみを改善', 5500, 40, true, 1 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '姿勢矯正', '姿勢改善プログラム', '猫背・巻き肩を改善', 6600, 50, true, 2 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, '姿勢矯正', '姿勢改善プログラム', '猫背・巻き肩を改善', 6600, 50, true, 2 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '交通事故治療', '交通事故治療', '自賠責保険適用', null, 40, false, 3 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, '交通事故治療', '交通事故治療', '自賠責保険適用', null, 40, false, 3 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, 'スポーツ整体', 'スポーツコンディショニング', 'パフォーマンス向上・ケガ予防', 4400, null, 40, false, 4 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, 'スポーツ整体', 'スポーツコンディショニング', 'パフォーマンス向上・ケガ予防', 4400, null, 40, false, 4 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 
 -- スポーツ整骨院アクティブ メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'スポーツ整体', 'アスリートケアコース', 'プロも通う本格スポーツケア', 8800, 60, true, 1 FROM facilities WHERE slug = 'active-seikotsuin-shinsaibashi';
+SELECT id, 'スポーツ整体', 'アスリートケアコース', 'プロも通う本格スポーツケア', 8800, 60, true, 1 FROM facility_profiles WHERE slug = 'active-seikotsuin-shinsaibashi';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '骨盤矯正', '骨盤・姿勢矯正', '体のバランスを整える', 5500, 40, false, 2 FROM facilities WHERE slug = 'active-seikotsuin-shinsaibashi';
+SELECT id, '骨盤矯正', '骨盤・姿勢矯正', '体のバランスを整える', 5500, 40, false, 2 FROM facility_profiles WHERE slug = 'active-seikotsuin-shinsaibashi';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'スポーツ整体', 'パーソナルトレーニング', 'トレーナーによる個別指導', 7700, 50, true, 3 FROM facilities WHERE slug = 'active-seikotsuin-shinsaibashi';
+SELECT id, 'スポーツ整体', 'パーソナルトレーニング', 'トレーナーによる個別指導', 7700, 50, true, 3 FROM facility_profiles WHERE slug = 'active-seikotsuin-shinsaibashi';
 
 -- デイサービスひまわり メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, 'デイサービス', '1日型デイサービス', '入浴・食事・機能訓練・レクリエーション', null, '介護保険適用', 540, true, 1 FROM facilities WHERE slug = 'day-service-himawari-sakai';
+SELECT id, 'デイサービス', '1日型デイサービス', '入浴・食事・機能訓練・レクリエーション', null, '介護保険適用', 540, true, 1 FROM facility_profiles WHERE slug = 'day-service-himawari-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, 'リハビリ', '個別機能訓練', '理学療法士による個別リハビリ', null, '介護保険適用', 30, false, 2 FROM facilities WHERE slug = 'day-service-himawari-sakai';
+SELECT id, 'リハビリ', '個別機能訓練', '理学療法士による個別リハビリ', null, '介護保険適用', 30, false, 2 FROM facility_profiles WHERE slug = 'day-service-himawari-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, 'デイサービス', '半日型デイサービス', '午前or午後の半日利用', null, '介護保険適用', 240, false, 3 FROM facilities WHERE slug = 'day-service-himawari-sakai';
+SELECT id, 'デイサービス', '半日型デイサービス', '午前or午後の半日利用', null, '介護保険適用', 240, false, 3 FROM facility_profiles WHERE slug = 'day-service-himawari-sakai';
 
 -- ケアホームやすらぎ メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, 'ショートステイ', '短期入所', '1泊2日からご利用可能', null, '介護保険適用', null, true, 1 FROM facilities WHERE slug = 'care-home-yasuragi-higashiosaka';
+SELECT id, 'ショートステイ', '短期入所', '1泊2日からご利用可能', null, '介護保険適用', null, true, 1 FROM facility_profiles WHERE slug = 'care-home-yasuragi-higashiosaka';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, '訪問介護', '訪問介護サービス', 'ご自宅での生活をサポート', null, '介護保険適用', null, false, 2 FROM facilities WHERE slug = 'care-home-yasuragi-higashiosaka';
+SELECT id, '訪問介護', '訪問介護サービス', 'ご自宅での生活をサポート', null, '介護保険適用', null, false, 2 FROM facility_profiles WHERE slug = 'care-home-yasuragi-higashiosaka';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, 'リハビリ', '訪問リハビリテーション', '作業療法士が自宅を訪問', null, '介護保険適用', 40, false, 3 FROM facilities WHERE slug = 'care-home-yasuragi-higashiosaka';
+SELECT id, 'リハビリ', '訪問リハビリテーション', '作業療法士が自宅を訪問', null, '介護保険適用', 40, false, 3 FROM facility_profiles WHERE slug = 'care-home-yasuragi-higashiosaka';
 
 -- 内科・皮膚科クリニック メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, '一般外来', '一般内科', '風邪・発熱・生活習慣病', null, '保険適用', null, true, 1 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, '一般外来', '一般内科', '風邪・発熱・生活習慣病', null, '保険適用', null, true, 1 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, '一般外来', '皮膚科', 'アトピー・湿疹・ニキビ', null, '保険適用', null, true, 2 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, '一般外来', '皮膚科', 'アトピー・湿疹・ニキビ', null, '保険適用', null, true, 2 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, '健康診断', '一般健康診断', '基本的な検査項目セット', 8800, null, 60, false, 3 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, '健康診断', '一般健康診断', '基本的な検査項目セット', 8800, null, 60, false, 3 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 INSERT INTO facility_menus (facility_id, category, name, description, price, price_note, duration_minutes, is_featured, sort_order)
-SELECT id, '予防接種', 'インフルエンザワクチン', '毎年10月〜1月受付', 3500, null, 15, false, 4 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, '予防接種', 'インフルエンザワクチン', '毎年10月〜1月受付', 3500, null, 15, false, 4 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 
 -- 美容皮膚科 GLOW CLINIC メニュー
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'レーザー', 'シミ取りレーザー', 'ピコレーザーによるシミ治療', 11000, 30, true, 1 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, 'レーザー', 'シミ取りレーザー', 'ピコレーザーによるシミ治療', 11000, 30, true, 1 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '美容注射', 'ヒアルロン酸注入', 'ほうれい線・涙袋', 33000, 30, true, 2 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, '美容注射', 'ヒアルロン酸注入', 'ほうれい線・涙袋', 33000, 30, true, 2 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, '美容注射', 'ボトックス注射', '額・眉間・目尻のシワ', 22000, 20, false, 3 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, '美容注射', 'ボトックス注射', '額・眉間・目尻のシワ', 22000, 20, false, 3 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'フェイシャル', 'ハイドラフェイシャル', '毛穴洗浄+美容成分導入', 16500, 45, false, 4 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, 'フェイシャル', 'ハイドラフェイシャル', '毛穴洗浄+美容成分導入', 16500, 45, false, 4 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 INSERT INTO facility_menus (facility_id, category, name, description, price, duration_minutes, is_featured, sort_order)
-SELECT id, 'レーザー', 'フォトフェイシャル', '肌のキメ・ハリ改善', 15400, 30, false, 5 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, 'レーザー', 'フォトフェイシャル', '肌のキメ・ハリ改善', 15400, 30, false, 5 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 
 -- =============================================
 -- 写真データ（Unsplash）
@@ -386,74 +386,74 @@ SELECT id, 'レーザー', 'フォトフェイシャル', '肌のキメ・ハリ
 
 -- HAL eyelash salon 写真
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&h=500&fit=crop', 'main', 'サロン外観', 1 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=800&h=500&fit=crop', 'main', 'サロン外観', 1 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&h=500&fit=crop', 'interior', '施術スペース', 2 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=800&h=500&fit=crop', 'interior', '施術スペース', 2 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1595476108010-b4d1f102b1b1?w=800&h=500&fit=crop', 'menu', 'まつげエクステ仕上がり', 3 FROM facilities WHERE slug = 'hal-eyelash-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1595476108010-b4d1f102b1b1?w=800&h=500&fit=crop', 'menu', 'まつげエクステ仕上がり', 3 FROM facility_profiles WHERE slug = 'hal-eyelash-sakai';
 
 -- hair design BLOOM 写真
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800&h=500&fit=crop', 'main', 'サロン内観', 1 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?w=800&h=500&fit=crop', 'main', 'サロン内観', 1 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=500&fit=crop', 'interior', 'カットスペース', 2 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'https://images.unsplash.com/photo-1562322140-8baeececf3df?w=800&h=500&fit=crop', 'interior', 'カットスペース', 2 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1605497788044-5a32c7078486?w=800&h=500&fit=crop', 'menu', 'カラーサンプル', 3 FROM facilities WHERE slug = 'hair-bloom-namba';
+SELECT id, 'https://images.unsplash.com/photo-1605497788044-5a32c7078486?w=800&h=500&fit=crop', 'menu', 'カラーサンプル', 3 FROM facility_profiles WHERE slug = 'hair-bloom-namba';
 
 -- からだ鍼灸院 写真
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&h=500&fit=crop', 'main', '施術室', 1 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=800&h=500&fit=crop', 'main', '施術室', 1 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1515377905703-c4788e51af15?w=800&h=500&fit=crop', 'interior', 'リラクゼーションルーム', 2 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, 'https://images.unsplash.com/photo-1515377905703-c4788e51af15?w=800&h=500&fit=crop', 'interior', 'リラクゼーションルーム', 2 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1600334089648-b0d9d3028eb2?w=800&h=500&fit=crop', 'menu', '美容鍼施術', 3 FROM facilities WHERE slug = 'karada-shinkyuin-honmachi';
+SELECT id, 'https://images.unsplash.com/photo-1600334089648-b0d9d3028eb2?w=800&h=500&fit=crop', 'menu', '美容鍼施術', 3 FROM facility_profiles WHERE slug = 'karada-shinkyuin-honmachi';
 
 -- 残りの施設写真（各3枚ずつ）
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=800&h=500&fit=crop', 'main', '院内', 1 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, 'https://images.unsplash.com/photo-1519823551278-64ac92734fb1?w=800&h=500&fit=crop', 'main', '院内', 1 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=500&fit=crop', 'interior', '施術ベッド', 2 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=500&fit=crop', 'interior', '施術ベッド', 2 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1540555700478-4be289fbec6f?w=800&h=500&fit=crop', 'staff', 'スタッフ', 3 FROM facilities WHERE slug = 'sukoyaka-tennoji';
+SELECT id, 'https://images.unsplash.com/photo-1540555700478-4be289fbec6f?w=800&h=500&fit=crop', 'staff', 'スタッフ', 3 FROM facility_profiles WHERE slug = 'sukoyaka-tennoji';
 
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800&h=500&fit=crop', 'main', '院内', 1 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=800&h=500&fit=crop', 'main', '院内', 1 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1666214280557-091e4132752f?w=800&h=500&fit=crop', 'interior', '施術室', 2 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, 'https://images.unsplash.com/photo-1666214280557-091e4132752f?w=800&h=500&fit=crop', 'interior', '施術室', 2 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1597764690523-15bea4c581c9?w=800&h=500&fit=crop', 'exterior', '外観', 3 FROM facilities WHERE slug = 'sakura-seikotsuin-umeda';
+SELECT id, 'https://images.unsplash.com/photo-1597764690523-15bea4c581c9?w=800&h=500&fit=crop', 'exterior', '外観', 3 FROM facility_profiles WHERE slug = 'sakura-seikotsuin-umeda';
 
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=500&fit=crop', 'main', 'トレーニングルーム', 1 FROM facilities WHERE slug = 'active-seikotsuin-shinsaibashi';
+SELECT id, 'https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=500&fit=crop', 'main', 'トレーニングルーム', 1 FROM facility_profiles WHERE slug = 'active-seikotsuin-shinsaibashi';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=500&fit=crop', 'interior', 'トレーニング設備', 2 FROM facilities WHERE slug = 'active-seikotsuin-shinsaibashi';
+SELECT id, 'https://images.unsplash.com/photo-1534438327276-14e5300c3a48?w=800&h=500&fit=crop', 'interior', 'トレーニング設備', 2 FROM facility_profiles WHERE slug = 'active-seikotsuin-shinsaibashi';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=800&h=500&fit=crop', 'staff', 'トレーナー', 3 FROM facilities WHERE slug = 'active-seikotsuin-shinsaibashi';
+SELECT id, 'https://images.unsplash.com/photo-1574680096145-d05b474e2155?w=800&h=500&fit=crop', 'staff', 'トレーナー', 3 FROM facility_profiles WHERE slug = 'active-seikotsuin-shinsaibashi';
 
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?w=800&h=500&fit=crop', 'main', '施設外観', 1 FROM facilities WHERE slug = 'day-service-himawari-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1576765608535-5f04d1e3f289?w=800&h=500&fit=crop', 'main', '施設外観', 1 FROM facility_profiles WHERE slug = 'day-service-himawari-sakai';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=800&h=500&fit=crop', 'interior', '食堂', 2 FROM facilities WHERE slug = 'day-service-himawari-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=800&h=500&fit=crop', 'interior', '食堂', 2 FROM facility_profiles WHERE slug = 'day-service-himawari-sakai';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1582719471384-894fbb16e074?w=800&h=500&fit=crop', 'other', 'レクリエーション', 3 FROM facilities WHERE slug = 'day-service-himawari-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1582719471384-894fbb16e074?w=800&h=500&fit=crop', 'other', 'レクリエーション', 3 FROM facility_profiles WHERE slug = 'day-service-himawari-sakai';
 
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1586105251261-72a756497a11?w=800&h=500&fit=crop', 'main', '施設外観', 1 FROM facilities WHERE slug = 'care-home-yasuragi-higashiosaka';
+SELECT id, 'https://images.unsplash.com/photo-1586105251261-72a756497a11?w=800&h=500&fit=crop', 'main', '施設外観', 1 FROM facility_profiles WHERE slug = 'care-home-yasuragi-higashiosaka';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&h=500&fit=crop', 'interior', '居室', 2 FROM facilities WHERE slug = 'care-home-yasuragi-higashiosaka';
+SELECT id, 'https://images.unsplash.com/photo-1586023492125-27b2c045efd7?w=800&h=500&fit=crop', 'interior', '居室', 2 FROM facility_profiles WHERE slug = 'care-home-yasuragi-higashiosaka';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1551076805-e1869033e561?w=800&h=500&fit=crop', 'other', '共有スペース', 3 FROM facilities WHERE slug = 'care-home-yasuragi-higashiosaka';
+SELECT id, 'https://images.unsplash.com/photo-1551076805-e1869033e561?w=800&h=500&fit=crop', 'other', '共有スペース', 3 FROM facility_profiles WHERE slug = 'care-home-yasuragi-higashiosaka';
 
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=800&h=500&fit=crop', 'main', 'クリニック外観', 1 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1629909613654-28e377c37b09?w=800&h=500&fit=crop', 'main', 'クリニック外観', 1 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=800&h=500&fit=crop', 'interior', '待合室', 2 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=800&h=500&fit=crop', 'interior', '待合室', 2 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1581056771107-24ca5f033842?w=800&h=500&fit=crop', 'other', '診察室', 3 FROM facilities WHERE slug = 'naika-hifuka-clinic-sakai';
+SELECT id, 'https://images.unsplash.com/photo-1581056771107-24ca5f033842?w=800&h=500&fit=crop', 'other', '診察室', 3 FROM facility_profiles WHERE slug = 'naika-hifuka-clinic-sakai';
 
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=800&h=500&fit=crop', 'main', 'クリニック内観', 1 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, 'https://images.unsplash.com/photo-1631217868264-e5b90bb7e133?w=800&h=500&fit=crop', 'main', 'クリニック内観', 1 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=800&h=500&fit=crop', 'interior', 'カウンセリングルーム', 2 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, 'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=800&h=500&fit=crop', 'interior', 'カウンセリングルーム', 2 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';
 INSERT INTO facility_photos (facility_id, photo_url, photo_type, caption, sort_order)
-SELECT id, 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800&h=500&fit=crop', 'menu', 'フェイシャル施術', 3 FROM facilities WHERE slug = 'glow-clinic-umeda';
+SELECT id, 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=800&h=500&fit=crop', 'menu', 'フェイシャル施術', 3 FROM facility_profiles WHERE slug = 'glow-clinic-umeda';

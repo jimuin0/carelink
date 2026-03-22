@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 
 export async function GET(request: Request) {
+  try {
   const { searchParams } = new URL(request.url);
   const facilityId = searchParams.get('facilityId');
   const staffId = searchParams.get('staffId');
@@ -22,4 +23,7 @@ export async function GET(request: Request) {
   });
 
   return NextResponse.json({ slots: (data ?? []) as AvailableSlot[] });
+  } catch {
+    return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
+  }
 }

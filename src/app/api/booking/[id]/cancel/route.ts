@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request, { params }: { params: { id: string } }) {
+  try {
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -46,4 +47,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   }
 
   return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 }

@@ -13,6 +13,7 @@ const profileSchema = z.object({
 });
 
 export async function PUT(request: Request) {
+  try {
   const body = await request.json();
   const parsed = profileSchema.safeParse(body);
   if (!parsed.success) {
@@ -52,4 +53,7 @@ export async function PUT(request: Request) {
   }
 
   return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 }

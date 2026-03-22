@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { bookingSchema } from '@/lib/validations-booking';
 
 export async function POST(request: Request) {
+  try {
   const body = await request.json();
   const parsed = bookingSchema.safeParse(body);
   if (!parsed.success) {
@@ -59,4 +60,7 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ success: true });
+  } catch {
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 }
