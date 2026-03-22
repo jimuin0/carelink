@@ -15,11 +15,11 @@ const notoSansJP = Noto_Sans_JP({
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app'),
   title: {
-    default: "CareLink | 医療・福祉・美容の採用×集客プラットフォーム",
+    default: "CareLink | 医療・福祉・美容の集客プラットフォーム",
     template: "%s | CareLink",
   },
   description:
-    "医療・福祉・美容に特化した採用×集客プラットフォーム。サロン・施設の集客と求職者の転職をサポートします。",
+    "医療・福祉・美容に特化した集客プラットフォーム。サロン検索・予約・口コミで施設の集客をサポートします。",
   openGraph: {
     type: "website",
     locale: "ja_JP",
@@ -70,7 +70,7 @@ export default function RootLayout({
                 "@type": "WebSite",
                 name: "CareLink",
                 url: "https://carelink.jp",
-                description: "医療・福祉・美容に特化した採用×集客プラットフォーム",
+                description: "医療・福祉・美容に特化した集客プラットフォーム",
                 publisher: {
                   "@type": "Organization",
                   name: "CareLink",
@@ -81,7 +81,7 @@ export default function RootLayout({
                 "@context": "https://schema.org",
                 "@type": "LocalBusiness",
                 name: "CareLink（神原良祐 / HALグループ）",
-                description: "医療・福祉・美容に特化した採用×集客プラットフォーム",
+                description: "医療・福祉・美容に特化した集客プラットフォーム",
                 url: "https://carelink.jp",
                 address: {
                   "@type": "PostalAddress",

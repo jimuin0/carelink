@@ -31,8 +31,6 @@ function escSlack(s: string): string {
 
 type NotifyPayload =
   | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
-  | { type: 'recruit'; data: { facility_name: string; business_type: string; job_category: string; representative_name: string; phone: string; email: string } }
-  | { type: 'job_seeker'; data: { full_name: string; job_type: string; phone: string; email: string } }
   | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } }
   | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } };
 
@@ -44,24 +42,6 @@ function buildSlackMessage(payload: NotifyPayload): string {
         `> *施設名:* ${escSlack(payload.data.facility_name)}`,
         `> *業種:* ${escSlack(payload.data.business_type)}`,
         `> *代表者:* ${escSlack(payload.data.representative_name)}`,
-        `> *電話:* ${escSlack(payload.data.phone)}`,
-        `> *メール:* ${escSlack(payload.data.email)}`,
-      ].join('\n');
-    case 'recruit':
-      return [
-        ':mega: *採用掲載の新規登録*',
-        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
-        `> *業種:* ${escSlack(payload.data.business_type)}`,
-        `> *募集職種:* ${escSlack(payload.data.job_category)}`,
-        `> *代表者:* ${escSlack(payload.data.representative_name)}`,
-        `> *電話:* ${escSlack(payload.data.phone)}`,
-        `> *メール:* ${escSlack(payload.data.email)}`,
-      ].join('\n');
-    case 'job_seeker':
-      return [
-        ':bust_in_silhouette: *求職者の新規登録*',
-        `> *氏名:* ${escSlack(payload.data.full_name)}`,
-        `> *職種:* ${escSlack(payload.data.job_type)}`,
         `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,
       ].join('\n');
@@ -101,8 +81,6 @@ export async function POST(request: Request) {
 
     const payloadSchema = z.discriminatedUnion('type', [
       z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string(), business_type: z.string(), representative_name: z.string(), phone: z.string(), email: z.string() }) }),
-      z.object({ type: z.literal('recruit'), data: z.object({ facility_name: z.string(), business_type: z.string(), job_category: z.string(), representative_name: z.string(), phone: z.string(), email: z.string() }) }),
-      z.object({ type: z.literal('job_seeker'), data: z.object({ full_name: z.string(), job_type: z.string(), phone: z.string(), email: z.string() }) }),
       z.object({ type: z.literal('contact'), data: z.object({ name: z.string(), inquiry_type: z.string(), email: z.string(), message: z.string() }) }),
       z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string(), name: z.string(), email: z.string(), phone: z.string(), message: z.string() }) }),
     ]);

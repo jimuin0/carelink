@@ -28,18 +28,18 @@ export default function Header() {
             >
               集客したい方
             </Link>
-            <Link
-              href="/recruit"
+            <a
+              href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/recruit`}
               className="text-gray-700 hover:text-primary font-medium transition-colors"
             >
               採用したい方
-            </Link>
-            <Link
-              href="/jobs"
+            </a>
+            <a
+              href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/jobs`}
               className="text-gray-700 hover:text-primary font-medium transition-colors"
             >
               求職者の方
-            </Link>
+            </a>
             <Link href="/contact" className="text-gray-700 hover:text-primary font-medium transition-colors">
               お問い合わせ
             </Link>
@@ -85,20 +85,20 @@ export default function Header() {
             >
               集客したい方
             </Link>
-            <Link
-              href="/recruit"
+            <a
+              href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/recruit`}
               className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
               採用したい方
-            </Link>
-            <Link
-              href="/jobs"
+            </a>
+            <a
+              href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/jobs`}
               className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
               求職者の方
-            </Link>
+            </a>
             <Link
               href="/contact"
               className="text-gray-700 font-medium hover:text-primary transition-colors"

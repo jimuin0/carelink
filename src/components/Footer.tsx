@@ -12,7 +12,7 @@ export default function Footer() {
             </Link>
             <p className="text-gray-400 text-sm mt-3 leading-relaxed">
               医療・福祉・美容に特化した<br />
-              採用×集客プラットフォーム
+              集客プラットフォーム
             </p>
           </div>
 
@@ -26,12 +26,12 @@ export default function Footer() {
               <Link href="/salon" className="hover:text-white transition-colors">
                 集客したい方
               </Link>
-              <Link href="/recruit" className="hover:text-white transition-colors">
+              <a href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/recruit`} className="hover:text-white transition-colors">
                 採用したい方
-              </Link>
-              <Link href="/jobs" className="hover:text-white transition-colors">
+              </a>
+              <a href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/jobs`} className="hover:text-white transition-colors">
                 求職者の方
-              </Link>
+              </a>
               <Link href="/contact" className="hover:text-white transition-colors">
                 お問い合わせ
               </Link>
