@@ -1,18 +1,21 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCatalogsByFacility } from '@/lib/catalogs';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 export default async function AdminCatalogPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
-  const catalogs = await getCatalogsByFacility(membership!.facility_id);
+  const catalogs = await getCatalogsByFacility(membership.facility_id);
 
   return (
     <div>

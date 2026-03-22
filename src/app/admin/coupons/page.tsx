@@ -1,19 +1,22 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCouponsByFacility } from '@/lib/coupons';
+import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import CouponBadge from '@/components/facility/CouponBadge';
 
 export default async function AdminCouponsPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data: membership } = await supabase
     .from('facility_members')
     .select('facility_id')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .single();
+  if (!membership) notFound();
 
-  const coupons = await getCouponsByFacility(membership!.facility_id);
+  const coupons = await getCouponsByFacility(membership.facility_id);
 
   return (
     <div>

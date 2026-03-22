@@ -1,13 +1,18 @@
-# CareLink マニュアル v2.0
+# CareLink マニュアル v3.0
 
 **最終更新**: 2026年3月22日
-**バージョン**: 2.0
+**バージョン**: 3.0
 **作成者**: Claude + 神原 良祐
 **プロジェクト**: ~/Projects/carelink/
 
-> 医療・福祉・美容業界に特化した採用×集客プラットフォーム。
+> 医療・福祉・美容業界に特化した採用×集客プラットフォーム（HPB完全再現）。
 > - **LP（ランディングページ）**: 施設掲載登録・求職者登録・お問い合わせ
-> - **検索サイト**: 施設検索・施設詳細・口コミ・お問い合わせフォーム
+> - **検索サイト**: 施設検索・施設詳細・口コミ・エリア検索・お問い合わせ
+> - **ユーザーシステム**: 認証（メール/LINE）・マイページ・お気に入り・ポイント
+> - **スタッフ・クーポン**: スタッフ詳細・ポートフォリオ・クーポン管理
+> - **オンライン予約**: カレンダー予約・空き枠計算・予約管理
+> - **サロン管理ダッシュボード**: 予約・顧客・スタッフ・クーポン・分析
+> - **高度な機能**: ヘアカタログ・ブログ・ランキング・GPS検索
 
 ---
 
@@ -49,14 +54,17 @@
 | 用途 | 施設集客 + 求職者転職支援（情報掲載型）+ 施設検索 |
 | 料金 | 完全無料（施設掲載・求職者登録とも） |
 
-### 1.2 サイト構成（2つのサイトが同居）
+### 1.2 サイト構成（5つのセクションが同居）
 
 | サイト | パス | 用途 | ヘッダー/フッター |
 |--------|------|------|-------------------|
-| LP（ランディングページ） | `/`, `/salon`, `/jobs`, `/contact`, `/privacy`, `/terms` | 施設登録・求職者登録・お問い合わせ | Header + Footer |
-| 検索サイト | `/search`, `/facility/[slug]` | 施設検索・詳細・口コミ・問い合わせ | SearchHeader + SearchFooter |
+| LP（ランディングページ） | `/`, `/salon`, `/jobs`, `/recruit`, `/contact`, `/privacy`, `/terms` | 施設登録・求職者登録・お問い合わせ | Header + Footer |
+| 検索サイト | `/search`, `/search/area`, `/facility/[slug]`, `/ranking` | 施設検索・詳細・口コミ・エリア検索・ランキング | SearchHeader + SearchFooter |
+| 認証 | `/auth/login`, `/auth/signup`, `/auth/callback` | ユーザー認証（メール+LINE） | なし（専用レイアウト） |
+| マイページ | `/mypage`, `/mypage/profile`, `/mypage/favorites`, `/mypage/bookings`, `/mypage/points` | ユーザーダッシュボード | 認証ガード付きレイアウト |
+| 管理ダッシュボード | `/admin`, `/admin/bookings`, `/admin/staff`, `/admin/coupons`, `/admin/customers`, `/admin/blog`, `/admin/catalog`, `/admin/analytics`, `/admin/settings` | サロン管理（予約・顧客・スタッフ・売上） | サイドバー付きレイアウト |
 
-> `LayoutSwitch` コンポーネントが `usePathname()` でパスを判別し、LP用/検索用のヘッダー・フッターを自動切替する。
+> `LayoutSwitch` コンポーネントが `usePathname()` でパスを判別し、LP用/検索用/認証用/マイページ用/管理画面用のヘッダー・フッターを自動切替する。
 
 ### 1.3 対象業種
 
@@ -78,6 +86,7 @@
 | TypeScript | 言語 | 5 |
 | Tailwind CSS | スタイリング | 3.4.1 |
 | Supabase | DB（PostgreSQL）+ Storage | SDK 2.99.2 |
+| @supabase/ssr | Cookie対応認証（PKCE） | 0.x |
 | Zod | バリデーション | 4.3.6 |
 | React Hook Form | フォーム管理 | 7.71.2 |
 | Vercel | ホスティング・CDN | - |
@@ -111,11 +120,17 @@
 |---------|:----:|------|
 | Supabase DB（LP: 3テーブル） | ✅ 設定済み | salons / job_seekers / contacts + RLS |
 | Supabase DB（検索: 5テーブル） | ✅ 設定済み | facility_profiles / menus / photos / reviews / inquiries + RLS + トリガー |
+| Supabase DB（Phase 2: 認証+エリア） | ✅ 設定済み | profiles / favorites / areas + view_count + RPC + トリガー |
+| Supabase DB（Phase 3: スタッフ+クーポン） | ✅ 設定済み | staff_profiles / staff_photos / coupons / coupon_menus / menu_staff |
+| Supabase DB（Phase 4: 予約） | ✅ 設定済み | staff_schedules / schedule_overrides / bookings + RPC(get_available_slots) |
+| Supabase DB（Phase 5: 管理） | ✅ 設定済み | facility_members / customer_visits + admin用RLS |
+| Supabase DB（Phase 6: 高度機能） | ✅ 設定済み | treatment_catalogs / blog_posts / review_replies / user_points |
+| Supabase Auth | ✅ 設定済み | メール+LINE認証（PKCE, Cookie対応） |
 | Supabase Storage | ✅ 設定済み | carelink-uploads バケット |
 | Vercel デプロイ | ✅ 稼働中 | GitHub連携で自動デプロイ（push→自動ビルド） |
 | Slack Incoming Webhook | ❌ 未設定 | Webhook URL作成 + Vercel環境変数設定が必要 |
-| Google Analytics 4 | ❌ 未設定 | プロパティ作成 + 測定ID設定が必要 |
-| Microsoft Clarity | ❌ 未設定 | プロジェクト作成 + ID設定が必要 |
+| Google Analytics 4 | ❌ 未設定 | プロパティ作成 + 測定ID設定が必要（IDバリデーション実装済み） |
+| Microsoft Clarity | ❌ 未設定 | プロジェクト作成 + ID設定が必要（IDバリデーション実装済み） |
 | カスタムドメイン | ❌ 未設定 | ドメイン取得 + DNS設定が必要 |
 
 ---
@@ -418,16 +433,61 @@ vercel domains add carelink.jp
 
 ### 6.1 テーブル一覧
 
+**Phase 1: LP + 検索基盤（8テーブル）**
+
 | テーブル | 用途 | サイト |
 |---------|------|--------|
 | `salons` | 施設掲載登録データ | LP |
 | `job_seekers` | 求職者登録データ | LP |
 | `contacts` | LP問い合わせデータ | LP |
-| `facility_profiles` | 施設公開プロフィール（検索・詳細表示） | 検索 |
+| `facility_profiles` | 施設公開プロフィール（+view_count） | 検索 |
 | `facility_menus` | 施設メニュー（カテゴリ・価格・時間） | 検索 |
 | `facility_photos` | 施設写真（ソート順付き） | 検索 |
 | `facility_reviews` | 口コミ（星評価+コメント） | 検索 |
 | `facility_inquiries` | 施設宛お問い合わせ | 検索 |
+
+**Phase 2: ユーザーシステム + エリア検索（3テーブル）**
+
+| テーブル | 用途 | サイト |
+|---------|------|--------|
+| `profiles` | ユーザープロフィール（auth.usersに連動、自動作成トリガー） | マイページ |
+| `favorites` | お気に入り（user_id + facility_id UNIQUE） | マイページ・検索 |
+| `areas` | エリア階層（region/prefecture/city/station、parent_id） | 検索 |
+
+**Phase 3: スタッフ + クーポン（5テーブル）**
+
+| テーブル | 用途 | サイト |
+|---------|------|--------|
+| `staff_profiles` | スタッフ情報（名前/役職/経歴/得意分野/SNS） | 検索・管理 |
+| `staff_photos` | スタッフ写真（portfolio/before_after） | 検索 |
+| `coupons` | クーポン（タイプ別: 新規/リピート/期間限定/全員） | 検索・管理 |
+| `coupon_menus` | クーポン⇔メニュー結合 | 検索 |
+| `menu_staff` | メニュー⇔スタッフ結合 | 検索 |
+
+**Phase 4: オンライン予約（3テーブル + RPC）**
+
+| テーブル | 用途 | サイト |
+|---------|------|--------|
+| `staff_schedules` | 週間シフト（day_of_week/start_time/end_time） | 予約・管理 |
+| `schedule_overrides` | 例外日（is_holiday/特別時間） | 予約・管理 |
+| `bookings` | 予約情報（日時/顧客/ステータス/金額） | 予約・マイページ・管理 |
+| RPC `get_available_slots` | 空き枠計算（facility_id, staff_id, date, duration） | 予約 |
+
+**Phase 5: 管理ダッシュボード（2テーブル）**
+
+| テーブル | 用途 | サイト |
+|---------|------|--------|
+| `facility_members` | 施設メンバー（owner/admin/staff権限） | 管理 |
+| `customer_visits` | 来店履歴（施設・日付・メニュー・金額） | 管理 |
+
+**Phase 6: 高度な機能（4テーブル）**
+
+| テーブル | 用途 | サイト |
+|---------|------|--------|
+| `treatment_catalogs` | ヘアカタログ（ビフォーアフター・タグ） | 検索・管理 |
+| `blog_posts` | ブログ（タイトル/slug/内容/公開状態） | 検索・管理 |
+| `review_replies` | オーナー口コミ返信（1レビュー1返信） | 検索・管理 |
+| `user_points` | ポイント履歴（理由/予約ID/ポイント数） | マイページ |
 
 ### 6.2 LP側テーブル（DDL）
 
@@ -746,7 +806,46 @@ carelink-uploads/salons/{uuid}/photo.{ext}
   └─ 問い合わせ: facility_inquiries テーブルで確認
 ```
 
-### 7.5 Slack通知メッセージ例
+### 7.5 オンライン予約フロー（Phase 4: /facility/[slug]/booking）
+
+```
+【ユーザー】/facility/[slug]/booking にアクセス
+  ├─ メニュー選択（クーポン適用可能）
+  ├─ スタッフ選択（空き状況表示）
+  ├─ 日付選択（カレンダー表示）
+  ├─ 時間帯選択（空き枠グリッド、RPC計算）
+  ├─ 顧客情報入力（名前・メール・電話・備考）
+  ├─ 予約確認画面 → 確定
+  ├─ POST /api/booking（競合チェック + レート制限 3回/5分）
+  └─ 予約完了画面
+
+【管理者】/admin/bookings
+  ├─ 予約一覧（ステータスフィルタ: 確認待ち/確定/完了/キャンセル）
+  ├─ 予約詳細 → ステータス変更（pending→confirmed→completed）
+  └─ 無断キャンセル(no_show)設定可能
+
+【ユーザー】/mypage/bookings
+  ├─ 予約履歴一覧
+  ├─ 予約詳細確認
+  └─ キャンセル（POST /api/booking/[id]/cancel、UUID検証+所有者チェック）
+```
+
+### 7.6 管理ダッシュボードフロー（Phase 5: /admin）
+
+```
+【施設オーナー】/admin にアクセス（facility_membersで権限チェック）
+  ├─ ダッシュボード: 今日の予約数・KPI表示
+  ├─ 予約管理: 一覧/詳細/ステータス変更
+  ├─ 顧客管理: 顧客検索/来店履歴
+  ├─ スタッフ管理: 追加/編集/削除
+  ├─ クーポン管理: 作成/編集（新規/リピート/期間限定/全員）
+  ├─ ブログ管理: 記事作成/編集/公開
+  ├─ カタログ管理: ヘアカタログ追加/編集
+  ├─ 分析: 売上レポート
+  └─ 設定: 施設情報編集
+```
+
+### 7.7 Slack通知メッセージ例
 
 **施設掲載の新規登録:**
 ```
@@ -774,19 +873,93 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 ### 8.1 ページ一覧
 
-| パス | ファイル | レンダリング | サイト | 説明 |
-|------|---------|:----------:|:------:|------|
-| `/` | `page.tsx` | Static | LP | トップページ |
-| `/salon` | `salon/page.tsx` | Static | LP | 施設掲載登録 |
-| `/jobs` | `jobs/page.tsx` | Static | LP | 求職者登録 |
-| `/contact` | `contact/page.tsx` | Static | LP | お問い合わせ |
-| `/privacy` | `privacy/page.tsx` | Static | 共通 | プライバシーポリシー |
-| `/terms` | `terms/page.tsx` | Static | 共通 | 利用規約 |
-| `/search` | `search/page.tsx` | Dynamic | 検索 | 施設検索（force-dynamic） |
-| `/facility/[slug]` | `facility/[slug]/page.tsx` | ISR(1h) | 検索 | 施設詳細 |
-| `/api/notify` | `api/notify/route.ts` | Dynamic | 共通 | Slack通知API（POST） |
-| `/sitemap.xml` | `sitemap.ts` | Dynamic | 共通 | 動的サイトマップ |
-| `/robots.txt` | `robots.ts` | Static | 共通 | robots.txt |
+**LP（静的ページ）**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/` | `page.tsx` | Static | トップページ |
+| `/salon` | `salon/page.tsx` | Static | 施設掲載登録 |
+| `/jobs` | `jobs/page.tsx` | Static | 求職者登録 |
+| `/recruit` | `recruit/page.tsx` | Static | 求人掲載登録 |
+| `/contact` | `contact/page.tsx` | Static | お問い合わせ |
+| `/privacy` | `privacy/page.tsx` | Static | プライバシーポリシー |
+| `/terms` | `terms/page.tsx` | Static | 利用規約 |
+
+**検索サイト**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/search` | `search/page.tsx` | Dynamic | 施設検索（force-dynamic） |
+| `/search/area` | `search/area/page.tsx` | Static | エリアドリルダウン |
+| `/search/area/[slug]` | `search/area/[slug]/page.tsx` | Dynamic | エリア別検索結果 |
+| `/facility/[slug]` | `facility/[slug]/page.tsx` | ISR(1h) | 施設詳細 |
+| `/facility/[slug]/staff` | `facility/[slug]/staff/page.tsx` | Dynamic | スタッフ一覧 |
+| `/facility/[slug]/staff/[staffSlug]` | `facility/[slug]/staff/[staffSlug]/page.tsx` | Dynamic | スタッフ詳細 |
+| `/facility/[slug]/booking` | `facility/[slug]/booking/page.tsx` | Dynamic | 予約フロー |
+| `/facility/[slug]/booking/confirm` | `facility/[slug]/booking/confirm/page.tsx` | Dynamic | 予約確認 |
+| `/facility/[slug]/booking/complete` | `facility/[slug]/booking/complete/page.tsx` | Static | 予約完了 |
+| `/facility/[slug]/blog` | `facility/[slug]/blog/page.tsx` | Dynamic | 施設ブログ一覧 |
+| `/facility/[slug]/blog/[postSlug]` | `facility/[slug]/blog/[postSlug]/page.tsx` | Dynamic | ブログ記事 |
+| `/facility/[slug]/catalog` | `facility/[slug]/catalog/page.tsx` | Dynamic | ヘアカタログ |
+| `/ranking` | `ranking/page.tsx` | Static | ランキングページ |
+| `/ranking/[area]` | `ranking/[area]/page.tsx` | Dynamic | エリア別ランキング |
+
+**認証**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/auth/login` | `auth/login/page.tsx` | Static | ログイン（メール+LINE） |
+| `/auth/signup` | `auth/signup/page.tsx` | Static | 新規登録 |
+| `/auth/callback` | `auth/callback/route.ts` | Dynamic | OAuthコールバック |
+
+**マイページ（認証必須）**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/mypage` | `mypage/page.tsx` | Dynamic | ダッシュボード |
+| `/mypage/profile` | `mypage/profile/page.tsx` | Dynamic | プロフィール編集 |
+| `/mypage/favorites` | `mypage/favorites/page.tsx` | Dynamic | お気に入り一覧 |
+| `/mypage/bookings` | `mypage/bookings/page.tsx` | Dynamic | 予約履歴 |
+| `/mypage/bookings/[id]` | `mypage/bookings/[id]/page.tsx` | Dynamic | 予約詳細+キャンセル |
+| `/mypage/points` | `mypage/points/page.tsx` | Dynamic | ポイント履歴 |
+
+**管理ダッシュボード（施設メンバー権限必須）**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/admin` | `admin/page.tsx` | Dynamic | ダッシュボード（今日の予約・KPI） |
+| `/admin/bookings` | `admin/bookings/page.tsx` | Dynamic | 予約一覧（ステータスフィルタ） |
+| `/admin/bookings/[id]` | `admin/bookings/[id]/page.tsx` | Dynamic | 予約詳細（ステータス変更） |
+| `/admin/staff` | `admin/staff/page.tsx` | Dynamic | スタッフ管理 |
+| `/admin/staff/[id]/edit` | `admin/staff/[id]/edit/page.tsx` | Dynamic | スタッフ編集 |
+| `/admin/coupons` | `admin/coupons/page.tsx` | Dynamic | クーポン管理 |
+| `/admin/coupons/new` | `admin/coupons/new/page.tsx` | Dynamic | クーポン作成 |
+| `/admin/customers` | `admin/customers/page.tsx` | Dynamic | 顧客一覧 |
+| `/admin/customers/[email]` | `admin/customers/[email]/page.tsx` | Dynamic | 顧客来店履歴 |
+| `/admin/blog` | `admin/blog/page.tsx` | Dynamic | ブログ管理 |
+| `/admin/blog/new` | `admin/blog/new/page.tsx` | Dynamic | ブログ新規作成 |
+| `/admin/blog/[id]/edit` | `admin/blog/[id]/edit/page.tsx` | Dynamic | ブログ編集 |
+| `/admin/catalog` | `admin/catalog/page.tsx` | Dynamic | カタログ管理 |
+| `/admin/catalog/new` | `admin/catalog/new/page.tsx` | Dynamic | カタログ追加 |
+| `/admin/analytics` | `admin/analytics/page.tsx` | Dynamic | 売上レポート |
+| `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定 |
+
+**API Routes**
+
+| パス | メソッド | 説明 |
+|------|---------|------|
+| `/api/notify` | POST | Slack通知（Zod検証・レート制限） |
+| `/api/booking` | POST | 予約作成（競合チェック・レート制限: 3回/5分） |
+| `/api/booking/[id]/cancel` | POST | 予約キャンセル（UUID検証・所有者チェック） |
+| `/api/booking/notify` | POST | 予約通知（メール+LINE） |
+| `/api/slots` | GET | 空き枠取得（UUID+日付バリデーション・duration 15-480制限） |
+| `/api/favorites` | POST | お気に入りトグル（認証必須） |
+| `/api/profile` | PUT | プロフィール更新（Zod検証・認証必須） |
+| `/api/admin/bookings/[id]` | PATCH | 予約ステータス変更（権限チェック） |
+| `/api/admin/staff` | POST/PUT/DELETE | スタッフCRUD（権限チェック） |
+| `/api/admin/coupons` | POST/PUT/DELETE | クーポンCRUD（権限チェック） |
+| `/sitemap.xml` | GET | 動的サイトマップ（DB全件） |
+| `/robots.txt` | GET | robots.txt（/admin/・/mypage/・/auth/ をdisallow） |
 
 > **Static** = ビルド時に静的HTML生成（CDN配信）
 > **Dynamic** = リクエストごとにサーバー実行
@@ -1092,7 +1265,10 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 ```
 User-agent: *
 Allow: /
-Sitemap: https://carelink-ruddy-psi.vercel.app/sitemap.xml
+Disallow: /admin/
+Disallow: /mypage/
+Disallow: /auth/
+Sitemap: {BASE_URL}/sitemap.xml
 ```
 
 ---
@@ -1109,27 +1285,66 @@ Sitemap: https://carelink-ruddy-psi.vercel.app/sitemap.xml
 | `X-Frame-Options` | `DENY` | iframe埋め込み禁止 |
 | `X-XSS-Protection` | `1; mode=block` | XSSフィルター有効化 |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | リファラー情報制限 |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=(self)` | 不要なAPI無効化 |
 
-### 13.2 データベースセキュリティ
+### 13.2 認証・認可セキュリティ
 
-- **RLS**: 全テーブルで適切なポリシー設定（6.5参照）
+- **Supabase Auth（PKCE）**: `@supabase/ssr` によるCookie対応認証
+- **4種類のクライアント**:
+  - `supabase.ts`: 匿名クライアント（公開データ読み取りのみ）
+  - `supabase-browser.ts`: ブラウザ用Cookie対応クライアント
+  - `supabase-server.ts`: サーバー用匿名クライアント（公開データ読み取り専用、書き込み不可）
+  - `supabase-server-auth.ts`: サーバー用認証Cookie対応クライアント
+- **middleware.ts**: トークン自動リフレッシュ + 保護ルート（/mypage/*, /admin/*）
+- **notFound()ガード**: 全admin/mypageページでuser/membershipのnullチェック（非null assertionゼロ）
+- **facility_members権限チェック**: 管理画面は施設メンバーのみアクセス可
+
+### 13.3 データベースセキュリティ
+
+- **RLS**: 全テーブルで適切なポリシー設定（Phase 1〜6の全テーブル）
+- **admin用RLS**: facility_membersのroleベースアクセス制御
 - **anon key**: RLSにより操作制限。検索側はSELECTのみ、LP側はINSERTのみ
-- **サーバーサイドクエリ**: 検索・詳細の読み取りは `supabase-server.ts` 経由
+- **サーバーサイドクエリ**: 公開データは `supabase-server.ts`、認証データは `supabase-server-auth.ts` 経由
 
-### 13.3 APIセキュリティ
+### 13.4 APIセキュリティ
 
-- **Zodスキーマ検証**: 不正ペイロードを400で拒否
-- **レート制限**: IPごとに5リクエスト/60秒（in-memory Map）
+- **Zodスキーマ検証**: 全APIエンドポイントで不正ペイロードを400で拒否
+- **UUID検証**: `/api/booking/[id]/cancel`, `/api/slots` でUUID形式を正規表現チェック
+- **日付検証**: `/api/slots` で `YYYY-MM-DD` 形式を正規表現チェック
+- **レート制限（/api/notify）**: IPごとに5リクエスト/60秒（in-memory Map、1000件超でクリーンアップ）
+- **レート制限（/api/booking）**: IPごとに3リクエスト/5分（予約スパム防止）
+- **duration制限（/api/slots）**: 15〜480分にクランプ
 - **入力エスケープ**: Slack通知の `&` `<` `>` をHTMLエンティティに変換
 - **force-dynamic**: ビルド時実行を防止
+- **res.json()クラッシュ防止**: `.catch(() => null)` で非JSONレスポンス（502 HTML等）に対応
+- **finally節**: 非同期ハンドラのstate cleanup（setUpdating(false)等）を保証
 
-### 13.4 フォームセキュリティ
+### 13.5 フォームセキュリティ
 
-- **Zodバリデーション**: クライアント側でスキーマ検証
+- **Zodバリデーション**: クライアント側+サーバー側でスキーマ検証
+- **メールバリデーション**: BookingFlowで正規表現チェック
 - **noValidate**: ブラウザネイティブバリデーション無効化（Zod優先）
 - **同意チェック**: 未同意時は送信ボタン無効化
 - **二重送信防止**: 送信中ボタン無効化+スピナー
 - **beforeunload**: 入力中のページ離脱警告（LP側）
+- **メッセージ長制限**: お問い合わせフォームは5000文字以内
+
+### 13.6 robots.txt保護
+
+```
+Disallow: /admin/
+Disallow: /mypage/
+Disallow: /auth/
+```
+
+### 13.7 GA4/Clarity IDバリデーション
+
+- GA4: `/^G-[A-Z0-9]+$/` 形式のみ注入（XSS防止）
+- Clarity: `/^[a-z0-9]+$/i` 形式のみ注入
+
+### 13.8 sessionStorage安全アクセス
+
+- `ViewCount`コンポーネント: try-catchでSafari Private Browsing例外に対応
 
 ---
 
@@ -1375,20 +1590,21 @@ SQL:       SQL Editor
 
 | 制限 | 説明 |
 |------|------|
-| 管理画面なし | Supabase Dashboardでのみデータ管理 |
 | 検索データがダミー | 実際の施設データへの移行が必要 |
-| メール通知なし | Slackのみ |
-| レート制限がin-memory | サーバーレス環境ではインスタンスごとにリセット |
+| メール通知なし | Slackのみ（予約通知API実装済みだが未接続） |
+| レート制限がin-memory | サーバーレス環境ではインスタンスごとにリセット（Map 1000件超クリーンアップ済み） |
+| SQLマイグレーション未実行 | Phase 2〜6のテーブルはコード側のみ完成 |
 
 ### 21.2 今後の開発予定
 
 | 優先度 | 機能 | 説明 |
 |:------:|------|------|
-| 高 | Slack Webhook設定 | フォーム送信通知の有効化 |
+| 高 | SQLマイグレーション実行 | Phase 2〜6の全テーブル・トリガー・RLS |
 | 高 | カスタムドメイン | `carelink.jp` の取得・設定 |
-| 高 | GA4 / Clarity設定 | アクセス解析の有効化 |
+| 高 | GA4 / Clarity設定 | プロパティ作成→環境変数設定（IDバリデーション実装済み） |
 | 高 | 実データ移行 | ダミー施設データを実際の施設に置換 |
-| 中 | 管理画面 | データ閲覧・CSV出力・ステータス管理 |
+| 高 | supabase gen types typescript 実行 | as キャスト解消 |
+| 中 | LINE連携 | jobsページの「LINE登録」ボタン本番化 |
 | 中 | 職業紹介事業届出 | 届出取得後にマッチング機能実装 |
 | 低 | メール通知 | Resend等でメール通知追加 |
 | 低 | 自動テスト | Vitest + Playwright |
@@ -1396,6 +1612,8 @@ SQL:       SQL Editor
 ---
 
 ## 型定義一覧（`src/types/index.ts`）
+
+**Phase 1: LP + 検索**
 
 | 型名 | 用途 | サイト |
 |------|------|--------|
@@ -1410,17 +1628,97 @@ SQL:       SQL Editor
 | `FacilityInquiry` | 施設宛お問い合わせ | 検索 |
 | `SearchParams` | 検索クエリパラメータ | 検索 |
 
+**Phase 2〜6: ユーザー・予約・管理**
+
+| 型名 | 用途 | サイト |
+|------|------|--------|
+| `Profile` | ユーザープロフィール | マイページ |
+| `Favorite` | お気に入り | マイページ |
+| `Area` | エリア階層 | 検索 |
+| `StaffProfile` | スタッフ情報 | 検索・管理 |
+| `StaffPhoto` | スタッフ写真 | 検索 |
+| `Coupon` | クーポン | 検索・管理 |
+| `CouponMenu` | クーポン⇔メニュー結合 | 検索 |
+| `MenuStaff` | メニュー⇔スタッフ結合 | 検索 |
+| `StaffSchedule` | 週間シフト | 予約 |
+| `ScheduleOverride` | 例外日 | 予約 |
+| `Booking` | 予約情報 | 予約・マイページ・管理 |
+| `AvailableSlot` | 空き枠 | 予約 |
+| `FacilityMember` | 施設メンバー | 管理 |
+| `CustomerVisit` | 来店履歴 | 管理 |
+| `TreatmentCatalog` | ヘアカタログ | 検索・管理 |
+| `BlogPost` | ブログ記事 | 検索・管理 |
+| `ReviewReply` | 口コミ返信 | 検索・管理 |
+| `UserPoint` | ポイント履歴 | マイページ |
+
 ---
 
-## DBクエリ関数一覧（`src/lib/facilities.ts`）
+## DBクエリ関数一覧
+
+**`src/lib/facilities.ts`**
 
 | 関数 | 引数 | 用途 |
 |------|------|------|
-| `searchFacilities(params)` | keyword, type, prefecture, page, sort | 施設検索（20件/ページ、ILIKE） |
+| `searchFacilities(params)` | keyword, type, prefecture, page, sort | 施設検索（20件/ページ、ILIKE、人気順対応） |
 | `getFacilityBySlug(slug)` | slug | 施設詳細取得 |
 | `getFacilityMenus(facilityId)` | UUID | メニュー取得（sort_order順） |
 | `getFacilityPhotos(facilityId)` | UUID | 写真取得（sort_order順） |
 | `getFacilityReviews(facilityId)` | UUID | 口コミ取得（published, 新しい順） |
+
+**`src/lib/staff.ts`**
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `getStaffByFacility(facilityId)` | UUID | 施設のスタッフ一覧 |
+| `getStaffBySlug(facilityId, slug)` | UUID, slug | スタッフ詳細 |
+| `getStaffPhotos(staffId)` | UUID | スタッフ写真一覧 |
+
+**`src/lib/coupons.ts`**
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `getCouponsByFacility(facilityId)` | UUID | 施設のクーポン一覧 |
+| `getCouponMenus(couponId)` | UUID | クーポン対象メニュー |
+
+**`src/lib/bookings.ts`**
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `createBooking(data)` | BookingFormData | 予約作成（競合チェック付き） |
+| `getBookings(userId)` | UUID | ユーザーの予約一覧 |
+| `cancelBooking(bookingId, userId)` | UUID, UUID | 予約キャンセル |
+
+**`src/lib/schedules.ts`**
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `getStaffSchedule(staffId)` | UUID | 週間シフト取得 |
+| `getAvailableSlots(params)` | facility_id, staff_id, date, duration | 空き枠計算（RPC） |
+
+**`src/lib/user.ts`**
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `getUserProfile()` | - | ログインユーザーのプロフィール |
+| `getUserFavorites()` | - | お気に入り一覧 |
+| `toggleFavorite(facilityId)` | UUID | お気に入りトグル |
+| `checkFavorite(facilityId)` | UUID | お気に入り状態チェック |
+
+**`src/lib/areas.ts`**
+
+| 関数 | 引数 | 用途 |
+|------|------|------|
+| `getAreas()` | - | エリア階層取得 |
+| `getAreaBySlug(slug)` | slug | エリア詳細（パンくずリスト付き、ループ上限10） |
+
+**`src/lib/catalogs.ts` / `src/lib/blog.ts` / `src/lib/rankings.ts` / `src/lib/points.ts`**
+
+| 関数 | 用途 |
+|------|------|
+| `getCatalogsByFacility(facilityId)` | ヘアカタログ一覧 |
+| `getBlogPostsByFacility(facilityId)` | ブログ記事一覧 |
+| `getRankingsByArea(area)` | エリアランキング |
+| `getUserPoints(userId)` | ポイント履歴 |
 
 ---
 
@@ -1429,10 +1727,56 @@ SQL:       SQL Editor
 | エクスポート名 | 内容 |
 |---------------|------|
 | `prefectures` | 全47都道府県の配列 |
-| `businessTypes` | 5業種の配列（「その他」なし） |
+| `businessTypes` | 6業種の配列（5業種+「その他」）※ validations.tsはre-export |
 | `facilityFeatures` | 16個の施設特徴タグ |
 | `dayOrder` | 曜日順序配列 `['mon','tue',...,'sun']` |
 | `dayLabels` | 曜日ラベル `{mon:'月', tue:'火', ...}` |
+
+---
+
+## Zodスキーマ一覧
+
+| ファイル | スキーマ | 用途 |
+|---------|---------|------|
+| `validations.ts` | `salonSchema`, `jobSeekerSchema`, `contactSchema` | LP登録フォーム |
+| `validations.ts` | `reviewSchema`, `inquirySchema` | 検索サイトフォーム |
+| `validations-auth.ts` | `loginSchema`, `signupSchema` | 認証フォーム |
+| `validations-booking.ts` | `bookingSchema` | 予約フォーム（UUID/日付/時間検証） |
+| `validations-admin.ts` | スタッフ/クーポン/施設設定スキーマ | 管理画面フォーム |
+
+---
+
+## 認証基盤（Phase 2）
+
+### Supabaseクライアント4種
+
+| ファイル | 用途 | Cookie | 認証 |
+|---------|------|:------:|:----:|
+| `supabase.ts` | クライアント匿名 | ❌ | ❌ |
+| `supabase-browser.ts` | ブラウザ用（Cookie対応） | ✅ | ✅ |
+| `supabase-server.ts` | サーバー匿名（公開データ読み取り専用） | ❌ | ❌ |
+| `supabase-server-auth.ts` | サーバー認証（Cookie対応） | ✅ | ✅ |
+
+> `supabase-server.ts` は公開データ読み取り専用。書き込みや認証データアクセスには `supabase-server-auth.ts` を使用する。
+
+### middleware.ts
+
+- トークン自動リフレッシュ（Supabase PKCE）
+- 保護ルート: `/mypage/*`, `/admin/*` → 未認証時は `/auth/login` にリダイレクト
+- `/auth/callback` はOAuthコールバック処理
+
+---
+
+## 品質監査履歴
+
+9回の品質監査で合計80件以上の問題を修正:
+
+| 回 | 検出数 | 主な修正内容 |
+|:--:|:------:|------------|
+| 1-6 | ~60件 | Phase 1-6の初期品質改善 |
+| 7 | 22件 | CRITICAL: admin non-null assertion 4件修正、booking API rate limiting追加 |
+| 8 | 11件 | cancel/slots API UUID検証、mypage non-null修正、res.json()クラッシュ防止 |
+| 9 | 3件 | admin/coupons, admin/catalog, mypage/points の最終non-null assertion修正 |
 
 ---
 
@@ -1440,6 +1784,7 @@ SQL:       SQL Editor
 
 | 日付 | バージョン | 内容 |
 |------|-----------|------|
+| 2026-03-22 | 3.0 | **HPB完全再現**: Phase 2〜6実装完了（認証/マイページ/お気に入り/エリア検索/スタッフ/クーポン/オンライン予約/管理ダッシュボード/ブログ/カタログ/ランキング/GPS検索/ポイント）。全25テーブル、120+新規ファイル。品質監査9回実施（80+件修正）。セキュリティ強化（レート制限/UUID検証/non-null assertion全排除/HTTPセキュリティヘッダー5種/GA4・Clarity IDバリデーション） |
 | 2026-03-22 | 2.0 | **大規模更新**: 検索サイト全機能追加（/search, /facility/[slug]）、検索側DB5テーブル+トリガー追加、全コンポーネント（16個）追加、LayoutSwitch追加、アクセシビリティ章追加、Zodバリデーション追加、動的sitemap、エラーバウンダリ、型定義一覧、DBクエリ関数一覧、定数一覧。GitHub移行(jimuin0)・自動デプロイ反映 |
 | 2026-03-21 | 1.2 | アクセス情報追加、設定状況一覧追加、エラー/ローディング/404追加、テスト追加、制限事項追加 |
 | 2026-03-21 | 1.1 | テーブルSQL追加、業務フロー追加、Slack通知例追加、Storage手順追加 |

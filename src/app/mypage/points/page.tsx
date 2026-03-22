@@ -1,14 +1,16 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { notFound } from 'next/navigation';
 import type { UserPoint } from '@/types';
 
 export default async function PointsPage() {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
+  if (!user) notFound();
 
   const { data } = await supabase
     .from('user_points')
     .select('*')
-    .eq('user_id', user!.id)
+    .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 
   const points = (data ?? []) as UserPoint[];
