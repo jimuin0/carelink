@@ -160,6 +160,31 @@ export interface SearchParams {
   page?: number;
 }
 
+// Recruit（求人掲載）
+export interface Recruit {
+  id: string;
+  created_at: string;
+  facility_name: string;
+  business_type: string;
+  representative_name: string;
+  contact_name: string;
+  email: string;
+  phone: string;
+  postal_code: string | null;
+  address: string | null;
+  job_category: string;
+  employment_type: string | null;
+  salary_range: string | null;
+  work_hours: string | null;
+  holidays: string | null;
+  benefits: string | null;
+  requirements: string | null;
+  pr_text: string | null;
+  photo_url: string | null;
+  desired_start_date: string | null;
+  status: string;
+}
+
 // User Profile（認証ユーザー）
 export interface Profile {
   id: string;

@@ -3,7 +3,9 @@ import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
 
-// Simple in-memory rate limiting (per serverless instance)
+// Note: In-memory rate limiting is per serverless instance.
+// On Vercel, instances are short-lived so this provides limited protection.
+// For production, consider Upstash Redis for distributed rate limiting.
 const requestLog = new Map<string, number[]>();
 const RATE_LIMIT = 5; // max requests
 const RATE_WINDOW = 60_000; // per 60 seconds
