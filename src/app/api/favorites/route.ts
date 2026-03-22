@@ -40,10 +40,12 @@ export async function POST(request: Request) {
       .single();
 
     if (existing) {
-      await supabase.from('favorites').delete().eq('id', existing.id);
+      const { error } = await supabase.from('favorites').delete().eq('id', existing.id);
+      if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
       return NextResponse.json({ isFavorited: false });
     } else {
-      await supabase.from('favorites').insert({ user_id: user.id, facility_id: facilityId });
+      const { error } = await supabase.from('favorites').insert({ user_id: user.id, facility_id: facilityId });
+      if (error) return NextResponse.json({ error: '追加に失敗しました' }, { status: 500 });
       return NextResponse.json({ isFavorited: true });
     }
   } catch {

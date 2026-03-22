@@ -345,31 +345,32 @@ export default function JobsPage() {
               {step === 1 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">氏名 <span className="text-red-500">*</span></label>
-                    <input {...register('full_name')} className="form-input" placeholder="例：山田 太郎" />
+                    <label htmlFor="job-full-name" className="form-label">氏名 <span className="text-red-500">*</span></label>
+                    <input id="job-full-name" {...register('full_name')} className="form-input" placeholder="例：山田 太郎" />
                     {errors.full_name && <p className="form-error">{errors.full_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">フリガナ <span className="text-red-500">*</span></label>
-                    <input {...register('furigana')} className="form-input" placeholder="例：ヤマダタロウ" />
+                    <label htmlFor="job-furigana" className="form-label">フリガナ <span className="text-red-500">*</span></label>
+                    <input id="job-furigana" {...register('furigana')} className="form-input" placeholder="例：ヤマダタロウ" />
                     {errors.furigana && <p className="form-error">{errors.furigana.message}</p>}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="form-label">生年月日</label>
-                      <input {...register('birth_date')} type="date" className="form-input" />
+                      <label htmlFor="job-birth-date" className="form-label">生年月日</label>
+                      <input id="job-birth-date" {...register('birth_date')} type="date" className="form-input" />
                     </div>
                     <div>
-                      <label className="form-label">性別</label>
-                      <select {...register('gender')} className="form-input">
+                      <label htmlFor="job-gender" className="form-label">性別</label>
+                      <select id="job-gender" {...register('gender')} className="form-input">
                         <option value="">選択してください</option>
                         {genderOptions.map((g) => <option key={g} value={g}>{g}</option>)}
                       </select>
                     </div>
                   </div>
                   <div>
-                    <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                    <label htmlFor="job-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
                     <input
+                      id="job-phone"
                       {...register('phone')}
                       type="tel"
                       onChange={handlePhoneChange}
@@ -379,18 +380,18 @@ export default function JobsPage() {
                     {errors.phone && <p className="form-error">{errors.phone.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                    <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
+                    <label htmlFor="job-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                    <input id="job-email" {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
                     {errors.email && <p className="form-error">{errors.email.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">郵便番号</label>
-                    <input {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
+                    <label htmlFor="job-postal-code" className="form-label">郵便番号</label>
+                    <input id="job-postal-code" {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
                     {errors.postal_code && <p className="form-error">{errors.postal_code.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">住所</label>
-                    <input {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
+                    <label htmlFor="job-address" className="form-label">住所</label>
+                    <input id="job-address" {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
                   </div>
                   <button type="button" onClick={nextStep} className="btn-primary w-full">
                     次へ
@@ -402,8 +403,8 @@ export default function JobsPage() {
               {step === 2 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">職種 <span className="text-red-500">*</span></label>
-                    <select {...register('job_type')} className="form-input">
+                    <label htmlFor="job-type" className="form-label">職種 <span className="text-red-500">*</span></label>
+                    <select id="job-type" {...register('job_type')} className="form-input">
                       <option value="">選択してください</option>
                       {jobTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
@@ -426,19 +427,19 @@ export default function JobsPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="form-label">経験年数</label>
-                    <select {...register('experience_years')} className="form-input">
+                    <label htmlFor="job-experience" className="form-label">経験年数</label>
+                    <select id="job-experience" {...register('experience_years')} className="form-input">
                       <option value="">選択してください</option>
                       {experienceYears.map((y) => <option key={y} value={y}>{y}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="form-label">最終学歴</label>
-                    <input {...register('education')} className="form-input" placeholder="例：○○大学 卒業" />
+                    <label htmlFor="job-education" className="form-label">最終学歴</label>
+                    <input id="job-education" {...register('education')} className="form-input" placeholder="例：○○大学 卒業" />
                   </div>
                   <div>
-                    <label className="form-label">前職</label>
-                    <input {...register('previous_job')} className="form-input" placeholder="例：○○病院 介護士" />
+                    <label htmlFor="job-previous-job" className="form-label">前職</label>
+                    <input id="job-previous-job" {...register('previous_job')} className="form-input" placeholder="例：○○病院 介護士" />
                   </div>
                   <div className="flex gap-4">
                     <button type="button" onClick={prevStep} className="btn-outline flex-1">
@@ -471,16 +472,17 @@ export default function JobsPage() {
                     </div>
                   </div>
                   <div>
-                    <label className="form-label">希望勤務地</label>
-                    <input {...register('desired_location')} className="form-input" placeholder="例：東京都内" />
+                    <label htmlFor="job-desired-location" className="form-label">希望勤務地</label>
+                    <input id="job-desired-location" {...register('desired_location')} className="form-input" placeholder="例：東京都内" />
                   </div>
                   <div>
-                    <label className="form-label">希望給与</label>
-                    <input {...register('desired_salary')} className="form-input" placeholder="例：月給25万円以上" />
+                    <label htmlFor="job-desired-salary" className="form-label">希望給与</label>
+                    <input id="job-desired-salary" {...register('desired_salary')} className="form-input" placeholder="例：月給25万円以上" />
                   </div>
                   <div>
-                    <label className="form-label">自己PR</label>
+                    <label htmlFor="job-self-pr" className="form-label">自己PR</label>
                     <textarea
+                      id="job-self-pr"
                       {...register('self_pr')}
                       className="form-input min-h-[120px]"
                       placeholder="あなたのアピールポイントをご記入ください"

@@ -337,36 +337,37 @@ export default function RecruitPage() {
               {step === 1 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">施設名 <span className="text-red-500">*</span></label>
-                    <input {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
+                    <label htmlFor="recruit-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
+                    <input id="recruit-facility-name" {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
                     {errors.facility_name && <p className="form-error">{errors.facility_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">業種 <span className="text-red-500">*</span></label>
-                    <select {...register('business_type')} className="form-input">
+                    <label htmlFor="recruit-business-type" className="form-label">業種 <span className="text-red-500">*</span></label>
+                    <select id="recruit-business-type" {...register('business_type')} className="form-input">
                       <option value="">選択してください</option>
                       {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                     {errors.business_type && <p className="form-error">{errors.business_type.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">代表者名 <span className="text-red-500">*</span></label>
-                    <input {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
+                    <label htmlFor="recruit-representative" className="form-label">代表者名 <span className="text-red-500">*</span></label>
+                    <input id="recruit-representative" {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
                     {errors.representative_name && <p className="form-error">{errors.representative_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">担当者名 <span className="text-red-500">*</span></label>
-                    <input {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
+                    <label htmlFor="recruit-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
+                    <input id="recruit-contact-name" {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
                     {errors.contact_name && <p className="form-error">{errors.contact_name.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                    <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
+                    <label htmlFor="recruit-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                    <input id="recruit-email" {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
                     {errors.email && <p className="form-error">{errors.email.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                    <label htmlFor="recruit-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
                     <input
+                      id="recruit-phone"
                       {...register('phone')}
                       type="tel"
                       onChange={handlePhoneChange}
@@ -385,40 +386,40 @@ export default function RecruitPage() {
               {step === 2 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">郵便番号</label>
-                    <input {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
+                    <label htmlFor="recruit-postal-code" className="form-label">郵便番号</label>
+                    <input id="recruit-postal-code" {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
                     {errors.postal_code && <p className="form-error">{errors.postal_code.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">住所</label>
-                    <input {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
+                    <label htmlFor="recruit-address" className="form-label">住所</label>
+                    <input id="recruit-address" {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." />
                   </div>
                   <div>
-                    <label className="form-label">募集職種 <span className="text-red-500">*</span></label>
-                    <select {...register('job_category')} className="form-input">
+                    <label htmlFor="recruit-job-category" className="form-label">募集職種 <span className="text-red-500">*</span></label>
+                    <select id="recruit-job-category" {...register('job_category')} className="form-input">
                       <option value="">選択してください</option>
                       {jobTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                     {errors.job_category && <p className="form-error">{errors.job_category.message}</p>}
                   </div>
                   <div>
-                    <label className="form-label">雇用形態</label>
-                    <select {...register('employment_type')} className="form-input">
+                    <label htmlFor="recruit-employment-type" className="form-label">雇用形態</label>
+                    <select id="recruit-employment-type" {...register('employment_type')} className="form-input">
                       <option value="">選択してください</option>
                       {employmentTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </div>
                   <div>
-                    <label className="form-label">給与</label>
-                    <input {...register('salary_range')} className="form-input" placeholder="例：月給25万〜30万円" />
+                    <label htmlFor="recruit-salary" className="form-label">給与</label>
+                    <input id="recruit-salary" {...register('salary_range')} className="form-input" placeholder="例：月給25万〜30万円" />
                   </div>
                   <div>
-                    <label className="form-label">勤務時間</label>
-                    <input {...register('work_hours')} className="form-input" placeholder="例：9:00〜18:00" />
+                    <label htmlFor="recruit-work-hours" className="form-label">勤務時間</label>
+                    <input id="recruit-work-hours" {...register('work_hours')} className="form-input" placeholder="例：9:00〜18:00" />
                   </div>
                   <div>
-                    <label className="form-label">休日</label>
-                    <input {...register('holidays')} className="form-input" placeholder="例：完全週休2日（土日祝）" />
+                    <label htmlFor="recruit-holidays" className="form-label">休日</label>
+                    <input id="recruit-holidays" {...register('holidays')} className="form-input" placeholder="例：完全週休2日（土日祝）" />
                   </div>
                   <div className="flex gap-4">
                     <button type="button" onClick={prevStep} className="btn-outline flex-1">
@@ -435,24 +436,27 @@ export default function RecruitPage() {
               {step === 3 && (
                 <div className="space-y-5">
                   <div>
-                    <label className="form-label">福利厚生</label>
+                    <label htmlFor="recruit-benefits" className="form-label">福利厚生</label>
                     <textarea
+                      id="recruit-benefits"
                       {...register('benefits')}
                       className="form-input min-h-[80px]"
                       placeholder="例：社会保険完備、交通費支給、研修制度あり"
                     />
                   </div>
                   <div>
-                    <label className="form-label">応募条件</label>
+                    <label htmlFor="recruit-requirements" className="form-label">応募条件</label>
                     <textarea
+                      id="recruit-requirements"
                       {...register('requirements')}
                       className="form-input min-h-[80px]"
                       placeholder="例：資格不問、実務経験1年以上"
                     />
                   </div>
                   <div>
-                    <label className="form-label">PR文</label>
+                    <label htmlFor="recruit-pr-text" className="form-label">PR文</label>
                     <textarea
+                      id="recruit-pr-text"
                       {...register('pr_text')}
                       className="form-input min-h-[120px]"
                       placeholder="施設のアピールポイントをご記入ください"
@@ -468,8 +472,8 @@ export default function RecruitPage() {
                     <PhotoUpload onChange={setPhotoFile} />
                   </div>
                   <div>
-                    <label className="form-label">採用開始希望日</label>
-                    <input {...register('desired_start_date')} type="date" className="form-input" />
+                    <label htmlFor="recruit-start-date" className="form-label">採用開始希望日</label>
+                    <input id="recruit-start-date" {...register('desired_start_date')} type="date" className="form-input" />
                   </div>
                   <label className="flex items-start gap-2 text-sm text-gray-600">
                     <input
