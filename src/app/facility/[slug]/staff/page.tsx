@@ -1,0 +1,37 @@
+import { notFound } from 'next/navigation';
+import Link from 'next/link';
+import { getFacilityBySlug } from '@/lib/facilities';
+import { getStaffByFacility } from '@/lib/staff';
+import StaffList from '@/components/facility/StaffList';
+
+interface Props {
+  params: { slug: string };
+}
+
+export default async function StaffPage({ params }: Props) {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) notFound();
+
+  const staff = await getStaffByFacility(facility.id);
+
+  return (
+    <div className="bg-gray-50 min-h-screen">
+      <div className="max-w-4xl mx-auto bg-white shadow-sm">
+        <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
+          <ol className="flex items-center gap-1.5 text-xs text-gray-400">
+            <li><Link href="/search" className="hover:text-sky-600">トップ</Link></li>
+            <li><span className="mx-1">/</span></li>
+            <li><Link href={`/facility/${params.slug}`} className="hover:text-sky-600">{facility.name}</Link></li>
+            <li><span className="mx-1">/</span></li>
+            <li className="text-gray-600 font-medium">スタッフ</li>
+          </ol>
+        </nav>
+
+        <div className="px-4 sm:px-6 py-6">
+          <h1 className="text-xl font-bold mb-6">スタッフ一覧</h1>
+          <StaffList staff={staff} facilitySlug={params.slug} />
+        </div>
+      </div>
+    </div>
+  );
+}

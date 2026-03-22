@@ -192,3 +192,60 @@ export interface Area {
   parent_id: string | null;
   sort_order: number;
 }
+
+// Staff（スタッフ）
+export interface StaffProfile {
+  id: string;
+  facility_id: string;
+  name: string;
+  slug: string;
+  position: string | null;
+  bio: string | null;
+  specialties: string[];
+  years_experience: number | null;
+  photo_url: string | null;
+  instagram_url: string | null;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface StaffPhoto {
+  id: string;
+  staff_id: string;
+  photo_url: string;
+  caption: string | null;
+  photo_type: 'portfolio' | 'before_after';
+  sort_order: number;
+  created_at: string;
+}
+
+// Coupon（クーポン）
+export interface Coupon {
+  id: string;
+  facility_id: string;
+  name: string;
+  description: string | null;
+  coupon_type: 'new_customer' | 'repeat' | 'limited_time' | 'all';
+  discount_type: 'fixed' | 'percentage' | 'special_price';
+  discount_value: number | null;
+  special_price: number | null;
+  valid_from: string | null;
+  valid_until: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export interface CouponMenu {
+  id: string;
+  coupon_id: string;
+  menu_id: string;
+}
+
+export interface MenuStaff {
+  id: string;
+  menu_id: string;
+  staff_id: string;
+}

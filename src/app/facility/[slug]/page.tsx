@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
+import { getStaffByFacility } from '@/lib/staff';
+import { getCouponsByFacility } from '@/lib/coupons';
 import PhotoGallery from '@/components/facility/PhotoGallery';
 import FacilityHeader from '@/components/facility/FacilityHeader';
 import TabNavigation from '@/components/facility/TabNavigation';
@@ -12,6 +14,8 @@ import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
 import FavoriteButton from '@/components/facility/FavoriteButton';
 import ViewCount from '@/components/facility/ViewCount';
+import StaffList from '@/components/facility/StaffList';
+import CouponList from '@/components/facility/CouponList';
 import type { Facility, FacilityMenu } from '@/types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
@@ -56,10 +60,12 @@ export default async function FacilityPage({ params }: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [{ menus }, { photos }, { reviews }] = await Promise.all([
+  const [{ menus }, { photos }, { reviews }, staff, coupons] = await Promise.all([
     getFacilityMenus(facility.id),
     getFacilityPhotos(facility.id),
     getFacilityReviews(facility.id),
+    getStaffByFacility(facility.id),
+    getCouponsByFacility(facility.id),
   ]);
 
   const featuredMenus = menus.filter((m) => m.is_featured).slice(0, 3);
@@ -75,6 +81,16 @@ export default async function FacilityPage({ params }: Props) {
       label: 'メニュー',
       content: <MenuList menus={menus} />,
     },
+    ...(staff.length > 0 ? [{
+      key: 'staff',
+      label: `スタッフ(${staff.length})`,
+      content: <StaffList staff={staff} facilitySlug={params.slug} />,
+    }] : []),
+    ...(coupons.length > 0 ? [{
+      key: 'coupon',
+      label: `クーポン(${coupons.length})`,
+      content: <CouponList coupons={coupons} />,
+    }] : []),
     {
       key: 'review',
       label: `口コミ(${reviews.length})`,
