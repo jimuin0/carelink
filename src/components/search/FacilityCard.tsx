@@ -2,10 +2,14 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
 
-function StarRating({ rating, count }: { rating: number; count: number }) {
+function CardStarRating({ rating, count }: { rating: number; count: number }) {
+  const filled = Math.floor(rating);
+  const hasHalf = rating - filled >= 0.5;
   return (
     <div className="flex items-center gap-1">
-      <span className="text-amber-400 text-sm">{'★'.repeat(Math.round(rating))}</span>
+      <span className="text-amber-400 text-sm">
+        {'★'.repeat(filled)}{hasHalf ? '☆' : ''}
+      </span>
       <span className="text-sm font-bold text-gray-700">{rating.toFixed(1)}</span>
       <span className="text-xs text-gray-400">({count}件)</span>
     </div>
@@ -25,8 +29,10 @@ export default function FacilityCard({ facility }: { facility: FacilityCardData 
             className="object-cover"
           />
         ) : (
-          <div className="flex items-center justify-center h-full text-gray-300 text-4xl">
-            🏢
+          <div className="flex items-center justify-center h-full bg-gradient-to-br from-sky-100 to-sky-50">
+            <svg className="w-10 h-10 text-sky-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
           </div>
         )}
         <span className="absolute top-3 left-3 badge badge-primary">
@@ -36,7 +42,7 @@ export default function FacilityCard({ facility }: { facility: FacilityCardData 
       <div className="p-4">
         <h3 className="font-bold text-lg mb-1 line-clamp-1">{facility.name}</h3>
         {facility.rating_count > 0 && (
-          <StarRating rating={Number(facility.rating_avg)} count={facility.rating_count} />
+          <CardStarRating rating={Number(facility.rating_avg)} count={facility.rating_count} />
         )}
         {facility.catch_copy && (
           <p className="text-gray-600 text-sm mt-2 line-clamp-2">{facility.catch_copy}</p>

@@ -20,8 +20,7 @@ export default function StickyBookingBar({ phone, facilityName }: { phone: strin
             const el = document.getElementById('contact-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });
           }}
-          className="flex-1 flex items-center justify-center gap-2 py-3 text-white font-bold rounded-xl text-sm transition-colors"
-          style={{ backgroundColor: 'var(--primary)' }}
+          className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl text-sm transition-colors"
           aria-label={`${facilityName}にお問い合わせ`}
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

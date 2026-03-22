@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
 import PhotoGallery from '@/components/facility/PhotoGallery';
@@ -10,6 +11,8 @@ import ReviewTab from '@/components/facility/ReviewTab';
 import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
 import type { Facility, FacilityMenu } from '@/types';
+
+const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-ruddy-psi.vercel.app';
 
 export const revalidate = 3600;
 
@@ -24,14 +27,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${facility.name} | ${facility.business_type} | CareLink`;
   const description = facility.catch_copy || `${facility.prefecture}${facility.city}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
 
+  const url = `${SITE_URL}/facility/${params.slug}`;
+
   return {
     title,
     description,
+    alternates: { canonical: url },
     openGraph: {
       title,
       description,
       type: 'website',
+      url,
+      siteName: 'CareLink',
       ...(facility.main_photo_url && { images: [{ url: facility.main_photo_url }] }),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(facility.main_photo_url && { images: [facility.main_photo_url] }),
     },
   };
 }
@@ -74,6 +88,17 @@ export default async function FacilityPage({ params }: Props) {
   return (
     <div className="bg-gray-50 min-h-screen pb-20">
       <div className="max-w-4xl mx-auto bg-white shadow-sm">
+        {/* パンくずリスト */}
+        <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
+          <ol className="flex items-center gap-1.5 text-xs text-gray-400 overflow-x-auto">
+            <li><Link href="/search" className="hover:text-sky-600 transition-colors">トップ</Link></li>
+            <li><span className="mx-1">/</span></li>
+            <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+            <li><span className="mx-1">/</span></li>
+            <li className="text-gray-600 font-medium truncate max-w-[200px]">{facility.name}</li>
+          </ol>
+        </nav>
+
         <PhotoGallery photos={photos} facilityName={facility.name} />
         <FacilityHeader facility={facility} />
         <TabNavigation tabs={tabs} />
@@ -101,7 +126,7 @@ export default async function FacilityPage({ params }: Props) {
           <InquiryForm facilityId={facility.id} facilityName={facility.name} />
         </div>
 
-        {/* JSON-LD */}
+        {/* JSON-LD: LocalBusiness */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -134,6 +159,21 @@ export default async function FacilityPage({ params }: Props) {
                   longitude: facility.longitude,
                 },
               }),
+            }),
+          }}
+        />
+        {/* JSON-LD: BreadcrumbList */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@type': 'BreadcrumbList',
+              itemListElement: [
+                { '@type': 'ListItem', position: 1, name: 'トップ', item: `${SITE_URL}/search` },
+                { '@type': 'ListItem', position: 2, name: facility.business_type, item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` },
+                { '@type': 'ListItem', position: 3, name: facility.name },
+              ],
             }),
           }}
         />
@@ -187,7 +227,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
       )}
 
       {/* 特徴タグ */}
-      {facility.features.length > 0 && (
+      {facility.features && facility.features.length > 0 && (
         <div>
           <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />

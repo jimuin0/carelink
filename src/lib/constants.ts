@@ -8,6 +8,14 @@ export const prefectures = [
   '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県',
 ];
 
+export const businessTypes = [
+  '美容サロン・アイラッシュ',
+  '鍼灸院',
+  '整骨院',
+  '介護施設・デイサービス',
+  '病院・クリニック',
+];
+
 export const facilityFeatures = [
   '駐車場あり', '個室あり', 'キッズスペース', 'バリアフリー',
   'WiFi完備', 'クレジットカード可', '当日予約OK', '女性専用',

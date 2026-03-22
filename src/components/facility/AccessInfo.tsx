@@ -64,7 +64,7 @@ export default function AccessInfo({ facility }: { facility: Facility }) {
       )}
 
       {/* 特徴タグ */}
-      {facility.features.length > 0 && (
+      {facility.features && facility.features.length > 0 && (
         <div>
           <h3 className="text-lg font-bold mb-4 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />

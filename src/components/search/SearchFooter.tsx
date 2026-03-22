@@ -1,12 +1,5 @@
 import Link from 'next/link';
-
-const businessTypes = [
-  '美容サロン・アイラッシュ',
-  '鍼灸院',
-  '整骨院',
-  '介護施設・デイサービス',
-  '病院・クリニック',
-];
+import { businessTypes } from '@/lib/constants';
 
 export default function SearchFooter() {
   return (
