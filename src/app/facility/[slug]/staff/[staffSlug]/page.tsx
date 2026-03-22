@@ -1,11 +1,23 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import Image from 'next/image';
+import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getStaffBySlug, getStaffPhotos } from '@/lib/staff';
 
 interface Props {
   params: { slug: string; staffSlug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) return {};
+  const staff = await getStaffBySlug(facility.id, params.staffSlug);
+  if (!staff) return {};
+  return {
+    title: `${staff.name} | ${facility.name} | CareLink`,
+    description: `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`,
+  };
 }
 
 export default async function StaffDetailPage({ params }: Props) {

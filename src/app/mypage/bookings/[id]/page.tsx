@@ -24,15 +24,19 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
   useEffect(() => {
     const load = async () => {
       const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+
       const { data } = await supabase
         .from('bookings')
         .select('*')
         .eq('id', params.id)
+        .eq('user_id', user.id)
         .single();
       setBooking(data as Booking | null);
       setLoading(false);
     };
-    load();
+    load().catch(() => setLoading(false));
   }, [params.id]);
 
   const handleCancel = async () => {

@@ -1,11 +1,21 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { getAreaBySlug, getAreasByParent, getAreaBreadcrumb } from '@/lib/areas';
 import { searchFacilities } from '@/lib/facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const area = await getAreaBySlug(params.slug);
+  if (!area) return {};
+  return {
+    title: `${area.name}のサロン・クリニック | CareLink`,
+    description: `${area.name}エリアの美容・医療・福祉施設を検索。口コミ・メニュー・クーポン情報も掲載。`,
+  };
 }
 
 export default async function AreaResultPage({ params }: Props) {

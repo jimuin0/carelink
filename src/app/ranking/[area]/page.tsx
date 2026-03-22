@@ -1,9 +1,18 @@
 import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 
 interface Props {
   params: { area: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const area = decodeURIComponent(params.area);
+  return {
+    title: `${area}の人気ランキング | CareLink`,
+    description: `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`,
+  };
 }
 
 export default async function AreaRankingPage({ params }: Props) {

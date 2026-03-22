@@ -53,6 +53,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${selectedMenu.duration_minutes || 60}`)
       .then((r) => r.json())
       .then((data) => setSlots(data.slots ?? []))
+      .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
       .finally(() => setSlotsLoading(false));
   }, [selectedDate, selectedStaff, selectedMenu, facility.id]);
 
@@ -259,8 +260,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         <div className="space-y-4">
           <h2 className="font-bold">お客様情報</h2>
           <div>
-            <label className="form-label">お名前 <span className="text-red-500">*</span></label>
+            <label htmlFor="booking-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
             <input
+              id="booking-name"
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               className="form-input"
@@ -268,8 +270,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             />
           </div>
           <div>
-            <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+            <label htmlFor="booking-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
             <input
+              id="booking-email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               type="email"
@@ -278,8 +281,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             />
           </div>
           <div>
-            <label className="form-label">電話番号</label>
+            <label htmlFor="booking-phone" className="form-label">電話番号</label>
             <input
+              id="booking-phone"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               type="tel"
@@ -288,8 +292,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             />
           </div>
           <div>
-            <label className="form-label">備考</label>
+            <label htmlFor="booking-note" className="form-label">備考</label>
             <textarea
+              id="booking-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               className="form-input"

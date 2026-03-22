@@ -1,10 +1,22 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogPost } from '@/lib/blog';
 
 interface Props {
   params: { slug: string; postSlug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) return {};
+  const post = await getBlogPost(facility.id, params.postSlug);
+  if (!post) return {};
+  return {
+    title: `${post.title} | ${facility.name} | CareLink`,
+    description: post.content.slice(0, 120),
+  };
 }
 
 export default async function BlogDetailPage({ params }: Props) {

@@ -1,11 +1,21 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getStaffByFacility } from '@/lib/staff';
 import StaffList from '@/components/facility/StaffList';
 
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) return {};
+  return {
+    title: `スタッフ一覧 | ${facility.name} | CareLink`,
+    description: `${facility.name}のスタッフ紹介。経歴・得意分野・作品集をご覧いただけます。`,
+  };
 }
 
 export default async function StaffPage({ params }: Props) {

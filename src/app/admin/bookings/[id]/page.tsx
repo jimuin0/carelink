@@ -22,15 +22,26 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
   useEffect(() => {
     const load = async () => {
       const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoading(false); return; }
+
+      const { data: membership } = await supabase
+        .from('facility_members')
+        .select('facility_id')
+        .eq('user_id', user.id)
+        .single();
+      if (!membership) { setLoading(false); return; }
+
       const { data } = await supabase
         .from('bookings')
         .select('*')
         .eq('id', params.id)
+        .eq('facility_id', membership.facility_id)
         .single();
       setBooking(data as Booking | null);
       setLoading(false);
     };
-    load();
+    load().catch(() => setLoading(false));
   }, [params.id]);
 
   const handleStatusChange = async (newStatus: string) => {
@@ -38,10 +49,20 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
     setUpdating(true);
 
     const supabase = createBrowserSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const { data: membership } = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .single();
+    if (!membership) return;
+
     const { error } = await supabase
       .from('bookings')
       .update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq('id', params.id);
+      .eq('id', params.id)
+      .eq('facility_id', membership.facility_id);
 
     if (error) {
       setToast({ type: 'error', message: '更新に失敗しました' });

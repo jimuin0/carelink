@@ -1,11 +1,21 @@
 import { notFound } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
+import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogsByFacility } from '@/lib/blog';
 
 interface Props {
   params: { slug: string };
+}
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const { facility } = await getFacilityBySlug(params.slug);
+  if (!facility) return {};
+  return {
+    title: `ブログ | ${facility.name} | CareLink`,
+    description: `${facility.name}のブログ記事一覧。最新情報やお役立ち情報をお届けします。`,
+  };
 }
 
 export default async function FacilityBlogPage({ params }: Props) {
