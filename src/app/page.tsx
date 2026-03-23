@@ -1,10 +1,19 @@
 import Link from 'next/link';
 import { businessTypes, regionGroups } from '@/lib/constants';
+import { getRankedFacilities } from '@/lib/rankings';
+import { searchFacilities } from '@/lib/facilities';
+import FacilityCard from '@/components/search/FacilityCard';
+import FadeIn from '@/components/FadeIn';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 
 const regionShortNames = ['関東', '関西', '中部', '北海道・東北', '中国・四国', '九州・沖縄'];
 
-export default function Home() {
+export default async function Home() {
+  const [rankedFacilities, { facilities: newestFacilities }] = await Promise.all([
+    getRankedFacilities(undefined, 6),
+    searchFacilities({ sort: 'newest', page: 1 }),
+  ]);
+
   return (
     <>
       {/* Hero + Search */}
@@ -34,8 +43,39 @@ export default function Home() {
         </div>
       </section>
 
+      {/* Popular Facilities Ranking */}
+      {rankedFacilities.length > 0 && (
+        <section className="bg-white border-b border-gray-100">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <span className="w-1 h-5 bg-amber-400 rounded-sm" />
+                <h2 className="font-bold text-base">人気施設ランキング</h2>
+              </div>
+              <Link href="/ranking" className="text-sm text-sky-600 hover:underline">
+                全ランキングを見る &rarr;
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              {rankedFacilities.slice(0, 6).map((f, i) => (
+                <FadeIn key={f.id} delay={i * 80}>
+                  <div className="relative">
+                    <span className={`absolute top-2 left-2 z-10 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shadow ${
+                      i === 0 ? 'bg-yellow-400' : i === 1 ? 'bg-gray-400' : i === 2 ? 'bg-amber-600' : 'bg-gray-300'
+                    }`}>
+                      {i + 1}
+                    </span>
+                    <FacilityCard facility={f} />
+                  </div>
+                </FadeIn>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Business Types with Region Links */}
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Business Types with Region Links */}
         <section className="py-6">
           {businessTypes.map((type) => (
             <div key={type} className="py-3 border-b border-gray-100 last:border-b-0">
@@ -64,9 +104,35 @@ export default function Home() {
             </div>
           ))}
         </section>
+      </div>
 
-        {/* Area Search */}
-        <section className="pb-8">
+      {/* Newest Facilities */}
+      {newestFacilities.length > 0 && (
+        <section className="bg-gray-50 border-t border-gray-100">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-2">
+                <span className="w-1 h-5 bg-green-500 rounded-sm" />
+                <h2 className="font-bold text-base">新着施設</h2>
+              </div>
+              <Link href="/search?sort=newest" className="text-sm text-sky-600 hover:underline">
+                新着一覧を見る &rarr;
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              {newestFacilities.slice(0, 4).map((f, i) => (
+                <FadeIn key={f.id} delay={i * 80}>
+                  <FacilityCard facility={f} />
+                </FadeIn>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
+      {/* Area Search */}
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="py-6 pb-10">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-1 h-5 bg-sky-500 rounded-sm" />
             <h2 className="font-bold text-[15px]">エリアから探す</h2>
