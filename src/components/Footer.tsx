@@ -26,12 +26,6 @@ export default function Footer() {
               <Link href="/salon" className="hover:text-white transition-colors">
                 集客したい方
               </Link>
-              <a href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/recruit`} className="hover:text-white transition-colors">
-                採用したい方
-              </a>
-              <a href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/jobs`} className="hover:text-white transition-colors">
-                求職者の方
-              </a>
               <Link href="/contact" className="hover:text-white transition-colors">
                 お問い合わせ
               </Link>
@@ -60,7 +54,7 @@ export default function Footer() {
               <dt>所在地</dt>
               <dd>大阪府堺市</dd>
               <dt>事業内容</dt>
-              <dd>美容・医療・福祉分野の採用・集客支援</dd>
+              <dd>美容・医療・福祉分野の集客支援</dd>
               <dt>お問い合わせ</dt>
               <dd><Link href="/contact" className="text-gray-300 hover:text-white transition-colors underline">お問い合わせフォーム</Link></dd>
             </dl>

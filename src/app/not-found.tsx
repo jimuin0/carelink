@@ -15,15 +15,12 @@ export default function NotFound() {
           <Link href="/" className="btn-primary">
             トップページへ戻る
           </Link>
+          <Link href="/search" className="btn-outline">
+            サロンを探す
+          </Link>
           <Link href="/salon" className="btn-outline">
             集客したい方
           </Link>
-          <a href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/recruit`} className="btn-outline">
-            採用したい方
-          </a>
-          <a href={`${process.env.NEXT_PUBLIC_RECRUIT_URL || 'https://carelink-recruit.vercel.app'}/jobs`} className="btn-outline">
-            求職者の方
-          </a>
         </div>
       </div>
     </div>
