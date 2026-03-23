@@ -133,7 +133,7 @@ export default function ContactPage() {
               <select id="contact-inquiry-type" {...register('inquiry_type')} className="form-input">
                 <option value="">選択してください</option>
                 <option value="掲載について">掲載について</option>
-                <option value="求職について">求職について</option>
+                <option value="施設検索について">施設検索について</option>
                 <option value="その他">その他</option>
               </select>
               {errors.inquiry_type && <p className="form-error">{errors.inquiry_type.message}</p>}

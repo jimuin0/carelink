@@ -263,9 +263,9 @@ export default function SalonPage() {
           <h2 className="section-title">CareLink でできること</h2>
           <div className="grid sm:grid-cols-3 gap-8 max-w-4xl mx-auto">
             {[
-              { icon: '📋', title: '店舗プロフィール掲載', desc: 'メニュー・料金・写真を掲載して、あなたの施設の魅力を求職者・お客様に届けます。' },
+              { icon: '📋', title: '店舗プロフィール掲載', desc: 'メニュー・料金・写真を掲載して、あなたの施設の魅力をお客様に届けます。' },
               { icon: '👥', title: '予約・来店促進', desc: '業界特化だから、あなたの施設を必要としているお客様に情報が届きます。' },
-              { icon: '📊', title: '専任担当サポート', desc: '掲載から採用まで、専任の担当者がサポート。運用の手間を最小限に抑えます。' },
+              { icon: '📊', title: '専任担当サポート', desc: '掲載から集客まで、専任の担当者がサポート。運用の手間を最小限に抑えます。' },
             ].map((item) => (
               <div key={item.title} className="card text-center">
                 <div className="text-3xl mb-3">{item.icon}</div>

@@ -100,7 +100,7 @@ export default function RootLayout({
                     name: "本当に無料ですか？",
                     acceptedAnswer: {
                       "@type": "Answer",
-                      text: "はい、施設の掲載も求職者の登録も完全無料です。初期費用・月額費用は一切かかりません。",
+                      text: "はい、施設の掲載も検索・予約も完全無料です。初期費用・月額費用は一切かかりません。",
                     },
                   },
                   {
