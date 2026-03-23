@@ -33,15 +33,6 @@ export const regionGroups = [
   { name: '九州・沖縄', prefectures: ['福岡県', '佐賀県', '長崎県', '熊本県', '大分県', '宮崎県', '鹿児島県', '沖縄県'] },
 ];
 
-export const businessTypeIcons: Record<string, string> = {
-  '美容サロン・アイラッシュ': '💅',
-  '鍼灸院': '🏥',
-  '整骨院': '🦴',
-  '介護施設・デイサービス': '🏠',
-  '病院・クリニック': '🩺',
-  'その他': '🔍',
-};
-
 export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
 export const dayLabels: Record<string, string> = {
