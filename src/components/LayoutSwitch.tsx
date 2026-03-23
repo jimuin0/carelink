@@ -14,7 +14,7 @@ export default function LayoutSwitch({ children }: { children: React.ReactNode }
     return <main className="flex-1">{children}</main>;
   }
 
-  const isSearchSite = pathname.startsWith('/search') || pathname.startsWith('/facility') || pathname.startsWith('/mypage') || pathname.startsWith('/auth') || pathname.startsWith('/ranking');
+  const isSearchSite = pathname === '/' || pathname.startsWith('/search') || pathname.startsWith('/facility') || pathname.startsWith('/mypage') || pathname.startsWith('/auth') || pathname.startsWith('/ranking');
 
   if (isSearchSite) {
     return (
