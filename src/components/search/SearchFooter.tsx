@@ -7,7 +7,7 @@ export default function SearchFooter() {
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         <div className="grid sm:grid-cols-2 gap-8">
           <div>
-            <Link href="/search" className="text-lg font-bold text-white">
+            <Link href="/" className="text-lg font-bold text-white">
               CareLink
             </Link>
             <p className="text-gray-400 text-sm mt-2">
