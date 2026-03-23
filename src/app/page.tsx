@@ -1,15 +1,10 @@
 import Link from 'next/link';
 import { businessTypes, regionGroups } from '@/lib/constants';
-import { searchFacilities } from '@/lib/facilities';
-import FacilityCard from '@/components/search/FacilityCard';
-import FadeIn from '@/components/FadeIn';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 
 const regionShortNames = ['北海道・東北', '関東', '中部', '近畿', '中国・四国', '九州・沖縄'];
 
-export default async function Home() {
-  const { facilities } = await searchFacilities({ sort: 'newest', page: 1 });
-
+export default function Home() {
   return (
     <>
       {/* Hero + Search */}
@@ -38,30 +33,6 @@ export default async function Home() {
           </div>
         </div>
       </section>
-
-      {/* New Facilities */}
-      {facilities.length > 0 && (
-        <section className="bg-white border-b border-gray-100">
-          <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-            <div className="flex items-center justify-between mb-5">
-              <div className="flex items-center gap-2">
-                <span className="w-1 h-5 bg-sky-500 rounded-sm" />
-                <h2 className="font-bold text-base">新着施設</h2>
-              </div>
-              <Link href="/search?sort=newest" className="text-sm text-sky-600 hover:underline">
-                一覧を見る &rarr;
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-              {facilities.slice(0, 8).map((f, i) => (
-                <FadeIn key={f.id} delay={i * 60}>
-                  <FacilityCard facility={f} />
-                </FadeIn>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
 
       <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Business Types with Region Links */}
@@ -94,7 +65,7 @@ export default async function Home() {
           ))}
         </section>
 
-        {/* Area Search (compact) */}
+        {/* Area Search */}
         <section className="pb-8">
           <div className="flex items-center gap-2 mb-3">
             <span className="w-1 h-5 bg-sky-500 rounded-sm" />
