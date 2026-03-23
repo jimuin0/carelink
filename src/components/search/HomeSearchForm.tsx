@@ -15,15 +15,15 @@ export default function HomeSearchForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2 mt-3">
+    <form onSubmit={handleSubmit} className="flex gap-0 max-w-xl">
       <input
         type="text"
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
-        placeholder="サロン名から探す"
-        className="flex-1 px-4 py-2.5 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-sky-200 focus:border-primary"
+        placeholder="サロン名・キーワードから探す"
+        className="flex-1 px-4 py-2.5 text-gray-800 text-sm rounded-l border-0 focus:outline-none focus:ring-2 focus:ring-sky-300"
       />
-      <button type="submit" className="px-6 py-2.5 bg-primary text-white text-sm font-bold rounded hover:bg-sky-600 transition-colors whitespace-nowrap">
+      <button type="submit" className="px-6 py-2.5 bg-gray-800 text-white text-sm font-bold rounded-r hover:bg-gray-700 transition-colors whitespace-nowrap">
         検索
       </button>
     </form>
