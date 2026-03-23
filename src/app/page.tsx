@@ -5,7 +5,7 @@ import FacilityCard from '@/components/search/FacilityCard';
 import FadeIn from '@/components/FadeIn';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 
-const regionShortNames = ['関東', '関西', '中部', '北海道・東北', '中国・四国', '九州・沖縄'];
+const regionShortNames = ['北海道・東北', '関東', '中部', '近畿', '中国・四国', '九州・沖縄'];
 
 export default async function Home() {
   const { facilities } = await searchFacilities({ sort: 'newest', page: 1 });
