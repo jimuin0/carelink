@@ -5,31 +5,12 @@ import HomeUserPanel from '@/components/search/HomeUserPanel';
 
 const popularAreas = ['東京都', '大阪府', '神奈川県', '愛知県', '福岡県', '埼玉県', '千葉県', '北海道', '京都府', '兵庫県'];
 
-/* SVG icons for HPB-style categories */
-const typeIcons: Record<string, JSX.Element> = {
-  'ヘアサロン': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M15 12c0 6 3 8 5 14M25 12c0 6-3 8-5 14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M13 14a4 4 0 014-4M27 14a4 4 0 00-4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><circle cx="20" cy="28" r="2" stroke="currentColor" strokeWidth="1" /></svg>
-  ),
-  'ネイル・まつげサロン': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M14 26l2-14h8l2 14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M14 26h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M17 12v3M20 11v4M23 12v3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
-  ),
-  'リラクサロン': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M20 10c-6 4-10 10-10 16h20c0-6-4-12-10-16z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M20 14v10M17 18l3-2 3 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></svg>
-  ),
-  'エステサロン': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><ellipse cx="20" cy="17" rx="6" ry="7" stroke="currentColor" strokeWidth="1.2" /><path d="M16 22c0 3 1.8 6 4 6s4-3 4-6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M18 15a2 2 0 014 0" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
-  ),
-  '美容クリニック': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><rect x="12" y="14" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.2" /><path d="M20 17v8M16 21h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M17 14v-3h6v3" stroke="currentColor" strokeWidth="1.2" /></svg>
-  ),
-};
-
 export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* Hero */}
       <div className="bg-gradient-to-b from-sky-50 via-sky-50/50 to-white">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 pt-10 pb-8 text-center">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 pt-10 pb-6 text-center">
           <h1 className="text-xl tracking-wide text-gray-800 mb-1">
             全国の美容サロン・クリニック検索・予約
           </h1>
@@ -40,43 +21,26 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Business type cards - 5 HPB-style categories */}
-      <div className="max-w-[1040px] mx-auto px-4 sm:px-6 -mt-2">
-        <div className="grid grid-cols-5 gap-3">
-          {businessTypes.map((type) => (
-            <Link
-              key={type}
-              href={`/search?type=${encodeURIComponent(type)}`}
-              className="flex flex-col items-center gap-2 py-6 px-2 bg-white border border-gray-100 rounded-lg hover:border-sky-200 hover:shadow-md transition-all group text-center"
-            >
-              <span className="text-sky-300 group-hover:text-sky-500 transition-colors">
-                {typeIcons[type]}
-              </span>
-              <span className="text-xs text-gray-700 group-hover:text-sky-700 transition-colors">{type}</span>
-            </Link>
-          ))}
-        </div>
-      </div>
-
-      {/* Area bar */}
-      <div className="max-w-[1040px] mx-auto px-4 sm:px-6 mt-6">
-        <div className="flex border border-gray-100 rounded-lg overflow-hidden">
-          {regionGroups.map((region, i) => (
-            <Link
-              key={region.name}
-              href={`/search?area=${encodeURIComponent(region.prefectures[0])}`}
-              className={`flex-1 py-3 text-center hover:bg-sky-50 transition-colors ${i < regionGroups.length - 1 ? 'border-r border-gray-100' : ''}`}
-            >
-              <span className="text-xs font-medium text-gray-700 block">{region.name}</span>
-              <span className="text-[10px] text-gray-400">{region.prefectures.length}都道府県</span>
-            </Link>
-          ))}
+      {/* Business type tabs - HPB style */}
+      <div className="border-b border-gray-200">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
+          <nav className="flex">
+            {businessTypes.map((type) => (
+              <Link
+                key={type}
+                href={`/search?type=${encodeURIComponent(type)}`}
+                className="flex-1 py-3 text-center text-sm text-gray-600 hover:text-sky-700 border-b-2 border-transparent hover:border-sky-500 transition-colors"
+              >
+                {type}
+              </Link>
+            ))}
+          </nav>
         </div>
       </div>
 
       {/* Main 3-column */}
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
-        <div className="flex flex-col md:flex-row gap-6 py-8">
+        <div className="flex flex-col md:flex-row gap-6 py-6">
           {/* Left column */}
           <div className="md:w-[170px] flex-shrink-0 space-y-5">
             <div>
