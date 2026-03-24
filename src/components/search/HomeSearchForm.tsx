@@ -18,11 +18,11 @@ export default function HomeSearchForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex">
+    <form onSubmit={handleSubmit} className="flex bg-white rounded shadow-sm overflow-hidden">
       <select
         value={area}
         onChange={(e) => setArea(e.target.value)}
-        className="w-[130px] px-2 py-1.5 border border-gray-300 border-r-0 text-xs text-gray-700 bg-white focus:outline-none appearance-none"
+        className="w-[120px] px-3 py-2.5 text-xs text-gray-500 bg-transparent border-r border-gray-100 focus:outline-none appearance-none"
       >
         <option value="">全エリア</option>
         {prefectures.map((p) => (
@@ -34,9 +34,9 @@ export default function HomeSearchForm() {
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         placeholder="サロン名・キーワード"
-        className="flex-1 px-3 py-1.5 border border-gray-300 border-r-0 text-sm text-gray-800 focus:outline-none"
+        className="flex-1 px-4 py-2.5 text-sm text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-300"
       />
-      <button type="submit" className="px-5 py-1.5 bg-gray-100 border border-gray-300 text-sm text-gray-700 hover:bg-gray-200 transition-colors whitespace-nowrap">
+      <button type="submit" className="px-6 py-2.5 bg-[#b5a898] text-white text-xs tracking-wider hover:bg-[#a49787] transition-colors whitespace-nowrap">
         検索
       </button>
     </form>

@@ -26,31 +26,29 @@ export default function HomeUserPanel() {
 
   if (loading) {
     return (
-      <div className="border border-gray-300">
-        <div className="px-3 py-3">
-          <div className="h-4 bg-gray-100 animate-pulse mb-2" />
-          <div className="h-8 bg-gray-100 animate-pulse" />
-        </div>
+      <div className="bg-white rounded shadow-sm p-4">
+        <div className="h-4 bg-gray-50 animate-pulse rounded mb-3" />
+        <div className="h-9 bg-gray-50 animate-pulse rounded" />
       </div>
     );
   }
 
   if (!user) {
     return (
-      <div className="border border-gray-300">
-        <div className="px-3 py-2 border-b border-gray-200 bg-[#f7f5f0]">
-          <p className="text-xs text-gray-600">ようこそ、ゲストさん</p>
+      <div className="bg-white rounded shadow-sm overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-50">
+          <p className="text-[11px] text-gray-400 tracking-wide">ようこそ、ゲストさん</p>
         </div>
-        <div className="px-3 py-3 space-y-2">
+        <div className="px-4 py-4 space-y-2.5">
           <Link
             href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-            className="block w-full text-center py-1.5 bg-sky-600 text-white text-xs hover:bg-sky-700 transition-colors"
+            className="block w-full text-center py-2 bg-[#b5a898] text-white text-xs tracking-wider rounded hover:bg-[#a49787] transition-colors"
           >
             ログインする
           </Link>
           <Link
             href="/auth/signup"
-            className="block w-full text-center py-1.5 border border-gray-300 text-xs text-gray-700 hover:bg-gray-50 transition-colors"
+            className="block w-full text-center py-2 border border-gray-200 text-xs text-gray-500 rounded hover:bg-[#f9f7f4] transition-colors"
           >
             新規会員登録（無料）
           </Link>
@@ -62,9 +60,9 @@ export default function HomeUserPanel() {
   const displayName = user.user_metadata?.display_name || 'ユーザー';
 
   return (
-    <div className="border border-gray-300">
-      <div className="px-3 py-2 border-b border-gray-200 bg-[#f7f5f0]">
-        <p className="text-xs text-gray-600">ようこそ、<span className="font-bold text-gray-800">{displayName}</span>さん</p>
+    <div className="bg-white rounded shadow-sm overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-50">
+        <p className="text-[11px] text-gray-400 tracking-wide">ようこそ、<span className="text-gray-600">{displayName}</span>さん</p>
       </div>
       <nav>
         {[
@@ -75,10 +73,10 @@ export default function HomeUserPanel() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex items-center justify-between px-3 py-2 text-xs text-gray-700 hover:bg-gray-50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-200' : ''}`}
+            className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-[#8b7355] hover:bg-[#f9f7f4] transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
           >
             <span>{item.label}</span>
-            <span className="text-gray-400 text-xs">&rsaquo;</span>
+            <span className="text-gray-300 text-[10px]">&rsaquo;</span>
           </Link>
         ))}
       </nav>
