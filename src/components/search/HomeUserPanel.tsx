@@ -42,13 +42,13 @@ export default function HomeUserPanel() {
         <div className="px-4 py-4 space-y-2.5">
           <Link
             href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-            className="block w-full text-center py-2 bg-[#b5a898] text-white text-xs tracking-wider rounded hover:bg-[#a49787] transition-colors"
+            className="block w-full text-center py-2 bg-sky-600 text-white text-xs tracking-wider rounded hover:bg-sky-700 transition-colors"
           >
             ログインする
           </Link>
           <Link
             href="/auth/signup"
-            className="block w-full text-center py-2 border border-gray-200 text-xs text-gray-500 rounded hover:bg-[#f9f7f4] transition-colors"
+            className="block w-full text-center py-2 border border-gray-200 text-xs text-gray-500 rounded hover:bg-gray-50 transition-colors"
           >
             新規会員登録（無料）
           </Link>
@@ -73,7 +73,7 @@ export default function HomeUserPanel() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-[#8b7355] hover:bg-[#f9f7f4] transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
+            className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
           >
             <span>{item.label}</span>
             <span className="text-gray-300 text-[10px]">&rsaquo;</span>

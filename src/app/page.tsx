@@ -7,11 +7,11 @@ const popularAreas = ['東京都', '大阪府', '神奈川県', '愛知県', '�
 
 export default function Home() {
   return (
-    <div className="bg-[#f8f6f3] min-h-screen">
+    <div className="bg-gray-50/80 min-h-screen">
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
         {/* Hero */}
         <div className="py-10 text-center">
-          <p className="text-[10px] tracking-[0.35em] text-[#b5a898] mb-2">SEARCH &amp; BOOKING</p>
+          <p className="text-[10px] tracking-[0.35em] text-gray-300 mb-2">SEARCH &amp; BOOKING</p>
           <h1 className="text-base font-light tracking-[0.15em] text-gray-600 mb-6">
             全国のサロン・クリニック検索・予約
           </h1>
@@ -31,7 +31,7 @@ export default function Home() {
                   <Link
                     key={region.name}
                     href={`/search?area=${encodeURIComponent(region.prefectures[0])}`}
-                    className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-600 hover:text-[#8b7355] hover:bg-[#f9f7f4] transition-colors ${i < regionGroups.length - 1 ? 'border-b border-gray-50' : ''}`}
+                    className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-600 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < regionGroups.length - 1 ? 'border-b border-gray-50' : ''}`}
                   >
                     <span>{region.name}</span>
                     <span className="text-gray-300 text-[10px]">&rsaquo;</span>
@@ -53,7 +53,7 @@ export default function Home() {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-[#8b7355] hover:bg-[#f9f7f4] transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
+                    className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
                   >
                     <span>{item.label}</span>
                     <span className="text-gray-300 text-[10px]">&rsaquo;</span>
@@ -73,9 +73,9 @@ export default function Home() {
                   <Link
                     key={region.name}
                     href={`/search?area=${encodeURIComponent(region.prefectures[0])}`}
-                    className="block bg-[#f9f7f4] rounded p-4 text-center hover:shadow-sm hover:bg-[#f4f1ec] transition-all group"
+                    className="block bg-gray-50/80 rounded p-4 text-center hover:shadow-sm hover:bg-sky-50/40 transition-all group"
                   >
-                    <span className="text-[13px] text-gray-600 group-hover:text-[#8b7355] transition-colors block mb-1">{region.name}</span>
+                    <span className="text-[13px] text-gray-600 group-hover:text-sky-700 transition-colors block mb-1">{region.name}</span>
                     <span className="text-[10px] text-gray-300 block leading-snug">{region.prefectures.slice(0, 3).join(' / ')}</span>
                   </Link>
                 ))}
@@ -95,7 +95,7 @@ export default function Home() {
                 <div key={type} className={`px-5 py-3.5 ${idx < businessTypes.length - 1 ? 'border-b border-gray-50' : ''}`}>
                   <Link
                     href={`/search?type=${encodeURIComponent(type)}`}
-                    className="text-[#8b7355] text-sm hover:opacity-70 transition-opacity"
+                    className="text-sky-700 text-sm hover:underline transition-colors"
                   >
                     {type}を探す
                   </Link>
@@ -105,7 +105,7 @@ export default function Home() {
                         {i > 0 && <span className="text-gray-200 mx-1.5">|</span>}
                         <Link
                           href={`/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(region.prefectures[0])}`}
-                          className="text-gray-400 hover:text-[#8b7355] transition-colors"
+                          className="text-gray-400 hover:text-sky-700 transition-colors"
                         >
                           {region.name}
                         </Link>
@@ -124,7 +124,7 @@ export default function Home() {
                   <Link
                     key={feature}
                     href={`/search?keyword=${encodeURIComponent(feature)}`}
-                    className="px-3 py-1 rounded-full border border-gray-200 text-[11px] text-gray-400 hover:border-[#b5a898] hover:text-[#8b7355] transition-colors"
+                    className="px-3 py-1 rounded-full border border-gray-200 text-[11px] text-gray-400 hover:border-sky-300 hover:text-sky-700 transition-colors"
                   >
                     {feature}
                   </Link>
@@ -141,7 +141,7 @@ export default function Home() {
                     {i > 0 && <span className="text-gray-200 mx-1.5">|</span>}
                     <Link
                       href={`/search?area=${encodeURIComponent(area)}`}
-                      className="text-gray-400 hover:text-[#8b7355] transition-colors"
+                      className="text-gray-400 hover:text-sky-700 transition-colors"
                     >
                       {area}
                     </Link>
@@ -165,7 +165,7 @@ export default function Home() {
                   <Link
                     key={`${item.href}-${item.label}`}
                     href={item.href}
-                    className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-[#8b7355] hover:bg-[#f9f7f4] transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
+                    className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
                   >
                     <span>{item.label}</span>
                     <span className="text-gray-300 text-[10px]">&rsaquo;</span>
