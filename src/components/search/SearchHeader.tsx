@@ -2,8 +2,15 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { businessTypes } from '@/lib/constants';
 import AuthButton from '@/components/auth/AuthButton';
+
+/* ヘッダー用ナビ: 鍼灸+整骨統合、介護は外す */
+const headerNavTypes = [
+  { label: '美容サロン・アイラッシュ', type: '美容サロン・アイラッシュ' },
+  { label: '鍼灸・整骨院', type: '鍼灸院' },
+  { label: '病院・クリニック', type: '病院・クリニック' },
+  { label: 'その他', type: 'その他' },
+];
 
 export default function SearchHeader() {
   const [isOpen, setIsOpen] = useState(false);
@@ -18,13 +25,13 @@ export default function SearchHeader() {
 
           {/* Desktop nav */}
           <nav className="hidden md:flex items-center gap-1">
-            {businessTypes.map((type) => (
+            {headerNavTypes.map((item) => (
               <Link
-                key={type}
-                href={`/search?type=${encodeURIComponent(type)}`}
+                key={item.label}
+                href={`/search?type=${encodeURIComponent(item.type)}`}
                 className="text-gray-600 hover:text-primary text-sm px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
               >
-                {type}
+                {item.label}
               </Link>
             ))}
             <Link
@@ -68,14 +75,14 @@ export default function SearchHeader() {
           }`}
         >
           <nav className="pb-4 border-t border-gray-100 pt-3 flex flex-col gap-1">
-            {businessTypes.map((type) => (
+            {headerNavTypes.map((item) => (
               <Link
-                key={type}
-                href={`/search?type=${encodeURIComponent(type)}`}
+                key={item.label}
+                href={`/search?type=${encodeURIComponent(item.type)}`}
                 className="text-gray-600 hover:text-primary text-sm px-3 py-2 rounded-lg hover:bg-sky-50 transition-colors"
                 onClick={() => setIsOpen(false)}
               >
-                {type}
+                {item.label}
               </Link>
             ))}
             <Link

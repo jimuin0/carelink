@@ -1,31 +1,25 @@
 import Link from 'next/link';
-import { businessTypes, regionGroups, facilityFeatures } from '@/lib/constants';
+import { regionGroups, facilityFeatures } from '@/lib/constants';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
 
 const popularAreas = ['東京都', '大阪府', '神奈川県', '愛知県', '福岡県', '埼玉県', '千葉県', '北海道', '京都府', '兵庫県'];
 
-/* SVG icons for each business type */
-const typeIcons: Record<string, JSX.Element> = {
-  '美容サロン・アイラッシュ': (
+/* メイン4業種（トップページ表示用） */
+const mainTypes = [
+  { label: '美容サロン・アイラッシュ', searchType: '美容サロン・アイラッシュ', icon: (
     <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M14 26c0-4 3-7 6-7s6 3 6 7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><circle cx="20" cy="15" r="4" stroke="currentColor" strokeWidth="1.2" /><path d="M11 13c2-3 4-2 5 0M25 13c-2-3-4-2-5 0" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
-  ),
-  '鍼灸院': (
+  )},
+  { label: '鍼灸・整骨院', searchType: '鍼灸院', icon: (
     <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M20 8v24M15 12l5 4 5-4M15 28l5-4 5 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="20" cy="20" r="2" fill="currentColor" opacity=".3" /></svg>
-  ),
-  '整骨院': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M16 14h8l-1 6h-6l-1-6zM17 20v8M23 20v8M15 28h10" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="20" cy="11" r="2.5" stroke="currentColor" strokeWidth="1.2" /></svg>
-  ),
-  '介護施設・デイサービス': (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M20 12c-5 4-9 8-9 13a9 9 0 0018 0c0-5-4-9-9-13z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M20 18v6M17 21h6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /></svg>
-  ),
-  '病院・クリニック': (
+  )},
+  { label: '病院・クリニック', searchType: '病院・クリニック', icon: (
     <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><rect x="12" y="14" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.2" /><path d="M20 17v8M16 21h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M17 14v-3h6v3" stroke="currentColor" strokeWidth="1.2" /></svg>
-  ),
-  'その他': (
+  )},
+  { label: 'その他', searchType: 'その他', icon: (
     <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><circle cx="13" cy="20" r="1.5" fill="currentColor" /><circle cx="20" cy="20" r="1.5" fill="currentColor" /><circle cx="27" cy="20" r="1.5" fill="currentColor" /></svg>
-  ),
-};
+  )},
+];
 
 export default function Home() {
   return (
@@ -43,21 +37,30 @@ export default function Home() {
         </div>
       </div>
 
-      {/* Business type cards - visual anchor */}
+      {/* Business type cards - 4 main types */}
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6 -mt-2">
-        <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-          {businessTypes.map((type) => (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {mainTypes.map((type) => (
             <Link
-              key={type}
-              href={`/search?type=${encodeURIComponent(type)}`}
-              className="flex flex-col items-center gap-2 py-5 px-2 bg-white border border-gray-100 rounded-lg hover:border-sky-200 hover:shadow-md transition-all group text-center"
+              key={type.label}
+              href={`/search?type=${encodeURIComponent(type.searchType)}`}
+              className="flex flex-col items-center gap-2 py-6 px-3 bg-white border border-gray-100 rounded-lg hover:border-sky-200 hover:shadow-md transition-all group text-center"
             >
               <span className="text-sky-300 group-hover:text-sky-500 transition-colors">
-                {typeIcons[type]}
+                {type.icon}
               </span>
-              <span className="text-[11px] text-gray-700 group-hover:text-sky-700 leading-tight transition-colors">{type}</span>
+              <span className="text-xs text-gray-700 group-hover:text-sky-700 transition-colors">{type.label}</span>
             </Link>
           ))}
+        </div>
+        {/* 介護・福祉施設は別枠 */}
+        <div className="mt-3 text-center">
+          <Link
+            href="/search?type=%E4%BB%8B%E8%AD%B7%E6%96%BD%E8%A8%AD%E3%83%BB%E3%83%87%E3%82%A4%E3%82%B5%E3%83%BC%E3%83%93%E3%82%B9"
+            className="inline-block text-xs text-gray-400 hover:text-sky-700 transition-colors"
+          >
+            介護施設・デイサービスをお探しの方はこちら &rsaquo;
+          </Link>
         </div>
       </div>
 
@@ -122,23 +125,23 @@ export default function Home() {
 
           {/* Center column */}
           <div className="flex-1 min-w-0 space-y-6">
-            {/* Business types with region links */}
+            {/* Business types x area */}
             <div>
               <h2 className="text-xs font-medium text-gray-800 mb-3">業種 &times; エリアで探す</h2>
-              {businessTypes.map((type, idx) => (
-                <div key={type} className={`py-3 ${idx < businessTypes.length - 1 ? 'border-b border-gray-100' : ''}`}>
+              {mainTypes.map((type, idx) => (
+                <div key={type.label} className={`py-3 ${idx < mainTypes.length - 1 ? 'border-b border-gray-100' : ''}`}>
                   <Link
-                    href={`/search?type=${encodeURIComponent(type)}`}
+                    href={`/search?type=${encodeURIComponent(type.searchType)}`}
                     className="text-sky-700 text-sm font-medium hover:underline"
                   >
-                    {type}を探す
+                    {type.label}を探す
                   </Link>
                   <div className="flex flex-wrap items-center mt-1">
                     {regionGroups.map((region, i) => (
                       <span key={region.name} className="text-xs">
                         {i > 0 && <span className="text-gray-200 mx-1.5">|</span>}
                         <Link
-                          href={`/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(region.prefectures[0])}`}
+                          href={`/search?type=${encodeURIComponent(type.searchType)}&area=${encodeURIComponent(region.prefectures[0])}`}
                           className="text-gray-500 hover:text-sky-700 transition-colors"
                         >
                           {region.name}
