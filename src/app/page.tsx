@@ -1,25 +1,28 @@
 import Link from 'next/link';
-import { regionGroups, facilityFeatures } from '@/lib/constants';
+import { businessTypes, regionGroups, facilityFeatures } from '@/lib/constants';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
 
 const popularAreas = ['東京都', '大阪府', '神奈川県', '愛知県', '福岡県', '埼玉県', '千葉県', '北海道', '京都府', '兵庫県'];
 
-/* メイン4業種（トップページ表示用） */
-const mainTypes = [
-  { label: '美容サロン・アイラッシュ', searchType: '美容サロン・アイラッシュ', icon: (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M14 26c0-4 3-7 6-7s6 3 6 7" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><circle cx="20" cy="15" r="4" stroke="currentColor" strokeWidth="1.2" /><path d="M11 13c2-3 4-2 5 0M25 13c-2-3-4-2-5 0" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
-  )},
-  { label: '鍼灸・整骨院', searchType: '鍼灸院', icon: (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M20 8v24M15 12l5 4 5-4M15 28l5-4 5 4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><circle cx="20" cy="20" r="2" fill="currentColor" opacity=".3" /></svg>
-  )},
-  { label: '病院・クリニック', searchType: '病院・クリニック', icon: (
+/* SVG icons for HPB-style categories */
+const typeIcons: Record<string, JSX.Element> = {
+  'ヘアサロン': (
+    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M15 12c0 6 3 8 5 14M25 12c0 6-3 8-5 14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M13 14a4 4 0 014-4M27 14a4 4 0 00-4-4" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><circle cx="20" cy="28" r="2" stroke="currentColor" strokeWidth="1" /></svg>
+  ),
+  'ネイル・まつげサロン': (
+    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M14 26l2-14h8l2 14" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" /><path d="M14 26h12" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M17 12v3M20 11v4M23 12v3" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
+  ),
+  'リラクサロン': (
+    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><path d="M20 10c-6 4-10 10-10 16h20c0-6-4-12-10-16z" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M20 14v10M17 18l3-2 3 2" stroke="currentColor" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round" /></svg>
+  ),
+  'エステサロン': (
+    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><ellipse cx="20" cy="17" rx="6" ry="7" stroke="currentColor" strokeWidth="1.2" /><path d="M16 22c0 3 1.8 6 4 6s4-3 4-6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M18 15a2 2 0 014 0" stroke="currentColor" strokeWidth="1" strokeLinecap="round" /></svg>
+  ),
+  '美容クリニック': (
     <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><rect x="12" y="14" width="16" height="14" rx="2" stroke="currentColor" strokeWidth="1.2" /><path d="M20 17v8M16 21h8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" /><path d="M17 14v-3h6v3" stroke="currentColor" strokeWidth="1.2" /></svg>
-  )},
-  { label: 'その他', searchType: 'その他', icon: (
-    <svg viewBox="0 0 40 40" fill="none" className="w-10 h-10"><circle cx="20" cy="20" r="19" stroke="currentColor" strokeWidth="1" /><circle cx="13" cy="20" r="1.5" fill="currentColor" /><circle cx="20" cy="20" r="1.5" fill="currentColor" /><circle cx="27" cy="20" r="1.5" fill="currentColor" /></svg>
-  )},
-];
+  ),
+};
 
 export default function Home() {
   return (
@@ -28,39 +31,30 @@ export default function Home() {
       <div className="bg-gradient-to-b from-sky-50 via-sky-50/50 to-white">
         <div className="max-w-[1040px] mx-auto px-4 sm:px-6 pt-10 pb-8 text-center">
           <h1 className="text-xl tracking-wide text-gray-800 mb-1">
-            全国のサロン・クリニック検索
+            全国の美容サロン・クリニック検索・予約
           </h1>
-          <p className="text-sm text-gray-500 mb-6">美容・医療・福祉、あなたにぴったりの施設が見つかる</p>
+          <p className="text-sm text-gray-500 mb-6">ヘア・ネイル・まつげ・リラク・エステ・美容クリニック</p>
           <div className="max-w-[580px] mx-auto">
             <HomeSearchForm />
           </div>
         </div>
       </div>
 
-      {/* Business type cards - 4 main types */}
+      {/* Business type cards - 5 HPB-style categories */}
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6 -mt-2">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {mainTypes.map((type) => (
+        <div className="grid grid-cols-5 gap-3">
+          {businessTypes.map((type) => (
             <Link
-              key={type.label}
-              href={`/search?type=${encodeURIComponent(type.searchType)}`}
-              className="flex flex-col items-center gap-2 py-6 px-3 bg-white border border-gray-100 rounded-lg hover:border-sky-200 hover:shadow-md transition-all group text-center"
+              key={type}
+              href={`/search?type=${encodeURIComponent(type)}`}
+              className="flex flex-col items-center gap-2 py-6 px-2 bg-white border border-gray-100 rounded-lg hover:border-sky-200 hover:shadow-md transition-all group text-center"
             >
               <span className="text-sky-300 group-hover:text-sky-500 transition-colors">
-                {type.icon}
+                {typeIcons[type]}
               </span>
-              <span className="text-xs text-gray-700 group-hover:text-sky-700 transition-colors">{type.label}</span>
+              <span className="text-xs text-gray-700 group-hover:text-sky-700 transition-colors">{type}</span>
             </Link>
           ))}
-        </div>
-        {/* 介護・福祉施設は別枠 */}
-        <div className="mt-3 text-center">
-          <Link
-            href="/search?type=%E4%BB%8B%E8%AD%B7%E6%96%BD%E8%A8%AD%E3%83%BB%E3%83%87%E3%82%A4%E3%82%B5%E3%83%BC%E3%83%93%E3%82%B9"
-            className="inline-block text-xs text-gray-400 hover:text-sky-700 transition-colors"
-          >
-            介護施設・デイサービスをお探しの方はこちら &rsaquo;
-          </Link>
         </div>
       </div>
 
@@ -128,20 +122,20 @@ export default function Home() {
             {/* Business types x area */}
             <div>
               <h2 className="text-xs font-medium text-gray-800 mb-3">業種 &times; エリアで探す</h2>
-              {mainTypes.map((type, idx) => (
-                <div key={type.label} className={`py-3 ${idx < mainTypes.length - 1 ? 'border-b border-gray-100' : ''}`}>
+              {businessTypes.map((type, idx) => (
+                <div key={type} className={`py-3 ${idx < businessTypes.length - 1 ? 'border-b border-gray-100' : ''}`}>
                   <Link
-                    href={`/search?type=${encodeURIComponent(type.searchType)}`}
+                    href={`/search?type=${encodeURIComponent(type)}`}
                     className="text-sky-700 text-sm font-medium hover:underline"
                   >
-                    {type.label}を探す
+                    {type}を探す
                   </Link>
                   <div className="flex flex-wrap items-center mt-1">
                     {regionGroups.map((region, i) => (
                       <span key={region.name} className="text-xs">
                         {i > 0 && <span className="text-gray-200 mx-1.5">|</span>}
                         <Link
-                          href={`/search?type=${encodeURIComponent(type.searchType)}&area=${encodeURIComponent(region.prefectures[0])}`}
+                          href={`/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(region.prefectures[0])}`}
                           className="text-gray-500 hover:text-sky-700 transition-colors"
                         >
                           {region.name}

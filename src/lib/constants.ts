@@ -9,12 +9,11 @@ export const prefectures = [
 ];
 
 export const businessTypes = [
-  '美容サロン・アイラッシュ',
-  '鍼灸院',
-  '整骨院',
-  '介護施設・デイサービス',
-  '病院・クリニック',
-  'その他',
+  'ヘアサロン',
+  'ネイル・まつげサロン',
+  'リラクサロン',
+  'エステサロン',
+  '美容クリニック',
 ];
 
 export const facilityFeatures = [
