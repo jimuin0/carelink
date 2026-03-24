@@ -1,25 +1,11 @@
 import Link from 'next/link';
 import { businessTypes, regionGroups, facilityFeatures } from '@/lib/constants';
-import { getRankedFacilities } from '@/lib/rankings';
-import { searchFacilities } from '@/lib/facilities';
-import FacilityCard from '@/components/search/FacilityCard';
-import FadeIn from '@/components/FadeIn';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
 
 const popularAreas = ['東京都', '大阪府', '神奈川県', '愛知県', '福岡県', '埼玉県', '千葉県', '北海道', '京都府', '兵庫県'];
 
-const rankBadgeColors = ['bg-amber-400 text-white', 'bg-gray-300 text-white', 'bg-amber-600 text-white'];
-
-export default async function Home() {
-  const [ranked, newest] = await Promise.all([
-    getRankedFacilities(undefined, 6),
-    searchFacilities({ sort: 'newest', page: 1 }),
-  ]);
-
-  const rankedFacilities = ranked;
-  const newFacilities = newest.facilities.slice(0, 4);
-
+export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* Hero */}
@@ -51,34 +37,6 @@ export default async function Home() {
           </nav>
         </div>
       </div>
-
-      {/* Popular Ranking Section */}
-      {rankedFacilities.length > 0 && (
-        <section className="bg-gray-50/60 border-b border-gray-100">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-10">
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-gray-800">人気サロンランキング</h2>
-              <Link href="/ranking" className="text-sm text-sky-600 hover:text-sky-700 hover:underline">
-                全ランキングを見る &rarr;
-              </Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {rankedFacilities.map((facility, idx) => (
-                <FadeIn key={facility.id} delay={idx * 80}>
-                  <div className="relative bg-white rounded-lg shadow-sm overflow-hidden hover:shadow-md transition-shadow">
-                    {idx < 3 && (
-                      <span className={`absolute top-3 right-3 z-10 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold ${rankBadgeColors[idx]}`}>
-                        {idx + 1}
-                      </span>
-                    )}
-                    <FacilityCard facility={facility} />
-                  </div>
-                </FadeIn>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
 
       {/* Main 3-column */}
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
@@ -152,22 +110,6 @@ export default async function Home() {
                 </div>
               ))}
             </div>
-
-            {/* New facilities */}
-            {newFacilities.length > 0 && (
-              <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4">新着サロン</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {newFacilities.map((facility, idx) => (
-                    <FadeIn key={facility.id} delay={idx * 80}>
-                      <div className="bg-white rounded-lg border border-gray-100 overflow-hidden hover:shadow-sm transition-shadow">
-                        <FacilityCard facility={facility} />
-                      </div>
-                    </FadeIn>
-                  ))}
-                </div>
-              </div>
-            )}
 
             {/* Feature tags */}
             <div>
