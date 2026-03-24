@@ -15,9 +15,9 @@ export default function Home() {
       </div>
 
       {/* Main 3-column */}
-      <div className="flex flex-col md:flex-row py-3 gap-0 md:gap-0">
-        {/* Left column - Area navigation */}
-        <div className="md:w-[200px] flex-shrink-0 md:border-r md:border-gray-200 md:pr-3">
+      <div className="flex flex-col md:flex-row py-3 gap-0">
+        {/* Left column */}
+        <div className="md:w-[180px] flex-shrink-0 md:pr-3">
           <div className="mb-3">
             <h2 className="text-xs font-bold px-2 py-1.5 bg-[#f7f5f0] border border-gray-300 border-b-0 text-gray-800">エリアから探す</h2>
             <nav className="border border-gray-300">
@@ -34,7 +34,7 @@ export default function Home() {
             </nav>
           </div>
 
-          <div className="mb-3">
+          <div className="mb-3 md:mb-0">
             <h2 className="text-xs font-bold px-2 py-1.5 bg-[#f7f5f0] border border-gray-300 border-b-0 text-gray-800">ガイド</h2>
             <nav className="border border-gray-300">
               {[
@@ -57,8 +57,58 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Center column - Main content */}
-        <div className="flex-1 min-w-0 md:px-3">
+        {/* Center column */}
+        <div className="flex-1 min-w-0 md:px-3 md:border-l md:border-r md:border-gray-200">
+          {/* Area grid + Features - the visual impact zone */}
+          <div className="mb-3 border border-gray-300">
+            <h2 className="text-xs font-bold px-2 py-1.5 bg-[#f7f5f0] border-b border-gray-300 text-gray-800">エリアからサロン・クリニックを探す</h2>
+            <div className="p-3">
+              <div className="grid grid-cols-3 gap-2 mb-3">
+                {regionGroups.map((region) => (
+                  <Link
+                    key={region.name}
+                    href={`/search?area=${encodeURIComponent(region.prefectures[0])}`}
+                    className="block border border-gray-200 bg-[#faf9f6] hover:bg-[#f0ede6] hover:border-gray-400 transition-colors group px-2 py-3"
+                  >
+                    <span className="text-[13px] font-bold text-sky-700 group-hover:underline block text-center mb-1">{region.name}</span>
+                    <span className="text-[10px] text-gray-400 text-center block leading-snug">{region.prefectures.slice(0, 3).join(' / ')}</span>
+                  </Link>
+                ))}
+              </div>
+
+              {/* Feature highlights with SVG icons */}
+              <div className="grid grid-cols-3 gap-3 pt-3 border-t border-gray-200">
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-700">24時間ネット予約</p>
+                    <p className="text-[10px] text-gray-400">空席確認もできる</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+                  </svg>
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-700">口コミで比較</p>
+                    <p className="text-[10px] text-gray-400">実際の評価がわかる</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <svg className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <p className="text-[11px] font-bold text-gray-700">掲載・利用すべて無料</p>
+                    <p className="text-[10px] text-gray-400">会員登録も無料</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           {/* Business types */}
           <div className="mb-3">
             <h2 className="text-xs font-bold px-2 py-1.5 bg-[#f7f5f0] border border-gray-300 border-b-0 text-gray-800">業種から探す</h2>
@@ -92,7 +142,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Feature search */}
+          {/* Feature search tags */}
           <div className="mb-3">
             <h2 className="text-xs font-bold px-2 py-1.5 bg-[#f7f5f0] border border-gray-300 border-b-0 text-gray-800">こだわり条件から探す</h2>
             <div className="border border-gray-300 px-2 py-2 flex flex-wrap gap-1">
@@ -127,21 +177,14 @@ export default function Home() {
               </div>
             </div>
           </div>
-
-          {/* Info strip */}
-          <div className="border border-gray-300 px-2 py-1.5 text-[11px] text-gray-500 flex flex-wrap gap-x-4 gap-y-0.5">
-            <span>24時間ネット予約・空席確認</span>
-            <span>口コミ数で比較できる</span>
-            <span>掲載・利用すべて無料</span>
-          </div>
         </div>
 
-        {/* Right column - User panel */}
-        <div className="md:w-[200px] flex-shrink-0 md:border-l md:border-gray-200 md:pl-3 mt-3 md:mt-0">
+        {/* Right column */}
+        <div className="md:w-[200px] flex-shrink-0 md:pl-3 mt-3 md:mt-0">
           <HomeUserPanel />
 
-          <div className="mt-3">
-            <nav className="border border-gray-300">
+          <div className="mt-3 border border-gray-300">
+            <nav>
               {[
                 { href: '/mypage/favorites', label: 'お気に入り一覧' },
                 { href: '/contact', label: 'よくある質問' },
