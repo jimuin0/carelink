@@ -36,8 +36,8 @@ export default function HomeUserPanel() {
   if (!user) {
     return (
       <div className="bg-white rounded shadow-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-gray-50">
-          <p className="text-[11px] text-gray-400 tracking-wide">ようこそ、ゲストさん</p>
+        <div className="px-4 py-3 border-b border-gray-100">
+          <p className="text-[11px] text-gray-500 tracking-wide">ようこそ、ゲストさん</p>
         </div>
         <div className="px-4 py-4 space-y-2.5">
           <Link
@@ -61,8 +61,8 @@ export default function HomeUserPanel() {
 
   return (
     <div className="bg-white rounded shadow-sm overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-50">
-        <p className="text-[11px] text-gray-400 tracking-wide">ようこそ、<span className="text-gray-600">{displayName}</span>さん</p>
+      <div className="px-4 py-3 border-b border-gray-100">
+        <p className="text-[11px] text-gray-500 tracking-wide">ようこそ、<span className="text-gray-700">{displayName}</span>さん</p>
       </div>
       <nav>
         {[
@@ -73,7 +73,7 @@ export default function HomeUserPanel() {
           <Link
             key={item.href}
             href={item.href}
-            className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-500 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-50' : ''}`}
+            className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-600 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-100' : ''}`}
           >
             <span>{item.label}</span>
             <span className="text-gray-300 text-[10px]">&rsaquo;</span>
