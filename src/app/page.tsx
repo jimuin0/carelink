@@ -272,17 +272,6 @@ export default function Home() {
             <div className="md:w-[320px] flex-shrink-0">
               <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">エリアから探す</h2>
               <JapanRegionMap />
-              <div className="mt-4 flex flex-wrap gap-2 justify-center">
-                {regionGroups.map((region) => (
-                  <Link
-                    key={region.name}
-                    href={`/search?area=${encodeURIComponent(region.prefectures[0])}`}
-                    className="px-3 py-1.5 bg-white border border-gray-200 rounded-full text-[11px] text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors"
-                  >
-                    {region.name}
-                  </Link>
-                ))}
-              </div>
             </div>
 
             {/* Center: Category x Area + Features */}
