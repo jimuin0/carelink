@@ -10,30 +10,30 @@ export default function SearchHeader() {
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100">
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-14">
-          <Link href="/" className="text-xl font-bold text-primary">
+          <Link href="/" className="text-xl font-bold text-primary shrink-0">
             CareLink
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="hidden md:flex items-center gap-0.5 ml-4">
             {businessTypes.map((type) => (
               <Link
                 key={type}
                 href={`/search?type=${encodeURIComponent(type)}`}
-                className="text-gray-600 hover:text-primary text-sm px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
+                className="text-gray-600 hover:text-primary text-[13px] px-2.5 py-1.5 rounded-full hover:bg-sky-50 transition-colors whitespace-nowrap"
               >
                 {type}
               </Link>
             ))}
             <Link
               href="/search/area"
-              className="text-gray-600 hover:text-primary text-sm px-3 py-1.5 rounded-full hover:bg-sky-50 transition-colors"
+              className="text-gray-600 hover:text-primary text-[13px] px-2.5 py-1.5 rounded-full hover:bg-sky-50 transition-colors whitespace-nowrap"
             >
               エリア
             </Link>
-            <div className="ml-2 pl-2 border-l border-gray-200">
+            <div className="ml-2 pl-2 border-l border-gray-200 shrink-0">
               <AuthButton />
             </div>
           </nav>
