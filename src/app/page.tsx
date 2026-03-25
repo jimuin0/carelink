@@ -74,21 +74,21 @@ const featureBanners = [
     subtitle: 'イメチェンするなら今がチャンス',
     image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&h=300&fit=crop',
     href: '/search?keyword=ヘアカラー カット',
-    color: 'from-sky-800/60 to-sky-600/60',
+    color: 'from-transparent via-transparent to-black/60',
   },
   {
     title: '疲れたカラダにご褒美リラク',
     subtitle: '至福のひとときを見つけよう',
     image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=300&fit=crop',
     href: '/search?type=リラクサロン',
-    color: 'from-sky-800/60 to-sky-600/60',
+    color: 'from-transparent via-transparent to-black/60',
   },
   {
     title: '理想の目元をつくる',
     subtitle: 'まつ毛パーマ・エクステ特集',
     image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&h=300&fit=crop',
     href: '/search?type=ネイル・まつげサロン',
-    color: 'from-sky-800/60 to-sky-600/60',
+    color: 'from-transparent via-transparent to-black/60',
   },
 ];
 
