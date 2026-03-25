@@ -7,24 +7,26 @@ import dynamic from 'next/dynamic';
 
 const Japan = dynamic(() => import('@react-map/japan'), { ssr: false });
 
+const BASE_COLOR = '#E8D5B7';
+const STROKE_COLOR = '#C5AC8E';
+const HOVER_COLOR = '#F5A623';
+
 const regions = [
-  { name: '北海道', area: '北海道', prefectures: ['Hokkaido'], top: '3%', left: '68%' },
-  { name: '東北', area: '青森県', prefectures: ['Aomori', 'Iwate', 'Miyagi', 'Akita', 'Yamagata', 'Fukushima'], top: '28%', left: '78%' },
-  { name: '関東', area: '東京都', prefectures: ['Ibaraki', 'Tochigi', 'Gunma', 'Saitama', 'Chiba', 'Tokyo', 'Kanagawa'], top: '52%', left: '78%' },
-  { name: '中部', area: '新潟県', prefectures: ['Niigata', 'Toyama', 'Ishikawa', 'Fukui', 'Yamanashi', 'Nagano', 'Gifu', 'Shizuoka', 'Aichi'], top: '35%', left: '2%' },
-  { name: '近畿', area: '大阪府', prefectures: ['Mie', 'Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '47%', left: '2%' },
-  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '57%', left: '2%' },
-  { name: '四国', area: '徳島県', prefectures: ['Tokushima', 'Kagawa', 'Ehime', 'Kochi'], top: '67%', left: '2%' },
-  { name: '九州・沖縄', area: '福岡県', prefectures: ['Fukuoka', 'Saga', 'Nagasaki', 'Kumamoto', 'Oita', 'Miyazaki', 'Kagoshima', 'Okinawa'], top: '78%', left: '2%' },
+  { name: '北海道', area: '北海道', prefectures: ['Hokkaido'], top: '8%', left: '70%' },
+  { name: '東北', area: '青森県', prefectures: ['Aomori', 'Iwate', 'Miyagi', 'Akita', 'Yamagata', 'Fukushima'], top: '30%', left: '72%' },
+  { name: '関東', area: '東京都', prefectures: ['Ibaraki', 'Tochigi', 'Gunma', 'Saitama', 'Chiba', 'Tokyo', 'Kanagawa'], top: '52%', left: '72%' },
+  { name: '中部', area: '新潟県', prefectures: ['Niigata', 'Toyama', 'Ishikawa', 'Fukui', 'Yamanashi', 'Nagano', 'Gifu', 'Shizuoka', 'Aichi'], top: '38%', left: '38%' },
+  { name: '近畿', area: '大阪府', prefectures: ['Mie', 'Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '58%', left: '36%' },
+  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '50%', left: '10%' },
+  { name: '四国', area: '徳島県', prefectures: ['Tokushima', 'Kagawa', 'Ehime', 'Kochi'], top: '68%', left: '30%' },
+  { name: '九州・沖縄', area: '福岡県', prefectures: ['Fukuoka', 'Saga', 'Nagasaki', 'Kumamoto', 'Oita', 'Miyazaki', 'Kagoshima', 'Okinawa'], top: '72%', left: '4%' },
 ];
 
 const prefToRegion = new Map<string, typeof regions[number]>();
 regions.forEach((r) => r.prefectures.forEach((p) => prefToRegion.set(p, r)));
 
-// 特殊文字を除去（@react-map/japan の Hokkaido\x8d 対策）
 const normalize = (code: string) => code.replace(/[^\x20-\x7E]/g, '');
 
-// 全pathを走査してfillを適用（特殊文字入りIDに対応）
 function applyFill(container: HTMLElement, prefCodes: string[], color: string) {
   const paths = container.querySelectorAll('path[id]');
   paths.forEach((el) => {
@@ -48,7 +50,6 @@ export default function JapanRegionMap() {
     setHoveredRegion(name);
   };
 
-  // 地図SVGのイベント登録（dynamic importで遅延ロードされるため、.map出現を待つ）
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -116,12 +117,11 @@ export default function JapanRegionMap() {
     return () => cleanup?.();
   }, [router]);
 
-  // hoveredRegion変化時に地図のfillを更新
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     regions.forEach((r) => {
-      applyFill(container, r.prefectures, r.name === hoveredRegion ? '#fb923c' : '#f0f0f0');
+      applyFill(container, r.prefectures, r.name === hoveredRegion ? HOVER_COLOR : BASE_COLOR);
     });
   }, [hoveredRegion]);
 
@@ -130,10 +130,10 @@ export default function JapanRegionMap() {
       <div className="flex justify-center">
         <Japan
           type="select-single"
-          size={320}
-          mapColor="#f0f0f0"
-          strokeColor="#bbbbbb"
-          strokeWidth={0.6}
+          size={340}
+          mapColor={BASE_COLOR}
+          strokeColor={STROKE_COLOR}
+          strokeWidth={0.8}
           hints={false}
           disableClick
           disableHover
@@ -146,12 +146,16 @@ export default function JapanRegionMap() {
           <Link
             key={region.name}
             href={`/search?area=${encodeURIComponent(region.area)}`}
-            className={`pointer-events-auto absolute inline-block px-2 py-0.5 rounded text-xs font-bold border transition-colors ${
+            className={`pointer-events-auto absolute inline-block px-2.5 py-1 rounded text-xs font-bold transition-colors ${
               hoveredRegion === region.name
-                ? 'bg-orange-400 text-white border-orange-400'
-                : 'bg-white text-sky-700 border-sky-300 hover:bg-orange-400 hover:text-white hover:border-orange-400'
+                ? 'bg-orange-400 text-white shadow-md'
+                : 'bg-white/90 text-amber-900 shadow-sm hover:bg-orange-400 hover:text-white hover:shadow-md'
             }`}
-            style={{ top: region.top, left: region.left }}
+            style={{
+              top: region.top,
+              left: region.left,
+              border: hoveredRegion === region.name ? '1px solid #F5A623' : '1px solid #D4B896',
+            }}
             onMouseEnter={() => setHovered(region.name)}
             onMouseLeave={() => setHovered(null)}
           >
