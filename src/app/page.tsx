@@ -86,7 +86,7 @@ const featureBanners = [
   {
     title: '理想の目元をつくる',
     subtitle: 'まつ毛パーマ・エクステ特集',
-    image: 'https://images.unsplash.com/photo-1616683693504-3ea7e9ad6fec?w=600&h=300&fit=crop',
+    image: 'https://images.unsplash.com/photo-1588516903720-8ceb67f9ef84?w=600&h=300&fit=crop',
     href: '/search?type=ネイル・まつげサロン',
     color: 'from-transparent via-transparent to-black/60',
   },
