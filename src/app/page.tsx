@@ -285,7 +285,7 @@ export default function Home() {
                     >
                       {cat.type}を探す
                     </Link>
-                    <div className="flex flex-wrap items-center mt-1.5 gap-y-1">
+                    <div className="flex items-center mt-1.5 whitespace-nowrap">
                       {regionGroups.map((region, i) => (
                         <span key={region.name} className="text-xs">
                           {i > 0 && <span className="text-gray-200 mx-2">|</span>}
@@ -324,7 +324,7 @@ export default function Home() {
                   {regionGroups.map((region) => (
                     <div key={region.name}>
                       <h3 className="text-[11px] font-bold text-gray-500 mb-1">{region.name}</h3>
-                      <div className="flex flex-wrap items-center gap-y-1">
+                      <div className="flex items-center whitespace-nowrap">
                         {region.prefectures.map((pref, i) => (
                           <span key={pref} className="text-xs">
                             {i > 0 && <span className="text-gray-200 mx-2">|</span>}
