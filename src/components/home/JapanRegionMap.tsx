@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 const Japan = dynamic(() => import('@react-map/japan'), { ssr: false });
@@ -22,82 +23,86 @@ regions.forEach((r) => r.prefectures.forEach((p) => prefToRegion.set(p, r)));
 
 const normalize = (code: string) => code.replace(/[^\x20-\x7E]/g, '');
 
-function getAllPaths(container: HTMLElement, prefCodes: string[]): SVGPathElement[] {
-  const paths: SVGPathElement[] = [];
+function applyFill(container: HTMLElement, prefCodes: string[], color: string) {
   prefCodes.forEach((code) => {
     const el = container.querySelector(`path[id^="${code}-"]`) as SVGPathElement | null;
-    if (el) paths.push(el);
+    if (el) {
+      el.style.fill = color;
+      el.style.cursor = 'pointer';
+    }
   });
-  return paths;
 }
 
 export default function JapanRegionMap() {
+  const router = useRouter();
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredRegion, setHoveredRegion] = useState<string | null>(null);
+  const hoveredRef = useRef<string | null>(null);
 
-  const highlightRegion = useCallback((regionName: string | null, highlight: boolean) => {
-    const container = containerRef.current;
-    if (!container) return;
-    const region = regions.find((r) => r.name === regionName);
-    if (!region) return;
-    const paths = getAllPaths(container, region.prefectures);
-    paths.forEach((el) => {
-      el.style.fill = highlight ? '#fb923c' : '#f0f0f0';
-    });
-  }, []);
+  // refとstateを同期
+  const setHovered = (name: string | null) => {
+    hoveredRef.current = name;
+    setHoveredRegion(name);
+  };
 
-  // 地図上のhover
+  // 地図SVG上のイベント（1回だけ登録）
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handleMouseOver = (e: MouseEvent) => {
-      const target = e.target as SVGPathElement;
-      if (target.tagName === 'path' && target.id) {
-        const raw = target.id.replace(/-.*$/, '');
-        const clean = normalize(raw);
-        const region = prefToRegion.get(clean);
-        if (region && hoveredRegion !== region.name) {
-          setHoveredRegion(region.name);
-        }
+    const findRegion = (target: EventTarget | null) => {
+      const el = target as SVGPathElement;
+      if (el?.tagName !== 'path' || !el.id) return null;
+      const clean = normalize(el.id.replace(/-.*$/, ''));
+      return prefToRegion.get(clean) || null;
+    };
+
+    const onMouseOver = (e: MouseEvent) => {
+      const region = findRegion(e.target);
+      if (region && hoveredRef.current !== region.name) {
+        setHovered(region.name);
       }
     };
 
-    const handleMouseLeave = () => setHoveredRegion(null);
+    const onMouseOut = (e: MouseEvent) => {
+      const related = e.relatedTarget as Element | null;
+      // SVGエリア外に出た場合のみリセット
+      const svgArea = container.querySelector('.map');
+      if (svgArea && related && svgArea.contains(related)) return;
+      setHovered(null);
+    };
+
+    const onClick = (e: MouseEvent) => {
+      const region = findRegion(e.target);
+      if (region) {
+        router.push(`/search?area=${encodeURIComponent(region.area)}`);
+      }
+    };
 
     const svgArea = container.querySelector('.map');
     if (svgArea) {
-      svgArea.addEventListener('mouseover', handleMouseOver as EventListener);
-      svgArea.addEventListener('mouseleave', handleMouseLeave);
+      svgArea.addEventListener('mouseover', onMouseOver as EventListener);
+      svgArea.addEventListener('mouseout', onMouseOut as EventListener);
+      svgArea.addEventListener('click', onClick as EventListener);
       return () => {
-        svgArea.removeEventListener('mouseover', handleMouseOver as EventListener);
-        svgArea.removeEventListener('mouseleave', handleMouseLeave);
+        svgArea.removeEventListener('mouseover', onMouseOver as EventListener);
+        svgArea.removeEventListener('mouseout', onMouseOut as EventListener);
+        svgArea.removeEventListener('click', onClick as EventListener);
       };
     }
-  }, [hoveredRegion]);
+  }, [router]);
 
-  // ハイライト同期
+  // hoveredRegion変化時に地図のfillを更新
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
-    // 全リセット
     regions.forEach((r) => {
-      const paths = getAllPaths(container, r.prefectures);
-      paths.forEach((el) => { el.style.fill = '#f0f0f0'; });
+      applyFill(container, r.prefectures, r.name === hoveredRegion ? '#fb923c' : '#f0f0f0');
     });
-    // ホバー中の地域をハイライト
-    if (hoveredRegion) {
-      highlightRegion(hoveredRegion, true);
-    }
-  }, [hoveredRegion, highlightRegion]);
-
-  // ラベルのhover→地図連動
-  const handleLabelEnter = (name: string) => setHoveredRegion(name);
-  const handleLabelLeave = () => setHoveredRegion(null);
+  }, [hoveredRegion]);
 
   return (
     <div ref={containerRef} className="relative">
-      {/* 地図 */}
       <div className="flex justify-center">
         <Japan
           type="select-single"
@@ -112,7 +117,6 @@ export default function JapanRegionMap() {
         />
       </div>
 
-      {/* HPB風の地域ラベル（地図の周囲に配置） */}
       <div className="absolute inset-0 pointer-events-none">
         {regions.map((region) => (
           <Link
@@ -124,8 +128,8 @@ export default function JapanRegionMap() {
                 : 'bg-white text-sky-700 border-sky-300 hover:bg-orange-400 hover:text-white hover:border-orange-400'
             }`}
             style={{ top: region.top, left: region.left }}
-            onMouseEnter={() => handleLabelEnter(region.name)}
-            onMouseLeave={handleLabelLeave}
+            onMouseEnter={() => setHovered(region.name)}
+            onMouseLeave={() => setHovered(null)}
           >
             {region.name}
           </Link>
