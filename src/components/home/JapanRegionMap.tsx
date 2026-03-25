@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
+import { useEffect, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 
 const Japan = dynamic(() => import('@react-map/japan'), { ssr: false });
@@ -21,11 +22,12 @@ const prefectureMap: Record<string, string> = {
   Okinawa: '沖縄県',
 };
 
-// Hokkaido has a special character in the package's stateCode
 const normalize = (code: string) => code.replace(/[^\x20-\x7E]/g, '');
 
 export default function JapanRegionMap() {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<{ text: string; x: number; y: number } | null>(null);
 
   const handleSelect = (state: string | null) => {
     if (!state) return;
@@ -36,22 +38,57 @@ export default function JapanRegionMap() {
     }
   };
 
+  // パッケージのヒントを非表示にし、自前の日本語ツールチップを表示
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const target = e.target as SVGPathElement;
+      if (target.tagName === 'path' && target.id) {
+        const raw = target.id.replace(/-.*$/, '');
+        const clean = normalize(raw);
+        const jp = prefectureMap[clean];
+        if (jp) {
+          const rect = container.getBoundingClientRect();
+          setTooltip({ text: jp, x: e.clientX - rect.left, y: e.clientY - rect.top });
+        }
+      } else {
+        setTooltip(null);
+      }
+    };
+
+    const handleMouseLeave = () => setTooltip(null);
+
+    container.addEventListener('mousemove', handleMouseMove);
+    container.addEventListener('mouseleave', handleMouseLeave);
+    return () => {
+      container.removeEventListener('mousemove', handleMouseMove);
+      container.removeEventListener('mouseleave', handleMouseLeave);
+    };
+  }, []);
+
   return (
-    <div className="flex justify-center">
+    <div ref={containerRef} className="relative flex justify-center">
       <Japan
         type="select-single"
-        size={280}
-        mapColor="#e0f2fe"
-        strokeColor="#7dd3fc"
-        strokeWidth={0.3}
+        size={380}
+        mapColor="#f0f0f0"
+        strokeColor="#999999"
+        strokeWidth={0.8}
         hoverColor="#38bdf8"
         selectColor="#0ea5e9"
-        hints
-        hintTextColor="#1e3a5f"
-        hintBackgroundColor="#f0f9ff"
-        hintBorderRadius={6}
+        hints={false}
         onSelect={handleSelect}
       />
+      {tooltip && (
+        <div
+          className="absolute pointer-events-none bg-white border border-gray-300 rounded-md px-2.5 py-1.5 text-xs font-medium text-gray-800 shadow-sm z-10"
+          style={{ left: tooltip.x + 16, top: tooltip.y - 10 }}
+        >
+          {tooltip.text}
+        </div>
+      )}
     </div>
   );
 }

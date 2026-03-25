@@ -269,7 +269,7 @@ export default function Home() {
         <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
           <div className="flex flex-col md:flex-row gap-8 py-8">
             {/* Left: Map */}
-            <div className="md:w-[320px] flex-shrink-0">
+            <div className="md:w-[400px] flex-shrink-0">
               <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">エリアから探す</h2>
               <JapanRegionMap />
             </div>
