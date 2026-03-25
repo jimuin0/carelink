@@ -200,6 +200,67 @@ export default async function FacilityPage({ params }: Props) {
             }).replace(/</g, '\\u003c'),
           }}
         />
+        {/* JSON-LD: Individual Reviews */}
+        {reviews.length > 0 && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(
+                reviews.slice(0, 10).map((r) => ({
+                  '@context': 'https://schema.org',
+                  '@type': 'Review',
+                  itemReviewed: { '@type': 'LocalBusiness', name: facility.name },
+                  reviewRating: { '@type': 'Rating', ratingValue: r.rating, bestRating: 5 },
+                  author: { '@type': 'Person', name: r.reviewer_name || '匿名' },
+                  reviewBody: r.comment,
+                  datePublished: r.created_at?.split('T')[0],
+                }))
+              ).replace(/</g, '\\u003c'),
+            }}
+          />
+        )}
+        {/* JSON-LD: Offers (Menus) */}
+        {menus.length > 0 && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify({
+                '@context': 'https://schema.org',
+                '@type': 'OfferCatalog',
+                name: `${facility.name}のメニュー`,
+                itemListElement: menus.slice(0, 20).map((m) => ({
+                  '@type': 'Offer',
+                  name: m.name,
+                  ...(m.description && { description: m.description }),
+                  ...(m.price !== null && {
+                    price: m.price,
+                    priceCurrency: 'JPY',
+                  }),
+                  availability: 'https://schema.org/InStock',
+                })),
+              }).replace(/</g, '\\u003c'),
+            }}
+          />
+        )}
+        {/* JSON-LD: Staff as Person */}
+        {staff.length > 0 && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{
+              __html: JSON.stringify(
+                staff.map((s) => ({
+                  '@context': 'https://schema.org',
+                  '@type': 'Person',
+                  name: s.name,
+                  jobTitle: s.position,
+                  worksFor: { '@type': 'LocalBusiness', name: facility.name },
+                  ...(s.photo_url && { image: s.photo_url }),
+                  ...(s.bio && { description: s.bio }),
+                }))
+              ).replace(/</g, '\\u003c'),
+            }}
+          />
+        )}
       </div>
 
       <ViewCount facilityId={facility.id} />

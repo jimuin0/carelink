@@ -79,17 +79,22 @@ export default function RootLayout({
               },
               {
                 "@context": "https://schema.org",
-                "@type": "LocalBusiness",
-                name: "CareLink（神原良祐 / HALグループ）",
-                description: "医療・福祉・美容に特化した集客プラットフォーム",
+                "@type": "Organization",
+                name: "CareLink",
                 url: "https://carelink.jp",
+                logo: "https://carelink.jp/favicon.svg",
+                description: "医療・福祉・美容に特化した集客プラットフォーム",
+                founder: {
+                  "@type": "Person",
+                  name: "神原良祐",
+                },
                 address: {
                   "@type": "PostalAddress",
                   addressLocality: "堺市",
                   addressRegion: "大阪府",
                   addressCountry: "JP",
                 },
-                priceRange: "無料",
+                sameAs: [],
               },
               {
                 "@context": "https://schema.org",
