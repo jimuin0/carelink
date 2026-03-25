@@ -16,11 +16,11 @@ const regions = [
   { name: '北海道', area: '北海道', prefectures: ['Hokkaido'], top: '5%', left: '60%' },
   { name: '東北', area: '青森県', prefectures: ['Aomori', 'Iwate', 'Miyagi', 'Akita', 'Yamagata', 'Fukushima'], top: '35%', left: '74%' },
   { name: '北信越', area: '新潟県', prefectures: ['Niigata', 'Toyama', 'Ishikawa', 'Fukui', 'Nagano'], top: '31%', left: '45%' },
-  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '37%', left: '26%' },
+  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '46%', left: '22%' },
   { name: '九州・沖縄', area: '福岡県', prefectures: ['Fukuoka', 'Saga', 'Nagasaki', 'Kumamoto', 'Oita', 'Miyazaki', 'Kagoshima', 'Okinawa'], top: '42%', left: '9%' },
   { name: '関東', area: '東京都', prefectures: ['Ibaraki', 'Tochigi', 'Gunma', 'Saitama', 'Chiba', 'Tokyo', 'Kanagawa', 'Yamanashi'], top: '51%', left: '65%' },
   { name: '東海', area: '愛知県', prefectures: ['Gifu', 'Shizuoka', 'Aichi', 'Mie'], top: '58%', left: '51%' },
-  { name: '関西', area: '大阪府', prefectures: ['Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '60%', left: '34%' },
+  { name: '関西', area: '大阪府', prefectures: ['Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '55%', left: '38%' },
   { name: '四国', area: '徳島県', prefectures: ['Tokushima', 'Kagawa', 'Ehime', 'Kochi'], top: '66%', left: '19%' },
 ];
 
