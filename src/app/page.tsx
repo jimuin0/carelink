@@ -74,21 +74,21 @@ const featureBanners = [
     subtitle: 'イメチェンするなら今がチャンス',
     image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&h=300&fit=crop',
     href: '/search?keyword=ヘアカラー カット',
-    color: 'from-pink-600/70 to-rose-500/70',
+    color: 'from-sky-800/60 to-sky-600/60',
   },
   {
     title: '疲れたカラダにご褒美リラク',
     subtitle: '至福のひとときを見つけよう',
     image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=300&fit=crop',
     href: '/search?type=リラクサロン',
-    color: 'from-emerald-600/70 to-teal-500/70',
+    color: 'from-sky-800/60 to-sky-600/60',
   },
   {
     title: '理想の目元をつくる',
     subtitle: 'まつ毛パーマ・エクステ特集',
     image: 'https://images.unsplash.com/photo-1522337360788-8b13dee7a37e?w=600&h=300&fit=crop',
     href: '/search?type=ネイル・まつげサロン',
-    color: 'from-violet-600/70 to-purple-500/70',
+    color: 'from-sky-800/60 to-sky-600/60',
   },
 ];
 
@@ -102,8 +102,6 @@ const worryNavItems = [
         <path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12" />
       </svg>
     ),
-    bg: 'bg-pink-50',
-    iconColor: 'text-pink-400',
   },
   {
     label: 'まつ毛をぱっちりしたい',
@@ -113,8 +111,6 @@ const worryNavItems = [
         <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" />
       </svg>
     ),
-    bg: 'bg-violet-50',
-    iconColor: 'text-violet-400',
   },
   {
     label: '肩こり・腰痛がつらい',
@@ -125,8 +121,6 @@ const worryNavItems = [
         <path d="M12 14v2" />
       </svg>
     ),
-    bg: 'bg-orange-50',
-    iconColor: 'text-orange-400',
   },
   {
     label: 'お肌をキレイにしたい',
@@ -138,8 +132,6 @@ const worryNavItems = [
         <circle cx="9" cy="10" r="1" fill="currentColor" /><circle cx="15" cy="10" r="1" fill="currentColor" />
       </svg>
     ),
-    bg: 'bg-rose-50',
-    iconColor: 'text-rose-400',
   },
   {
     label: 'ネイルをおしゃれに',
@@ -149,8 +141,6 @@ const worryNavItems = [
         <path d="M12 2l2.09 6.26L20 10l-4.74 3.74L17 20l-5-3.5L7 20l1.74-6.26L4 10l5.91-1.74L12 2z" />
       </svg>
     ),
-    bg: 'bg-amber-50',
-    iconColor: 'text-amber-400',
   },
   {
     label: '日頃の疲れを癒したい',
@@ -163,8 +153,6 @@ const worryNavItems = [
         <path d="M7 11c0 5 2.5 8 5 10c2.5-2 5-5 5-10" />
       </svg>
     ),
-    bg: 'bg-emerald-50',
-    iconColor: 'text-emerald-400',
   },
 ];
 
@@ -264,9 +252,9 @@ export default function Home() {
               <Link
                 key={item.label}
                 href={item.href}
-                className={`${item.bg} rounded-xl p-4 text-center hover:shadow-md transition-shadow group`}
+                className="bg-sky-50 rounded-xl p-4 text-center hover:shadow-md transition-shadow group"
               >
-                <div className={`${item.iconColor} mx-auto mb-2 [&>svg]:mx-auto transition-transform group-hover:scale-110`}>
+                <div className="text-sky-400 mx-auto mb-2 [&>svg]:mx-auto transition-transform group-hover:scale-110">
                   {item.icon}
                 </div>
                 <span className="text-[11px] sm:text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
