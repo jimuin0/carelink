@@ -69,68 +69,61 @@ const categories = [
 export default function Home() {
   return (
     <div className="min-h-screen bg-white">
-      {/* ===== Hero Section (HPB-style visual) ===== */}
-      <div className="relative overflow-hidden">
-        {/* Background gradient layers */}
-        <div className="absolute inset-0 bg-gradient-to-br from-sky-100 via-sky-50 to-white" />
-        <div className="absolute top-0 right-0 w-[60%] h-full bg-gradient-to-bl from-sky-200/40 via-transparent to-transparent" />
-        {/* Soft decorative blobs */}
-        <div className="absolute top-[10%] left-[5%] w-72 h-72 rounded-full bg-sky-200/30 blur-[80px]" />
-        <div className="absolute top-[20%] right-[10%] w-96 h-96 rounded-full bg-sky-100/50 blur-[100px]" />
-        <div className="absolute bottom-0 left-[30%] w-64 h-64 rounded-full bg-white/60 blur-[60px]" />
+      {/* ===== Hero Section ===== */}
+      <div className="relative overflow-hidden bg-gradient-to-b from-sky-600 to-sky-500">
+        {/* Dot pattern overlay */}
+        <div
+          className="absolute inset-0 opacity-[0.07]"
+          style={{
+            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+            backgroundSize: '24px 24px',
+          }}
+        />
 
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6">
-          {/* Hero content */}
-          <div className="pt-14 sm:pt-20 pb-10 sm:pb-14 text-center">
-            <h1 className="text-[28px] sm:text-4xl font-bold text-gray-800 leading-snug tracking-wide">
-              ネットで<br className="sm:hidden" />
-              サロン予約！
+          <div className="pt-8 sm:pt-10 pb-7 sm:pb-9 text-center">
+            <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight tracking-wide">
+              ネットでかんたんサロン予約
             </h1>
-            <p className="text-[13px] text-gray-500 mt-3 tracking-wide">
+            <p className="text-[11px] sm:text-xs text-sky-100 mt-1.5 tracking-wider">
               ヘア・ネイル・まつげ・リラク・エステ・美容クリニック
             </p>
 
             {/* Search bar */}
-            <div className="max-w-[520px] mx-auto mt-8 mb-10">
-              <HomeSearchForm />
-            </div>
-
-            {/* Category Grid - HPB mobile style: 2 top + 3 bottom */}
-            <div className="max-w-[480px] mx-auto">
-              <div className="grid grid-cols-2 gap-3 mb-3">
-                {categories.slice(0, 2).map((cat) => (
-                  <Link
-                    key={cat.type}
-                    href={`/search?type=${encodeURIComponent(cat.type)}`}
-                    className="flex items-center justify-center gap-3 bg-white/80 backdrop-blur-sm rounded-2xl px-5 py-5 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
-                  >
-                    <span className="text-sky-500">{cat.icon}</span>
-                    <span className="text-sm font-medium text-gray-700">{cat.name}</span>
-                  </Link>
-                ))}
-              </div>
-              <div className="grid grid-cols-3 gap-3">
-                {categories.slice(2).map((cat) => (
-                  <Link
-                    key={cat.type}
-                    href={`/search?type=${encodeURIComponent(cat.type)}`}
-                    className="flex flex-col items-center gap-2 bg-white/80 backdrop-blur-sm rounded-2xl px-3 py-5 shadow-sm hover:shadow-md transition-all hover:-translate-y-0.5"
-                  >
-                    <span className="text-sky-500">{cat.icon}</span>
-                    <span className="text-xs font-medium text-gray-700">{cat.name}</span>
-                  </Link>
-                ))}
+            <div className="max-w-[520px] mx-auto mt-5 mb-5">
+              <div className="shadow-lg rounded-lg overflow-hidden">
+                <HomeSearchForm />
               </div>
             </div>
 
-            {/* Mypage link (like HPB) */}
-            <div className="max-w-[480px] mx-auto mt-6">
-              <Link
-                href="/mypage"
-                className="block w-full py-3.5 rounded-xl border border-gray-200 bg-white/60 backdrop-blur-sm text-sm text-gray-600 hover:bg-white hover:border-gray-300 transition-colors"
-              >
-                マイページ
-              </Link>
+            {/* Category pills */}
+            <div className="flex items-center justify-center gap-2 flex-wrap max-w-[520px] mx-auto">
+              {categories.map((cat) => (
+                <Link
+                  key={cat.type}
+                  href={`/search?type=${encodeURIComponent(cat.type)}`}
+                  className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 backdrop-blur-sm rounded-full px-3.5 py-1.5 text-xs font-medium text-white transition-colors"
+                >
+                  <span className="[&>svg]:w-4 [&>svg]:h-4">{cat.icon}</span>
+                  <span>{cat.name}</span>
+                </Link>
+              ))}
+            </div>
+
+            {/* Value props */}
+            <div className="flex items-center justify-center gap-4 sm:gap-6 mt-5 text-[10px] sm:text-[11px] text-sky-100">
+              <span className="flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                24時間ネット予約
+              </span>
+              <span className="flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
+                口コミで比較
+              </span>
+              <span className="flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                掲載・利用すべて無料
+              </span>
             </div>
           </div>
         </div>
@@ -139,7 +132,7 @@ export default function Home() {
       {/* ===== Below-the-fold content ===== */}
       <div className="border-t border-gray-100">
         <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
-          <div className="flex flex-col md:flex-row gap-8 py-10">
+          <div className="flex flex-col md:flex-row gap-8 py-8">
             {/* Left column */}
             <div className="md:w-[170px] flex-shrink-0 space-y-8">
               <div>
@@ -184,7 +177,7 @@ export default function Home() {
             <div className="flex-1 min-w-0 space-y-10">
               {/* Business types x area */}
               <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4">業種 &times; エリアで探す</h2>
+                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">業種 &times; エリアで探す</h2>
                 {categories.map((cat, idx) => (
                   <div key={cat.type} className={`py-4 ${idx < categories.length - 1 ? 'border-b border-gray-100' : ''}`}>
                     <Link
@@ -212,7 +205,7 @@ export default function Home() {
 
               {/* Feature tags */}
               <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4">こだわり条件から探す</h2>
+                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">こだわり条件から探す</h2>
                 <div className="flex flex-wrap gap-2.5">
                   {facilityFeatures.map((feature) => (
                     <Link
@@ -228,7 +221,7 @@ export default function Home() {
 
               {/* Popular areas */}
               <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4">人気のエリア</h2>
+                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">人気のエリア</h2>
                 <div className="flex flex-wrap items-center gap-y-2">
                   {popularAreas.map((area, i) => (
                     <span key={area} className="text-xs">
@@ -259,20 +252,6 @@ export default function Home() {
                   </Link>
                 ))}
               </nav>
-              <div className="space-y-3 text-[11px] text-gray-500">
-                <p className="flex items-center gap-2.5">
-                  <svg className="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  24時間ネット予約
-                </p>
-                <p className="flex items-center gap-2.5">
-                  <svg className="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                  口コミで比較できる
-                </p>
-                <p className="flex items-center gap-2.5">
-                  <svg className="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  掲載・利用すべて無料
-                </p>
-              </div>
             </div>
           </div>
         </div>
