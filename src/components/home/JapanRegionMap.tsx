@@ -13,15 +13,15 @@ const HOVER_COLOR = '#F5A623';
 
 // HPBと同じ9地域・同じ都道府県分類
 const regions = [
-  { name: '北海道', area: '北海道', prefectures: ['Hokkaido'], top: '10%', left: '74%' },
-  { name: '東北', area: '青森県', prefectures: ['Aomori', 'Iwate', 'Miyagi', 'Akita', 'Yamagata', 'Fukushima'], top: '30%', left: '76%' },
-  { name: '北信越', area: '新潟県', prefectures: ['Niigata', 'Toyama', 'Ishikawa', 'Fukui', 'Nagano'], top: '38%', left: '44%' },
-  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '47%', left: '22%' },
-  { name: '九州・沖縄', area: '福岡県', prefectures: ['Fukuoka', 'Saga', 'Nagasaki', 'Kumamoto', 'Oita', 'Miyazaki', 'Kagoshima', 'Okinawa'], top: '50%', left: '5%' },
-  { name: '関東', area: '東京都', prefectures: ['Ibaraki', 'Tochigi', 'Gunma', 'Saitama', 'Chiba', 'Tokyo', 'Kanagawa', 'Yamanashi'], top: '51%', left: '68%' },
-  { name: '東海', area: '愛知県', prefectures: ['Gifu', 'Shizuoka', 'Aichi', 'Mie'], top: '55%', left: '52%' },
-  { name: '関西', area: '大阪府', prefectures: ['Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '57%', left: '30%' },
-  { name: '四国', area: '徳島県', prefectures: ['Tokushima', 'Kagawa', 'Ehime', 'Kochi'], top: '62%', left: '22%' },
+  { name: '北海道', area: '北海道', prefectures: ['Hokkaido'], top: '2%', left: '57%' },
+  { name: '東北', area: '青森県', prefectures: ['Aomori', 'Iwate', 'Miyagi', 'Akita', 'Yamagata', 'Fukushima'], top: '25%', left: '70%' },
+  { name: '北信越', area: '新潟県', prefectures: ['Niigata', 'Toyama', 'Ishikawa', 'Fukui', 'Nagano'], top: '32%', left: '42%' },
+  { name: '中国', area: '広島県', prefectures: ['Tottori', 'Shimane', 'Okayama', 'Hiroshima', 'Yamaguchi'], top: '43%', left: '24%' },
+  { name: '九州・沖縄', area: '福岡県', prefectures: ['Fukuoka', 'Saga', 'Nagasaki', 'Kumamoto', 'Oita', 'Miyazaki', 'Kagoshima', 'Okinawa'], top: '46%', left: '5%' },
+  { name: '関東', area: '東京都', prefectures: ['Ibaraki', 'Tochigi', 'Gunma', 'Saitama', 'Chiba', 'Tokyo', 'Kanagawa', 'Yamanashi'], top: '46%', left: '64%' },
+  { name: '東海', area: '愛知県', prefectures: ['Gifu', 'Shizuoka', 'Aichi', 'Mie'], top: '52%', left: '50%' },
+  { name: '関西', area: '大阪府', prefectures: ['Shiga', 'Kyoto', 'Osaka', 'Hyogo', 'Nara', 'Wakayama'], top: '54%', left: '32%' },
+  { name: '四国', area: '徳島県', prefectures: ['Tokushima', 'Kagawa', 'Ehime', 'Kochi'], top: '58%', left: '24%' },
 ];
 
 const prefToRegion = new Map<string, typeof regions[number]>();
