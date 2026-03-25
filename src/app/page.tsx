@@ -1,13 +1,10 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
-import { getLatestFacilities, getPopularFacilities, getLatestReviews } from '@/lib/facilities';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
-import FacilityCard from '@/components/search/FacilityCard';
 import JapanRegionMap from '@/components/home/JapanRegionMap';
 
-export const revalidate = 3600;
 
 const categories = [
   {
@@ -158,25 +155,7 @@ const worryNavItems = [
   },
 ];
 
-function Stars({ rating }: { rating: number }) {
-  return (
-    <span className="text-amber-400 text-xs">
-      {'★'.repeat(Math.round(rating))}{'☆'.repeat(5 - Math.round(rating))}
-    </span>
-  );
-}
-
-export default async function Home() {
-  const [
-    { facilities: latestFacilities },
-    { facilities: popularFacilities },
-    { reviews: latestReviews },
-  ] = await Promise.all([
-    getLatestFacilities(6),
-    getPopularFacilities(6),
-    getLatestReviews(6),
-  ]);
-
+export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
@@ -262,75 +241,6 @@ export default async function Home() {
           </div>
         </div>
       </div>
-
-      {/* ===== 新着施設 (動的コンテンツ) ===== */}
-      {latestFacilities.length > 0 && (
-        <div className="border-t border-gray-100">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">新着サロン・クリニック</h2>
-              <Link href="/search?sort=newest" className="text-xs text-sky-600 hover:underline">もっと見る &rsaquo;</Link>
-            </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {latestFacilities.map((f) => (
-                <FacilityCard key={f.id} facility={f} />
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== 新着口コミ (動的コンテンツ) ===== */}
-      {latestReviews.length > 0 && (
-        <div className="border-t border-gray-100 bg-gray-50">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-            <h2 className="text-sm font-bold text-gray-800 mb-5 pl-3 border-l-[3px] border-amber-400">新着口コミ</h2>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {latestReviews.map((review) => (
-                <Link
-                  key={review.id}
-                  href={`/facility/${review.facility_slug}`}
-                  className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow block"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <Stars rating={review.rating} />
-                    <span className="text-[10px] text-gray-400">
-                      {new Date(review.created_at).toLocaleDateString('ja-JP')}
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-600 line-clamp-3 mb-2">{review.comment}</p>
-                  <div className="flex items-center justify-between text-[11px]">
-                    <span className="text-gray-400">{review.reviewer_name}</span>
-                    <span className="text-sky-600 font-medium truncate ml-2 max-w-[60%]">{review.facility_name}</span>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== 人気ランキング (動的コンテンツ) ===== */}
-      {popularFacilities.length > 0 && (
-        <div className="border-t border-gray-100">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-rose-400">人気ランキング</h2>
-              <Link href="/search?sort=popular" className="text-xs text-sky-600 hover:underline">もっと見る &rsaquo;</Link>
-            </div>
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {popularFacilities.map((f, i) => (
-                <div key={f.id} className="relative">
-                  <div className="absolute -top-2 -left-2 z-10 w-7 h-7 rounded-full bg-rose-500 text-white text-xs font-bold flex items-center justify-center shadow">
-                    {i + 1}
-                  </div>
-                  <FacilityCard facility={f} />
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ===== お悩み別ナビ ===== */}
       <div className="border-t border-gray-100">
