@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
+import FacilityCard from '@/components/search/FacilityCard';
+import { getPopularFacilities } from '@/lib/facilities';
 
 const popularAreas = ['東京都', '大阪府', '神奈川県', '愛知県', '福岡県', '埼玉県', '千葉県', '北海道', '京都府', '兵庫県'];
 
@@ -66,7 +68,9 @@ const categories = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const { facilities: popularFacilities } = await getPopularFacilities(6);
+
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
@@ -128,6 +132,30 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* ===== Popular Facilities Section ===== */}
+      {popularFacilities.length > 0 && (
+        <div className="bg-gray-50 border-t border-gray-100">
+          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8 sm:py-10">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-base sm:text-lg font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">
+                人気の施設
+              </h2>
+              <Link
+                href="/search?sort=popular"
+                className="text-xs text-sky-600 hover:text-sky-700 hover:underline transition-colors"
+              >
+                すべて見る &rsaquo;
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+              {popularFacilities.map((facility) => (
+                <FacilityCard key={facility.id} facility={facility} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== Below-the-fold content ===== */}
       <div className="border-t border-gray-100">

@@ -39,6 +39,19 @@ export async function searchFacilities(params: SearchParams) {
   return { facilities: (data || []) as FacilityCardData[], total: count || 0, perPage: PER_PAGE, error };
 }
 
+export async function getPopularFacilities(limit = 6) {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('facility_profiles')
+    .select(
+      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url'
+    )
+    .eq('status', 'published')
+    .order('rating_count', { ascending: false })
+    .limit(limit);
+  return { facilities: (data || []) as FacilityCardData[], error };
+}
+
 export async function getFacilityBySlug(slug: string) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
