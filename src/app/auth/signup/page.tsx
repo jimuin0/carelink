@@ -105,6 +105,28 @@ export default function SignupPage() {
             </button>
           </form>
 
+          <div className="my-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-200" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="bg-white px-4 text-gray-400">または</span>
+              </div>
+            </div>
+          </div>
+
+          <a
+            href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
+            className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
+            style={{ backgroundColor: '#06C755' }}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M24 10.304C24 4.612 18.624.11 12 .11S0 4.612 0 10.304c0 5.04 4.47 9.262 10.51 10.058.41.088.968.27 1.11.618.126.316.082.81.04 1.129l-.18 1.068c-.054.33-.252 1.286 1.126.701 1.378-.585 7.438-4.382 10.148-7.502C24.648 14.312 24 12.392 24 10.304" />
+            </svg>
+            LINEで登録
+          </a>
+
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-500">
               アカウントをお持ちの方は
