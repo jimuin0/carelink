@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import Image from 'next/image';
-import { regionGroups, prefectures, facilityFeatures } from '@/lib/constants';
+import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getLatestFacilities, getPopularFacilities, getLatestReviews } from '@/lib/facilities';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
