@@ -97,7 +97,7 @@ export default function Home() {
             </div>
 
             {/* Category pills */}
-            <div className="flex items-center justify-center gap-2 flex-wrap max-w-[520px] mx-auto">
+            <div className="flex items-center justify-center gap-2 max-w-[620px] mx-auto">
               {categories.map((cat) => (
                 <Link
                   key={cat.type}
