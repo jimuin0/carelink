@@ -122,7 +122,7 @@ export default function RecruitPage() {
               <div>
                 <label className="form-label">施設名 *</label>
                 <input {...register('facility_name')} className="form-input w-full" placeholder="例: ○○鍼灸院" />
-                {errors.facility_name && <p className="form-error">{errors.facility_name.message}</p>}
+                {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">業種 *</label>
@@ -130,27 +130,27 @@ export default function RecruitPage() {
                   <option value="">選択してください</option>
                   {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
-                {errors.business_type && <p className="form-error">{errors.business_type.message}</p>}
+                {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
               </div>
               <div>
                 <label className="form-label">代表者名 *</label>
                 <input {...register('representative_name')} className="form-input w-full" />
-                {errors.representative_name && <p className="form-error">{errors.representative_name.message}</p>}
+                {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">担当者名 *</label>
                 <input {...register('contact_name')} className="form-input w-full" />
-                {errors.contact_name && <p className="form-error">{errors.contact_name.message}</p>}
+                {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">メールアドレス *</label>
                 <input type="email" {...register('email')} className="form-input w-full" />
-                {errors.email && <p className="form-error">{errors.email.message}</p>}
+                {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
               </div>
               <div>
                 <label className="form-label">電話番号 *</label>
                 <input {...register('phone')} className="form-input w-full" value={phoneValue ? formatPhone(phoneValue) : ''} onChange={(e) => setValue('phone', e.target.value.replace(/[^\d-]/g, ''))} />
-                {errors.phone && <p className="form-error">{errors.phone.message}</p>}
+                {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
             </div>
           )}
@@ -160,7 +160,7 @@ export default function RecruitPage() {
               <div>
                 <label className="form-label">郵便番号</label>
                 <input {...register('postal_code')} className="form-input w-full" placeholder="1234567（ハイフンなし）" maxLength={7} />
-                {errors.postal_code && <p className="form-error">{errors.postal_code.message}</p>}
+                {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
               </div>
               <div>
                 <label className="form-label">住所</label>
@@ -173,7 +173,7 @@ export default function RecruitPage() {
               <div>
                 <label className="form-label">施設紹介</label>
                 <textarea {...register('description')} className="form-input w-full" rows={4} placeholder="施設の特徴やPRをご記入ください" />
-                {errors.description && <p className="form-error">{errors.description.message}</p>}
+                {errors.description && <p className="form-error" role="alert">{errors.description.message}</p>}
               </div>
             </div>
           )}

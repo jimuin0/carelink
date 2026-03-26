@@ -58,7 +58,7 @@ export default function LoginPage() {
                 placeholder="example@email.com"
                 autoComplete="email"
               />
-              {errors.email && <p className="form-error">{errors.email.message}</p>}
+              {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
 
             <div>
@@ -71,7 +71,7 @@ export default function LoginPage() {
                 placeholder="8文字以上"
                 autoComplete="current-password"
               />
-              {errors.password && <p className="form-error">{errors.password.message}</p>}
+              {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
             <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">

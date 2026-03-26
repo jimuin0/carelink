@@ -100,7 +100,7 @@ export default function ProfileEditPage() {
               id="profile-name"
               className="form-input"
             />
-            {errors.display_name && <p className="form-error">{errors.display_name.message}</p>}
+            {errors.display_name && <p className="form-error" role="alert">{errors.display_name.message}</p>}
           </div>
 
           <div>

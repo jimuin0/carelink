@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 export default function FavoriteButton({ facilityId }: { facilityId: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
   const [isFavorited, setIsFavorited] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -35,7 +38,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
 
   const handleToggle = async () => {
     if (!isLoggedIn) {
-      window.location.href = `/auth/login?redirect=${encodeURIComponent(window.location.pathname)}`;
+      router.push(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
       return;
     }
 

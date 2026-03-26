@@ -86,13 +86,13 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
         <div>
           <label htmlFor="inquiry_name" className="form-label">お名前 <span className="text-red-500">*</span></label>
           <input {...register('name')} id="inquiry_name" className="form-input" placeholder="山田 太郎" autoComplete="name" />
-          {errors.name && <p className="form-error">{errors.name.message}</p>}
+          {errors.name && <p className="form-error" role="alert">{errors.name.message}</p>}
         </div>
 
         <div>
           <label htmlFor="inquiry_email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
           <input {...register('email')} id="inquiry_email" type="email" className="form-input" placeholder="example@email.com" autoComplete="email" />
-          {errors.email && <p className="form-error">{errors.email.message}</p>}
+          {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
         </div>
 
         <div>
@@ -103,7 +103,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
         <div>
           <label htmlFor="inquiry_message" className="form-label">お問い合わせ内容 <span className="text-red-500">*</span></label>
           <textarea {...register('message')} id="inquiry_message" className="form-input" rows={4} placeholder="ご予約・ご質問などお気軽にお書きください（1000文字以内）" />
-          {errors.message && <p className="form-error">{errors.message.message}</p>}
+          {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
         </div>
 
         <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3 text-sm">

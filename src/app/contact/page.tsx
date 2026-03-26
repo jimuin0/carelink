@@ -98,7 +98,7 @@ export default function ContactPage() {
                 お名前 <span className="text-red-500">*</span>
               </label>
               <input id="contact-name" {...register('name')} className="form-input" placeholder="山田 太郎" />
-              {errors.name && <p className="form-error">{errors.name.message}</p>}
+              {errors.name && <p className="form-error" role="alert">{errors.name.message}</p>}
             </div>
 
             <div>
@@ -112,7 +112,7 @@ export default function ContactPage() {
                 className="form-input"
                 placeholder="example@email.com"
               />
-              {errors.email && <p className="form-error">{errors.email.message}</p>}
+              {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
 
             <div>
@@ -136,7 +136,7 @@ export default function ContactPage() {
                 <option value="施設検索について">施設検索について</option>
                 <option value="その他">その他</option>
               </select>
-              {errors.inquiry_type && <p className="form-error">{errors.inquiry_type.message}</p>}
+              {errors.inquiry_type && <p className="form-error" role="alert">{errors.inquiry_type.message}</p>}
             </div>
 
             <div>
@@ -149,7 +149,7 @@ export default function ContactPage() {
                 className="form-input min-h-[150px]"
                 placeholder="お問い合わせ内容をご記入ください"
               />
-              {errors.message && <p className="form-error">{errors.message.message}</p>}
+              {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
             </div>
 
             <label className="flex items-start gap-2 text-sm text-gray-600">

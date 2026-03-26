@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
+  const router = useRouter();
   const [showConfirm, setShowConfirm] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -58,7 +60,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
       <div className="text-center py-8">
         <p className="text-lg font-bold mb-2">口コミを投稿しました</p>
         <p className="text-gray-500 text-sm mb-4">ご投稿ありがとうございます。</p>
-        <button onClick={() => window.location.reload()} className="text-sky-600 text-sm hover:underline">
+        <button onClick={() => router.refresh()} className="text-sky-600 text-sm hover:underline">
           ページを更新する
         </button>
       </div>
@@ -71,7 +73,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
         <div>
           <label htmlFor="reviewer_name" className="form-label">お名前 <span className="text-red-500">*</span></label>
           <input {...register('reviewer_name')} id="reviewer_name" className="form-input" placeholder="ニックネーム可" autoComplete="name" />
-          {errors.reviewer_name && <p className="form-error">{errors.reviewer_name.message}</p>}
+          {errors.reviewer_name && <p className="form-error" role="alert">{errors.reviewer_name.message}</p>}
         </div>
 
         <div>
@@ -79,13 +81,13 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
           <div aria-labelledby="rating-label">
             <StarRating value={rating} onChange={(v) => setValue('rating', v, { shouldValidate: true })} />
           </div>
-          {errors.rating && <p className="form-error">{errors.rating.message}</p>}
+          {errors.rating && <p className="form-error" role="alert">{errors.rating.message}</p>}
         </div>
 
         <div>
           <label htmlFor="review_comment" className="form-label">コメント</label>
           <textarea {...register('comment')} id="review_comment" className="form-input" rows={3} placeholder="ご感想をお聞かせください（500文字以内）" />
-          {errors.comment && <p className="form-error">{errors.comment.message}</p>}
+          {errors.comment && <p className="form-error" role="alert">{errors.comment.message}</p>}
         </div>
 
         <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3 text-sm">

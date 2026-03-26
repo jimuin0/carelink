@@ -58,7 +58,7 @@ export default function SignupPage() {
                 placeholder="山田 太郎"
                 autoComplete="name"
               />
-              {errors.display_name && <p className="form-error">{errors.display_name.message}</p>}
+              {errors.display_name && <p className="form-error" role="alert">{errors.display_name.message}</p>}
             </div>
 
             <div>
@@ -71,7 +71,7 @@ export default function SignupPage() {
                 placeholder="example@email.com"
                 autoComplete="email"
               />
-              {errors.email && <p className="form-error">{errors.email.message}</p>}
+              {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
 
             <div>
@@ -84,7 +84,7 @@ export default function SignupPage() {
                 placeholder="8文字以上"
                 autoComplete="new-password"
               />
-              {errors.password && <p className="form-error">{errors.password.message}</p>}
+              {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
             <div>
@@ -97,7 +97,7 @@ export default function SignupPage() {
                 placeholder="もう一度入力"
                 autoComplete="new-password"
               />
-              {errors.password_confirm && <p className="form-error">{errors.password_confirm.message}</p>}
+              {errors.password_confirm && <p className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>
 
             <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3">

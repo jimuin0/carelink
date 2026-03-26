@@ -17,7 +17,7 @@ export async function searchFacilities(params: SearchParams) {
   if (params.type) query = query.eq('business_type', params.type);
   if (params.prefecture) query = query.eq('prefecture', params.prefecture);
   if (params.keyword) {
-    const escaped = params.keyword.replace(/[%_\\]/g, '\\$&');
+    const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&');
     query = query.or(
       `name.ilike.%${escaped}%,catch_copy.ilike.%${escaped}%,description.ilike.%${escaped}%,city.ilike.%${escaped}%`
     );

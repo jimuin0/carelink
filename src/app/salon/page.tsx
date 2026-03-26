@@ -331,7 +331,7 @@ export default function SalonPage() {
                   <div>
                     <label htmlFor="salon-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
                     <input id="salon-facility-name" {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
-                    {errors.facility_name && <p className="form-error">{errors.facility_name.message}</p>}
+                    {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="salon-business-type" className="form-label">業種 <span className="text-red-500">*</span></label>
@@ -339,22 +339,22 @@ export default function SalonPage() {
                       <option value="">選択してください</option>
                       {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
-                    {errors.business_type && <p className="form-error">{errors.business_type.message}</p>}
+                    {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="salon-representative" className="form-label">代表者名 <span className="text-red-500">*</span></label>
                     <input id="salon-representative" {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
-                    {errors.representative_name && <p className="form-error">{errors.representative_name.message}</p>}
+                    {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="salon-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
                     <input id="salon-contact-name" {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
-                    {errors.contact_name && <p className="form-error">{errors.contact_name.message}</p>}
+                    {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="salon-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
                     <input id="salon-email" {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
-                    {errors.email && <p className="form-error">{errors.email.message}</p>}
+                    {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="salon-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
@@ -366,7 +366,7 @@ export default function SalonPage() {
                       className="form-input"
                       placeholder="090-1234-5678"
                     />
-                    {errors.phone && <p className="form-error">{errors.phone.message}</p>}
+                    {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
                   </div>
                   <button type="button" onClick={nextStep} className="btn-primary w-full">
                     次へ
@@ -380,7 +380,7 @@ export default function SalonPage() {
                   <div>
                     <label htmlFor="salon-postal-code" className="form-label">郵便番号</label>
                     <input id="salon-postal-code" {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />
-                    {errors.postal_code && <p className="form-error">{errors.postal_code.message}</p>}
+                    {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
                   </div>
                   <div>
                     <label htmlFor="salon-address" className="form-label">住所</label>
@@ -428,7 +428,7 @@ export default function SalonPage() {
                       maxLength={500}
                     />
                     <div className="flex justify-between mt-1">
-                      {errors.pr_text && <p className="form-error">{errors.pr_text.message}</p>}
+                      {errors.pr_text && <p className="form-error" role="alert">{errors.pr_text.message}</p>}
                       <p className="text-sm text-gray-400 ml-auto">{prText.length}/500</p>
                     </div>
                   </div>

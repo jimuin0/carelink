@@ -79,7 +79,7 @@ export default function PhotoUpload({ onChange, error }: PhotoUploadProps) {
           />
         </label>
       )}
-      {(fileError || error) && <p className="form-error">{fileError || error}</p>}
+      {(fileError || error) && <p className="form-error" role="alert">{fileError || error}</p>}
     </div>
   );
 }

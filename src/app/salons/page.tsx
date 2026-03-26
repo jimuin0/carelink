@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import Breadcrumb from '@/components/Breadcrumb';
 import Spinner from '@/components/Spinner';
@@ -14,7 +15,13 @@ export default function SalonsPage() {
   const [area, setArea] = useState('');
 
   useEffect(() => {
-    fetchSalons();
+    async function loadInitial() {
+      const res = await fetch('/api/salons');
+      const data = await res.json();
+      setSalons(Array.isArray(data) ? data : []);
+      setLoading(false);
+    }
+    loadInitial();
   }, []);
 
   async function fetchSalons() {
@@ -70,8 +77,8 @@ export default function SalonsPage() {
           {salons.map((s) => (
             <Link key={s.id} href={`/salons/${s.id}`} className="card hover:shadow-lg transition-shadow group">
               {s.photo_url && (
-                <div className="w-full h-40 bg-gray-100 rounded-lg mb-4 overflow-hidden">
-                  <img src={s.photo_url} alt={s.facility_name} className="w-full h-full object-cover" />
+                <div className="relative w-full h-40 bg-gray-100 rounded-lg mb-4 overflow-hidden">
+                  <Image src={s.photo_url} alt={s.facility_name} fill className="object-cover" sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw" />
                 </div>
               )}
               <span className="text-xs font-medium px-2 py-1 rounded-full bg-sky-50 text-sky-600">{s.business_type}</span>

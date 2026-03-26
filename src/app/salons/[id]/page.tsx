@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import Breadcrumb from '@/components/Breadcrumb';
 import Spinner from '@/components/Spinner';
@@ -32,8 +33,8 @@ export default function SalonDetailPage({ params }: { params: { id: string } }) 
 
       <div className="max-w-3xl mx-auto">
         {salon.photo_url && (
-          <div className="w-full h-64 bg-gray-100 rounded-2xl mb-6 overflow-hidden">
-            <img src={salon.photo_url} alt={salon.facility_name} className="w-full h-full object-cover" />
+          <div className="relative w-full h-64 bg-gray-100 rounded-2xl mb-6 overflow-hidden">
+            <Image src={salon.photo_url} alt={salon.facility_name} fill className="object-cover" sizes="(max-width: 768px) 100vw, 768px" />
           </div>
         )}
 
