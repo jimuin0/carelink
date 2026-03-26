@@ -42,6 +42,7 @@ export default function RegisterPage() {
   const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
   const [showConfirm, setShowConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [agreed, setAgreed] = useState(false);
 
   const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
@@ -335,9 +336,23 @@ export default function RegisterPage() {
                   {startDateOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={agreed}
+                  onChange={(e) => setAgreed(e.target.checked)}
+                  className="mt-0.5 rounded border-gray-300"
+                />
+                <span>
+                  <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-primary underline">利用規約</a>
+                  および
+                  <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-primary underline">プライバシーポリシー</a>
+                  に同意する（必須）
+                </span>
+              </label>
               <div className="flex gap-4">
                 <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
-                <button type="submit" disabled={submitting} className="btn-primary flex-1 !py-3">
+                <button type="submit" disabled={submitting || !agreed} className="btn-primary flex-1 !py-3">
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
                 </button>
               </div>
