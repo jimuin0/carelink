@@ -5,27 +5,27 @@ const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
 
 // Salon form schemas (per step)
 export const salonStep1Schema = z.object({
-  facility_name: z.string().min(1, '施設名を入力してください'),
-  business_type: z.string().min(1, '業種を選択してください'),
-  representative_name: z.string().min(1, '代表者名を入力してください'),
-  contact_name: z.string().min(1, '担当者名を入力してください'),
-  email: z.string().email('正しいメールアドレスを入力してください'),
+  facility_name: z.string().min(1, '施設名を入力してください').max(200, '200文字以内で入力してください'),
+  business_type: z.string().min(1, '業種を選択してください').max(50),
+  representative_name: z.string().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
+  contact_name: z.string().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
+  email: z.string().email('正しいメールアドレスを入力してください').max(254),
   phone: z.string().min(1, '電話番号を入力してください').regex(phoneRegex, '正しい電話番号を入力してください'),
   contact_phone: z.string().regex(phoneRegex, '正しい電話番号を入力してください').or(z.literal('')).optional(),
-  website: z.string().url('正しいURLを入力してください').or(z.literal('')).optional(),
+  website: z.string().max(2000).url('正しいURLを入力してください').or(z.literal('')).optional(),
 });
 
 export const salonStep2Schema = z.object({
   postal_code: z.string().regex(/^(\d{3}-?\d{4}|\d{7})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
-  address: z.string().optional(),
-  building_name: z.string().optional(),
-  nearest_station: z.string().optional(),
-  business_hours: z.string().optional(),
-  regular_holiday: z.string().optional(),
-  seat_count: z.union([z.number().int().min(0), z.nan()]).optional().nullable(),
-  staff_count: z.union([z.number().int().min(0), z.nan()]).optional().nullable(),
+  address: z.string().max(500, '500文字以内で入力してください').optional(),
+  building_name: z.string().max(200).optional(),
+  nearest_station: z.string().max(200).optional(),
+  business_hours: z.string().max(200).optional(),
+  regular_holiday: z.string().max(200).optional(),
+  seat_count: z.union([z.number().int().min(0).max(9999), z.nan()]).optional().nullable(),
+  staff_count: z.union([z.number().int().min(0).max(9999), z.nan()]).optional().nullable(),
   has_parking: z.boolean().optional(),
-  features: z.array(z.string()).optional(),
+  features: z.array(z.string().max(50)).max(20).optional(),
 });
 
 export const salonStep3Schema = z.object({

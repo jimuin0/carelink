@@ -17,6 +17,7 @@ export default function FAQ({ items }: { items: FAQItem[] }) {
           <button
             className="w-full flex items-center justify-between px-6 py-4 text-left font-medium text-gray-900 hover:bg-gray-50 transition-colors"
             onClick={() => setOpenIndex(openIndex === index ? null : index)}
+            aria-expanded={openIndex === index}
           >
             <span className="flex items-center gap-3">
               <span className="text-primary font-bold">Q.</span>

@@ -41,6 +41,7 @@ export default function Header() {
             className="sm:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setIsOpen(!isOpen)}
             aria-label="メニュー"
+            aria-expanded={isOpen}
           >
             <svg className="w-6 h-6 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isOpen ? (

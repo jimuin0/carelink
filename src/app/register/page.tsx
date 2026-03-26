@@ -121,7 +121,8 @@ export default function RegisterPage() {
       for (let i = 0; i < photoFiles.length; i++) {
         const file = photoFiles[i];
         if (!file) continue;
-        const ext = file.name.split('.').pop();
+        const mimeToExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
+        const ext = mimeToExt[file.type] || 'jpg';
         const path = `salons/${uuid}/${categories[i]}.${ext}`;
         const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, file);
         if (uploadError) throw uploadError;
@@ -222,12 +223,12 @@ export default function RegisterPage() {
               </div>
               <div>
                 <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
+                <input {...register('email')} type="email" autoComplete="email" className="form-input" placeholder="example@email.com" />
                 {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
               </div>
               <div>
                 <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
-                <input {...register('phone')} onChange={handlePhoneChange('phone')} className="form-input" placeholder="090-1234-5678" />
+                <input {...register('phone')} onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" />
                 {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
               <div>
@@ -249,12 +250,12 @@ export default function RegisterPage() {
             <div className="space-y-5">
               <div>
                 <label className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
-                <input {...register('postal_code')} className="form-input" placeholder="5600001" maxLength={7} inputMode="numeric" />
+                <input {...register('postal_code')} autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={7} inputMode="numeric" />
                 {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
               </div>
               <div>
                 <label className="form-label">住所</label>
-                <input {...register('address')} className="form-input" placeholder="例：大阪府堺市堺区..." />
+                <input {...register('address')} autoComplete="street-address" className="form-input" placeholder="例：大阪府堺市堺区..." />
               </div>
               <div>
                 <label className="form-label">建物名・部屋番号 <span className="text-gray-400 text-xs font-normal">任意</span></label>
@@ -296,6 +297,7 @@ export default function RegisterPage() {
                       key={f}
                       type="button"
                       onClick={() => toggleFeature(f)}
+                      aria-pressed={selectedFeatures.includes(f)}
                       className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
                         selectedFeatures.includes(f)
                           ? 'bg-sky-50 border-sky-400 text-sky-700'
