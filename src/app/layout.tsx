@@ -4,6 +4,7 @@ import Script from "next/script";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import LayoutSwitch from "@/components/LayoutSwitch";
+import CookieConsent from "@/components/CookieConsent";
 import "./globals.css";
 
 const notoSansJP = Noto_Sans_JP({
@@ -138,6 +139,7 @@ export default function RootLayout({
           }}
         />
         <LayoutSwitch>{children}</LayoutSwitch>
+        <CookieConsent />
         <Analytics />
         <SpeedInsights />
       </body>

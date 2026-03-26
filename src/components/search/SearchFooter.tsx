@@ -91,6 +91,7 @@ export default function SearchFooter() {
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-white transition-colors">プライバシーポリシー</Link>
             <Link href="/terms" className="hover:text-white transition-colors">利用規約</Link>
+            <Link href="/legal" className="hover:text-white transition-colors">特定商取引法に基づく表記</Link>
           </div>
         </div>
       </div>

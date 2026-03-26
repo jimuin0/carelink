@@ -100,6 +100,9 @@ export default function Footer() {
               <Link href="/terms" className="hover:text-white transition-colors">
                 利用規約
               </Link>
+              <Link href="/legal" className="hover:text-white transition-colors">
+                特定商取引法に基づく表記
+              </Link>
             </nav>
           </div>
 
