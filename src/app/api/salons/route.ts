@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
 
-  if (id) {
+  if (id && /^[0-9a-f-]{36}$/i.test(id)) {
     const { data, error } = await supabaseAdmin
       .from('salons')
       .select('*')
@@ -30,8 +30,8 @@ export async function GET(req: NextRequest) {
   const businessType = searchParams.get('business_type');
   if (businessType) query = query.eq('business_type', businessType);
 
-  const area = searchParams.get('area');
-  if (area) query = query.ilike('address', `%${area}%`);
+  const area = searchParams.get('area')?.trim();
+  if (area && area.length <= 100) query = query.ilike('address', `%${area}%`);
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

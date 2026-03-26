@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
 import Breadcrumb from '@/components/Breadcrumb';
 import Spinner from '@/components/Spinner';
 import type { Salon } from '@/types';
@@ -19,7 +18,13 @@ export default function SalonDetailPage({ params }: { params: { id: string } }) 
   }, [params.id]);
 
   if (loading) return <div className="section-container flex justify-center py-20"><Spinner /></div>;
-  if (!salon) return notFound();
+  if (!salon) return (
+    <div className="section-container text-center py-20">
+      <h1 className="text-2xl font-bold mb-4">施設が見つかりません</h1>
+      <p className="text-gray-500 mb-8">この施設は公開されていないか、存在しません。</p>
+      <Link href="/salons" className="btn-primary px-8 py-3">施設一覧に戻る</Link>
+    </div>
+  );
 
   return (
     <div className="section-container">
