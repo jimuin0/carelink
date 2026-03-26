@@ -30,22 +30,26 @@ function escSlack(s: string): string {
 }
 
 type NotifyPayload =
-  | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
+  | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string; address?: string; desired_start_date?: string } }
   | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } }
   | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } }
   | { type: 'facility'; data: { facility_name: string; contact_name: string; email: string; phone: string; business_type: string } };
 
 function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
-    case 'salon':
-      return [
+    case 'salon': {
+      const lines = [
         ':office: *施設掲載の新規登録*',
         `> *施設名:* ${escSlack(payload.data.facility_name)}`,
         `> *業種:* ${escSlack(payload.data.business_type)}`,
         `> *代表者:* ${escSlack(payload.data.representative_name)}`,
         `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,
-      ].join('\n');
+      ];
+      if (payload.data.address) lines.push(`> *エリア:* ${escSlack(payload.data.address)}`);
+      if (payload.data.desired_start_date) lines.push(`> *掲載希望:* ${escSlack(payload.data.desired_start_date)}`);
+      return lines.join('\n');
+    }
     case 'contact':
       return [
         ':envelope: *お問い合わせ*',
@@ -90,7 +94,7 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const payloadSchema = z.discriminatedUnion('type', [
-      z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string(), business_type: z.string(), representative_name: z.string(), phone: z.string(), email: z.string() }) }),
+      z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string(), business_type: z.string(), representative_name: z.string(), phone: z.string(), email: z.string(), address: z.string().optional(), desired_start_date: z.string().optional() }) }),
       z.object({ type: z.literal('contact'), data: z.object({ name: z.string(), inquiry_type: z.string(), email: z.string(), message: z.string() }) }),
       z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string(), name: z.string(), email: z.string(), phone: z.string(), message: z.string() }) }),
       z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string(), contact_name: z.string(), email: z.string(), phone: z.string(), business_type: z.string() }) }),

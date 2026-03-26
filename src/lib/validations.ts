@@ -11,19 +11,25 @@ export const salonStep1Schema = z.object({
   contact_name: z.string().min(1, '担当者名を入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください'),
   phone: z.string().min(1, '電話番号を入力してください').regex(phoneRegex, '正しい電話番号を入力してください'),
+  contact_phone: z.string().regex(phoneRegex, '正しい電話番号を入力してください').or(z.literal('')).optional(),
+  website: z.string().url('正しいURLを入力してください').or(z.literal('')).optional(),
 });
 
 export const salonStep2Schema = z.object({
   postal_code: z.string().regex(/^(\d{3}-?\d{4}|\d{7})?$/, '郵便番号を正しく入力してください（例: 5600001）').or(z.literal('')).optional(),
   address: z.string().optional(),
+  building_name: z.string().optional(),
+  nearest_station: z.string().optional(),
   business_hours: z.string().optional(),
   regular_holiday: z.string().optional(),
   seat_count: z.union([z.number().int().min(0), z.nan()]).optional().nullable(),
   staff_count: z.union([z.number().int().min(0), z.nan()]).optional().nullable(),
+  has_parking: z.boolean().optional(),
+  features: z.array(z.string()).optional(),
 });
 
 export const salonStep3Schema = z.object({
-  pr_text: z.string().max(500, '500文字以内で入力してください').optional(),
+  pr_text: z.string().max(1000, '1000文字以内で入力してください').optional(),
   desired_start_date: z.string().optional(),
 });
 

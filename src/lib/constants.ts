@@ -14,6 +14,9 @@ export const businessTypes = [
   'リラクサロン',
   'エステサロン',
   '美容クリニック',
+  '鍼灸院・整骨院',
+  '介護・デイサービス',
+  'その他',
 ];
 
 export const facilityFeatures = [

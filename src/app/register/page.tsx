@@ -1,32 +1,107 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { supabase } from '@/lib/supabase';
 import { salonStep1Schema, salonStep2Schema, salonStep3Schema, salonFullSchema, type SalonFormValues, formatPhone, businessTypes } from '@/lib/validations';
+import { facilityFeatures } from '@/lib/constants';
 import StepIndicator from '@/components/StepIndicator';
-import PhotoUpload from '@/components/PhotoUpload';
+import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload';
 import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
 
+const photoSlots: PhotoSlot[] = [
+  { label: '外観', required: true },
+  { label: '内観 1' },
+  { label: '内観 2' },
+  { label: '内観 3' },
+  { label: 'メニュー 1' },
+  { label: 'メニュー 2' },
+  { label: 'メニュー 3' },
+];
+
+const startDateOptions = [
+  { value: '', label: '選択してください' },
+  { value: 'immediately', label: 'すぐに掲載したい' },
+  { value: 'within_1month', label: '1ヶ月以内' },
+  { value: 'within_3months', label: '3ヶ月以内' },
+  { value: 'undecided', label: '検討中' },
+];
+
 export default function RegisterPage() {
+  const router = useRouter();
   const [step, setStep] = useState(1);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoFiles, setPhotoFiles] = useState<(File | null)[]>(photoSlots.map(() => null));
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
 
-  const { register, handleSubmit, trigger, setValue, watch, reset, formState: { errors } } = useForm<SalonFormValues>({
+  const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
     mode: 'onTouched',
-    defaultValues: { facility_name: '', business_type: '', representative_name: '', contact_name: '', email: '', phone: '', postal_code: '', address: '', business_hours: '', regular_holiday: '', seat_count: null, staff_count: null, pr_text: '', desired_start_date: '' },
+    defaultValues: {
+      facility_name: '', business_type: '', representative_name: '', contact_name: '',
+      email: '', phone: '', contact_phone: '', website: '',
+      postal_code: '', address: '', building_name: '', nearest_station: '',
+      business_hours: '', regular_holiday: '', seat_count: null, staff_count: null,
+      has_parking: false, features: [],
+      pr_text: '', desired_start_date: '',
+    },
   });
 
   const prText = watch('pr_text') || '';
-  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => { setValue('phone', formatPhone(e.target.value), { shouldValidate: true }); };
+  const postalCode = watch('postal_code') || '';
+  const selectedFeatures = watch('features') || [];
+
+  // Phone auto-hyphen
+  const handlePhoneChange = (field: 'phone' | 'contact_phone') => (e: React.ChangeEvent<HTMLInputElement>) => {
+    setValue(field, formatPhone(e.target.value), { shouldValidate: true });
+  };
+
+  // Postal code auto-completion
+  const fetchAddress = useCallback(async (code: string) => {
+    const digits = code.replace(/\D/g, '');
+    if (digits.length !== 7) return;
+    try {
+      const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`);
+      const data = await res.json();
+      if (data.results?.[0]) {
+        const r = data.results[0];
+        setValue('address', `${r.address1}${r.address2}${r.address3}`);
+      }
+    } catch { /* ignore */ }
+  }, [setValue]);
+
+  useEffect(() => {
+    const digits = postalCode.replace(/\D/g, '');
+    if (digits.length === 7) fetchAddress(postalCode);
+  }, [postalCode, fetchAddress]);
+
+  // Page leave warning
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
+  const handleFieldChange = () => { if (!isDirty) setIsDirty(true); };
+
+  // Feature toggle
+  const toggleFeature = (feature: string) => {
+    const current = selectedFeatures;
+    const updated = current.includes(feature)
+      ? current.filter(f => f !== feature)
+      : [...current, feature];
+    setValue('features', updated);
+  };
 
   const nextStep = async () => {
     const schema = stepSchemas[step - 1];
@@ -37,71 +112,250 @@ export default function RegisterPage() {
   const onSubmit = async (data: SalonFormValues) => {
     setSubmitting(true);
     try {
-      let photo_url: string | null = null;
-      if (photoFile) {
-        const fileExt = photoFile.name.split('.').pop();
-        const filePath = `salons/${crypto.randomUUID()}/photo.${fileExt}`;
-        const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(filePath, photoFile);
+      // Upload photos
+      const uuid = crypto.randomUUID();
+      const photoUrls: string[] = [];
+      const categories = ['exterior', 'interior_1', 'interior_2', 'interior_3', 'menu_1', 'menu_2', 'menu_3'];
+
+      for (let i = 0; i < photoFiles.length; i++) {
+        const file = photoFiles[i];
+        if (!file) continue;
+        const ext = file.name.split('.').pop();
+        const path = `salons/${uuid}/${categories[i]}.${ext}`;
+        const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, file);
         if (uploadError) throw uploadError;
-        photo_url = supabase.storage.from('carelink-uploads').getPublicUrl(filePath).data.publicUrl;
+        const url = supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
+        photoUrls.push(url);
       }
+
       const { error } = await supabase.from('salons').insert({
-        facility_name: data.facility_name, business_type: data.business_type, representative_name: data.representative_name,
-        contact_name: data.contact_name, email: data.email, phone: data.phone,
-        postal_code: data.postal_code || null, address: data.address || null, business_hours: data.business_hours || null,
+        facility_name: data.facility_name,
+        business_type: data.business_type,
+        representative_name: data.representative_name,
+        contact_name: data.contact_name,
+        email: data.email,
+        phone: data.phone,
+        contact_phone: data.contact_phone || null,
+        website: data.website || null,
+        postal_code: data.postal_code || null,
+        address: data.address || null,
+        building_name: data.building_name || null,
+        nearest_station: data.nearest_station || null,
+        business_hours: data.business_hours || null,
         regular_holiday: data.regular_holiday || null,
         seat_count: data.seat_count && !isNaN(data.seat_count) ? data.seat_count : null,
         staff_count: data.staff_count && !isNaN(data.staff_count) ? data.staff_count : null,
-        pr_text: data.pr_text || null, photo_url, desired_start_date: data.desired_start_date || null,
+        has_parking: data.has_parking || false,
+        features: data.features || [],
+        pr_text: data.pr_text || null,
+        photo_url: photoUrls[0] || null,
+        photo_urls: photoUrls,
+        desired_start_date: data.desired_start_date || null,
       });
       if (error) throw error;
-      fetch('/api/notify', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'salon', data: { facility_name: data.facility_name, business_type: data.business_type, representative_name: data.representative_name, phone: data.phone, email: data.email } }) }).catch(() => {});
-      setToast({ message: '登録が完了しました。担当者より2営業日以内にご連絡いたします。', type: 'success' });
-      reset(); setStep(1); setPhotoFile(null);
-    } catch { setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' }); }
-    finally { setSubmitting(false); }
+
+      // Slack notification (fire-and-forget)
+      fetch('/api/notify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'salon',
+          data: {
+            facility_name: data.facility_name,
+            business_type: data.business_type,
+            representative_name: data.representative_name,
+            phone: data.phone,
+            email: data.email,
+            address: data.address || undefined,
+            desired_start_date: data.desired_start_date || undefined,
+          },
+        }),
+      }).catch(() => {});
+
+      setIsDirty(false);
+      const params = new URLSearchParams();
+      params.set('name', data.facility_name);
+      params.set('type', data.business_type);
+      if (data.address) params.set('area', data.address);
+      router.push(`/register/complete?${params.toString()}`);
+    } catch {
+      setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="section-container">
       <h1 className="section-title">無料掲載登録</h1>
+      <p className="text-center text-gray-500 text-sm mb-8">掲載料は一切かかりません。最短3分で登録できます。</p>
       <div className="max-w-2xl mx-auto">
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <form onSubmit={handleSubmit(onSubmit)} className="card">
+        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} className="card">
+
+          {/* Step 1: 基本情報 */}
           {step === 1 && (
             <div className="space-y-5">
-              <div><label className="form-label">施設名 <span className="text-red-500">*</span></label><input {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />{errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}</div>
-              <div><label className="form-label">業種 <span className="text-red-500">*</span></label><select {...register('business_type')} className="form-input"><option value="">選択してください</option>{businessTypes.map(t => <option key={t} value={t}>{t}</option>)}</select>{errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}</div>
-              <div><label className="form-label">代表者名 <span className="text-red-500">*</span></label><input {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />{errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}</div>
-              <div><label className="form-label">担当者名 <span className="text-red-500">*</span></label><input {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />{errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}</div>
-              <div><label className="form-label">メールアドレス <span className="text-red-500">*</span></label><input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />{errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}</div>
-              <div><label className="form-label">電話番号 <span className="text-red-500">*</span></label><input {...register('phone')} onChange={handlePhoneChange} className="form-input" placeholder="090-1234-5678" />{errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}</div>
-              <button type="button" onClick={nextStep} className="btn-primary w-full">次へ</button>
+              <div>
+                <label className="form-label">施設名 <span className="text-red-500">*</span></label>
+                <input {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
+                {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">業種 <span className="text-red-500">*</span></label>
+                <select {...register('business_type')} className="form-input">
+                  <option value="">選択してください</option>
+                  {businessTypes.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+                {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">代表者名 <span className="text-red-500">*</span></label>
+                <input {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
+                {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">担当者名 <span className="text-red-500">*</span></label>
+                <input {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
+                {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                <input {...register('email')} type="email" className="form-input" placeholder="example@email.com" />
+                {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                <input {...register('phone')} onChange={handlePhoneChange('phone')} className="form-input" placeholder="090-1234-5678" />
+                {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">担当者直通電話 <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('contact_phone')} onChange={handlePhoneChange('contact_phone')} className="form-input" placeholder="090-1234-5678" />
+                {errors.contact_phone && <p className="form-error" role="alert">{errors.contact_phone.message}</p>}
+              </div>
+              <div>
+                <label className="form-label">WebサイトURL <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('website')} type="url" className="form-input" placeholder="https://example.com" />
+                {errors.website && <p className="form-error" role="alert">{errors.website.message}</p>}
+              </div>
+              <button type="button" onClick={nextStep} className="btn-primary w-full !py-3">次へ</button>
             </div>
           )}
+
+          {/* Step 2: 詳細情報 */}
           {step === 2 && (
             <div className="space-y-5">
-              <div><label className="form-label">郵便番号</label><input {...register('postal_code')} className="form-input" placeholder="1234567（ハイフンなし）" maxLength={7} />{errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}</div>
-              <div><label className="form-label">住所</label><input {...register('address')} className="form-input" placeholder="例：東京都渋谷区..." /></div>
-              <div><label className="form-label">営業時間</label><input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" /></div>
-              <div><label className="form-label">定休日</label><input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" /></div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="form-label">席数・ベッド数</label><input {...register('seat_count', { valueAsNumber: true })} type="number" min="0" className="form-input" /></div>
-                <div><label className="form-label">スタッフ数</label><input {...register('staff_count', { valueAsNumber: true })} type="number" min="0" className="form-input" /></div>
+              <div>
+                <label className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
+                <input {...register('postal_code')} className="form-input" placeholder="5600001" maxLength={7} inputMode="numeric" />
+                {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
               </div>
-              <div className="flex gap-4"><button type="button" onClick={() => setStep(1)} className="btn-outline flex-1">戻る</button><button type="button" onClick={nextStep} className="btn-primary flex-1">次へ</button></div>
+              <div>
+                <label className="form-label">住所</label>
+                <input {...register('address')} className="form-input" placeholder="例：大阪府堺市堺区..." />
+              </div>
+              <div>
+                <label className="form-label">建物名・部屋番号 <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('building_name')} className="form-input" placeholder="例：○○ビル 3F" />
+              </div>
+              <div>
+                <label className="form-label">最寄り駅 <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('nearest_station')} className="form-input" placeholder="例：堺東駅 徒歩5分" />
+              </div>
+              <div>
+                <label className="form-label">営業時間</label>
+                <input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" />
+              </div>
+              <div>
+                <label className="form-label">定休日</label>
+                <input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="form-label">席数・ベッド数</label>
+                  <input {...register('seat_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                </div>
+                <div>
+                  <label className="form-label">スタッフ数</label>
+                  <input {...register('staff_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                </div>
+              </div>
+              <div>
+                <label className="form-label flex items-center gap-2 cursor-pointer">
+                  <input {...register('has_parking')} type="checkbox" className="w-4 h-4 rounded border-gray-300 text-sky-600 focus:ring-sky-500" />
+                  駐車場あり
+                </label>
+              </div>
+              <div>
+                <label className="form-label">こだわり・特徴 <span className="text-gray-400 text-xs font-normal">複数選択可</span></label>
+                <div className="flex flex-wrap gap-2">
+                  {facilityFeatures.map(f => (
+                    <button
+                      key={f}
+                      type="button"
+                      onClick={() => toggleFeature(f)}
+                      className={`px-3 py-1.5 text-xs rounded-full border transition-colors ${
+                        selectedFeatures.includes(f)
+                          ? 'bg-sky-50 border-sky-400 text-sky-700'
+                          : 'bg-white border-gray-200 text-gray-600 hover:border-gray-300'
+                      }`}
+                    >
+                      {selectedFeatures.includes(f) && <span className="mr-1">&#10003;</span>}
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex gap-4">
+                <button type="button" onClick={() => setStep(1)} className="btn-outline flex-1">戻る</button>
+                <button type="button" onClick={nextStep} className="btn-primary flex-1">次へ</button>
+              </div>
             </div>
           )}
+
+          {/* Step 3: PR情報 */}
           {step === 3 && (
             <div className="space-y-5">
-              <div><label className="form-label">PR文</label><textarea {...register('pr_text')} className="form-input min-h-[120px]" placeholder="施設のアピールポイントをご記入ください" maxLength={500} /><div className="flex justify-between mt-1">{errors.pr_text && <p className="form-error" role="alert">{errors.pr_text.message}</p>}<p className="text-sm text-gray-400 ml-auto">{prText.length}/500</p></div></div>
-              <div><label className="form-label">施設写真</label><PhotoUpload onChange={setPhotoFile} /></div>
-              <div><label className="form-label">希望掲載開始日</label><input {...register('desired_start_date')} type="date" className="form-input" /></div>
-              <div className="flex gap-4"><button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button><button type="submit" disabled={submitting} className="btn-primary flex-1">{submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}</button></div>
+              <div>
+                <label className="form-label">PR文 <span className="text-gray-400 text-xs font-normal">1000文字以内</span></label>
+                <textarea {...register('pr_text')} className="form-input min-h-[150px]" placeholder="施設のアピールポイントをご記入ください&#10;例：当院は開業20年の実績があり、..." maxLength={1000} />
+                <div className="flex justify-between mt-1">
+                  {errors.pr_text && <p className="form-error" role="alert">{errors.pr_text.message}</p>}
+                  <p className="text-sm text-gray-400 ml-auto">{prText.length}/1000</p>
+                </div>
+              </div>
+              <div>
+                <label className="form-label">施設写真 <span className="text-gray-400 text-xs font-normal">外観は必須・最大7枚</span></label>
+                <MultiPhotoUpload slots={photoSlots} onChange={setPhotoFiles} />
+              </div>
+              <div>
+                <label className="form-label">掲載希望時期</label>
+                <select {...register('desired_start_date')} className="form-input">
+                  {startDateOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+              <div className="flex gap-4">
+                <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
+                <button type="submit" disabled={submitting} className="btn-primary flex-1 !py-3">
+                  {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
+                </button>
+              </div>
             </div>
           )}
         </form>
       </div>
+
+      <ConfirmDialog
+        open={showConfirm}
+        title="登録内容を送信しますか？"
+        message="送信後、担当者より3営業日以内にご連絡いたします。"
+        confirmLabel="送信する"
+        cancelLabel="戻る"
+        onConfirm={() => { setShowConfirm(false); handleSubmit(onSubmit)(); }}
+        onCancel={() => setShowConfirm(false)}
+      />
+
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
   );
