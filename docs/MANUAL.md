@@ -1,7 +1,7 @@
-# CareLink マニュアル v3.0
+# CareLink マニュアル v4.0
 
-**最終更新**: 2026年3月22日
-**バージョン**: 3.0
+**最終更新**: 2026年3月26日
+**バージョン**: 4.0
 **作成者**: Claude + 神原 良祐
 **プロジェクト**: ~/Projects/carelink/
 
@@ -114,7 +114,7 @@
 
 **Supabase プロジェクトURL**: `https://xzafxiupbflvgbarrihe.supabase.co`
 
-### 1.7 現在の外部サービス設定状況（2026-03-22時点）
+### 1.7 現在の外部サービス設定状況（2026-03-26時点）
 
 | サービス | 状態 | 備考 |
 |---------|:----:|------|
@@ -125,12 +125,12 @@
 | Supabase DB（Phase 4: 予約） | ✅ 設定済み | staff_schedules / schedule_overrides / bookings + RPC(get_available_slots) |
 | Supabase DB（Phase 5: 管理） | ✅ 設定済み | facility_members / customer_visits + admin用RLS |
 | Supabase DB（Phase 6: 高度機能） | ✅ 設定済み | treatment_catalogs / blog_posts / review_replies / user_points |
-| Supabase Auth | ✅ 設定済み | メール+LINE認証（PKCE, Cookie対応） |
+| Supabase Auth | ✅ 設定済み | メール+LINE認証（PKCE, Cookie対応）、Redirect URL 2件登録済み |
 | Supabase Storage | ✅ 設定済み | carelink-uploads バケット |
 | Vercel デプロイ | ✅ 稼働中 | GitHub連携で自動デプロイ（push→自動ビルド） |
 | Slack Incoming Webhook | ❌ 未設定 | Webhook URL作成 + Vercel環境変数設定が必要 |
-| Google Analytics 4 | ❌ 未設定 | プロパティ作成 + 測定ID設定が必要（IDバリデーション実装済み） |
-| Microsoft Clarity | ❌ 未設定 | プロジェクト作成 + ID設定が必要（IDバリデーション実装済み） |
+| Google Analytics 4 | ✅ 設定済み | `G-BP8GVKJ3NZ`（Vercel環境変数設定+デプロイ済み） |
+| Microsoft Clarity | ✅ 設定済み | `w1sqla5alv`（Vercel環境変数設定+デプロイ済み） |
 | カスタムドメイン | ❌ 未設定 | ドメイン取得 + DNS設定が必要 |
 
 ---
@@ -326,9 +326,12 @@ Supabase (PostgreSQL + Storage)
 |------|------|:----:|---------|---------|
 | `NEXT_PUBLIC_SUPABASE_URL` | Supabase Project URL | ✅ | クライアント | Vercel + .env.local |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon key | ✅ | クライアント | Vercel + .env.local |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase Service Role Key | ✅ | サーバーのみ | Vercel + .env.local |
 | `NEXT_PUBLIC_BASE_URL` | 本番URL（metadataBase・sitemap・canonical用） | - | クライアント | Vercel + .env.local |
 | `NEXT_PUBLIC_GA_ID` | Google Analytics 4 測定ID | - | クライアント | Vercel のみ |
 | `NEXT_PUBLIC_CLARITY_ID` | Microsoft Clarity プロジェクトID | - | クライアント | Vercel のみ |
+| `NEXT_PUBLIC_LINE_CHANNEL_ID` | LINE OAuth チャネルID | - | クライアント | Vercel + .env.local |
+| `LINE_CHANNEL_SECRET` | LINE OAuth チャネルシークレット | - | サーバーのみ | Vercel + .env.local |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | - | サーバーのみ | Vercel + .env.local |
 
 > **NEXT_PUBLIC_** プレフィックス付き: クライアントJSバンドルに含まれる（公開される）
@@ -362,12 +365,17 @@ npm run dev
 # Supabase（必須）
 NEXT_PUBLIC_SUPABASE_URL=https://xzafxiupbflvgbarrihe.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_anon_key_here
+SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 
-# 本番URL（省略時: https://carelink-ruddy-psi.vercel.app）
+# 本番URL（省略時: https://carelink.jp）
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
 
-# Slack通知（省略時: 通知なし・500レスポンス）
+# Slack通知（省略時: 通知なし・API 500レスポンス）
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/REDACTED
+
+# LINE OAuth（省略時: LINEログイン無効）
+NEXT_PUBLIC_LINE_CHANNEL_ID=your_line_channel_id
+LINE_CHANNEL_SECRET=your_line_channel_secret
 
 # アナリティクス（省略時: 読み込みスキップ）
 # NEXT_PUBLIC_GA_ID=G-XXXXXXXXXX
@@ -878,7 +886,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | パス | ファイル | レンダリング | 説明 |
 |------|---------|:----------:|------|
 | `/` | `page.tsx` | Static | トップページ |
-| `/salon` | `salon/page.tsx` | Static | 施設掲載登録 |
+| `/salon` | `salon/page.tsx` | Static | 施設掲載LP（CTA→/register） |
+| `/register` | `register/page.tsx` | Static | 施設掲載登録フォーム |
 | `/jobs` | `jobs/page.tsx` | Static | 求職者登録 |
 | `/recruit` | `recruit/page.tsx` | Static | 求人掲載登録 |
 | `/contact` | `contact/page.tsx` | Static | お問い合わせ |
@@ -911,6 +920,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/auth/login` | `auth/login/page.tsx` | Static | ログイン（メール+LINE） |
 | `/auth/signup` | `auth/signup/page.tsx` | Static | 新規登録 |
 | `/auth/callback` | `auth/callback/route.ts` | Dynamic | OAuthコールバック |
+| `/auth/forgot-password` | `auth/forgot-password/page.tsx` | Static | パスワードリセット申請 |
+| `/auth/reset-password` | `auth/reset-password/page.tsx` | Static | パスワード再設定 |
 
 **マイページ（認証必須）**
 
@@ -1387,8 +1398,8 @@ Disallow: /auth/
 |--------|---------|------|---------|
 | Vercel Analytics | 自動 | Web Vitals | 有効 |
 | Vercel Speed Insights | 自動 | ページ表示速度 | 有効 |
-| Google Analytics 4 | `NEXT_PUBLIC_GA_ID` | PV・流入経路 | 未設定 |
-| Microsoft Clarity | `NEXT_PUBLIC_CLARITY_ID` | ヒートマップ | 未設定 |
+| Google Analytics 4 | `NEXT_PUBLIC_GA_ID` | PV・流入経路 | ✅ 設定済み（G-BP8GVKJ3NZ） |
+| Microsoft Clarity | `NEXT_PUBLIC_CLARITY_ID` | ヒートマップ | ✅ 設定済み（w1sqla5alv） |
 
 > 環境変数未設定時はコード変更不要で自動スキップ。
 
@@ -1593,18 +1604,14 @@ SQL:       SQL Editor
 | 検索データがダミー | 実際の施設データへの移行が必要 |
 | メール通知なし | Slackのみ（予約通知API実装済みだが未接続） |
 | レート制限がin-memory | サーバーレス環境ではインスタンスごとにリセット（Map 1000件超クリーンアップ済み） |
-| SQLマイグレーション未実行 | Phase 2〜6のテーブルはコード側のみ完成 |
+| カスタムドメイン未設定 | carelink.jp の取得・DNS設定が必要 |
 
 ### 21.2 今後の開発予定
 
 | 優先度 | 機能 | 説明 |
 |:------:|------|------|
-| 高 | SQLマイグレーション実行 | Phase 2〜6の全テーブル・トリガー・RLS |
 | 高 | カスタムドメイン | `carelink.jp` の取得・設定 |
-| 高 | GA4 / Clarity設定 | プロパティ作成→環境変数設定（IDバリデーション実装済み） |
 | 高 | 実データ移行 | ダミー施設データを実際の施設に置換 |
-| 高 | supabase gen types typescript 実行 | as キャスト解消 |
-| 中 | LINE連携 | jobsページの「LINE登録」ボタン本番化 |
 | 中 | 職業紹介事業届出 | 届出取得後にマッチング機能実装 |
 | 低 | メール通知 | Resend等でメール通知追加 |
 | 低 | 自動テスト | Vitest + Playwright |
@@ -1769,7 +1776,7 @@ SQL:       SQL Editor
 
 ## 品質監査履歴
 
-9回の品質監査で合計80件以上の問題を修正:
+12回の品質監査で合計100件以上の問題を修正:
 
 | 回 | 検出数 | 主な修正内容 |
 |:--:|:------:|------------|
@@ -1777,6 +1784,9 @@ SQL:       SQL Editor
 | 7 | 22件 | CRITICAL: admin non-null assertion 4件修正、booking API rate limiting追加 |
 | 8 | 11件 | cancel/slots API UUID検証、mypage non-null修正、res.json()クラッシュ防止 |
 | 9 | 3件 | admin/coupons, admin/catalog, mypage/points の最終non-null assertion修正 |
+| 10 | 9件 | セキュリティ3（maxLength/MIME/エラーメッセージ漏洩）・SEO2（register metadata）・a11y4（aria-expanded/aria-label/autoComplete/aria-pressed） |
+| 11 | 5件 | パスワードリセット機能追加・bookingバリデーション強化・マイグレーション補完・.env.example更新・重複ページ削除 |
+| 12 | 4件 | /salon LP分離（CTA→/register）・利用規約チェックボックス・FlowをB方式に変更・未使用PhotoUpload.tsx削除 |
 
 ---
 
@@ -1784,6 +1794,7 @@ SQL:       SQL Editor
 
 | 日付 | バージョン | 内容 |
 |------|-----------|------|
+| 2026-03-26 | 4.0 | **外部サービス設定+品質強化**: GA4設定(`G-BP8GVKJ3NZ`)、Clarity設定(`w1sqla5alv`)、Supabase Site URL+Redirect URL設定、パスワードリセット機能(`/auth/forgot-password`+`/auth/reset-password`)、/salon LP分離(CTA→/register, B方式Flow)、bookingバリデーション強化、品質監査Round10-12(18件修正)、重複/salonsページ削除、マイグレーションファイル補完、.env.example更新(SERVICE_ROLE_KEY+LINE変数追加) |
 | 2026-03-22 | 3.0 | **HPB完全再現**: Phase 2〜6実装完了（認証/マイページ/お気に入り/エリア検索/スタッフ/クーポン/オンライン予約/管理ダッシュボード/ブログ/カタログ/ランキング/GPS検索/ポイント）。全25テーブル、120+新規ファイル。品質監査9回実施（80+件修正）。セキュリティ強化（レート制限/UUID検証/non-null assertion全排除/HTTPセキュリティヘッダー5種/GA4・Clarity IDバリデーション） |
 | 2026-03-22 | 2.0 | **大規模更新**: 検索サイト全機能追加（/search, /facility/[slug]）、検索側DB5テーブル+トリガー追加、全コンポーネント（16個）追加、LayoutSwitch追加、アクセシビリティ章追加、Zodバリデーション追加、動的sitemap、エラーバウンダリ、型定義一覧、DBクエリ関数一覧、定数一覧。GitHub移行(jimuin0)・自動デプロイ反映 |
 | 2026-03-21 | 1.2 | アクセス情報追加、設定状況一覧追加、エラー/ローディング/404追加、テスト追加、制限事項追加 |
