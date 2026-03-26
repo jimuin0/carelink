@@ -17,6 +17,7 @@ export interface Salon {
   photo_url: string | null;
   desired_start_date: string | null;
   status: string;
+  is_public: boolean;
 }
 
 export interface Contact {

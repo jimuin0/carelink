@@ -32,7 +32,8 @@ function escSlack(s: string): string {
 type NotifyPayload =
   | { type: 'salon'; data: { facility_name: string; business_type: string; representative_name: string; phone: string; email: string } }
   | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } }
-  | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } };
+  | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } }
+  | { type: 'facility'; data: { facility_name: string; contact_name: string; email: string; phone: string; business_type: string } };
 
 function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
@@ -56,11 +57,20 @@ function buildSlackMessage(payload: NotifyPayload): string {
     case 'facility_inquiry':
       return [
         ':hospital: *施設へのお問い合わせ*',
-        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
+        `> *施設��:* ${escSlack(payload.data.facility_name)}`,
         `> *お名前:* ${escSlack(payload.data.name)}`,
         `> *メール:* ${escSlack(payload.data.email)}`,
         `> *電話:* ${escSlack(payload.data.phone)}`,
         `> *内容:* ${escSlack(payload.data.message)}`,
+      ].join('\n');
+    case 'facility':
+      return [
+        ':clipboard: *施設掲載の申し込み*',
+        `> *施設名:* ${escSlack(payload.data.facility_name)}`,
+        `> *業種:* ${escSlack(payload.data.business_type)}`,
+        `> *担当者:* ${escSlack(payload.data.contact_name)}`,
+        `> *電話:* ${escSlack(payload.data.phone)}`,
+        `> *メール:* ${escSlack(payload.data.email)}`,
       ].join('\n');
   }
 }
@@ -83,6 +93,7 @@ export async function POST(request: Request) {
       z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string(), business_type: z.string(), representative_name: z.string(), phone: z.string(), email: z.string() }) }),
       z.object({ type: z.literal('contact'), data: z.object({ name: z.string(), inquiry_type: z.string(), email: z.string(), message: z.string() }) }),
       z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string(), name: z.string(), email: z.string(), phone: z.string(), message: z.string() }) }),
+      z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string(), contact_name: z.string(), email: z.string(), phone: z.string(), business_type: z.string() }) }),
     ]);
 
     const result = payloadSchema.safeParse(body);
