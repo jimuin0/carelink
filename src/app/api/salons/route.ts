@@ -30,8 +30,11 @@ export async function GET(req: NextRequest) {
   const businessType = searchParams.get('business_type');
   if (businessType) query = query.eq('business_type', businessType);
 
-  const area = searchParams.get('area')?.trim();
-  if (area && area.length <= 100) query = query.ilike('address', `%${area}%`);
+  const area = searchParams.get('area')?.trim().slice(0, 100);
+  if (area) {
+    const escaped = area.replace(/[%_\\]/g, '\\$&');
+    query = query.ilike('address', `%${escaped}%`);
+  }
 
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

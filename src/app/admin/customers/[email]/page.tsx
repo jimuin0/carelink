@@ -7,7 +7,14 @@ interface Props {
 }
 
 export default async function CustomerDetailPage({ params }: Props) {
-  const email = decodeURIComponent(params.email);
+  let email: string;
+  try {
+    email = decodeURIComponent(params.email);
+  } catch {
+    notFound();
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) notFound();
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
