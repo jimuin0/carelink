@@ -101,7 +101,13 @@ export default function LoginPage() {
             LINEでログイン
           </a>
 
-          <div className="mt-6 text-center">
+          <div className="mt-4 text-center">
+            <Link href="/auth/forgot-password" className="text-sm text-sky-600 hover:underline">
+              パスワードをお忘れの方
+            </Link>
+          </div>
+
+          <div className="mt-4 text-center">
             <p className="text-sm text-gray-500">
               アカウントをお持ちでない方は
               <Link href={`/auth/signup?redirect=${encodeURIComponent(redirect)}`} className="text-sky-600 hover:underline ml-1">
