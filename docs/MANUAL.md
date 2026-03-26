@@ -519,7 +519,9 @@ CREATE TABLE salons (
   staff_count INTEGER,
   pr_text TEXT,
   photo_url TEXT,
-  desired_start_date TEXT
+  desired_start_date DATE,
+  status TEXT DEFAULT 'pending',
+  is_public BOOLEAN DEFAULT false
 );
 
 ALTER TABLE salons ENABLE ROW LEVEL SECURITY;
@@ -548,7 +550,9 @@ CREATE TABLE job_seekers (
   desired_employment_type TEXT[],
   desired_location TEXT,
   desired_salary TEXT,
-  self_pr TEXT
+  self_pr TEXT,
+  photo_url TEXT,
+  status TEXT DEFAULT 'pending'
 );
 
 ALTER TABLE job_seekers ENABLE ROW LEVEL SECURITY;
@@ -891,8 +895,11 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/jobs` | `jobs/page.tsx` | Static | 求職者登録 |
 | `/recruit` | `recruit/page.tsx` | Static | 求人掲載登録 |
 | `/contact` | `contact/page.tsx` | Static | お問い合わせ |
+| `/blog` | `blog/page.tsx` | Static | コラム一覧 |
+| `/blog/[slug]` | `blog/[slug]/page.tsx` | Dynamic | コラム記事 |
 | `/privacy` | `privacy/page.tsx` | Static | プライバシーポリシー |
 | `/terms` | `terms/page.tsx` | Static | 利用規約 |
+| `/legal` | `legal/page.tsx` | Static | 特定商取引法に基づく表記 |
 
 **検索サイト**
 
@@ -962,13 +969,12 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/api/notify` | POST | Slack通知（Zod検証・レート制限） |
 | `/api/booking` | POST | 予約作成（競合チェック・レート制限: 3回/5分） |
 | `/api/booking/[id]/cancel` | POST | 予約キャンセル（UUID検証・所有者チェック） |
-| `/api/booking/notify` | POST | 予約通知（メール+LINE） |
 | `/api/slots` | GET | 空き枠取得（UUID+日付バリデーション・duration 15-480制限） |
 | `/api/favorites` | POST | お気に入りトグル（認証必須） |
 | `/api/profile` | PUT | プロフィール更新（Zod検証・認証必須） |
-| `/api/admin/bookings/[id]` | PATCH | 予約ステータス変更（権限チェック） |
-| `/api/admin/staff` | POST/PUT/DELETE | スタッフCRUD（権限チェック） |
-| `/api/admin/coupons` | POST/PUT/DELETE | クーポンCRUD（権限チェック） |
+| `/api/salons` | GET | 施設検索（キーワード・業種・エリアフィルタ） |
+| `/api/auth/line` | GET | LINE OAuthログイン |
+| `/api/auth/line/callback` | GET | LINE OAuthコールバック |
 | `/sitemap.xml` | GET | 動的サイトマップ（DB全件） |
 | `/robots.txt` | GET | robots.txt（/admin/・/mypage/・/auth/ をdisallow） |
 
@@ -1175,7 +1181,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `FadeIn` | `FadeIn.tsx` | IntersectionObserverベースのフェードイン |
 | `FAQ` | `FAQ.tsx` | `<details>`アコーディオン |
 | `StepIndicator` | `StepIndicator.tsx` | マルチステップフォーム進行表示 |
-| `PhotoUpload` | `PhotoUpload.tsx` | 写真選択+プレビュー（10MB制限） |
+| `MultiPhotoUpload` | `MultiPhotoUpload.tsx` | 複数写真選択+プレビュー（10MB制限・MIME検証） |
 | `Spinner` | `Spinner.tsx` | SVGスピナー |
 
 ### 11.2 検索コンポーネント（`components/search/`）
