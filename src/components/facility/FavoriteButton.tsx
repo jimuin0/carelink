@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { analytics } from '@/lib/analytics';
 
 export default function FavoriteButton({ facilityId }: { facilityId: string }) {
   const router = useRouter();
@@ -54,7 +55,9 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
 
       if (res.ok) {
         const body = await res.json().catch(() => null);
-        setIsFavorited(body?.isFavorited ?? !previousState);
+        const newState = body?.isFavorited ?? !previousState;
+        setIsFavorited(newState);
+        analytics.favoriteToggled(facilityId, newState ? 'add' : 'remove');
       } else {
         setIsFavorited(previousState);
       }

@@ -72,8 +72,8 @@ export default function BeforeAfterSlider({ beforeUrl, afterUrl, title }: Props)
       </div>
 
       {/* Labels */}
-      <span className="absolute top-2 left-2 bg-black/50 text-white text-[10px] font-bold px-2 py-0.5 rounded">BEFORE</span>
-      <span className="absolute top-2 right-2 bg-black/50 text-white text-[10px] font-bold px-2 py-0.5 rounded">AFTER</span>
+      <span className="absolute top-2 left-2 bg-black/50 text-white text-micro font-bold px-2 py-0.5 rounded">BEFORE</span>
+      <span className="absolute top-2 right-2 bg-black/50 text-white text-micro font-bold px-2 py-0.5 rounded">AFTER</span>
     </div>
   );
 }
