@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       .select('id')
       .eq('user_id', user.id)
       .eq('facility_id', facilityId)
-      .single();
+      .maybeSingle();
 
     if (existing) {
       const { error } = await supabase.from('favorites').delete().eq('id', existing.id);

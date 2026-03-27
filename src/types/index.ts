@@ -127,8 +127,8 @@ export interface FacilityReview {
   rating_cleanliness: number | null;
   rating_explanation: number | null;
   comment: string | null;
-  photo_urls: string[];
-  is_verified_visit: boolean;
+  photo_urls: string[] | null;
+  is_verified_visit: boolean | null;
   status: 'published' | 'hidden';
   created_at: string;
 }

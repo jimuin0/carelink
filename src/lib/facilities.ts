@@ -41,6 +41,10 @@ export async function searchFacilities(params: SearchParams) {
     }
   }
 
+  // TODO: available_date / available_time filtering
+  // These params are passed through for URL preservation and future availability filtering.
+  // Client-side can use the /api/availability route to check specific facility slots.
+
   if (isGeoSearch) {
     query = query.limit(500);
     const { data, error } = await query;

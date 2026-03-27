@@ -6,12 +6,14 @@ const STORAGE_KEY = 'compare_facilities';
 const MAX_COMPARE = 3;
 
 export function getCompareList(): string[] {
+  if (typeof window === 'undefined') return [];
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
   } catch { return []; }
 }
 
 export function setCompareList(ids: string[]) {
+  if (typeof window === 'undefined') return;
   localStorage.setItem(STORAGE_KEY, JSON.stringify(ids.slice(0, MAX_COMPARE)));
   window.dispatchEvent(new Event('compare-updated'));
 }

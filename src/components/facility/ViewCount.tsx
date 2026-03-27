@@ -13,6 +13,7 @@ interface ViewedFacility {
 }
 
 export function saveViewedFacility(facility: Omit<ViewedFacility, 'ts'>) {
+  if (typeof window === 'undefined') return;
   try {
     const key = 'viewed_facilities';
     const raw = localStorage.getItem(key);
@@ -24,6 +25,7 @@ export function saveViewedFacility(facility: Omit<ViewedFacility, 'ts'>) {
 }
 
 export function getViewedFacilities(): ViewedFacility[] {
+  if (typeof window === 'undefined') return [];
   try {
     const raw = localStorage.getItem('viewed_facilities');
     return raw ? JSON.parse(raw) : [];

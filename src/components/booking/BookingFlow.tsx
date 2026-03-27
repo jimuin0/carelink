@@ -106,8 +106,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         price = selectedCoupon.special_price;
       }
     }
-    if (selectedStaff && selectedStaff.nomination_fee > 0) {
-      price += selectedStaff.nomination_fee;
+    if (selectedStaff && (selectedStaff.nomination_fee || 0) > 0) {
+      price += selectedStaff.nomination_fee || 0;
     }
     return price;
   };

@@ -41,6 +41,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .from('facility_members')
     .select('role, facility_id')
     .eq('user_id', user.id)
+    .limit(1)
     .single();
 
   if (!membership || !['owner', 'admin'].includes(membership.role)) {

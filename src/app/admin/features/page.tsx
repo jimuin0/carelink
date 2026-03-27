@@ -52,7 +52,7 @@ export default function AdminFeaturesPage() {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).single();
+      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
       if (!membership) { setLoading(false); return; }
       await loadFeatures();
       setLoading(false);

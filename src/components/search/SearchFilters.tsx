@@ -46,6 +46,14 @@ export default function SearchFilters({ className }: { className?: string }) {
     const keyword = searchParams.get('keyword');
     const params = new URLSearchParams();
     if (keyword) params.set('keyword', keyword);
+    setArea('');
+    setType('');
+    setRatingMin('');
+    setPriceMin('');
+    setPriceMax('');
+    setSelectedFeatures([]);
+    setAvailableDate('');
+    setAvailableTime('');
     router.push(`/search?${params.toString()}`);
   }, [router, searchParams]);
 

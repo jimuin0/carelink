@@ -69,6 +69,8 @@ export default async function SearchPage({ searchParams }: Props) {
     features: searchParams.features?.split(',').filter(Boolean),
     lat: searchParams.lat ? parseFloat(searchParams.lat) : undefined,
     lng: searchParams.lng ? parseFloat(searchParams.lng) : undefined,
+    available_date: searchParams.available_date,
+    available_time: searchParams.available_time,
   };
 
   const { facilities, total, perPage } = await searchFacilities(params);
@@ -84,6 +86,8 @@ export default async function SearchPage({ searchParams }: Props) {
   if (searchParams.price_min) baseParams.set('price_min', searchParams.price_min);
   if (searchParams.price_max) baseParams.set('price_max', searchParams.price_max);
   if (searchParams.features) baseParams.set('features', searchParams.features);
+  if (searchParams.available_date) baseParams.set('available_date', searchParams.available_date);
+  if (searchParams.available_time) baseParams.set('available_time', searchParams.available_time);
   const baseUrl = `/search?${baseParams.toString()}`;
 
   // Breadcrumb
@@ -181,6 +185,8 @@ function SortLink({ current, value, label, searchParams }: {
   if (searchParams.price_min) params.set('price_min', searchParams.price_min);
   if (searchParams.price_max) params.set('price_max', searchParams.price_max);
   if (searchParams.features) params.set('features', searchParams.features);
+  if (searchParams.available_date) params.set('available_date', searchParams.available_date);
+  if (searchParams.available_time) params.set('available_time', searchParams.available_time);
   params.set('sort', value);
 
   return (

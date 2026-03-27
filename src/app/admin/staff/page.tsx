@@ -12,6 +12,7 @@ export default async function AdminStaffPage() {
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
+    .limit(1)
     .single();
   if (!membership) notFound();
 

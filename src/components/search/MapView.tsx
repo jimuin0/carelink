@@ -87,7 +87,7 @@ export default function MapView({ facilities }: Props) {
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
-      <div ref={mapRef} style={{ height: '500px', width: '100%' }} />
+      <div ref={mapRef} style={{ height: '500px', width: '100%', display: mapReady ? 'block' : 'none' }} />
       {!mapReady && (
         <div className="flex items-center justify-center h-[500px] bg-gray-100">
           <p className="text-gray-400 text-sm">地図を読み込み中...</p>

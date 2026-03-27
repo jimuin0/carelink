@@ -30,6 +30,7 @@ export default function NewCouponPage() {
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
+      .limit(1)
       .single();
 
     if (!membership) { setSaving(false); return; }

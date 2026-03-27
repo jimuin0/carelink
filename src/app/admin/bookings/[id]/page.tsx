@@ -38,6 +38,7 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
         .from('facility_members')
         .select('facility_id')
         .eq('user_id', user.id)
+        .limit(1)
         .single();
       if (!membership) { setLoading(false); return; }
 
