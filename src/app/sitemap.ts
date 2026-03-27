@@ -1,5 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { allPrefectureSlugs, allBusinessTypeSlugs } from '@/lib/seo-constants';
 
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
 
@@ -12,13 +13,35 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${baseUrl}/search`, lastModified: updated, changeFrequency: 'daily', priority: 0.9 },
     { url: `${baseUrl}/salon`, lastModified: updated, changeFrequency: 'weekly', priority: 0.9 },
     { url: `${baseUrl}/ranking`, lastModified: updated, changeFrequency: 'daily', priority: 0.7 },
+    { url: `${baseUrl}/blog`, lastModified: updated, changeFrequency: 'weekly', priority: 0.6 },
+    { url: `${baseUrl}/jobs`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${baseUrl}/recruit`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
     { url: `${baseUrl}/privacy`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${baseUrl}/terms`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${baseUrl}/contact`, lastModified: updated, changeFrequency: 'monthly', priority: 0.5 },
   ];
 
-  // Dynamic facility pages
+  // Prefecture pages (47 pages)
+  const prefecturePages: MetadataRoute.Sitemap = allPrefectureSlugs.map((slug) => ({
+    url: `${baseUrl}/${slug}`,
+    lastModified: updated,
+    changeFrequency: 'daily' as const,
+    priority: 0.8,
+  }));
+
+  // Prefecture x BusinessType pages (47 x 8 = 376 pages)
+  const crossPages: MetadataRoute.Sitemap = allPrefectureSlugs.flatMap((ps) =>
+    allBusinessTypeSlugs.map((ts) => ({
+      url: `${baseUrl}/${ps}/${ts}`,
+      lastModified: updated,
+      changeFrequency: 'daily' as const,
+      priority: 0.7,
+    }))
+  );
+
   const supabase = createServerSupabaseClient();
+
+  // Dynamic facility pages
   const { data: facilities } = await supabase
     .from('facility_profiles')
     .select('slug, updated_at')
@@ -31,5 +54,21 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  return [...staticPages, ...facilityPages];
+  // Feature pages
+  const { data: features } = await supabase
+    .from('features')
+    .select('slug, updated_at')
+    .eq('is_published', true);
+
+  const featurePages: MetadataRoute.Sitemap = [
+    { url: `${baseUrl}/feature`, lastModified: updated, changeFrequency: 'weekly' as const, priority: 0.6 },
+    ...(features || []).map((f) => ({
+      url: `${baseUrl}/feature/${f.slug}`,
+      lastModified: f.updated_at ? new Date(f.updated_at) : updated,
+      changeFrequency: 'weekly' as const,
+      priority: 0.6,
+    })),
+  ];
+
+  return [...staticPages, ...prefecturePages, ...crossPages, ...facilityPages, ...featurePages];
 }

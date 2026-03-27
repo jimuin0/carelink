@@ -8,6 +8,12 @@
   --accent: #F59E0B;
   --background: #ffffff;
   --foreground: #171717;
+  /* ブランドIP拡張カラー */
+  --care-pink: #EC4899;
+  --care-green: #059669;
+  --care-indigo: #6366F1;
+  --gradient-start: #0EA5E9;
+  --gradient-end: #6366F1;
 }
 
 body {
@@ -60,6 +66,16 @@ body {
   }
   .badge-primary {
     @apply bg-sky-100 text-sky-700;
+  }
+  .badge-coupon {
+    @apply bg-pink-100 text-pink-700;
+  }
+  .badge-point {
+    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
+    @apply text-white;
+  }
+  .badge-instant {
+    @apply bg-emerald-100 text-emerald-700;
   }
   .facility-card {
     @apply bg-white rounded-2xl shadow-md overflow-hidden transition-shadow duration-200 hover:shadow-xl;

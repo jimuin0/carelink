@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
+import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { getStaffByFacility } from '@/lib/staff';
 import { getCouponsByFacility } from '@/lib/coupons';
 import PhotoGallery from '@/components/facility/PhotoGallery';
@@ -107,15 +108,36 @@ export default async function FacilityPage({ params }: Props) {
     <div className="bg-gray-50 min-h-screen pb-20">
       <div className="max-w-4xl mx-auto bg-white shadow-sm">
         {/* パンくずリスト */}
-        <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
-          <ol className="flex items-center gap-1.5 text-xs text-gray-400 overflow-x-auto">
-            <li><Link href="/search" className="hover:text-sky-600 transition-colors">トップ</Link></li>
-            <li><span className="mx-1">/</span></li>
-            <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
-            <li><span className="mx-1">/</span></li>
-            <li className="text-gray-600 font-medium truncate max-w-[200px]">{facility.name}</li>
-          </ol>
-        </nav>
+        {(() => {
+          const prefSlug = getPrefectureSlug(facility.prefecture);
+          const typeSlug = getBusinessTypeSlug(facility.business_type);
+          return (
+            <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
+              <ol className="flex items-center gap-1.5 text-xs text-gray-400 overflow-x-auto">
+                <li><Link href="/" className="hover:text-sky-600 transition-colors">トップ</Link></li>
+                <li><span className="mx-1">/</span></li>
+                {prefSlug && (
+                  <>
+                    <li><Link href={`/${prefSlug}`} className="hover:text-sky-600 transition-colors">{facility.prefecture}</Link></li>
+                    <li><span className="mx-1">/</span></li>
+                  </>
+                )}
+                {prefSlug && typeSlug ? (
+                  <>
+                    <li><Link href={`/${prefSlug}/${typeSlug}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+                    <li><span className="mx-1">/</span></li>
+                  </>
+                ) : (
+                  <>
+                    <li><Link href={`/search?type=${encodeURIComponent(facility.business_type)}`} className="hover:text-sky-600 transition-colors">{facility.business_type}</Link></li>
+                    <li><span className="mx-1">/</span></li>
+                  </>
+                )}
+                <li className="text-gray-600 font-medium truncate max-w-[200px]">{facility.name}</li>
+              </ol>
+            </nav>
+          );
+        })()}
 
         <PhotoGallery photos={photos} facilityName={facility.name} />
         <div className="flex items-start justify-between">
@@ -186,20 +208,37 @@ export default async function FacilityPage({ params }: Props) {
           }}
         />
         {/* JSON-LD: BreadcrumbList */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org',
-              '@type': 'BreadcrumbList',
-              itemListElement: [
-                { '@type': 'ListItem', position: 1, name: 'トップ', item: `${SITE_URL}/search` },
-                { '@type': 'ListItem', position: 2, name: facility.business_type, item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` },
-                { '@type': 'ListItem', position: 3, name: facility.name },
-              ],
-            }).replace(/</g, '\\u003c'),
-          }}
-        />
+        {(() => {
+          const pSlug = getPrefectureSlug(facility.prefecture);
+          const tSlug = getBusinessTypeSlug(facility.business_type);
+          const items: { '@type': string; position: number; name: string; item?: string }[] = [
+            { '@type': 'ListItem', position: 1, name: 'トップ', item: SITE_URL },
+          ];
+          if (pSlug) {
+            items.push({ '@type': 'ListItem', position: 2, name: facility.prefecture, item: `${SITE_URL}/${pSlug}` });
+            if (tSlug) {
+              items.push({ '@type': 'ListItem', position: 3, name: facility.business_type, item: `${SITE_URL}/${pSlug}/${tSlug}` });
+              items.push({ '@type': 'ListItem', position: 4, name: facility.name });
+            } else {
+              items.push({ '@type': 'ListItem', position: 3, name: facility.name });
+            }
+          } else {
+            items.push({ '@type': 'ListItem', position: 2, name: facility.business_type, item: `${SITE_URL}/search?type=${encodeURIComponent(facility.business_type)}` });
+            items.push({ '@type': 'ListItem', position: 3, name: facility.name });
+          }
+          return (
+            <script
+              type="application/ld+json"
+              dangerouslySetInnerHTML={{
+                __html: JSON.stringify({
+                  '@context': 'https://schema.org',
+                  '@type': 'BreadcrumbList',
+                  itemListElement: items,
+                }).replace(/</g, '\\u003c'),
+              }}
+            />
+          );
+        })()}
         {/* JSON-LD: Individual Reviews */}
         {reviews.length > 0 && (
           <script

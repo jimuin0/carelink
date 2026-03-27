@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
+import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
 import JapanRegionMap from '@/components/home/JapanRegionMap';
@@ -277,29 +278,38 @@ export default function Home() {
             <div className="flex-1 min-w-0 space-y-8">
               <div>
                 <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">業種 &times; エリアで探す</h2>
-                {categories.map((cat, idx) => (
-                  <div key={cat.type} className={`py-3 ${idx < categories.length - 1 ? 'border-b border-gray-100' : ''}`}>
-                    <Link
-                      href={`/search?type=${encodeURIComponent(cat.type)}`}
-                      className="text-sky-700 text-[15px] font-medium hover:underline"
-                    >
-                      {cat.type}を探す
-                    </Link>
-                    <div className="flex items-center mt-1.5 whitespace-nowrap">
-                      {regionGroups.map((region, i) => (
-                        <span key={region.name} className="text-xs">
-                          {i > 0 && <span className="text-gray-200 mx-2">|</span>}
-                          <Link
-                            href={`/search?type=${encodeURIComponent(cat.type)}&area=${encodeURIComponent(region.prefectures[0])}`}
-                            className="text-gray-500 hover:text-sky-700 transition-colors"
-                          >
-                            {region.name}
-                          </Link>
-                        </span>
-                      ))}
+                {categories.map((cat, idx) => {
+                  const tSlug = getBusinessTypeSlug(cat.type);
+                  return (
+                    <div key={cat.type} className={`py-3 ${idx < categories.length - 1 ? 'border-b border-gray-100' : ''}`}>
+                      <Link
+                        href={`/search?type=${encodeURIComponent(cat.type)}`}
+                        className="text-sky-700 text-[15px] font-medium hover:underline"
+                      >
+                        {cat.type}を探す
+                      </Link>
+                      <div className="flex items-center mt-1.5 whitespace-nowrap">
+                        {regionGroups.map((region, i) => {
+                          const pSlug = getPrefectureSlug(region.prefectures[0]);
+                          const href = pSlug && tSlug
+                            ? `/${pSlug}/${tSlug}`
+                            : `/search?type=${encodeURIComponent(cat.type)}&area=${encodeURIComponent(region.prefectures[0])}`;
+                          return (
+                            <span key={region.name} className="text-xs">
+                              {i > 0 && <span className="text-gray-200 mx-2">|</span>}
+                              <Link
+                                href={href}
+                                className="text-gray-500 hover:text-sky-700 transition-colors"
+                              >
+                                {region.name}
+                              </Link>
+                            </span>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
 
               <div>
@@ -325,12 +335,15 @@ export default function Home() {
                     <div key={region.name}>
                       <h3 className="text-[11px] font-bold text-gray-500 mb-1">{region.name}</h3>
                       <div className="flex items-center whitespace-nowrap">
-                        {region.prefectures.map((pref, i) => (
-                          <span key={pref} className="text-xs">
-                            {i > 0 && <span className="text-gray-200 mx-2">|</span>}
-                            <Link href={`/search?area=${encodeURIComponent(pref)}`} className="text-gray-600 hover:text-sky-700 transition-colors">{pref}</Link>
-                          </span>
-                        ))}
+                        {region.prefectures.map((pref, i) => {
+                          const pSlug = getPrefectureSlug(pref);
+                          return (
+                            <span key={pref} className="text-xs">
+                              {i > 0 && <span className="text-gray-200 mx-2">|</span>}
+                              <Link href={pSlug ? `/${pSlug}` : `/search?area=${encodeURIComponent(pref)}`} className="text-gray-600 hover:text-sky-700 transition-colors">{pref}</Link>
+                            </span>
+                          );
+                        })}
                       </div>
                     </div>
                   ))}

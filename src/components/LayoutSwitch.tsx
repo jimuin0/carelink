@@ -5,6 +5,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import SearchHeader from '@/components/search/SearchHeader';
 import SearchFooter from '@/components/search/SearchFooter';
+import { isValidPrefectureSlug } from '@/lib/seo-constants';
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -14,7 +15,11 @@ export default function LayoutSwitch({ children }: { children: React.ReactNode }
     return <main className="flex-1">{children}</main>;
   }
 
-  const isSearchSite = pathname === '/' || pathname.startsWith('/search') || pathname.startsWith('/facility') || pathname.startsWith('/mypage') || pathname.startsWith('/auth') || pathname.startsWith('/ranking');
+  // Check if path starts with a prefecture slug (e.g. /tokyo, /osaka/hair-salon)
+  const firstSegment = pathname.split('/')[1] || '';
+  const isPrefecturePage = isValidPrefectureSlug(firstSegment);
+
+  const isSearchSite = pathname === '/' || pathname.startsWith('/search') || pathname.startsWith('/facility') || pathname.startsWith('/mypage') || pathname.startsWith('/auth') || pathname.startsWith('/ranking') || pathname.startsWith('/feature') || isPrefecturePage;
 
   if (isSearchSite) {
     return (

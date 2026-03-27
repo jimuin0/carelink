@@ -12,7 +12,12 @@ function CardStarRating({ rating, count }: { rating: number; count: number }) {
   );
 }
 
-export default function FacilityCard({ facility }: { facility: FacilityCardData }) {
+interface Props {
+  facility: FacilityCardData;
+  showBadges?: boolean;
+}
+
+export default function FacilityCard({ facility, showBadges = true }: Props) {
   return (
     <Link href={`/facility/${facility.slug}`} className="facility-card block">
       <div className="relative aspect-[16/10] bg-gray-100">
@@ -31,9 +36,14 @@ export default function FacilityCard({ facility }: { facility: FacilityCardData 
             </svg>
           </div>
         )}
-        <span className="absolute top-3 left-3 badge badge-primary">
-          {facility.business_type}
-        </span>
+        <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
+          <span className="badge badge-primary">{facility.business_type}</span>
+          {showBadges && (
+            <>
+              <span className="badge badge-instant">予約OK</span>
+            </>
+          )}
+        </div>
       </div>
       <div className="p-4">
         <h3 className="font-bold text-lg mb-1 line-clamp-1">{facility.name}</h3>
@@ -43,14 +53,17 @@ export default function FacilityCard({ facility }: { facility: FacilityCardData 
         {facility.catch_copy && (
           <p className="text-gray-600 text-sm mt-2 line-clamp-2">{facility.catch_copy}</p>
         )}
-        <p className="text-gray-400 text-xs mt-2 flex items-center gap-1">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          {facility.prefecture} {facility.city}
-          {facility.access_info && ` / ${facility.access_info}`}
-        </p>
+        <div className="flex items-center justify-between mt-2">
+          <p className="text-gray-400 text-xs flex items-center gap-1">
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+            {facility.prefecture} {facility.city}
+            {facility.access_info && ` / ${facility.access_info}`}
+          </p>
+          <span className="badge badge-point text-[10px]">ポイント</span>
+        </div>
       </div>
     </Link>
   );

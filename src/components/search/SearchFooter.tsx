@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
+import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 
 export default function SearchFooter() {
   return (
@@ -13,15 +14,18 @@ export default function SearchFooter() {
               <div key={region.name}>
                 <h3 className="text-gray-500 text-[11px] font-bold mb-1">{region.name}</h3>
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  {region.prefectures.map((pref) => (
-                    <Link
-                      key={pref}
-                      href={`/search?area=${encodeURIComponent(pref)}`}
-                      className="text-xs text-gray-400 hover:text-white transition-colors"
-                    >
-                      {pref}
-                    </Link>
-                  ))}
+                  {region.prefectures.map((pref) => {
+                    const slug = getPrefectureSlug(pref);
+                    return (
+                      <Link
+                        key={pref}
+                        href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
+                        className="text-xs text-gray-400 hover:text-white transition-colors"
+                      >
+                        {pref}
+                      </Link>
+                    );
+                  })}
                 </div>
               </div>
             ))}
@@ -41,15 +45,22 @@ export default function SearchFooter() {
                 </h3>
                 <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
                   {regionGroups.flatMap((region) =>
-                    region.prefectures.map((pref) => (
-                      <Link
-                        key={`${type}-${pref}`}
-                        href={`/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`}
-                        className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
-                      >
-                        {pref}
-                      </Link>
-                    ))
+                    region.prefectures.map((pref) => {
+                      const pSlug = getPrefectureSlug(pref);
+                      const tSlug = getBusinessTypeSlug(type);
+                      const href = pSlug && tSlug
+                        ? `/${pSlug}/${tSlug}`
+                        : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
+                      return (
+                        <Link
+                          key={`${type}-${pref}`}
+                          href={href}
+                          className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                          {pref}
+                        </Link>
+                      );
+                    })
                   )}
                 </div>
               </div>
@@ -73,15 +84,18 @@ export default function SearchFooter() {
           <div>
             <h3 className="text-white font-bold text-sm mb-3">業種から探す</h3>
             <nav className="flex flex-col gap-1.5 text-sm">
-              {businessTypes.map((type) => (
-                <Link
-                  key={type}
-                  href={`/search?type=${encodeURIComponent(type)}`}
-                  className="hover:text-white transition-colors"
-                >
-                  {type}
-                </Link>
-              ))}
+              {businessTypes.map((type) => {
+                const tSlug = getBusinessTypeSlug(type);
+                return (
+                  <Link
+                    key={type}
+                    href={tSlug ? `/search?type=${encodeURIComponent(type)}` : `/search?type=${encodeURIComponent(type)}`}
+                    className="hover:text-white transition-colors"
+                  >
+                    {type}
+                  </Link>
+                );
+              })}
             </nav>
           </div>
         </div>
