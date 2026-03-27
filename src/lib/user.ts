@@ -10,7 +10,7 @@ export async function getUserProfile(): Promise<Profile | null> {
     .from('profiles')
     .select('*')
     .eq('id', user.id)
-    .single();
+    .maybeSingle();
 
   return data;
 }
@@ -61,7 +61,7 @@ export async function toggleFavorite(facilityId: string): Promise<{ isFavorited:
     .select('id')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
-    .single();
+    .maybeSingle();
 
   if (existing) {
     const { error } = await supabase
@@ -87,7 +87,7 @@ export async function checkFavorite(facilityId: string): Promise<boolean> {
     .select('id')
     .eq('user_id', user.id)
     .eq('facility_id', facilityId)
-    .single();
+    .maybeSingle();
 
   return !!data;
 }

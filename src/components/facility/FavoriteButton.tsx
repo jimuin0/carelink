@@ -29,7 +29,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
         .select('id')
         .eq('user_id', user.id)
         .eq('facility_id', facilityId)
-        .single();
+        .maybeSingle();
 
       setIsFavorited(!!data);
       setLoading(false);
