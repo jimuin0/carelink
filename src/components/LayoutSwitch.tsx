@@ -5,6 +5,7 @@ import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import SearchHeader from '@/components/search/SearchHeader';
 import SearchFooter from '@/components/search/SearchFooter';
+import MobileBottomNav from '@/components/search/MobileBottomNav';
 import { isValidPrefectureSlug } from '@/lib/seo-constants';
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
@@ -25,8 +26,9 @@ export default function LayoutSwitch({ children }: { children: React.ReactNode }
     return (
       <>
         <SearchHeader />
-        <main className="flex-1">{children}</main>
+        <main className="flex-1 pb-14 lg:pb-0">{children}</main>
         <SearchFooter />
+        <MobileBottomNav />
       </>
     );
   }

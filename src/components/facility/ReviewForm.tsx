@@ -10,13 +10,27 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import StarRating from './StarRating';
 
+const ratingAxis = z.number().min(1, '評価を選択してください').max(5);
+
 const reviewSchema = z.object({
   reviewer_name: z.string().min(1, 'お名前を入力してください'),
-  rating: z.number().min(1, '評価を選択してください').max(5),
+  rating_skill: ratingAxis,
+  rating_service: ratingAxis,
+  rating_atmosphere: ratingAxis,
+  rating_cleanliness: ratingAxis,
+  rating_explanation: ratingAxis,
   comment: z.string().max(500, '500文字以内で入力してください').optional().or(z.literal('')),
 });
 
 type ReviewFormData = z.infer<typeof reviewSchema>;
+
+const AXES = [
+  { key: 'rating_skill', label: '技術' },
+  { key: 'rating_service', label: '接客' },
+  { key: 'rating_atmosphere', label: '雰囲気' },
+  { key: 'rating_cleanliness', label: '清潔感' },
+  { key: 'rating_explanation', label: '施術の説明' },
+] as const;
 
 interface Props {
   facilityId: string;
@@ -31,17 +45,32 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
 
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting }, reset } = useForm<ReviewFormData>({
     resolver: zodResolver(reviewSchema),
-    defaultValues: { reviewer_name: '', rating: 0, comment: '' },
+    defaultValues: {
+      reviewer_name: '',
+      rating_skill: 0,
+      rating_service: 0,
+      rating_atmosphere: 0,
+      rating_cleanliness: 0,
+      rating_explanation: 0,
+      comment: '',
+    },
   });
 
-  const rating = watch('rating');
-
   const onSubmit = async (data: ReviewFormData) => {
+    const avg = Math.round(
+      (data.rating_skill + data.rating_service + data.rating_atmosphere + data.rating_cleanliness + data.rating_explanation) / 5
+    );
+
     try {
       const { error } = await supabase.from('facility_reviews').insert({
         facility_id: facilityId,
         reviewer_name: data.reviewer_name,
-        rating: data.rating,
+        rating: avg,
+        rating_skill: data.rating_skill,
+        rating_service: data.rating_service,
+        rating_atmosphere: data.rating_atmosphere,
+        rating_cleanliness: data.rating_cleanliness,
+        rating_explanation: data.rating_explanation,
         comment: data.comment || null,
       });
       if (error) throw error;
@@ -77,11 +106,18 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
         </div>
 
         <div>
-          <label className="form-label" id="rating-label">評価 <span className="text-red-500">*</span></label>
-          <div aria-labelledby="rating-label">
-            <StarRating value={rating} onChange={(v) => setValue('rating', v, { shouldValidate: true })} />
+          <p className="form-label">評価 <span className="text-red-500">*</span></p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {AXES.map(({ key, label }) => (
+              <div key={key} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                <span className="text-sm font-medium text-gray-700 min-w-[5em]">{label}</span>
+                <StarRating value={watch(key)} onChange={(v) => setValue(key, v, { shouldValidate: true })} size="sm" />
+              </div>
+            ))}
           </div>
-          {errors.rating && <p className="form-error" role="alert">{errors.rating.message}</p>}
+          {(errors.rating_skill || errors.rating_service || errors.rating_atmosphere || errors.rating_cleanliness || errors.rating_explanation) && (
+            <p className="form-error mt-1" role="alert">すべての項目を評価してください</p>
+          )}
         </div>
 
         <div>

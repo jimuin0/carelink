@@ -176,6 +176,42 @@ export default async function FacilityPage({ params }: Props) {
             <FavoriteButton facilityId={facility.id} />
           </div>
         </div>
+
+        {/* クーポンプレビュー（ファーストビュー） */}
+        {coupons.length > 0 && (
+          <div className="px-4 sm:px-6 pb-3">
+            <div className="bg-gradient-to-r from-red-50 to-orange-50 rounded-xl p-3 border border-red-100">
+              <p className="text-xs font-bold text-red-500 mb-2 flex items-center gap-1">
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm2.5 3a1.5 1.5 0 100 3 1.5 1.5 0 000-3zm6.207.293a1 1 0 00-1.414 0l-6 6a1 1 0 101.414 1.414l6-6a1 1 0 000-1.414zM12.5 10a1.5 1.5 0 100 3 1.5 1.5 0 000-3z" clipRule="evenodd" /></svg>
+                クーポンあり
+              </p>
+              <div className="space-y-1.5">
+                {coupons.slice(0, 3).map((coupon) => (
+                  <div key={coupon.id} className="flex items-center justify-between bg-white rounded-lg px-3 py-2">
+                    <div className="flex-1 min-w-0 mr-2">
+                      <p className="text-xs font-bold truncate">{coupon.name}</p>
+                    </div>
+                    <span className="text-sm font-bold text-red-500 shrink-0">
+                      {coupon.discount_type === 'special_price' && coupon.special_price !== null
+                        ? `¥${coupon.special_price.toLocaleString()}`
+                        : coupon.discount_type === 'percentage' && coupon.discount_value !== null
+                        ? `${coupon.discount_value}%OFF`
+                        : coupon.discount_type === 'fixed' && coupon.discount_value !== null
+                        ? `¥${coupon.discount_value.toLocaleString()}OFF`
+                        : ''}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              {coupons.length > 3 && (
+                <p className="text-xs text-center text-sky-600 font-medium mt-2">
+                  他{coupons.length - 3}件のクーポン
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
         <TabNavigation tabs={tabs} />
 
         {/* 類似施設 (ストリーミング) */}

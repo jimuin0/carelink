@@ -116,6 +116,11 @@ export interface FacilityReview {
   facility_id: string;
   reviewer_name: string;
   rating: number;
+  rating_skill: number | null;
+  rating_service: number | null;
+  rating_atmosphere: number | null;
+  rating_cleanliness: number | null;
+  rating_explanation: number | null;
   comment: string | null;
   status: 'published' | 'hidden';
   created_at: string;
