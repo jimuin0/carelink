@@ -10,6 +10,16 @@ function getResend(): Resend | null {
 const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink.jp>';
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
 
+/** HTML特殊文字エスケープ（XSS防止） */
+function esc(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 interface BookingEmailData {
   customerName: string;
   customerEmail: string;
@@ -34,12 +44,14 @@ function formatTime(time: string): string {
 }
 
 function bookingDetailHtml(data: BookingEmailData): string {
+  const td = 'padding:8px 12px;border:1px solid #e2e8f0;';
+  const th = `${td}background:#f8fafc;font-weight:600;width:120px;`;
   return `
     <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-      <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">日時</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${formatDate(data.bookingDate)} ${formatTime(data.startTime)}〜${formatTime(data.endTime)}</td></tr>
-      ${data.menuName ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メニュー</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${data.menuName}</td></tr>` : ''}
-      ${data.staffName ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">担当</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${data.staffName}</td></tr>` : ''}
-      ${data.totalPrice != null ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">料金</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">¥${data.totalPrice.toLocaleString()}</td></tr>` : ''}
+      <tr><td style="${th}">日時</td><td style="${td}">${formatDate(data.bookingDate)} ${formatTime(data.startTime)}〜${formatTime(data.endTime)}</td></tr>
+      ${data.menuName ? `<tr><td style="${th}">メニュー</td><td style="${td}">${esc(data.menuName)}</td></tr>` : ''}
+      ${data.staffName ? `<tr><td style="${th}">担当</td><td style="${td}">${esc(data.staffName)}</td></tr>` : ''}
+      ${data.totalPrice != null ? `<tr><td style="${th}">料金</td><td style="${td}">&yen;${data.totalPrice.toLocaleString()}</td></tr>` : ''}
     </table>
   `;
 }
@@ -57,13 +69,15 @@ function wrapHtml(body: string): string {
 export async function sendBookingConfirmation(data: BookingEmailData) {
   const resend = getResend();
   if (!resend) return;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
   await resend.emails.send({
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】${data.facilityName}のご予約を受け付けました`,
     html: wrapHtml(`
-      <p>${data.customerName} 様</p>
-      <p>${data.facilityName}へのご予約を受け付けました。<br>施設からの確認後、確定メールをお送りいたします。</p>
+      <p>${name} 様</p>
+      <p>${facility}へのご予約を受け付けました。<br>施設からの確認後、確定メールをお送りいたします。</p>
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),
@@ -74,13 +88,15 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
 export async function sendBookingConfirmed(data: BookingEmailData) {
   const resend = getResend();
   if (!resend) return;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
   await resend.emails.send({
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】${data.facilityName}のご予約が確定しました`,
     html: wrapHtml(`
-      <p>${data.customerName} 様</p>
-      <p>${data.facilityName}のご予約が<strong style="color:#16a34a;">確定</strong>しました。</p>
+      <p>${name} 様</p>
+      <p>${facility}のご予約が<strong style="color:#16a34a;">確定</strong>しました。</p>
       ${bookingDetailHtml(data)}
       <p>当日のご来店をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
@@ -92,13 +108,15 @@ export async function sendBookingConfirmed(data: BookingEmailData) {
 export async function sendBookingCancelled(data: BookingEmailData) {
   const resend = getResend();
   if (!resend) return;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
   await resend.emails.send({
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】${data.facilityName}のご予約がキャンセルされました`,
     html: wrapHtml(`
-      <p>${data.customerName} 様</p>
-      <p>${data.facilityName}のご予約がキャンセルされました。</p>
+      <p>${name} 様</p>
+      <p>${facility}のご予約がキャンセルされました。</p>
       ${bookingDetailHtml(data)}
       <p>またのご利用をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/search" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">他のサロンを探す</a></p>
@@ -110,6 +128,8 @@ export async function sendBookingCancelled(data: BookingEmailData) {
 export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }) {
   const resend = getResend();
   if (!resend) return;
+  const name = esc(data.customerName);
+  const email = esc(data.customerEmail);
   await resend.emails.send({
     from: FROM,
     to: data.facilityEmail,
@@ -117,8 +137,8 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
     html: wrapHtml(`
       <p>新しい予約が入りました。管理画面から確認・承認してください。</p>
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
-        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${data.customerName}</td></tr>
-        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${data.customerEmail}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
       </table>
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
@@ -138,15 +158,17 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
     no_show: 'キャンセル（無断）',
   };
   const statusLabel = statusLabels[data.newStatus] || data.newStatus;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
 
   await resend.emails.send({
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】予約ステータスが「${statusLabel}」に変更されました`,
     html: wrapHtml(`
-      <p>${data.customerName} 様</p>
-      <p>${data.facilityName}のご予約のステータスが<strong>「${statusLabel}」</strong>に変更されました。</p>
-      ${data.reason ? `<p style="background:#fef3c7;padding:12px;border-radius:8px;font-size:14px;">理由: ${data.reason}</p>` : ''}
+      <p>${name} 様</p>
+      <p>${facility}のご予約のステータスが<strong>「${statusLabel}」</strong>に変更されました。</p>
+      ${data.reason ? `<p style="background:#fef3c7;padding:12px;border-radius:8px;font-size:14px;">理由: ${esc(data.reason)}</p>` : ''}
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),

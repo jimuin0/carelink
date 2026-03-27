@@ -3,6 +3,8 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import type { Booking } from '@/types';
 
+const PER_PAGE = 20;
+
 const statusLabels: Record<string, { label: string; color: string }> = {
   pending: { label: '確認待ち', color: 'bg-yellow-100 text-yellow-800' },
   confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
@@ -12,7 +14,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 };
 
 interface Props {
-  searchParams: { status?: string; date?: string };
+  searchParams: { status?: string; date?: string; page?: string };
 }
 
 export default async function AdminBookingsPage({ searchParams }: Props) {
@@ -27,11 +29,16 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
     .single();
   if (!membership) notFound();
 
+  const page = Math.max(1, parseInt(searchParams.page || '1') || 1);
+  const from = (page - 1) * PER_PAGE;
+  const to = from + PER_PAGE - 1;
+
   let query = supabase
     .from('bookings')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('facility_id', membership.facility_id)
-    .order('booking_date', { ascending: false });
+    .order('booking_date', { ascending: false })
+    .range(from, to);
 
   const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
   if (searchParams.status && validStatuses.includes(searchParams.status)) {
@@ -41,12 +48,23 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
     query = query.eq('booking_date', searchParams.date);
   }
 
-  const { data } = await query;
+  const { data, count } = await query;
   const bookings = (data ?? []) as Booking[];
+  const total = count ?? 0;
+  const totalPages = Math.ceil(total / PER_PAGE);
+
+  // Build pagination base URL
+  const baseParams = new URLSearchParams();
+  if (searchParams.status) baseParams.set('status', searchParams.status);
+  if (searchParams.date) baseParams.set('date', searchParams.date);
+  const baseUrl = `/admin/bookings?${baseParams.toString()}`;
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">予約管理</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold">予約管理</h1>
+        <p className="text-sm text-gray-500">{total}件</p>
+      </div>
 
       {/* Filters */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
@@ -102,6 +120,19 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-6">
+          {page > 1 && (
+            <Link href={`${baseUrl}${baseParams.toString() ? '&' : ''}page=${page - 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">前へ</Link>
+          )}
+          <span className="text-sm text-gray-500">{page} / {totalPages}</span>
+          {page < totalPages && (
+            <Link href={`${baseUrl}${baseParams.toString() ? '&' : ''}page=${page + 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">次へ</Link>
+          )}
         </div>
       )}
     </div>
