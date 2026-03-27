@@ -97,6 +97,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="この施設について気になることを質問してみましょう"
+            aria-label="質問を入力"
             className="form-input text-sm"
             rows={3}
             maxLength={500}
@@ -126,6 +127,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
             <div key={qa.id} className="bg-gray-50 rounded-xl overflow-hidden">
               <button
                 onClick={() => setExpandedId(expandedId === qa.id ? null : qa.id)}
+                aria-expanded={expandedId === qa.id}
                 className="w-full text-left p-4 flex items-start gap-3"
               >
                 <span className="shrink-0 w-6 h-6 bg-sky-500 text-white text-xs font-bold rounded-full flex items-center justify-center mt-0.5">Q</span>

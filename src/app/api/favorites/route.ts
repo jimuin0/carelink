@@ -9,8 +9,9 @@ export async function POST(request: Request) {
     if (csrfError) return csrfError;
 
     const { facilityId } = await request.json();
-    if (!facilityId) {
-      return NextResponse.json({ error: 'facilityId is required' }, { status: 400 });
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!facilityId || !uuidRegex.test(facilityId)) {
+      return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
     }
 
     const cookieStore = cookies();
