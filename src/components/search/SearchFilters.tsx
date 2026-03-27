@@ -2,7 +2,7 @@
 
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useCallback } from 'react';
-import { prefectures, businessTypes, facilityFeatures } from '@/lib/constants';
+import { businessTypes, facilityFeatures, regionGroups } from '@/lib/constants';
 
 export default function SearchFilters({ className }: { className?: string }) {
   const router = useRouter();
@@ -64,8 +64,12 @@ export default function SearchFilters({ className }: { className?: string }) {
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
-          {prefectures.map((p) => (
-            <option key={p} value={p}>{p}</option>
+          {regionGroups.map((region) => (
+            <optgroup key={region.name} label={region.name}>
+              {region.prefectures.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </div>

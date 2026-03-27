@@ -13,10 +13,10 @@ export default async function MyPageDashboard() {
     .eq('id', user.id)
     .single();
 
-  const { count: favoriteCount } = await supabase
-    .from('favorites')
-    .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id);
+  const [{ count: favoriteCount }, { count: bookingCount }] = await Promise.all([
+    supabase.from('favorites').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+    supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -38,6 +38,20 @@ export default async function MyPageDashboard() {
             <div>
               <p className="text-2xl font-bold">{favoriteCount ?? 0}</p>
               <p className="text-sm text-gray-500">お気に入り施設</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link href="/mypage/bookings" className="bg-white rounded-2xl shadow-sm p-6 hover:shadow-md transition-shadow">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-green-50 flex items-center justify-center">
+              <svg className="w-6 h-6 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <p className="text-2xl font-bold">{bookingCount ?? 0}</p>
+              <p className="text-sm text-gray-500">予約履歴</p>
             </div>
           </div>
         </Link>

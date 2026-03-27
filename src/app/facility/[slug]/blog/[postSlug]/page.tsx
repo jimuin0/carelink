@@ -4,6 +4,27 @@ import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogPost } from '@/lib/blog';
 
+function sanitizeUrl(url: string): string {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
+  return '#';
+}
+
+function renderMarkdown(text: string): string {
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => `<a href="${sanitizeUrl(url)}" class="text-sky-600 underline" rel="noopener noreferrer">${label}</a>`)
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>')
+    .replace(/^/, '<p>').replace(/$/, '</p>');
+}
+
 interface Props {
   params: { slug: string; postSlug: string };
 }
@@ -47,9 +68,10 @@ export default async function BlogDetailPage({ params }: Props) {
             {post.published_at ? new Date(post.published_at).toLocaleDateString('ja-JP') : ''}
           </p>
 
-          <div className="mt-6 prose prose-sm max-w-none whitespace-pre-wrap text-gray-700 leading-relaxed">
-            {post.content}
-          </div>
+          <div
+            className="mt-6 prose prose-sm max-w-none text-gray-700 leading-relaxed"
+            dangerouslySetInnerHTML={{ __html: renderMarkdown(post.content) }}
+          />
         </article>
 
         <div className="px-4 sm:px-6 pb-8">

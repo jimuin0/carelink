@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getCatalogsByFacility } from '@/lib/catalogs';
+import BeforeAfterSlider from '@/components/catalog/BeforeAfterSlider';
 
 interface Props {
   params: { slug: string };
@@ -48,7 +49,13 @@ export default async function CatalogPage({ params }: Props) {
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {catalogs.map((catalog) => (
                 <div key={catalog.id} className="rounded-xl overflow-hidden border border-gray-100">
-                  {catalog.after_photo_url ? (
+                  {catalog.before_photo_url && catalog.after_photo_url ? (
+                    <BeforeAfterSlider
+                      beforeUrl={catalog.before_photo_url}
+                      afterUrl={catalog.after_photo_url}
+                      title={catalog.title}
+                    />
+                  ) : catalog.after_photo_url ? (
                     <div className="relative aspect-square bg-gray-100">
                       <Image src={catalog.after_photo_url} alt={catalog.title} fill className="object-cover" />
                     </div>

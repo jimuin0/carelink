@@ -1,6 +1,12 @@
+import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+
+export const metadata: Metadata = {
+  title: { default: 'マイページ', template: '%s | マイページ | CareLink' },
+  robots: { index: false, follow: false },
+};
 
 export default async function MyPageLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerSupabaseAuthClient();

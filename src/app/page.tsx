@@ -1,6 +1,18 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
+
+export const metadata: Metadata = {
+  title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
+  description: 'CareLink（ケアリンク）はヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約できるプラットフォーム。メニュー・料金・口コミで簡単比較。掲載・利用料無料。',
+  alternates: { canonical: '/' },
+  openGraph: {
+    title: 'CareLink | ネットでかんたんサロン予約',
+    description: 'ヘア・ネイル・エステ・リラク・美容クリニックを検索・予約。メニュー・料金・口コミで簡単比較。',
+    type: 'website',
+  },
+};
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import HomeSearchForm from '@/components/search/HomeSearchForm';

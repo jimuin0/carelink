@@ -1,7 +1,7 @@
-# CareLink マニュアル v4.0
+# CareLink マニュアル v5.0
 
-**最終更新**: 2026年3月26日
-**バージョン**: 4.0
+**最終更新**: 2026年3月27日
+**バージョン**: 5.0
 **作成者**: Claude + 神原 良祐
 **プロジェクト**: ~/Projects/carelink/
 
@@ -959,8 +959,11 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/admin/blog/[id]/edit` | `admin/blog/[id]/edit/page.tsx` | Dynamic | ブログ編集 |
 | `/admin/catalog` | `admin/catalog/page.tsx` | Dynamic | カタログ管理 |
 | `/admin/catalog/new` | `admin/catalog/new/page.tsx` | Dynamic | カタログ追加 |
+| `/admin/menus` | `admin/menus/page.tsx` | Dynamic | メニュー管理（CRUD・15カテゴリ） |
+| `/admin/reviews` | `admin/reviews/page.tsx` | Dynamic | 口コミ管理（公開/非公開切替） |
+| `/admin/photos` | `admin/photos/page.tsx` | Dynamic | 写真管理（アップロード・メイン設定） |
 | `/admin/analytics` | `admin/analytics/page.tsx` | Dynamic | 売上レポート |
-| `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定 |
+| `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定（基本情報・営業時間・特徴） |
 
 **API Routes**
 
@@ -968,7 +971,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 |------|---------|------|
 | `/api/notify` | POST | Slack通知（Zod検証・レート制限） |
 | `/api/booking` | POST | 予約作成（競合チェック・レート制限: 3回/5分） |
-| `/api/booking/[id]/cancel` | POST | 予約キャンセル（UUID検証・所有者チェック） |
+| `/api/booking/[id]/cancel` | POST | 予約キャンセル（UUID検証・所有者チェック・メール通知） |
+| `/api/admin/booking-status` | POST | 予約ステータス変更（承認/却下・メール通知） |
 | `/api/slots` | GET | 空き枠取得（UUID+日付バリデーション・duration 15-480制限） |
 | `/api/favorites` | POST | お気に入りトグル（認証必須） |
 | `/api/profile` | PUT | プロフィール更新（Zod検証・認証必須） |
@@ -999,24 +1003,22 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 
 | セクション | 内容 |
 |-----------|------|
-| Hero | 「採用も、集客も。CareLinkがつなぎます。」+ 施設/求職者CTA |
-| Numbers | 0円 / 3分 / 5業種+ / 24h |
-| こんな方におすすめ | 施設経営者 / 求職者の2カラムカード |
-| CareLink の特長 | 業界特化 / 業界特化の掲載 / 完全無料 |
-| ご利用の流れ | 3ステップ |
-| 安心してご利用いただけます | SSL / 個人情報保護 / サポート |
-| よくある質問 | 4問FAQ |
-| CTA | 施設掲載 / 求職者登録ボタン |
+| Hero | 「ネットでかんたんサロン予約」+ 検索フォーム + 業種ピル + 統計カウンター（施設数/口コミ数/¥0） |
+| 特集バナー | 3カラム画像バナー（春のヘアチェンジ/ご褒美リラク/理想の目元） |
+| お悩みナビ | 6グリッド（髪イメチェン/まつ毛/肩こり/お肌/ネイル/疲れ癒し） |
+| エリアマップ | JapanRegionMap + 業種×エリア + こだわり条件 + 主要都市 + 47都道府県 |
 
 ### 8.4 検索ページ構成（`/search`）
 
 | セクション | 内容 |
 |-----------|------|
 | SearchBar | キーワード / 業種セレクト / エリアセレクト / 検索ボタン |
-| 結果ヘッダー | 「○件の施設が見つかりました」+ 並び替え（新着順/評価順） |
+| サイドバー | SearchFilters（エリア=地方optgroup/業種/評価/価格帯/こだわり16条件） |
+| モバイル | MobileFilterDrawer（`<dialog>`スライドイン）+ 固定フローティングボタン |
+| 結果ヘッダー | 「○件見つかりました」+ 並び替え（新着順/評価順/人気順）+ フィルター数表示 |
 | カードグリッド | FacilityCard × 20件/ページ（2列レスポンシブ） |
 | Pagination | ページネーション（省略記号付き、ARIA対応） |
-| Empty State | 「条件に一致する施設が見つかりませんでした」 |
+| Empty State | 「該当するサロン・クリニックが見つかりませんでした」 |
 
 ### 8.5 施設詳細ページ構成（`/facility/[slug]`）
 
@@ -1025,7 +1027,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | パンくず | `<nav>` | CareLink > 施設名 |
 | 写真 | `PhotoGallery` | メイン画像+サムネイル行+カウンター |
 | ヘッダー | `FacilityHeader` | 業種バッジ・評価・施設名・キャッチコピー |
-| タブ | `TabNavigation` | Top / メニュー / 口コミ(件数) / アクセス |
+| タブ | `TabNavigation` | Top / メニュー / スタッフ / カタログ / クーポン / 口コミ(件数) / アクセス |
 | Topタブ | - | 紹介文・おすすめメニュー3件・特徴タグ・基本情報 |
 | メニュータブ | `MenuList` | カテゴリ別メニュー一覧（価格・時間） |
 | 口コミタブ | `ReviewTab` | 評価サマリー+棒グラフ+口コミ一覧+投稿フォーム |
@@ -1209,6 +1211,13 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `InquiryForm` | 名前/メール/電話/メッセージ。Supabase INSERT + Slack通知。autocomplete属性 |
 | `StarRating` | 入力/表示兼用。readonly時: role="img" + aria-label。入力時: hover:scale-110 + aria-label="X点を選択" |
 | `StickyBookingBar` | 固定下部バー。電話(tel:リンク) + お問い合わせ(#contact-sectionスクロール) |
+| `BeforeAfterSlider` | Before/After画像比較スライダー。ポインタードラッグ+キーボード矢印対応。role="slider" |
+
+### 11.5 管理画面コンポーネント（`components/admin/`）
+
+| コンポーネント | 説明 |
+|---------------|------|
+| `AdminMobileNav` | モバイル管理画面ナビ。4タブ+「その他」メニュー（12項目対応）|
 
 ### 11.4 ConfirmDialog 詳細
 
@@ -1793,6 +1802,9 @@ SQL:       SQL Editor
 | 10 | 9件 | セキュリティ3（maxLength/MIME/エラーメッセージ漏洩）・SEO2（register metadata）・a11y4（aria-expanded/aria-label/autoComplete/aria-pressed） |
 | 11 | 5件 | パスワードリセット機能追加・bookingバリデーション強化・マイグレーション補完・.env.example更新・重複ページ削除 |
 | 12 | 4件 | /salon LP分離（CTA→/register）・利用規約チェックボックス・FlowをB方式に変更・未使用PhotoUpload.tsx削除 |
+| 13 | 14件 | 管理機能4点（施設設定/メニューCRUD/メール通知/予約承認フロー）・PWA manifest・保留予約アラート |
+| 14 | 17件 | Email XSS修正・PWA SVG修正・口コミ管理・写真管理・AdminMobileNav・loading.tsx 4件・Markdownエディタ・予約ページネーション |
+| 15 | 7件 | Before/Afterスライダー・エリア地方optgroup・シードデータ(スタッフ5名+カタログ6件)・マイページ予約カード・公開ブログMarkdown描画 |
 
 ---
 
@@ -1800,6 +1812,7 @@ SQL:       SQL Editor
 
 | 日付 | バージョン | 内容 |
 |------|-----------|------|
+| 2026-03-27 | 5.0 | **HPB深度強化Round13-15(38件修正)**: 管理機能4点(施設設定/メニューCRUD/Resendメール通知5テンプレ/予約承認フロー)、PWA manifest、Email XSS修正(`esc()`関数)、口コミ管理/写真管理/AdminMobileNav(4タブ+その他)、Markdownエディタ(ツールバー+プレビュー)、予約ページネーション(20件/page)、Before/Afterスライダー(ポインタードラッグ+キーボード)、エリア地方optgroup、シードデータ(スタッフ5名+カタログ6件)、マイページ予約カード、公開ブログMarkdown描画、loading.tsx 4件追加 |
 | 2026-03-26 | 4.0 | **外部サービス設定+品質強化**: GA4設定(`G-BP8GVKJ3NZ`)、Clarity設定(`w1sqla5alv`)、Supabase Site URL+Redirect URL設定、パスワードリセット機能(`/auth/forgot-password`+`/auth/reset-password`)、/salon LP分離(CTA→/register, B方式Flow)、bookingバリデーション強化、品質監査Round10-12(18件修正)、重複/salonsページ削除、マイグレーションファイル補完、.env.example更新(SERVICE_ROLE_KEY+LINE変数追加) |
 | 2026-03-22 | 3.0 | **HPB完全再現**: Phase 2〜6実装完了（認証/マイページ/お気に入り/エリア検索/スタッフ/クーポン/オンライン予約/管理ダッシュボード/ブログ/カタログ/ランキング/GPS検索/ポイント）。全25テーブル、120+新規ファイル。品質監査9回実施（80+件修正）。セキュリティ強化（レート制限/UUID検証/non-null assertion全排除/HTTPセキュリティヘッダー5種/GA4・Clarity IDバリデーション） |
 | 2026-03-22 | 2.0 | **大規模更新**: 検索サイト全機能追加（/search, /facility/[slug]）、検索側DB5テーブル+トリガー追加、全コンポーネント（16個）追加、LayoutSwitch追加、アクセシビリティ章追加、Zodバリデーション追加、動的sitemap、エラーバウンダリ、型定義一覧、DBクエリ関数一覧、定数一覧。GitHub移行(jimuin0)・自動デプロイ反映 |
