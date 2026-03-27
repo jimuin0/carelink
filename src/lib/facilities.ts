@@ -7,20 +7,30 @@ export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
 
   let query = supabase
-    .from('facility_profiles')
+    .from('facility_card_view')
     .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url',
+      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count',
       { count: 'exact' }
     )
     .eq('status', 'published');
 
   if (params.type) query = query.eq('business_type', params.type);
   if (params.prefecture) query = query.eq('prefecture', params.prefecture);
+  if (params.city) query = query.eq('city', params.city);
   if (params.keyword) {
     const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&');
     query = query.or(
       `name.ilike.%${escaped}%,catch_copy.ilike.%${escaped}%,description.ilike.%${escaped}%,city.ilike.%${escaped}%`
     );
+  }
+
+  if (params.rating_min) query = query.gte('rating_avg', params.rating_min);
+  if (params.price_min) query = query.gte('min_price', params.price_min);
+  if (params.price_max) query = query.lte('max_price', params.price_max);
+  if (params.features && params.features.length > 0) {
+    for (const f of params.features) {
+      query = query.contains('features', [f]);
+    }
   }
 
   if (params.sort === 'rating') {
@@ -42,9 +52,9 @@ export async function searchFacilities(params: SearchParams) {
 export async function getPopularFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_profiles')
+    .from('facility_card_view')
     .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url'
+      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
     )
     .eq('status', 'published')
     .order('rating_count', { ascending: false })
@@ -94,12 +104,28 @@ export async function getFacilityReviews(facilityId: string) {
   return { reviews: (data || []) as FacilityReview[], error };
 }
 
+export async function getSimilarFacilities(facilityId: string, businessType: string, prefecture: string, limit = 4) {
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase
+    .from('facility_card_view')
+    .select(
+      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
+    )
+    .eq('status', 'published')
+    .eq('business_type', businessType)
+    .eq('prefecture', prefecture)
+    .neq('id', facilityId)
+    .order('rating_avg', { ascending: false })
+    .limit(limit);
+  return (data || []) as FacilityCardData[];
+}
+
 export async function getLatestFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_profiles')
+    .from('facility_card_view')
     .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url'
+      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
     )
     .eq('status', 'published')
     .order('created_at', { ascending: false })

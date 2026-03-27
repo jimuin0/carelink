@@ -5,6 +5,7 @@ import {
   businessTypeSlugs,
   getPrefectureSlug,
 } from '@/lib/seo-constants';
+import { getCitiesForPrefecture } from '@/data/city-slugs';
 
 interface RegionGroup {
   name: string;
@@ -14,14 +15,39 @@ interface RegionGroup {
 interface Props {
   currentPrefectureSlug: string;
   currentTypeSlug?: string;
+  currentCitySlug?: string;
   regionGroup?: RegionGroup;
 }
 
-export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, regionGroup }: Props) {
+export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, currentCitySlug, regionGroup }: Props) {
   const prefName = prefectureSlugs[currentPrefectureSlug];
+  const cities = getCitiesForPrefecture(currentPrefectureSlug);
 
   return (
     <section className="bg-white rounded-2xl p-6 sm:p-8">
+      {/* 同県の市区町村 */}
+      {cities.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">
+            {prefName}のエリア
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {cities
+              .filter(({ slug }) => slug !== currentCitySlug)
+              .slice(0, 15)
+              .map(({ slug, name }) => (
+                <Link
+                  key={slug}
+                  href={currentTypeSlug ? `/${currentPrefectureSlug}/${slug}/${currentTypeSlug}` : `/${currentPrefectureSlug}/${slug}`}
+                  className="px-3.5 py-1.5 bg-amber-50 border border-amber-100 rounded-full text-xs text-amber-700 hover:bg-amber-100 transition-colors"
+                >
+                  {name}
+                </Link>
+              ))}
+          </div>
+        </div>
+      )}
+
       {/* 同県の他業種 */}
       <div className="mb-6">
         <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">
@@ -33,7 +59,7 @@ export default function RelatedLinks({ currentPrefectureSlug, currentTypeSlug, r
             .map((ts) => (
               <Link
                 key={ts}
-                href={`/${currentPrefectureSlug}/${ts}`}
+                href={currentCitySlug ? `/${currentPrefectureSlug}/${currentCitySlug}/${ts}` : `/${currentPrefectureSlug}/${ts}`}
                 className="px-3.5 py-1.5 bg-sky-50 border border-sky-100 rounded-full text-xs text-sky-700 hover:bg-sky-100 transition-colors"
               >
                 {prefName}の{businessTypeSlugs[ts]}

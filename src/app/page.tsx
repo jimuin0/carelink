@@ -327,6 +327,38 @@ export default function Home() {
                 </div>
               </div>
 
+              {/* 主要都市リンク (SEO: 市区町村レベルの内部リンク) */}
+              <div>
+                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">主要都市から探す</h2>
+                <div className="flex flex-wrap gap-2">
+                  {[
+                    { pref: 'tokyo', slug: 'shibuya', name: '渋谷区' },
+                    { pref: 'tokyo', slug: 'shinjuku', name: '新宿区' },
+                    { pref: 'tokyo', slug: 'minato', name: '港区' },
+                    { pref: 'tokyo', slug: 'setagaya', name: '世田谷区' },
+                    { pref: 'tokyo', slug: 'meguro', name: '目黒区' },
+                    { pref: 'osaka', slug: 'kita', name: '大阪北区' },
+                    { pref: 'osaka', slug: 'chuo', name: '大阪中央区' },
+                    { pref: 'osaka', slug: 'tennoji', name: '天王寺区' },
+                    { pref: 'kanagawa', slug: 'yokohama-nishi', name: '横浜市西区' },
+                    { pref: 'aichi', slug: 'nagoya-naka', name: '名古屋市中区' },
+                    { pref: 'fukuoka', slug: 'hakata', name: '博多区' },
+                    { pref: 'hokkaido', slug: 'sapporo', name: '札幌市' },
+                    { pref: 'miyagi', slug: 'sendai', name: '仙台市' },
+                    { pref: 'hiroshima', slug: 'hiroshima-naka', name: '広島市中区' },
+                    { pref: 'kyoto', slug: 'shimogyo', name: '京都下京区' },
+                  ].map((c) => (
+                    <Link
+                      key={`${c.pref}-${c.slug}`}
+                      href={`/${c.pref}/${c.slug}`}
+                      className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors"
+                    >
+                      {c.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
               {/* 全47都道府県リンク (SEO: 内部リンク増加) */}
               <div>
                 <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">都道府県から探す</h2>

@@ -1,10 +1,11 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
+import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews, getSimilarFacilities } from '@/lib/facilities';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { getStaffByFacility } from '@/lib/staff';
 import { getCouponsByFacility } from '@/lib/coupons';
+import { getCatalogsByFacility } from '@/lib/catalogs';
 import PhotoGallery from '@/components/facility/PhotoGallery';
 import FacilityHeader from '@/components/facility/FacilityHeader';
 import TabNavigation from '@/components/facility/TabNavigation';
@@ -17,6 +18,9 @@ import FavoriteButton from '@/components/facility/FavoriteButton';
 import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
+import CatalogList from '@/components/facility/CatalogList';
+import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
+import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import type { Facility, FacilityMenu } from '@/types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
@@ -61,12 +65,14 @@ export default async function FacilityPage({ params }: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [{ menus }, { photos }, { reviews }, staff, coupons] = await Promise.all([
+  const [{ menus }, { photos }, { reviews }, staff, coupons, catalogs, similarFacilities] = await Promise.all([
     getFacilityMenus(facility.id),
     getFacilityPhotos(facility.id),
     getFacilityReviews(facility.id),
     getStaffByFacility(facility.id),
     getCouponsByFacility(facility.id),
+    getCatalogsByFacility(facility.id),
+    getSimilarFacilities(facility.id, facility.business_type, facility.prefecture),
   ]);
 
   const featuredMenus = menus.filter((m) => m.is_featured).slice(0, 3);
@@ -86,6 +92,11 @@ export default async function FacilityPage({ params }: Props) {
       key: 'staff',
       label: `スタッフ(${staff.length})`,
       content: <StaffList staff={staff} facilitySlug={params.slug} />,
+    }] : []),
+    ...(catalogs.length > 0 ? [{
+      key: 'catalog',
+      label: `カタログ(${catalogs.length})`,
+      content: <CatalogList catalogs={catalogs} />,
     }] : []),
     ...(coupons.length > 0 ? [{
       key: 'coupon',
@@ -141,12 +152,34 @@ export default async function FacilityPage({ params }: Props) {
 
         <PhotoGallery photos={photos} facilityName={facility.name} />
         <div className="flex items-start justify-between">
-          <FacilityHeader facility={facility} />
+          <div className="flex-1 min-w-0">
+            <FacilityHeader facility={facility} />
+            <div className="px-4 sm:px-6 pb-2 flex flex-wrap items-center gap-2">
+              <BusinessStatusBadge businessHours={facility.business_hours} regularHoliday={facility.regular_holiday} />
+              {menus.length > 0 && (() => {
+                const prices = menus.filter(m => m.price != null && m.price > 0).map(m => m.price!);
+                if (prices.length === 0) return null;
+                const min = Math.min(...prices);
+                const max = Math.max(...prices);
+                return (
+                  <span className="text-sm font-bold text-sky-600">
+                    {min === max ? `¥${min.toLocaleString()}` : `¥${min.toLocaleString()}〜¥${max.toLocaleString()}`}
+                  </span>
+                );
+              })()}
+              {facility.seat_count != null && facility.seat_count > 0 && (
+                <span className="text-xs text-gray-400">席数{facility.seat_count}</span>
+              )}
+            </div>
+          </div>
           <div className="pt-5 pr-4">
             <FavoriteButton facilityId={facility.id} />
           </div>
         </div>
         <TabNavigation tabs={tabs} />
+
+        {/* 類似施設 */}
+        <SimilarFacilities facilities={similarFacilities} />
 
         {/* Contact section */}
         <div id="contact-section" className="px-4 sm:px-6 py-8 border-t border-gray-100">

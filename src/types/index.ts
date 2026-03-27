@@ -102,6 +102,13 @@ export interface FacilityCardData {
   rating_avg: number;
   rating_count: number;
   main_photo_url: string | null;
+  min_price: number | null;
+  max_price: number | null;
+  menu_count: number;
+  coupon_count: number;
+  photo_count: number;
+  business_hours: Record<string, { open: string; close: string } | null> | null;
+  seat_count: number | null;
 }
 
 export interface FacilityReview {
@@ -129,6 +136,11 @@ export interface SearchParams {
   keyword?: string;
   type?: string;
   prefecture?: string;
+  city?: string;
+  rating_min?: number;
+  price_min?: number;
+  price_max?: number;
+  features?: string[];
   sort?: 'rating' | 'newest' | 'popular';
   page?: number;
 }

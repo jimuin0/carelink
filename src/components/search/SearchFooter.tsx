@@ -2,6 +2,16 @@ import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 
+const majorCities: { pref: string; cities: { slug: string; name: string }[] }[] = [
+  { pref: 'tokyo', cities: [{ slug: 'shibuya', name: '渋谷区' }, { slug: 'shinjuku', name: '新宿区' }, { slug: 'minato', name: '港区' }, { slug: 'setagaya', name: '世田谷区' }, { slug: 'meguro', name: '目黒区' }] },
+  { pref: 'osaka', cities: [{ slug: 'kita', name: '北区' }, { slug: 'chuo', name: '中央区' }, { slug: 'tennoji', name: '天王寺区' }, { slug: 'naniwa', name: '浪速区' }] },
+  { pref: 'kanagawa', cities: [{ slug: 'yokohama-nishi', name: '横浜市西区' }, { slug: 'kawasaki', name: '川崎市' }, { slug: 'fujisawa', name: '藤沢市' }] },
+  { pref: 'aichi', cities: [{ slug: 'nagoya-naka', name: '名古屋市中区' }, { slug: 'nagoya-chikusa', name: '名古屋市千種区' }, { slug: 'toyohashi', name: '豊橋市' }] },
+  { pref: 'fukuoka', cities: [{ slug: 'hakata', name: '博多区' }, { slug: 'chuo', name: '中央区' }, { slug: 'tenjin', name: '天神' }] },
+  { pref: 'hokkaido', cities: [{ slug: 'sapporo', name: '札幌市' }, { slug: 'asahikawa', name: '旭川市' }] },
+  { pref: 'kyoto', cities: [{ slug: 'shimogyo', name: '下京区' }, { slug: 'nakagyo', name: '中京区' }] },
+];
+
 export default function SearchFooter() {
   return (
     <footer className="bg-gray-900 text-gray-300">
@@ -27,6 +37,23 @@ export default function SearchFooter() {
                     );
                   })}
                 </div>
+              </div>
+            ))}
+          </div>
+
+          <h2 className="text-white font-bold text-sm mt-8 mb-5">主要都市から探す</h2>
+          <div className="space-y-3 mb-8">
+            {majorCities.map(({ pref, cities }) => (
+              <div key={pref} className="flex flex-wrap gap-x-3 gap-y-0.5">
+                {cities.map((c) => (
+                  <Link
+                    key={`${pref}-${c.slug}`}
+                    href={`/${pref}/${c.slug}`}
+                    className="text-xs text-gray-400 hover:text-white transition-colors"
+                  >
+                    {c.name}
+                  </Link>
+                ))}
               </div>
             ))}
           </div>

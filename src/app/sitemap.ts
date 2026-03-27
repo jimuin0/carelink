@@ -1,6 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { allPrefectureSlugs, allBusinessTypeSlugs } from '@/lib/seo-constants';
+import { getAllCitySlugs } from '@/data/city-slugs';
 
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
 
@@ -70,5 +71,26 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
   ];
 
-  return [...staticPages, ...prefecturePages, ...crossPages, ...facilityPages, ...featurePages];
+  // City pages (283+ pages)
+  const allCities = getAllCitySlugs();
+  const cityPages: MetadataRoute.Sitemap = allCities.map((c) => ({
+    url: `${baseUrl}/${c.prefectureSlug}/${c.citySlug}`,
+    lastModified: updated,
+    changeFrequency: 'daily' as const,
+    priority: 0.7,
+  }));
+
+  // City x BusinessType pages (top cities only)
+  const majorPrefectures = ['tokyo', 'osaka', 'kanagawa', 'aichi', 'fukuoka', 'saitama', 'chiba', 'hyogo', 'kyoto', 'hokkaido'];
+  const majorCities = allCities.filter((c) => majorPrefectures.includes(c.prefectureSlug));
+  const cityTypePages: MetadataRoute.Sitemap = majorCities.flatMap((c) =>
+    allBusinessTypeSlugs.map((ts) => ({
+      url: `${baseUrl}/${c.prefectureSlug}/${c.citySlug}/${ts}`,
+      lastModified: updated,
+      changeFrequency: 'daily' as const,
+      priority: 0.6,
+    }))
+  );
+
+  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages];
 }

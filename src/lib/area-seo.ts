@@ -11,44 +11,72 @@ export interface AreaSeoContent {
   faq_items: FaqItem[];
 }
 
+/**
+ * エリアSEOコンテンツ取得（フォールバックチェーン付き）
+ *
+ * 優先順位:
+ * 1. prefecture + city + type（最も具体的）
+ * 2. prefecture + city（市区町村汎用）
+ * 3. prefecture + type（業種汎用）
+ * 4. prefecture（最も汎用）
+ */
 export async function getAreaSeoContent(
   prefectureSlug: string,
+  citySlug?: string | null,
   businessTypeSlug?: string | null
 ): Promise<AreaSeoContent | null> {
   const supabase = createServerSupabaseClient();
-  let query = supabase
+
+  // 1. 最も具体的なマッチを試行
+  if (citySlug && businessTypeSlug) {
+    const { data } = await supabase
+      .from('area_seo_contents')
+      .select('h2_title, body_text, faq_items')
+      .eq('prefecture_slug', prefectureSlug)
+      .eq('city_slug', citySlug)
+      .eq('business_type_slug', businessTypeSlug)
+      .maybeSingle();
+    if (data) return toSeoContent(data);
+  }
+
+  // 2. 市区町村汎用
+  if (citySlug) {
+    const { data } = await supabase
+      .from('area_seo_contents')
+      .select('h2_title, body_text, faq_items')
+      .eq('prefecture_slug', prefectureSlug)
+      .eq('city_slug', citySlug)
+      .is('business_type_slug', null)
+      .maybeSingle();
+    if (data) return toSeoContent(data);
+  }
+
+  // 3. 業種汎用
+  if (businessTypeSlug) {
+    const { data } = await supabase
+      .from('area_seo_contents')
+      .select('h2_title, body_text, faq_items')
+      .eq('prefecture_slug', prefectureSlug)
+      .is('city_slug', null)
+      .eq('business_type_slug', businessTypeSlug)
+      .maybeSingle();
+    if (data) return toSeoContent(data);
+  }
+
+  // 4. 都道府県汎用
+  const { data } = await supabase
     .from('area_seo_contents')
     .select('h2_title, body_text, faq_items')
-    .eq('prefecture_slug', prefectureSlug);
+    .eq('prefecture_slug', prefectureSlug)
+    .is('city_slug', null)
+    .is('business_type_slug', null)
+    .maybeSingle();
+  if (data) return toSeoContent(data);
 
-  if (businessTypeSlug) {
-    query = query.eq('business_type_slug', businessTypeSlug);
-  } else {
-    query = query.is('business_type_slug', null);
-  }
+  return null;
+}
 
-  const { data } = await query.maybeSingle();
-
-  if (!data) {
-    // business_type_slug指定時、都道府県全般のコンテンツにフォールバック
-    if (businessTypeSlug) {
-      const { data: fallback } = await supabase
-        .from('area_seo_contents')
-        .select('h2_title, body_text, faq_items')
-        .eq('prefecture_slug', prefectureSlug)
-        .is('business_type_slug', null)
-        .maybeSingle();
-      if (fallback) {
-        return {
-          h2_title: fallback.h2_title,
-          body_text: fallback.body_text,
-          faq_items: (fallback.faq_items as FaqItem[]) || [],
-        };
-      }
-    }
-    return null;
-  }
-
+function toSeoContent(data: { h2_title: string | null; body_text: string; faq_items: unknown }): AreaSeoContent {
   return {
     h2_title: data.h2_title,
     body_text: data.body_text,

@@ -8,6 +8,7 @@ import {
   getPrefectureName,
 } from '@/lib/seo-constants';
 import { regionGroups } from '@/lib/constants';
+import { getCitiesForPrefecture } from '@/data/city-slugs';
 import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import Breadcrumb from '@/components/Breadcrumb';
@@ -106,6 +107,30 @@ export default async function PrefecturePage({ params }: Props) {
             })}
           </div>
         </section>
+
+        {/* エリアから探す（市区町村ナビ） */}
+        {(() => {
+          const cities = getCitiesForPrefecture(prefectureSlug);
+          if (cities.length === 0) return null;
+          return (
+            <section className="mb-10">
+              <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">
+                {prefName}のエリアから探す
+              </h2>
+              <div className="flex flex-wrap gap-2">
+                {cities.map((c) => (
+                  <Link
+                    key={c.slug}
+                    href={`/${prefectureSlug}/${c.slug}`}
+                    className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg text-xs text-gray-700 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors"
+                  >
+                    {c.name}
+                  </Link>
+                ))}
+              </div>
+            </section>
+          );
+        })()}
 
         {/* 人気施設一覧 */}
         {facilities.length > 0 && (
