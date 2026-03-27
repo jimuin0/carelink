@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
 import { SHIMMER_BLUR } from '@/lib/image-utils';
+import CompareButton from './CompareButton';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -114,7 +115,10 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
               {facility.access_info && ` / ${facility.access_info}`}
             </span>
           </p>
-          <span className="badge badge-point text-micro shrink-0 ml-2">ポイント</span>
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            <CompareButton facilityId={facility.id} />
+            <span className="badge badge-point text-micro">ポイント</span>
+          </div>
         </div>
       </div>
     </Link>

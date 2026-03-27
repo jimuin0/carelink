@@ -18,7 +18,7 @@ interface Props {
 export default function BookingFlow({ facility, staff, menus, coupons }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
-  const [selectedMenu, setSelectedMenu] = useState<FacilityMenu | null>(null);
+  const [selectedMenus, setSelectedMenus] = useState<FacilityMenu[]>([]);
   const [selectedStaff, setSelectedStaff] = useState<StaffProfile | null>(null);
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
@@ -43,19 +43,21 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     }).catch(() => {});
   }, []);
 
+  const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
+
   // Fetch available slots
   useEffect(() => {
-    if (!selectedDate || !selectedStaff || !selectedMenu) return;
+    if (!selectedDate || !selectedStaff || selectedMenus.length === 0) return;
     setSlotsLoading(true);
     setSlots([]);
     setSelectedSlot(null);
 
-    fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${selectedMenu.duration_minutes || 60}`)
+    fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`)
       .then((r) => r.json())
       .then((data) => setSlots(data.slots ?? []))
       .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
       .finally(() => setSlotsLoading(false));
-  }, [selectedDate, selectedStaff, selectedMenu, facility.id]);
+  }, [selectedDate, selectedStaff, selectedMenus, facility.id, totalDuration]);
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -67,7 +69,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       body: JSON.stringify({
         facility_id: facility.id,
         staff_id: selectedStaff?.id ?? null,
-        menu_id: selectedMenu?.id ?? null,
+        menu_id: selectedMenus[0]?.id ?? null,
+        menu_ids: selectedMenus.map((m) => m.id),
         coupon_id: selectedCoupon?.id ?? null,
         booking_date: selectedDate,
         start_time: selectedSlot?.slot_start,
@@ -90,8 +93,10 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   };
 
   const calculatePrice = () => {
-    if (!selectedMenu?.price) return null;
-    let price = selectedMenu.price;
+    if (selectedMenus.length === 0) return null;
+    const menuTotal = selectedMenus.reduce((sum, m) => sum + (m.price || 0), 0);
+    if (menuTotal === 0) return null;
+    let price = menuTotal;
     if (selectedCoupon) {
       if (selectedCoupon.discount_type === 'fixed' && selectedCoupon.discount_value) {
         price = Math.max(0, price - selectedCoupon.discount_value);
@@ -100,6 +105,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       } else if (selectedCoupon.discount_type === 'special_price' && selectedCoupon.special_price !== null) {
         price = selectedCoupon.special_price;
       }
+    }
+    if (selectedStaff && selectedStaff.nomination_fee > 0) {
+      price += selectedStaff.nomination_fee;
     }
     return price;
   };
@@ -143,25 +151,51 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         ))}
       </div>
 
-      {/* Step: Menu */}
+      {/* Step: Menu (multi-select) */}
       {step === 'menu' && (
         <div className="space-y-3">
-          <h2 className="font-bold">メニューを選択</h2>
-          {menus.map((menu) => (
-            <button
-              key={menu.id}
-              onClick={() => { setSelectedMenu(menu); setStep('staff'); }}
-              className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                selectedMenu?.id === menu.id ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
-              }`}
-            >
-              <p className="font-bold text-sm">{menu.name}</p>
-              <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                {menu.price !== null && <span>¥{menu.price.toLocaleString()}</span>}
-                {menu.duration_minutes && <span>{menu.duration_minutes}分</span>}
+          <h2 className="font-bold">メニューを選択<span className="text-xs font-normal text-gray-400 ml-2">（複数選択可）</span></h2>
+          {menus.map((menu) => {
+            const isSelected = selectedMenus.some((m) => m.id === menu.id);
+            return (
+              <button
+                key={menu.id}
+                onClick={() => {
+                  setSelectedMenus((prev) =>
+                    isSelected ? prev.filter((m) => m.id !== menu.id) : [...prev, menu]
+                  );
+                }}
+                className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                  isSelected ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-primary bg-primary' : 'border-gray-300'}`}>
+                    {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                  </div>
+                  <div>
+                    <p className="font-bold text-sm">{menu.name}</p>
+                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                      {menu.price !== null && <span>¥{menu.price.toLocaleString()}</span>}
+                      {menu.duration_minutes && <span>{menu.duration_minutes}分</span>}
+                    </div>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+          {selectedMenus.length > 0 && (
+            <div className="pt-2 border-t space-y-2">
+              <div className="text-sm text-gray-600">
+                <span className="font-bold">{selectedMenus.length}件選択中</span>
+                <span className="ml-3">合計 ¥{selectedMenus.reduce((s, m) => s + (m.price || 0), 0).toLocaleString()}</span>
+                <span className="ml-3">{selectedMenus.reduce((s, m) => s + (m.duration_minutes || 60), 0)}分</span>
               </div>
-            </button>
-          ))}
+              <button onClick={() => setStep('staff')} className="btn-primary w-full !py-3">
+                次へ（スタッフ選択）
+              </button>
+            </div>
+          )}
         </div>
       )}
 
@@ -184,8 +218,15 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               onClick={() => { setSelectedStaff(s); setStep('date'); }}
               className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
             >
-              <p className="font-bold text-sm">{s.name}</p>
-              {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-sm">{s.name}</p>
+                  {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
+                </div>
+                {s.nomination_fee > 0 && (
+                  <span className="text-xs text-sky-600 font-medium">指名料 ¥{s.nomination_fee.toLocaleString()}</span>
+                )}
+              </div>
             </button>
           ))}
           <button onClick={() => setStep('menu')} className="text-sm text-gray-500 hover:underline">
@@ -340,16 +381,26 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               <span className="text-gray-500">施設</span>
               <span className="font-medium">{facility.name}</span>
             </div>
-            {selectedMenu && (
-              <div className="flex justify-between text-sm">
+            {selectedMenus.length > 0 && (
+              <div className="text-sm">
                 <span className="text-gray-500">メニュー</span>
-                <span className="font-medium">{selectedMenu.name}</span>
+                {selectedMenus.map((m) => (
+                  <div key={m.id} className="flex justify-between mt-1">
+                    <span className="font-medium ml-2">{m.name}</span>
+                    <span className="text-gray-500">{m.price !== null ? `¥${m.price.toLocaleString()}` : ''} {m.duration_minutes ? `${m.duration_minutes}分` : ''}</span>
+                  </div>
+                ))}
               </div>
             )}
             {selectedStaff && (
               <div className="flex justify-between text-sm">
                 <span className="text-gray-500">スタッフ</span>
-                <span className="font-medium">{selectedStaff.name}</span>
+                <span className="font-medium">
+                  {selectedStaff.name}
+                  {selectedStaff.nomination_fee > 0 && (
+                    <span className="text-xs text-gray-400 ml-1">(指名料 ¥{selectedStaff.nomination_fee.toLocaleString()})</span>
+                  )}
+                </span>
               </div>
             )}
             {selectedCoupon && (

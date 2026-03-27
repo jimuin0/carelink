@@ -18,6 +18,8 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
 import JapanRegionMap from '@/components/home/JapanRegionMap';
+import FacilityCard from '@/components/search/FacilityCard';
+import { getLatestFacilities } from '@/lib/facilities';
 
 
 const categories = [
@@ -171,9 +173,10 @@ const worryNavItems = [
 
 export default async function Home() {
   const supabase = createServerSupabaseClient();
-  const [{ count: facilityCount }, { count: reviewCount }] = await Promise.all([
+  const [{ count: facilityCount }, { count: reviewCount }, { facilities: latestFacilities }] = await Promise.all([
     supabase.from('facility_profiles').select('*', { count: 'exact', head: true }),
     supabase.from('facility_reviews').select('*', { count: 'exact', head: true }),
+    getLatestFacilities(6),
   ]);
 
   return (
@@ -264,6 +267,23 @@ export default async function Home() {
           </div>
         </div>
       </div>
+
+      {/* ===== 新着サロン ===== */}
+      {latestFacilities.length > 0 && (
+        <div className="border-t border-gray-100">
+          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">新着サロン</h2>
+              <Link href="/search?sort=newest" className="text-xs text-sky-600 hover:underline">もっと見る &rsaquo;</Link>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {latestFacilities.map((f) => (
+                <FacilityCard key={f.id} facility={f} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ===== お悩み別ナビ ===== */}
       <div className="border-t border-gray-100">

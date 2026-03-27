@@ -3,15 +3,23 @@ import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityR
 
 const PER_PAGE = 20;
 
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
+  const isGeoSearch = params.lat != null && params.lng != null;
+
+  const baseCols = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
 
   let query = supabase
     .from('facility_card_view')
-    .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count',
-      { count: 'exact' }
-    )
+    .select(isGeoSearch ? `${baseCols}, latitude, longitude` : baseCols, { count: isGeoSearch ? undefined : 'exact' })
     .eq('status', 'published');
 
   if (params.type) query = query.eq('business_type', params.type);
@@ -33,10 +41,28 @@ export async function searchFacilities(params: SearchParams) {
     }
   }
 
+  if (isGeoSearch) {
+    query = query.limit(500);
+    const { data, error } = await query;
+    const all = (data || []) as unknown as FacilityCardData[];
+    const userLat = params.lat!;
+    const userLng = params.lng!;
+    const withDist = all
+      .filter((f) => f.latitude != null && f.longitude != null)
+      .map((f) => ({ ...f, distance: haversineDistance(userLat, userLng, f.latitude!, f.longitude!) }))
+      .filter((f) => f.distance <= 10)
+      .sort((a, b) => a.distance - b.distance);
+    const page = params.page || 1;
+    const from = (page - 1) * PER_PAGE;
+    return { facilities: withDist.slice(from, from + PER_PAGE) as FacilityCardData[], total: withDist.length, perPage: PER_PAGE, error };
+  }
+
   if (params.sort === 'rating') {
     query = query.order('rating_avg', { ascending: false });
   } else if (params.sort === 'popular') {
     query = query.order('view_count', { ascending: false, nullsFirst: false });
+  } else if (params.sort === 'distance') {
+    query = query.order('created_at', { ascending: false });
   } else {
     query = query.order('created_at', { ascending: false });
   }
@@ -46,7 +72,7 @@ export async function searchFacilities(params: SearchParams) {
   query = query.range(from, from + PER_PAGE - 1);
 
   const { data, count, error } = await query;
-  return { facilities: (data || []) as FacilityCardData[], total: count || 0, perPage: PER_PAGE, error };
+  return { facilities: (data || []) as unknown as FacilityCardData[], total: count || 0, perPage: PER_PAGE, error };
 }
 
 export async function getPopularFacilities(limit = 6) {

@@ -1,3 +1,4 @@
+import Image from 'next/image';
 import type { FacilityMenu } from '@/types';
 
 function formatPrice(price: number | null, note: string | null) {
@@ -40,9 +41,20 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
             {items.map((menu) => (
               <div
                 key={menu.id}
-                className="flex items-start justify-between p-4 bg-gray-50 rounded-xl"
+                className="flex items-start gap-3 p-4 bg-gray-50 rounded-xl"
               >
-                <div className="flex-1 mr-4">
+                {menu.photo_url && (
+                  <div className="shrink-0 w-16 h-16 relative rounded-lg overflow-hidden">
+                    <Image
+                      src={menu.photo_url}
+                      alt={menu.name}
+                      fill
+                      sizes="64px"
+                      className="object-cover"
+                    />
+                  </div>
+                )}
+                <div className="flex-1 min-w-0 mr-4">
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-sm">{menu.name}</p>
                     {menu.is_featured && (

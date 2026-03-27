@@ -15,11 +15,12 @@ interface MenuForm {
   price: string;
   price_note: string;
   duration_minutes: string;
+  photo_url: string;
   is_featured: boolean;
 }
 
 const emptyForm: MenuForm = {
-  category: 'カット', name: '', description: '', price: '', price_note: '', duration_minutes: '60', is_featured: false,
+  category: 'カット', name: '', description: '', price: '', price_note: '', duration_minutes: '60', photo_url: '', is_featured: false,
 };
 
 export default function AdminMenusPage() {
@@ -72,6 +73,7 @@ export default function AdminMenusPage() {
         price: editForm.price ? parseInt(editForm.price) : null,
         price_note: editForm.price_note.trim() || null,
         duration_minutes: editForm.duration_minutes ? parseInt(editForm.duration_minutes) : null,
+        photo_url: editForm.photo_url.trim() || null,
         is_featured: editForm.is_featured,
         updated_at: new Date().toISOString(),
       };
@@ -122,6 +124,7 @@ export default function AdminMenusPage() {
       price: menu.price?.toString() || '',
       price_note: menu.price_note || '',
       duration_minutes: menu.duration_minutes?.toString() || '',
+      photo_url: menu.photo_url || '',
       is_featured: menu.is_featured,
     });
   };
@@ -183,6 +186,16 @@ export default function AdminMenusPage() {
                 <label htmlFor="menu-note" className="form-label">料金備考</label>
                 <input id="menu-note" value={editForm.price_note} onChange={(e) => setEditForm({ ...editForm, price_note: e.target.value })} className="form-input" placeholder="例: 初回限定" maxLength={100} />
               </div>
+              <div>
+                <label htmlFor="menu-photo" className="form-label">画像URL</label>
+                <input id="menu-photo" value={editForm.photo_url} onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })} className="form-input" placeholder="https://xxx.supabase.co/storage/v1/..." maxLength={500} />
+                {editForm.photo_url && (
+                  <div className="mt-2 w-20 h-20 relative rounded-lg overflow-hidden bg-gray-100">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={editForm.photo_url} alt="プレビュー" className="w-full h-full object-cover" />
+                  </div>
+                )}
+              </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={editForm.is_featured} onChange={(e) => setEditForm({ ...editForm, is_featured: e.target.checked })} className="rounded border-gray-300 text-sky-500 focus:ring-sky-500" />
                 <span className="text-sm">おすすめメニューとして表示</span>
@@ -210,6 +223,12 @@ export default function AdminMenusPage() {
               <div className="bg-white rounded-xl shadow-sm divide-y">
                 {items.map((menu) => (
                   <div key={menu.id} className="flex items-center gap-4 p-4">
+                    {menu.photo_url && (
+                      <div className="shrink-0 w-12 h-12 relative rounded-lg overflow-hidden bg-gray-100">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={menu.photo_url} alt={menu.name} className="w-full h-full object-cover" />
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-sm truncate">{menu.name}</p>

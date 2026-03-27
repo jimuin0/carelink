@@ -9,6 +9,11 @@ import { supabase } from '@/lib/supabase';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import StarRating from './StarRating';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+
+const MAX_PHOTOS = 3;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 const ratingAxis = z.number().min(1, '評価を選択してください').max(5);
 
@@ -42,6 +47,8 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [photos, setPhotos] = useState<File[]>([]);
+  const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
 
   const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting }, reset } = useForm<ReviewFormData>({
     resolver: zodResolver(reviewSchema),
@@ -56,12 +63,46 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
     },
   });
 
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const valid = files.filter((f) => {
+      if (!ALLOWED_TYPES.includes(f.type)) { setToast({ type: 'error', message: 'JPEG/PNG/WebPのみ対応です' }); return false; }
+      if (f.size > MAX_FILE_SIZE) { setToast({ type: 'error', message: '5MB以下の画像を選択してください' }); return false; }
+      return true;
+    });
+    const combined = [...photos, ...valid].slice(0, MAX_PHOTOS);
+    setPhotos(combined);
+    setPhotoPreviews(combined.map((f) => URL.createObjectURL(f)));
+    e.target.value = '';
+  };
+
+  const removePhoto = (index: number) => {
+    URL.revokeObjectURL(photoPreviews[index]);
+    setPhotos((prev) => prev.filter((_, i) => i !== index));
+    setPhotoPreviews((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const onSubmit = async (data: ReviewFormData) => {
     const avg = Math.round(
       (data.rating_skill + data.rating_service + data.rating_atmosphere + data.rating_cleanliness + data.rating_explanation) / 5
     );
 
     try {
+      // Upload photos
+      const photo_urls: string[] = [];
+      if (photos.length > 0) {
+        const sb = createBrowserSupabaseClient();
+        for (const file of photos) {
+          const ext = file.name.split('.').pop() || 'jpg';
+          const path = `reviews/${facilityId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+          const { error: uploadErr } = await sb.storage.from('review-photos').upload(path, file);
+          if (!uploadErr) {
+            const { data: urlData } = sb.storage.from('review-photos').getPublicUrl(path);
+            photo_urls.push(urlData.publicUrl);
+          }
+        }
+      }
+
       const { error } = await supabase.from('facility_reviews').insert({
         facility_id: facilityId,
         reviewer_name: data.reviewer_name,
@@ -72,10 +113,14 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
         rating_cleanliness: data.rating_cleanliness,
         rating_explanation: data.rating_explanation,
         comment: data.comment || null,
+        photo_urls: photo_urls.length > 0 ? photo_urls : null,
       });
       if (error) throw error;
 
       setSubmitted(true);
+      setPhotos([]);
+      photoPreviews.forEach((url) => URL.revokeObjectURL(url));
+      setPhotoPreviews([]);
       reset();
       onReviewSubmitted();
       setToast({ type: 'success', message: '口コミを投稿しました' });
@@ -124,6 +169,28 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
           <label htmlFor="review_comment" className="form-label">コメント</label>
           <textarea {...register('comment')} id="review_comment" className="form-input" rows={3} placeholder="ご感想をお聞かせください（500文字以内）" />
           {errors.comment && <p className="form-error" role="alert">{errors.comment.message}</p>}
+        </div>
+
+        <div>
+          <p className="form-label">写真（最大3枚）</p>
+          <div className="flex gap-2 flex-wrap">
+            {photoPreviews.map((url, i) => (
+              <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-100">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={url} alt={`写真${i + 1}`} className="w-full h-full object-cover" />
+                <button type="button" onClick={() => removePhoto(i)} className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded-full text-xs flex items-center justify-center">
+                  ×
+                </button>
+              </div>
+            ))}
+            {photos.length < MAX_PHOTOS && (
+              <label className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-sky-400 transition-colors">
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" />
+              </label>
+            )}
+          </div>
+          <p className="text-xs text-gray-400 mt-1">JPEG/PNG/WebP・5MB以下</p>
         </div>
 
         <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3 text-sm">

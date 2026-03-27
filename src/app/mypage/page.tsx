@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
+import RecentlyViewed from '@/components/facility/RecentlyViewed';
 
 export default async function MyPageDashboard() {
   const supabase = createServerSupabaseAuthClient();
@@ -70,6 +71,8 @@ export default async function MyPageDashboard() {
           </div>
         </Link>
       </div>
+
+      <RecentlyViewed />
 
       <div className="bg-white rounded-2xl shadow-sm p-6">
         <h2 className="font-bold mb-3">施設を探す</h2>

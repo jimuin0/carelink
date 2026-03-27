@@ -38,7 +38,7 @@ export default function SalonPage() {
           <p className="text-gray-600 text-lg sm:text-xl mb-8">
             掲載無料・登録3分・すぐに集客開始
           </p>
-          <Link href="/register" className="btn-primary text-lg">
+          <Link href="/recruit" className="btn-primary text-lg">
             無料で掲載登録する
           </Link>
         </div>
@@ -135,7 +135,7 @@ export default function SalonPage() {
         <div className="section-container text-center">
           <h2 className="text-2xl sm:text-3xl font-bold mb-4">まずは無料で掲載登録</h2>
           <p className="text-gray-600 mb-8">最短3分で登録完了。費用は一切かかりません。</p>
-          <Link href="/register" className="btn-primary text-lg">
+          <Link href="/recruit" className="btn-primary text-lg">
             無料で掲載登録する
           </Link>
         </div>

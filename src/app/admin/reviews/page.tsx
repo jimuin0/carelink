@@ -12,6 +12,9 @@ export default function AdminReviewsPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | 'published' | 'hidden'>('all');
   const [updating, setUpdating] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState<Record<string, string>>({});
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [repliesMap, setRepliesMap] = useState<Record<string, { id: string; content: string; created_at: string }[]>>({});
 
   const loadReviews = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -34,6 +37,20 @@ export default function AdminReviewsPage() {
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
       await loadReviews(membership.facility_id);
+      // Load replies
+      const { data: replies } = await supabase
+        .from('review_replies')
+        .select('id, review_id, content, created_at')
+        .eq('facility_id', membership.facility_id)
+        .order('created_at');
+      if (replies) {
+        const map: Record<string, typeof replies> = {};
+        for (const r of replies) {
+          if (!map[r.review_id]) map[r.review_id] = [];
+          map[r.review_id].push(r);
+        }
+        setRepliesMap(map);
+      }
       setLoading(false);
     };
     init().catch(() => setLoading(false));
@@ -72,6 +89,34 @@ export default function AdminReviewsPage() {
       </div>
     );
   }
+
+  const submitReply = async (reviewId: string) => {
+    const text = replyText[reviewId]?.trim();
+    if (!text || !facilityId) return;
+    setReplyingTo(reviewId);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data, error } = await supabase
+        .from('review_replies')
+        .insert({ review_id: reviewId, user_id: user.id, content: text, facility_id: facilityId })
+        .select('id, content, created_at')
+        .single();
+      if (error) throw error;
+      if (data) {
+        setRepliesMap((prev) => ({
+          ...prev,
+          [reviewId]: [...(prev[reviewId] || []), { ...data, review_id: reviewId }],
+        }));
+        setReplyText((prev) => ({ ...prev, [reviewId]: '' }));
+        setToast({ type: 'success', message: '返信しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '返信に失敗しました' });
+    }
+    setReplyingTo(null);
+  };
 
   const stars = (n: number) => '★'.repeat(n) + '☆'.repeat(5 - n);
 
@@ -129,6 +174,34 @@ export default function AdminReviewsPage() {
                   }`}
                 >
                   {review.status === 'published' ? '非表示にする' : '公開する'}
+                </button>
+              </div>
+
+              {/* 既存の返信 */}
+              {(repliesMap[review.id] || []).map((reply) => (
+                <div key={reply.id} className="mt-3 ml-4 bg-sky-50 border border-sky-100 rounded-lg p-3">
+                  <span className="text-micro font-bold text-sky-600">サロンより</span>
+                  <p className="text-sm text-gray-700 mt-1">{reply.content}</p>
+                  <p className="text-xs text-gray-400 mt-1">{new Date(reply.created_at).toLocaleDateString('ja-JP')}</p>
+                </div>
+              ))}
+
+              {/* 返信入力 */}
+              <div className="mt-3 flex gap-2">
+                <input
+                  type="text"
+                  placeholder="口コミに返信する..."
+                  value={replyText[review.id] || ''}
+                  onChange={(e) => setReplyText((prev) => ({ ...prev, [review.id]: e.target.value }))}
+                  className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                  maxLength={500}
+                />
+                <button
+                  onClick={() => submitReply(review.id)}
+                  disabled={replyingTo === review.id || !(replyText[review.id]?.trim())}
+                  className="shrink-0 text-xs px-4 py-2 bg-sky-500 text-white rounded-lg font-bold hover:bg-sky-600 disabled:opacity-50 transition-colors"
+                >
+                  返信
                 </button>
               </div>
             </div>

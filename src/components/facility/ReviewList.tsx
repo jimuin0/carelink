@@ -1,7 +1,16 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import type { FacilityReview } from '@/types';
 import StarRating from './StarRating';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+
+interface ReviewReply {
+  id: string;
+  content: string;
+  created_at: string;
+}
+
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('ja-JP', {
@@ -21,6 +30,82 @@ const AXES: { key: keyof FacilityReview; label: string }[] = [
 ];
 
 export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
+  const [repliesMap, setRepliesMap] = useState<Record<string, ReviewReply[]>>({});
+  const [helpfulMap, setHelpfulMap] = useState<Record<string, number>>({});
+  const [myHelpful, setMyHelpful] = useState<Set<string>>(new Set());
+  const [helpfulLoading, setHelpfulLoading] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (reviews.length === 0) return;
+    const loadRepliesAndHelpful = async () => {
+      const supabase = createBrowserSupabaseClient();
+      const reviewIds = reviews.map((r) => r.id);
+
+      // Load replies
+      const { data: replies } = await supabase
+        .from('review_replies')
+        .select('id, review_id, content, created_at')
+        .in('review_id', reviewIds)
+        .order('created_at');
+      if (replies) {
+        const map: Record<string, ReviewReply[]> = {};
+        for (const r of replies) {
+          if (!map[r.review_id]) map[r.review_id] = [];
+          map[r.review_id].push(r);
+        }
+        setRepliesMap(map);
+      }
+
+      // Load helpful counts
+      const { data: helpfulCounts } = await supabase
+        .from('review_helpful')
+        .select('review_id')
+        .in('review_id', reviewIds);
+      if (helpfulCounts) {
+        const counts: Record<string, number> = {};
+        for (const h of helpfulCounts) {
+          counts[h.review_id] = (counts[h.review_id] || 0) + 1;
+        }
+        setHelpfulMap(counts);
+      }
+
+      // Load my helpful
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: myH } = await supabase
+          .from('review_helpful')
+          .select('review_id')
+          .eq('user_id', user.id)
+          .in('review_id', reviewIds);
+        if (myH) setMyHelpful(new Set(myH.map((h) => h.review_id)));
+      }
+    };
+    loadRepliesAndHelpful().catch(() => {});
+  }, [reviews]);
+
+  const toggleHelpful = async (reviewId: string) => {
+    if (helpfulLoading) return;
+    setHelpfulLoading(reviewId);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        window.location.href = '/auth/login';
+        return;
+      }
+      if (myHelpful.has(reviewId)) {
+        await supabase.from('review_helpful').delete().eq('review_id', reviewId).eq('user_id', user.id);
+        setMyHelpful((prev) => { const next = new Set(prev); next.delete(reviewId); return next; });
+        setHelpfulMap((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 1) - 1 }));
+      } else {
+        await supabase.from('review_helpful').insert({ review_id: reviewId, user_id: user.id });
+        setMyHelpful((prev) => new Set(prev).add(reviewId));
+        setHelpfulMap((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 0) + 1 }));
+      }
+    } catch { /* ignore */ }
+    setHelpfulLoading(null);
+  };
+
   if (reviews.length === 0) {
     return (
       <p className="text-gray-400 text-center py-8">
@@ -33,6 +118,9 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     <div className="space-y-4">
       {reviews.map((review) => {
         const hasAxis = review.rating_skill && review.rating_skill > 0;
+        const replies = repliesMap[review.id] || [];
+        const helpfulCount = helpfulMap[review.id] || 0;
+        const isMyHelpful = myHelpful.has(review.id);
         return (
           <div key={review.id} className="bg-gray-50 rounded-xl p-4">
             <div className="flex items-center justify-between mb-2">
@@ -41,7 +129,12 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                   {(review.reviewer_name || 'ユ').charAt(0)}
                 </div>
                 <div>
-                  <p className="font-bold text-sm">{review.reviewer_name}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="font-bold text-sm">{review.reviewer_name}</p>
+                    {review.is_verified_visit && (
+                      <span className="text-micro bg-green-100 text-green-700 px-1.5 py-0.5 rounded-full font-bold">来店確認済み</span>
+                    )}
+                  </div>
                   <p className="text-gray-400 text-xs">{formatDate(review.created_at)}</p>
                 </div>
               </div>
@@ -63,6 +156,45 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
             {review.comment && (
               <p className="text-gray-600 text-sm leading-relaxed mt-2">{review.comment}</p>
             )}
+
+            {/* 写真 */}
+            {review.photo_urls && review.photo_urls.length > 0 && (
+              <div className="flex gap-2 mt-3">
+                {review.photo_urls.map((url, i) => (
+                  <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden bg-gray-200">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={url} alt={`口コミ写真${i + 1}`} className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* 役に立った */}
+            <div className="mt-3 flex items-center gap-4">
+              <button
+                onClick={() => toggleHelpful(review.id)}
+                disabled={helpfulLoading === review.id}
+                className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-colors ${
+                  isMyHelpful ? 'bg-sky-100 text-sky-600 font-bold' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                }`}
+              >
+                <svg className="w-3.5 h-3.5" fill={isMyHelpful ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
+                </svg>
+                役に立った{helpfulCount > 0 ? ` (${helpfulCount})` : ''}
+              </button>
+            </div>
+
+            {/* サロン返信 */}
+            {replies.map((reply) => (
+              <div key={reply.id} className="mt-3 ml-4 bg-white border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-micro font-bold text-sky-600 bg-sky-50 px-2 py-0.5 rounded-full">サロンより</span>
+                  <span className="text-xs text-gray-400">{formatDate(reply.created_at)}</span>
+                </div>
+                <p className="text-sm text-gray-600">{reply.content}</p>
+              </div>
+            ))}
           </div>
         );
       })}

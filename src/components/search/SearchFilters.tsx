@@ -16,6 +16,8 @@ export default function SearchFilters({ className }: { className?: string }) {
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>(
     searchParams.get('features')?.split(',').filter(Boolean) || []
   );
+  const [availableDate, setAvailableDate] = useState(searchParams.get('available_date') || '');
+  const [availableTime, setAvailableTime] = useState(searchParams.get('available_time') || '');
 
   const toggleFeature = useCallback((feature: string) => {
     setSelectedFeatures((prev) =>
@@ -33,10 +35,12 @@ export default function SearchFilters({ className }: { className?: string }) {
     if (priceMin) params.set('price_min', priceMin);
     if (priceMax) params.set('price_max', priceMax);
     if (selectedFeatures.length > 0) params.set('features', selectedFeatures.join(','));
+    if (availableDate) params.set('available_date', availableDate);
+    if (availableTime) params.set('available_time', availableTime);
     const sort = searchParams.get('sort');
     if (sort) params.set('sort', sort);
     router.push(`/search?${params.toString()}`);
-  }, [router, searchParams, area, type, ratingMin, priceMin, priceMax, selectedFeatures]);
+  }, [router, searchParams, area, type, ratingMin, priceMin, priceMax, selectedFeatures, availableDate, availableTime]);
 
   const clearFilters = useCallback(() => {
     const keyword = searchParams.get('keyword');
@@ -139,6 +143,31 @@ export default function SearchFilters({ className }: { className?: string }) {
             step={1000}
           />
         </div>
+      </div>
+
+      {/* 日付・時間指定 */}
+      <div className="mb-5">
+        <label className="block text-xs font-medium text-gray-600 mb-1.5">予約希望日</label>
+        <input
+          type="date"
+          value={availableDate}
+          onChange={(e) => setAvailableDate(e.target.value)}
+          min={new Date().toISOString().slice(0, 10)}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+        />
+      </div>
+      <div className="mb-5">
+        <label className="block text-xs font-medium text-gray-600 mb-1.5">時間帯</label>
+        <select
+          value={availableTime}
+          onChange={(e) => setAvailableTime(e.target.value)}
+          className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+        >
+          <option value="">指定なし</option>
+          <option value="morning">午前（9:00〜12:00）</option>
+          <option value="afternoon">午後（12:00〜17:00）</option>
+          <option value="evening">夕方以降（17:00〜）</option>
+        </select>
       </div>
 
       {/* こだわり条件 */}

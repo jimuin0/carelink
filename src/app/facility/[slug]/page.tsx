@@ -20,6 +20,7 @@ import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
 import CatalogList from '@/components/facility/CatalogList';
+import QASection from '@/components/facility/QASection';
 import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import type { Facility, FacilityMenu } from '@/types';
@@ -103,6 +104,11 @@ export default async function FacilityPage({ params }: Props) {
       label: `クーポン(${coupons.length})`,
       content: <CouponList coupons={coupons} />,
     }] : []),
+    {
+      key: 'qa',
+      label: 'Q&A',
+      content: <QASection facilityId={facility.id} />,
+    },
     {
       key: 'review',
       label: `口コミ(${reviews.length})`,
@@ -397,7 +403,7 @@ export default async function FacilityPage({ params }: Props) {
         )}
       </div>
 
-      <ViewCount facilityId={facility.id} />
+      <ViewCount facilityId={facility.id} facilityName={facility.name} facilitySlug={params.slug} mainPhotoUrl={facility.main_photo_url} businessType={facility.business_type} />
       <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} />
     </div>
   );
@@ -454,9 +460,9 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           </h3>
           <div className="flex flex-wrap gap-2">
             {facility.features.map((feature) => (
-              <span key={feature} className="text-xs bg-sky-50 text-sky-700 px-3 py-1.5 rounded-full font-medium">
+              <Link key={feature} href={`/search?keyword=${encodeURIComponent(feature)}`} className="text-xs bg-sky-50 text-sky-700 px-3 py-1.5 rounded-full font-medium hover:bg-sky-100 transition-colors">
                 {feature}
-              </span>
+              </Link>
             ))}
           </div>
         </div>

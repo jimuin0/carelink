@@ -1,7 +1,7 @@
-# CareLink マニュアル v5.1
+# CareLink マニュアル v6.0
 
 **最終更新**: 2026年3月27日
-**バージョン**: 5.1
+**バージョン**: 6.0
 **作成者**: Claude + 神原 良祐
 **プロジェクト**: ~/Projects/carelink/
 
@@ -12,7 +12,8 @@
 > - **スタッフ・クーポン**: スタッフ詳細・ポートフォリオ・クーポン管理
 > - **オンライン予約**: カレンダー予約・空き枠計算・予約管理
 > - **サロン管理ダッシュボード**: 予約・顧客・スタッフ・クーポン・分析
-> - **高度な機能**: ヘアカタログ・ブログ・ランキング・GPS検索
+> - **高度な機能**: ヘアカタログ・ブログ・ランキング・GPS検索・チャット・施設比較・Q&A
+> - **HPB超え30機能**: GPS現在地検索・日時指定検索・口コミ写真/返信/役に立った・予約変更・予約台帳・指名スタッフ・スタッフ別売上・ポイント自動付与
 
 ---
 
@@ -61,8 +62,8 @@
 | LP（ランディングページ） | `/`, `/salon`, `/jobs`, `/recruit`, `/contact`, `/privacy`, `/terms` | 施設登録・求職者登録・お問い合わせ | Header + Footer |
 | 検索サイト | `/search`, `/search/area`, `/facility/[slug]`, `/ranking` | 施設検索・詳細・口コミ・エリア検索・ランキング | SearchHeader + SearchFooter |
 | 認証 | `/auth/login`, `/auth/signup`, `/auth/callback` | ユーザー認証（メール+LINE） | なし（専用レイアウト） |
-| マイページ | `/mypage`, `/mypage/profile`, `/mypage/favorites`, `/mypage/bookings`, `/mypage/points` | ユーザーダッシュボード | 認証ガード付きレイアウト |
-| 管理ダッシュボード | `/admin`, `/admin/bookings`, `/admin/staff`, `/admin/coupons`, `/admin/customers`, `/admin/blog`, `/admin/catalog`, `/admin/analytics`, `/admin/settings` | サロン管理（予約・顧客・スタッフ・売上） | サイドバー付きレイアウト |
+| マイページ | `/mypage`, `/mypage/profile`, `/mypage/favorites`, `/mypage/bookings`, `/mypage/points`, `/mypage/coupons`, `/mypage/chat`, `/mypage/staff` | ユーザーダッシュボード | 認証ガード付きレイアウト |
+| 管理ダッシュボード | `/admin`, `/admin/bookings`, `/admin/bookings/calendar`, `/admin/staff`, `/admin/coupons`, `/admin/customers`, `/admin/blog`, `/admin/catalog`, `/admin/analytics`, `/admin/settings`, `/admin/reviews`, `/admin/photos`, `/admin/menus`, `/admin/chat`, `/admin/qa`, `/admin/features` | サロン管理（予約・顧客・スタッフ・売上・チャット・Q&A） | サイドバー付きレイアウト |
 
 > `LayoutSwitch` コンポーネントが `usePathname()` でパスを判別し、LP用/検索用/認証用/マイページ用/管理画面用のヘッダー・フッターを自動切替する。
 
@@ -255,6 +256,9 @@ Supabase (PostgreSQL + Storage)
 │   │   │   │   └── [postSlug]/page.tsx
 │   │   │   └── catalog/                 … ヘアカタログ
 │   │   │       ├── page.tsx / loading.tsx
+│   │   │       └── [catalogId]/page.tsx  … カタログ詳細
+│   │   │
+│   │   ├── compare/page.tsx             … 【検索】施設比較（最大3件横並び）
 │   │   │
 │   │   ├── [prefectureSlug]/            … 【SEO】エリアページ（283市区町村+2,054ページ）
 │   │   │   ├── page.tsx                 … 都道府県ページ
@@ -303,13 +307,18 @@ Supabase (PostgreSQL + Storage)
 │   │   │   ├── bookings/
 │   │   │   │   ├── page.tsx / loading.tsx
 │   │   │   │   └── [id]/page.tsx
-│   │   │   └── points/page.tsx / loading.tsx
+│   │   │   │       └── change/page.tsx   … 予約日時変更
+│   │   │   ├── points/page.tsx / loading.tsx
+│   │   │   ├── coupons/page.tsx          … クーポン手帳
+│   │   │   ├── chat/page.tsx             … メッセージ（Realtime）
+│   │   │   └── staff/page.tsx            … 指名スタッフ一覧
 │   │   │
 │   │   ├── admin/                       … 【管理】（facility_members権限必須、robots noindex）
 │   │   │   ├── layout.tsx / page.tsx / loading.tsx / error.tsx
 │   │   │   ├── bookings/               … 予約管理
 │   │   │   │   ├── page.tsx / loading.tsx
-│   │   │   │   └── [id]/page.tsx
+│   │   │   │   ├── [id]/page.tsx
+│   │   │   │   └── calendar/page.tsx    … 予約台帳（ガントチャート）
 │   │   │   ├── customers/              … 顧客管理
 │   │   │   │   ├── page.tsx / loading.tsx
 │   │   │   │   └── [email]/page.tsx
@@ -329,10 +338,15 @@ Supabase (PostgreSQL + Storage)
 │   │   │   ├── menus/page.tsx / loading.tsx     … メニューCRUD
 │   │   │   ├── reviews/page.tsx / loading.tsx   … 口コミ管理
 │   │   │   ├── photos/page.tsx / loading.tsx    … 写真管理
-│   │   │   ├── analytics/page.tsx / loading.tsx … 売上分析
-│   │   │   └── settings/page.tsx / loading.tsx  … 施設設定
+│   │   │   ├── analytics/
+│   │   │   │   ├── page.tsx / loading.tsx … 売上分析
+│   │   │   │   └── StaffSalesTab.tsx     … スタッフ別売上
+│   │   │   ├── settings/page.tsx / loading.tsx  … 施設設定
+│   │   │   ├── chat/page.tsx              … チャット管理（Realtime）
+│   │   │   ├── qa/page.tsx                … Q&A管理
+│   │   │   └── features/page.tsx          … 特集記事管理
 │   │   │
-│   │   └── api/                         … APIルート（11エンドポイント）
+│   │   └── api/                         … APIルート（13エンドポイント）
 │   │       ├── notify/route.ts          … Slack通知（Zod検証・レート制限）
 │   │       ├── booking/route.ts         … 予約作成（競合チェック・レート制限）
 │   │       ├── booking/[id]/cancel/route.ts … 予約キャンセル
@@ -342,10 +356,12 @@ Supabase (PostgreSQL + Storage)
 │   │       ├── profile/route.ts         … プロフィール更新
 │   │       ├── salons/route.ts          … 施設検索API
 │   │       ├── og/route.tsx             … 動的OGP画像生成（@vercel/og）
+│   │       ├── booking/complete/route.ts … 予約完了（ポイント自動付与）
+│   │       ├── availability/route.ts    … 月間空き状況
 │   │       └── auth/line/               … LINE OAuth
 │   │           ├── route.ts / callback/route.ts
 │   │
-│   ├── components/                      … 47コンポーネント
+│   ├── components/                      … 55+コンポーネント
 │   │   ├── Header.tsx / Footer.tsx      … LP用ヘッダー・フッター
 │   │   ├── LayoutSwitch.tsx             … パス別レイアウト自動切替
 │   │   ├── ConfirmDialog.tsx            … 確認ダイアログ（フォーカストラップ）
@@ -358,15 +374,17 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── MultiPhotoUpload.tsx         … 写真アップロード（MIME検証）
 │   │   ├── Spinner.tsx                  … ローディングスピナー
 │   │   │
-│   │   ├── search/                      … 検索コンポーネント（8個）
+│   │   ├── search/                      … 検索コンポーネント（10個）
 │   │   │   ├── SearchHeader.tsx / SearchFooter.tsx / SearchBar.tsx
 │   │   │   ├── FacilityCard.tsx / Pagination.tsx
 │   │   │   ├── SearchFilters.tsx        … サイドバーフィルター（地方optgroup・こだわり16条件）
 │   │   │   ├── MobileFilterDrawer.tsx   … モバイルフィルタードロワー（dialog）
 │   │   │   ├── HomeSearchForm.tsx       … トップページ検索フォーム
-│   │   │   └── HomeUserPanel.tsx        … ログインユーザーパネル
+│   │   │   ├── HomeUserPanel.tsx        … ログインユーザーパネル
+│   │   │   ├── CompareButton.tsx       … 施設比較ボタン
+│   │   │   └── CompareBar.tsx          … 施設比較フローティングバー
 │   │   │
-│   │   ├── facility/                    … 施設詳細コンポーネント（21個）
+│   │   ├── facility/                    … 施設詳細コンポーネント（23個）
 │   │   │   ├── PhotoGallery.tsx / FacilityHeader.tsx / TabNavigation.tsx
 │   │   │   ├── MenuList.tsx / AccessInfo.tsx / ReviewTab.tsx
 │   │   │   ├── ReviewList.tsx / ReviewForm.tsx / InquiryForm.tsx
@@ -377,7 +395,9 @@ Supabase (PostgreSQL + Storage)
 │   │   │   ├── FavoriteButton.tsx       … お気に入りボタン
 │   │   │   ├── SimilarFacilities.tsx    … 類似施設
 │   │   │   ├── StaffCard.tsx / StaffList.tsx
-│   │   │   └── ViewCount.tsx            … 閲覧数カウンター
+│   │   │   ├── ViewCount.tsx            … 閲覧数カウンター
+│   │   │   ├── QASection.tsx           … 施設Q&A表示+投稿
+│   │   │   └── RecentlyViewed.tsx      … 閲覧履歴（localStorage）
 │   │   │
 │   │   ├── admin/AdminMobileNav.tsx     … 管理画面モバイルナビ
 │   │   ├── auth/AuthButton.tsx          … 認証ボタン
@@ -602,6 +622,21 @@ vercel domains add carelink.jp
 | `blog_posts` | ブログ（タイトル/slug/内容/公開状態） | 検索・管理 |
 | `review_replies` | オーナー口コミ返信（1レビュー1返信） | 検索・管理 |
 | `user_points` | ポイント履歴（理由/予約ID/ポイント数） | マイページ |
+
+**Phase 7: HPB超え拡張（7テーブル + カラム追加）** ※要DB Migration実行
+
+| テーブル/変更 | 用途 | サイト |
+|-------------|------|--------|
+| `review_helpful` | 口コミ「役に立った」（review_id + user_id UNIQUE） | 検索 |
+| `feature_articles` | 特集記事（タイトル/画像/リンク/sort_order） | 検索・管理 |
+| `facility_qa` | 施設Q&A（質問/回答/ステータス/公開フラグ） | 検索・管理 |
+| `chat_rooms` | チャットルーム（facility_id + user_id UNIQUE） | マイページ・管理 |
+| `chat_messages` | チャットメッセージ（Supabase Realtime） | マイページ・管理 |
+| `user_preferred_staff` | 指名スタッフ（user_id + staff_id） | マイページ |
+| `booking_menus` | 複数メニュー同時予約（booking_id + menu_id） | 予約 |
+| ALTER `facility_reviews` | `is_verified_visit BOOLEAN`, `photo_urls TEXT[]` 追加 | 検索 |
+| ALTER `facility_menus` | `photo_url TEXT` 追加 | 検索・管理 |
+| ALTER `staff_profiles` | `nomination_fee INT DEFAULT 0` 追加 | 予約・管理 |
 
 ### 6.2 LP側テーブル（DDL）
 
@@ -842,17 +877,18 @@ FOR EACH ROW EXECUTE FUNCTION update_facility_rating();
 
 #### バケット設定
 
-| 項目 | 値 |
-|------|-----|
-| バケット名 | `carelink-uploads` |
-| 公開設定 | Public read |
-| サイズ制限 | 10MB |
-| 対応形式 | JPEG, PNG, WebP, GIF |
+| バケット名 | 公開設定 | サイズ制限 | 用途 |
+|-----------|---------|-----------|------|
+| `carelink-uploads` | Public read | 10MB | 施設写真（JPEG/PNG/WebP/GIF） |
+| `avatars` | Public read | 5MB | ユーザープロフィール写真（JPEG/PNG/WebP） |
+| `review-photos` | Public read | 5MB | 口コミ添付写真（JPEG/PNG/WebP） |
 
 #### ファイルパス形式
 
 ```
 carelink-uploads/salons/{uuid}/photo.{ext}
+avatars/{user_id}/{timestamp}.{ext}
+review-photos/{review_id}/{timestamp}.{ext}
 ```
 
 ### 6.7 登録データの確認方法
@@ -903,7 +939,9 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 ```
 【ユーザー】/search にアクセス
   ├─ キーワード・業種・エリアで検索
-  ├─ 並び替え（新着順 / 評価順）
+  ├─ 📍GPS現在地検索（Geolocation API → haversine 10km圏内）
+  ├─ 📅日付・時間帯指定検索（午前/午後/夕方〜）
+  ├─ 並び替え（新着順 / 評価順 / 人気順 / 距離順）
   ├─ 施設カード一覧（20件/ページ）
   ├─ ページネーション
   └─ カードクリック → /facility/[slug] 施設詳細ページ
@@ -951,15 +989,21 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 ### 7.6 管理ダッシュボードフロー（Phase 5: /admin）
 
 ```
-【施設オーナー】/admin にアクセス（facility_membersで権限チェック）
+【施設オーナー】/admin にアクセス（facility_membersで権限チェック、owner/adminのみ）
   ├─ ダッシュボード: 今日の予約数・KPI表示
   ├─ 予約管理: 一覧/詳細/ステータス変更
+  ├─ 📅予約台帳: ガントチャート（縦=スタッフ、横=9:00-22:00）
   ├─ 顧客管理: 顧客検索/来店履歴
-  ├─ スタッフ管理: 追加/編集/削除
+  ├─ スタッフ管理: 追加/編集/削除（指名料設定）
   ├─ クーポン管理: 作成/編集（新規/リピート/期間限定/全員）
   ├─ ブログ管理: 記事作成/編集/公開
   ├─ カタログ管理: ヘアカタログ追加/編集
-  ├─ 分析: 売上レポート
+  ├─ 口コミ管理: 公開/非公開切替・サロン返信
+  ├─ 写真管理: アップロード・メイン設定
+  ├─ Q&A管理: 質問回答・公開/非公開
+  ├─ 特集管理: 特集記事CRUD
+  ├─ チャット: ユーザーとのリアルタイムメッセージ
+  ├─ 分析: 売上レポート + スタッフ別売上
   └─ 設定: 施設情報編集
 ```
 
@@ -1055,11 +1099,15 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | パス | ファイル | レンダリング | 説明 |
 |------|---------|:----------:|------|
 | `/mypage` | `mypage/page.tsx` | Dynamic | ダッシュボード |
-| `/mypage/profile` | `mypage/profile/page.tsx` | Dynamic | プロフィール編集 |
+| `/mypage/profile` | `mypage/profile/page.tsx` | Dynamic | プロフィール編集（アバター写真） |
 | `/mypage/favorites` | `mypage/favorites/page.tsx` | Dynamic | お気に入り一覧 |
 | `/mypage/bookings` | `mypage/bookings/page.tsx` | Dynamic | 予約履歴 |
 | `/mypage/bookings/[id]` | `mypage/bookings/[id]/page.tsx` | Dynamic | 予約詳細+キャンセル |
+| `/mypage/bookings/[id]/change` | `mypage/bookings/[id]/change/page.tsx` | Dynamic | 予約日時変更 |
 | `/mypage/points` | `mypage/points/page.tsx` | Dynamic | ポイント履歴 |
+| `/mypage/coupons` | `mypage/coupons/page.tsx` | Dynamic | クーポン手帳 |
+| `/mypage/chat` | `mypage/chat/page.tsx` | Dynamic | メッセージ（Supabase Realtime） |
+| `/mypage/staff` | `mypage/staff/page.tsx` | Dynamic | 指名スタッフ一覧 |
 
 **管理ダッシュボード（施設メンバー権限必須）**
 
@@ -1079,11 +1127,15 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/admin/blog/[id]/edit` | `admin/blog/[id]/edit/page.tsx` | Dynamic | ブログ編集 |
 | `/admin/catalog` | `admin/catalog/page.tsx` | Dynamic | カタログ管理 |
 | `/admin/catalog/new` | `admin/catalog/new/page.tsx` | Dynamic | カタログ追加 |
-| `/admin/menus` | `admin/menus/page.tsx` | Dynamic | メニュー管理（CRUD・15カテゴリ） |
-| `/admin/reviews` | `admin/reviews/page.tsx` | Dynamic | 口コミ管理（公開/非公開切替） |
+| `/admin/menus` | `admin/menus/page.tsx` | Dynamic | メニュー管理（CRUD・15カテゴリ・メニュー写真） |
+| `/admin/reviews` | `admin/reviews/page.tsx` | Dynamic | 口コミ管理（公開/非公開切替・サロン返信） |
 | `/admin/photos` | `admin/photos/page.tsx` | Dynamic | 写真管理（アップロード・メイン設定） |
-| `/admin/analytics` | `admin/analytics/page.tsx` | Dynamic | 売上レポート |
+| `/admin/analytics` | `admin/analytics/page.tsx` | Dynamic | 売上レポート + スタッフ別売上（StaffSalesTab） |
 | `/admin/settings` | `admin/settings/page.tsx` | Dynamic | 施設設定（基本情報・営業時間・特徴） |
+| `/admin/bookings/calendar` | `admin/bookings/calendar/page.tsx` | Dynamic | 予約台帳ガントチャート（スタッフ×時間軸） |
+| `/admin/chat` | `admin/chat/page.tsx` | Dynamic | チャット管理（Supabase Realtime） |
+| `/admin/qa` | `admin/qa/page.tsx` | Dynamic | Q&A管理（質問回答・公開/非公開） |
+| `/admin/features` | `admin/features/page.tsx` | Dynamic | 特集記事CRUD管理 |
 
 **API Routes**
 
@@ -1100,6 +1152,8 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/api/og` | GET | 動的OGP画像生成（@vercel/og ImageResponse） |
 | `/api/auth/line` | GET | LINE OAuthログイン |
 | `/api/auth/line/callback` | GET | LINE OAuthコールバック |
+| `/api/booking/complete` | POST | 予約完了処理（ステータス変更+ポイント自動付与+来店履歴記録） |
+| `/api/availability` | GET | 月間空き状況取得（○×△カレンダー用） |
 | `/sitemap.xml` | GET | 動的サイトマップ（DB全件） |
 | `/robots.txt` | GET | robots.txt（/admin/・/mypage/・/auth/ をdisallow） |
 
@@ -1149,9 +1203,10 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | セクション | 内容 |
 |-----------|------|
 | SearchBar | キーワード / 業種セレクト / エリアセレクト / 検索ボタン |
-| サイドバー | SearchFilters（エリア=地方optgroup/業種/評価/価格帯/こだわり16条件） |
+| GPS検索 | 📍「現在地から探す」ボタン（Geolocation API → haversine 10km圏内） |
+| サイドバー | SearchFilters（エリア=地方optgroup/業種/評価/価格帯/こだわり16条件/📅日付/🕐時間帯） |
 | モバイル | MobileFilterDrawer（`<dialog>`スライドイン）+ 固定フローティングボタン |
-| 結果ヘッダー | 「○件見つかりました」+ 並び替え（新着順/評価順/人気順）+ フィルター数表示 |
+| 結果ヘッダー | 「○件見つかりました」+ 並び替え（新着順/評価順/人気順/距離順）+ フィルター数表示 |
 | カードグリッド | FacilityCard × 20件/ページ（2列レスポンシブ） |
 | Pagination | ページネーション（省略記号付き、ARIA対応） |
 | Empty State | 「該当するサロン・クリニックが見つかりませんでした」 |
@@ -1163,10 +1218,11 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | パンくず | `<nav>` | CareLink > 施設名 |
 | 写真 | `PhotoGallery` | メイン画像+サムネイル行+カウンター |
 | ヘッダー | `FacilityHeader` | 業種バッジ・評価・施設名・キャッチコピー |
-| タブ | `TabNavigation` | Top / メニュー / スタッフ / カタログ / クーポン / 口コミ(件数) / アクセス |
+| タブ | `TabNavigation` | Top / メニュー / スタッフ / カタログ / クーポン / 口コミ(件数) / Q&A / アクセス |
 | Topタブ | - | 紹介文・おすすめメニュー3件・特徴タグ・基本情報 |
 | メニュータブ | `MenuList` | カテゴリ別メニュー一覧（価格・時間） |
-| 口コミタブ | `ReviewTab` | 評価サマリー+棒グラフ+口コミ一覧+投稿フォーム |
+| 口コミタブ | `ReviewTab` | 評価サマリー+棒グラフ+口コミ一覧(写真・返信・「役に立った」・来店確認バッジ)+投稿フォーム(写真添付可) |
+| Q&Aタブ | `QASection` | 質問一覧+投稿フォーム（サロン回答付き） |
 | アクセスタブ | `AccessInfo` | 住所・営業時間・特徴・Google Map |
 | お問い合わせ | `InquiryForm` | 名前・メール・電話・メッセージ |
 | 固定バー | `StickyBookingBar` | 電話ボタン + お問い合わせボタン |
@@ -1333,9 +1389,11 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `SearchBar` | 検索フォーム。keyword(type="search") + 業種select + エリアselect。name属性・aria-label付き |
 | `SearchFilters` | サイドバーフィルター。エリア（地方optgroup）・業種・評価・価格帯・こだわり16条件。aria-label・aria-pressed対応 |
 | `MobileFilterDrawer` | モバイルフィルタードロワー。`<dialog>`ベース、右スライドイン、背景クリック・Escape閉じ |
-| `HomeSearchForm` | トップページ検索フォーム。業種ピル+エリア選択 |
+| `HomeSearchForm` | トップページ検索フォーム。業種ピル+エリア選択+📍GPS「現在地から探す」ボタン |
 | `HomeUserPanel` | ログインユーザーパネル（お気に入り・予約履歴リンク） |
 | `FacilityCard` | 施設カード。画像（blurプレースホルダー）+ 業種バッジ + 星評価 + 所在地。line-clamp |
+| `CompareButton` | 施設比較ボタン（localStorage、最大3件） |
+| `CompareBar` | 施設比較フローティングバー（比較リスト表示） |
 | `Pagination` | ページネーション。省略記号(...) + aria-current="page" + aria-label |
 
 ### 11.3 施設詳細コンポーネント（`components/facility/` — 21個）
@@ -1364,14 +1422,17 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `StaffCard` | スタッフカード（写真・名前・役職・得意分野） |
 | `StaffList` | スタッフ一覧グリッド |
 | `ViewCount` | 閲覧数カウンター（sessionStorage安全アクセス） |
+| `QASection` | 施設Q&A表示（質問一覧+投稿フォーム） |
+| `RecentlyViewed` | 閲覧履歴（localStorage、最大20件） |
 
 ### 11.5 その他の専門コンポーネント
 
 | コンポーネント | ファイル | 説明 |
 |---------------|---------|------|
-| `AdminMobileNav` | `admin/AdminMobileNav.tsx` | モバイル管理画面ナビ。4タブ+「その他」メニュー（12項目対応）|
+| `AdminMobileNav` | `admin/AdminMobileNav.tsx` | モバイル管理画面ナビ。4タブ+「その他」メニュー（16項目対応：ホーム/予約/顧客/メニュー/スタッフ/口コミ/写真/クーポン/ブログ/カタログ/Q&A/特集/チャット/分析/設定）|
 | `AuthButton` | `auth/AuthButton.tsx` | 認証ボタン（ログイン/ログアウト切替） |
-| `BookingFlow` | `booking/BookingFlow.tsx` | 予約フロー全体（メニュー→スタッフ→日時→確認→完了） |
+| `BookingFlow` | `booking/BookingFlow.tsx` | 予約フロー全体（メニュー→スタッフ→日時→確認→完了）。指名料自動加算対応 |
+| `StaffSalesTab` | `admin/analytics/StaffSalesTab.tsx` | スタッフ別売上バーグラフ（月間） |
 | `JapanRegionMap` | `home/JapanRegionMap.tsx` | 日本地図エリアマップ（8地方クリック対応） |
 | `SafeHtmlContent` | `seo/SafeHtmlContent.tsx` | HTMLサニタイザー（許可タグのみ通す） |
 | `RelatedLinks` | `seo/RelatedLinks.tsx` | 関連リンク一覧（エリア・業種） |
@@ -1774,18 +1835,22 @@ SQL:       SQL Editor
 | 制限 | 説明 |
 |------|------|
 | 検索データがダミー | 実際の施設データへの移行が必要 |
-| メール通知なし | Slackのみ（予約通知API実装済みだが未接続） |
 | レート制限がin-memory | サーバーレス環境ではインスタンスごとにリセット（Map 1000件超クリーンアップ済み） |
 | カスタムドメイン未設定 | carelink.jp の取得・DNS設定が必要 |
+| Phase 7 DB Migration未実行 | review_helpful/feature_articles/facility_qa/chat_rooms/chat_messages/user_preferred_staff/booking_menusテーブルとカラム追加（Supabase SQL Editorで手動実行が必要） |
+| Storageバケット未作成 | `avatars`（プロフィール写真）と`review-photos`（口コミ写真）の2バケットをSupabase Dashboardで作成が必要 |
+| GPS検索がJS側計算 | PostGIS未使用。haversine距離計算をJS側で実行（500件上限→10km以内フィルタ）。大規模データ時はPostGIS移行推奨 |
 
 ### 21.2 今後の開発予定
 
 | 優先度 | 機能 | 説明 |
 |:------:|------|------|
+| 高 | DB Migration実行 | Phase 1/2/3のSQL（計3回）をSupabase SQL Editorで手動実行 |
+| 高 | Storageバケット作成 | avatars + review-photos バケットを作成 |
 | 高 | カスタムドメイン | `carelink.jp` の取得・設定 |
 | 高 | 実データ移行 | ダミー施設データを実際の施設に置換 |
 | 中 | 職業紹介事業届出 | 届出取得後にマッチング機能実装 |
-| 低 | メール通知 | Resend等でメール通知追加 |
+| 低 | PostGIS移行 | GPS検索のDB側距離計算（スケール対策） |
 | 低 | 自動テスト | Vitest + Playwright |
 
 ---
@@ -1838,7 +1903,12 @@ SQL:       SQL Editor
 
 | 関数 | 引数 | 用途 |
 |------|------|------|
-| `searchFacilities(params)` | keyword, type, prefecture, page, sort | 施設検索（20件/ページ、ILIKE、人気順対応） |
+| `searchFacilities(params)` | keyword, type, prefecture, page, sort, lat, lng | 施設検索（20件/ページ、ILIKE、GPS距離検索対応） |
+| `haversineDistance(lat1, lng1, lat2, lng2)` | 座標2点 | 2点間距離計算（km）。GPS検索で使用 |
+| `getPopularFacilities(limit)` | limit(default 6) | 人気施設取得（rating_count降順） |
+| `getSimilarFacilities(...)` | facilityId, businessType, prefecture, limit | 類似施設取得（同業種・同エリア） |
+| `getLatestFacilities(limit)` | limit(default 6) | 新着施設取得 |
+| `getLatestReviews(limit)` | limit(default 6) | 最新口コミ取得（施設名付き） |
 | `getFacilityBySlug(slug)` | slug | 施設詳細取得 |
 | `getFacilityMenus(facilityId)` | UUID | メニュー取得（sort_order順） |
 | `getFacilityPhotos(facilityId)` | UUID | 写真取得（sort_order順） |
@@ -1990,10 +2060,71 @@ SQL:       SQL Editor
 
 ---
 
+## HPB超え30機能一覧（v6.0）
+
+v6.0で一括搭載した、ホットペッパービューティー（HPB）を超える30機能：
+
+### 検索・発見（5機能）
+| # | 機能 | 実装概要 |
+|---|------|----------|
+| 1 | GPS現在地検索 | Geolocation API→haversine距離計算→10km圏内（JS側、500件上限） |
+| 2 | 日付・時間帯指定検索 | SearchFiltersに日付ピッカー+時間帯セレクト（午前/午後/夕方〜） |
+| 3 | 地図ビュー切替 | Leaflet地図表示（リスト↔マップ切替） |
+| 4 | 新着サロン（トップ） | `getLatestFacilities()`でトップページに新着セクション追加 |
+| 5 | 特徴タグクリック検索 | 施設詳細の特徴タグをクリック→検索結果にジャンプ |
+
+### 口コミ・評価（4機能）
+| # | 機能 | 実装概要 |
+|---|------|----------|
+| 8 | サロン返信表示 | `review_replies`テーブルJOIN→ReviewListにグレー背景返信ブロック |
+| 9 | 口コミ写真投稿 | ReviewFormに写真アップロード追加（`review-photos`バケット） |
+| 10 | 「役に立った」 | `review_helpful`テーブル（review_id + user_id UNIQUE） |
+| 11 | 来店確認バッジ | `is_verified_visit`フラグ（booking存在時に自動設定） |
+
+### 施設詳細・コンテンツ（5機能）
+| # | 機能 | 実装概要 |
+|---|------|----------|
+| 6 | 施設比較 | localStorage比較リスト（最大3件）→`/compare`で横並び表示 |
+| 12 | BeforeAfterカタログ | `BeforeAfterSlider`をCatalogListに統合 |
+| 13 | カタログ詳細ページ | `/facility/[slug]/catalog/[catalogId]`（大サイズスライダー+タグ+関連スタッフ） |
+| 14 | AccessInfo改善 | 住所フォールバック地図+ルートボタン+最寄り駅表示 |
+| 28 | 施設Q&A | 質問投稿+サロン回答（`facility_qa`テーブル、admin/qa管理画面） |
+
+### 予約・決済（5機能）
+| # | 機能 | 実装概要 |
+|---|------|----------|
+| 16 | 複数メニュー同時予約 | `booking_menus`テーブル、duration/price合算 |
+| 17 | 月間カレンダー○×△ | `/api/availability`で空き状況取得 |
+| 18 | 指名料自動加算 | `staff_profiles.nomination_fee`をBookingFlowのcalculatePrice()に加算 |
+| 19 | 予約日時変更 | `/mypage/bookings/[id]/change`（日付グリッド+時間帯選択） |
+| 20 | ポイント自動付与 | `/api/booking/complete`で`total_price/100`ポイント自動INSERT |
+
+### マイページ（5機能）
+| # | 機能 | 実装概要 |
+|---|------|----------|
+| 5 | 閲覧履歴 | localStorage `viewed_facilities`（最大20件） |
+| 21 | クーポン手帳 | `/mypage/coupons`（お気に入り施設のクーポン一覧） |
+| 22 | 指名スタッフ登録 | `/mypage/staff`（`user_preferred_staff`テーブル） |
+| 23 | プロフィール写真 | `avatars`バケットへアップロード、5MB制限 |
+| 25 | チャット | `/mypage/chat`（Supabase Realtime双方向、`chat_rooms`+`chat_messages`） |
+
+### 管理ダッシュボード（6機能）
+| # | 機能 | 実装概要 |
+|---|------|----------|
+| 7 | メニュー写真 | `facility_menus.photo_url`カラム、admin/menusにアップロード |
+| 24 | 予約台帳カレンダー | ガントチャート（縦=スタッフ、横=9:00-22:00、CSS absolute配置） |
+| 26 | スタッフ別売上 | `StaffSalesTab`（bookingsをstaff_idでGROUP BY、バーグラフ） |
+| 27 | 特集管理 | `/admin/features`（`feature_articles`テーブルCRUD） |
+| 29 | salon CTAリンク修正 | `/register`→`/recruit`に修正 |
+| 30 | admin権限チェック強化 | `facility_members.role`検証（owner/adminのみ） |
+
+---
+
 ## 変更履歴
 
 | 日付 | バージョン | 内容 |
 |------|-----------|------|
+| 2026-03-27 | 6.0 | **HPB超え30機能一括搭載**: GPS現在地検索(haversine 10km)、日時指定検索、施設比較(/compare)、閲覧履歴(localStorage)、口コミ写真投稿/サロン返信/「役に立った」/来店確認バッジ、Q&A(施設詳細+admin管理)、特集管理(admin CRUD)、チャット(Supabase Realtime双方向)、予約日時変更(/mypage/bookings/[id]/change)、予約台帳ガントチャート(/admin/bookings/calendar)、指名スタッフ登録(/mypage/staff)、スタッフ別売上(StaffSalesTab)、指名料自動加算(BookingFlow)、ポイント自動付与(/api/booking/complete)、プロフィール写真(avatarsバケット)、メニュー写真、クーポン手帳(/mypage/coupons)、月間カレンダー○×△、複数メニュー同時予約。新テーブル7+カラム追加3。ナビ更新(admin 16項目、mypage 8項目) |
 | 2026-03-27 | 5.1 | **マニュアル完全照合**: ディレクトリ構成を全124ファイル反映に書き直し、コンポーネント47個全記載、lib 27ファイル全記載、loading.tsx 30件・error.tsx全記載、SEOエリアページ・特集ページ追加、Section 2.2の事実誤認2件修正（「管理画面なし」→管理ダッシュボード完備、「クライアント2種」→4種）、品質監査16回150件+に更新 |
 | 2026-03-27 | 5.0 | **HPB深度強化Round13-16(50件修正)**: 管理機能4点(施設設定/メニューCRUD/Resendメール通知5テンプレ/予約承認フロー)、PWA manifest、Email XSS修正(`esc()`関数)、口コミ管理/写真管理/AdminMobileNav(4タブ+その他)、Markdownエディタ(ツールバー+プレビュー)、予約ページネーション(20件/page)、Before/Afterスライダー(ポインタードラッグ+キーボード)、エリア地方optgroup、シードデータ(スタッフ5名+カタログ6件)、マイページ予約カード、公開ブログMarkdown描画、loading.tsx 4件追加 |
 | 2026-03-26 | 4.0 | **外部サービス設定+品質強化**: GA4設定(`G-BP8GVKJ3NZ`)、Clarity設定(`w1sqla5alv`)、Supabase Site URL+Redirect URL設定、パスワードリセット機能(`/auth/forgot-password`+`/auth/reset-password`)、/salon LP分離(CTA→/register, B方式Flow)、bookingバリデーション強化、品質監査Round10-12(18件修正)、重複/salonsページ削除、マイグレーションファイル補完、.env.example更新(SERVICE_ROLE_KEY+LINE変数追加) |

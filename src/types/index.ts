@@ -62,6 +62,7 @@ export interface Facility {
   parking: boolean;
   credit_card: boolean;
   features: string[];
+  nearest_station: string | null;
   rating_avg: number;
   rating_count: number;
   main_photo_url: string | null;
@@ -77,6 +78,7 @@ export interface FacilityMenu {
   price: number | null;
   price_note: string | null;
   duration_minutes: number | null;
+  photo_url: string | null;
   is_featured: boolean;
   sort_order: number;
 }
@@ -109,6 +111,9 @@ export interface FacilityCardData {
   photo_count: number;
   business_hours: Record<string, { open: string; close: string } | null> | null;
   seat_count: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  distance?: number;
 }
 
 export interface FacilityReview {
@@ -122,6 +127,8 @@ export interface FacilityReview {
   rating_cleanliness: number | null;
   rating_explanation: number | null;
   comment: string | null;
+  photo_urls: string[];
+  is_verified_visit: boolean;
   status: 'published' | 'hidden';
   created_at: string;
 }
@@ -146,8 +153,12 @@ export interface SearchParams {
   price_min?: number;
   price_max?: number;
   features?: string[];
-  sort?: 'rating' | 'newest' | 'popular';
+  sort?: 'rating' | 'newest' | 'popular' | 'distance';
   page?: number;
+  lat?: number;
+  lng?: number;
+  available_date?: string;
+  available_time?: string;
 }
 
 // User Profile（認証ユーザー）
@@ -195,6 +206,7 @@ export interface StaffProfile {
   years_experience: number | null;
   photo_url: string | null;
   instagram_url: string | null;
+  nomination_fee: number;
   sort_order: number;
   is_active: boolean;
   created_at: string;

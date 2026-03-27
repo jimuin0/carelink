@@ -18,6 +18,8 @@ interface ProfileForm {
 export default function ProfileEditPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<ProfileForm>();
 
@@ -42,6 +44,7 @@ export default function ProfileEditPage() {
           birth_date: data.birth_date || '',
           gender: data.gender || '',
         });
+        setAvatarUrl(data.avatar_url || null);
       }
       setLoading(false);
     };
@@ -92,6 +95,51 @@ export default function ProfileEditPage() {
       <h1 className="text-xl font-bold mb-4">プロフィール編集</h1>
 
       <div className="bg-white rounded-2xl shadow-sm p-6">
+        {/* Avatar */}
+        <div className="flex items-center gap-4 mb-6 pb-6 border-b">
+          <div className="w-16 h-16 rounded-full bg-sky-100 flex items-center justify-center overflow-hidden shrink-0">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarUrl} alt="プロフィール" className="w-full h-full object-cover" />
+            ) : (
+              <svg className="w-8 h-8 text-sky-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
+            )}
+          </div>
+          <div>
+            <label className="text-sm text-sky-600 font-medium cursor-pointer hover:underline">
+              {uploading ? 'アップロード中...' : '写真を変更'}
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                disabled={uploading}
+                onChange={async (e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (file.size > 5 * 1024 * 1024) { setToast({ type: 'error', message: '5MB以下の画像を選択してください' }); return; }
+                  setUploading(true);
+                  try {
+                    const supabase = createBrowserSupabaseClient();
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) return;
+                    const ext = file.name.split('.').pop() || 'jpg';
+                    const path = `${user.id}/avatar.${ext}`;
+                    const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
+                    if (uploadError) throw uploadError;
+                    const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+                    const url = `${urlData.publicUrl}?t=${Date.now()}`;
+                    await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+                    setAvatarUrl(url);
+                    setToast({ type: 'success', message: '写真を更新しました' });
+                  } catch { setToast({ type: 'error', message: 'アップロードに失敗しました' }); }
+                  setUploading(false);
+                }}
+              />
+            </label>
+            <p className="text-xs text-gray-400 mt-0.5">JPEG/PNG/WebP, 5MB以下</p>
+          </div>
+        </div>
+
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
             <label htmlFor="profile-name" className="form-label">お名前 <span className="text-red-500">*</span></label>

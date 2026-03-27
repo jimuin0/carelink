@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import StaffSalesTab from './StaffSalesTab';
 
 export default async function AdminAnalyticsPage() {
   const supabase = createServerSupabaseAuthClient();
@@ -87,6 +88,8 @@ export default async function AdminAnalyticsPage() {
           ))}
         </div>
       </div>
+
+      <StaffSalesTab facilityId={facilityId} />
     </div>
   );
 }

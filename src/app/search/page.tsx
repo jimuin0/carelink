@@ -5,8 +5,8 @@ import { searchFacilities } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
 import SearchFilters from '@/components/search/SearchFilters';
 import MobileFilterDrawer from '@/components/search/MobileFilterDrawer';
-import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
+import ViewToggle from '@/components/search/ViewToggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -16,6 +16,7 @@ interface Props {
   searchParams: {
     keyword?: string; type?: string; area?: string; sort?: string; page?: string;
     rating_min?: string; price_min?: string; price_max?: string; features?: string;
+    lat?: string; lng?: string; available_date?: string; available_time?: string;
   };
 }
 
@@ -50,7 +51,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
 }
 
 export default async function SearchPage({ searchParams }: Props) {
-  const validSorts = ['rating', 'newest', 'popular'] as const;
+  const validSorts = ['rating', 'newest', 'popular', 'distance'] as const;
   const sort = validSorts.includes(searchParams.sort as typeof validSorts[number])
     ? (searchParams.sort as typeof validSorts[number])
     : 'newest';
@@ -66,6 +67,8 @@ export default async function SearchPage({ searchParams }: Props) {
     price_min: searchParams.price_min ? parseInt(searchParams.price_min) : undefined,
     price_max: searchParams.price_max ? parseInt(searchParams.price_max) : undefined,
     features: searchParams.features?.split(',').filter(Boolean),
+    lat: searchParams.lat ? parseFloat(searchParams.lat) : undefined,
+    lng: searchParams.lng ? parseFloat(searchParams.lng) : undefined,
   };
 
   const { facilities, total, perPage } = await searchFacilities(params);
@@ -154,17 +157,8 @@ export default async function SearchPage({ searchParams }: Props) {
               </div>
             </div>
 
-            {/* Cards */}
-            {facilities.length > 0 ? (
-              <div className="grid sm:grid-cols-2 gap-6">
-                {facilities.map((f) => (<FacilityCard key={f.id} facility={f} />))}
-              </div>
-            ) : (
-              <div className="text-center py-16 bg-white rounded-2xl shadow-sm">
-                <p className="text-gray-500 text-lg mb-2">該当するサロン・クリニックが見つかりませんでした</p>
-                <p className="text-gray-500 text-sm">条件を変えて再度お試しください</p>
-              </div>
-            )}
+            {/* Cards/Map with view toggle */}
+            <ViewToggle facilities={facilities} />
             <Pagination currentPage={params.page} totalPages={totalPages} baseUrl={baseUrl} />
           </div>
         </div>
