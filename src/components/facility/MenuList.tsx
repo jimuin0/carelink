@@ -55,7 +55,7 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
                     <p className="text-gray-500 text-xs mt-1">{menu.description}</p>
                   )}
                   {formatDuration(menu.duration_minutes) && (
-                    <p className="text-gray-400 text-xs mt-1">
+                    <p className="text-gray-500 text-xs mt-1">
                       所要時間: {formatDuration(menu.duration_minutes)}
                     </p>
                   )}

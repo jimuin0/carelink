@@ -76,7 +76,7 @@ export default function HomeUserPanel() {
             className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-600 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-100' : ''}`}
           >
             <span>{item.label}</span>
-            <span className="text-gray-300 text-micro">&rsaquo;</span>
+            <span className="text-gray-400 text-micro">&rsaquo;</span>
           </Link>
         ))}
       </nav>

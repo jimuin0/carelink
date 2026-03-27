@@ -1,9 +1,13 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { checkCsrf } from '@/lib/csrf';
 
 export async function POST(request: Request) {
   try {
+    const csrfError = checkCsrf(request);
+    if (csrfError) return csrfError;
+
     const { facilityId } = await request.json();
     if (!facilityId) {
       return NextResponse.json({ error: 'facilityId is required' }, { status: 400 });

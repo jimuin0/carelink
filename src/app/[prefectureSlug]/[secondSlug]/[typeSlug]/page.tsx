@@ -73,7 +73,7 @@ export default async function CityTypePage({ params, searchParams }: Props) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[
           { label: 'トップ', href: '/' },

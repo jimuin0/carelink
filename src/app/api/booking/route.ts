@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { bookingSchema } from '@/lib/validations-booking';
+import { checkCsrf } from '@/lib/csrf';
 
 const bookingLog = new Map<string, number[]>();
 const BOOKING_RATE_LIMIT = 3;
@@ -24,6 +25,9 @@ function isBookingRateLimited(ip: string): boolean {
 
 export async function POST(request: Request) {
   try {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (isBookingRateLimited(ip)) {
     return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });

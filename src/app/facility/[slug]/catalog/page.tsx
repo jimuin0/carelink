@@ -54,7 +54,7 @@ export default async function CatalogPage({ params }: Props) {
                     </div>
                   ) : (
                     <div className="aspect-square bg-gray-100 flex items-center justify-center">
-                      <span className="text-gray-300 text-sm">No Photo</span>
+                      <span className="text-gray-400 text-sm">No Photo</span>
                     </div>
                   )}
                   <div className="p-3">

@@ -263,7 +263,7 @@ export default async function FacilityPage({ params }: Props) {
                     closes: hours!.close,
                   })),
               }),
-            }).replace(/</g, '\\u003c'),
+            }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
           }}
         />
         {/* JSON-LD: BreadcrumbList */}
@@ -293,7 +293,7 @@ export default async function FacilityPage({ params }: Props) {
                   '@context': 'https://schema.org',
                   '@type': 'BreadcrumbList',
                   itemListElement: items,
-                }).replace(/</g, '\\u003c'),
+                }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
               }}
             />
           );
@@ -313,7 +313,7 @@ export default async function FacilityPage({ params }: Props) {
                   reviewBody: r.comment,
                   datePublished: r.created_at?.split('T')[0],
                 }))
-              ).replace(/</g, '\\u003c'),
+              ).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
             }}
           />
         )}
@@ -336,7 +336,7 @@ export default async function FacilityPage({ params }: Props) {
                   }),
                   availability: 'https://schema.org/InStock',
                 })),
-              }).replace(/</g, '\\u003c'),
+              }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
             }}
           />
         )}
@@ -355,7 +355,7 @@ export default async function FacilityPage({ params }: Props) {
                   ...(s.photo_url && { image: s.photo_url }),
                   ...(s.bio && { description: s.bio }),
                 }))
-              ).replace(/</g, '\\u003c'),
+              ).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
             }}
           />
         )}

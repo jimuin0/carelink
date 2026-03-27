@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: 'プライバシーポリシー',
+  description: 'CareLinkの個人情報の取扱い方針について。収集する情報・利用目的・第三者提供・安全管理措置等を定めています。',
 };
 
 export default function PrivacyPage() {

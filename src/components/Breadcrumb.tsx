@@ -19,12 +19,12 @@ export default function Breadcrumb({ items }: { items: BreadcrumbItem[] }) {
 
   return (
     <>
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
       <nav aria-label="パンくずリスト" className="text-sm text-gray-500 mb-6">
         <ol className="flex flex-wrap items-center gap-1">
           {items.map((item, i) => (
             <li key={i} className="flex items-center gap-1">
-              {i > 0 && <span className="text-gray-300">/</span>}
+              {i > 0 && <span className="text-gray-400">/</span>}
               {item.href ? (
                 <Link href={item.href} className="hover:text-gray-700 transition-colors">{item.label}</Link>
               ) : (

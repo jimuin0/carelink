@@ -137,7 +137,7 @@ export default function RootLayout({
                   },
                 ],
               },
-            ]),
+            ]).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
           }}
         />
         <LayoutSwitch>{children}</LayoutSwitch>

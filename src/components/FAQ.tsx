@@ -18,6 +18,7 @@ export default function FAQ({ items }: { items: FAQItem[] }) {
             className="w-full flex items-center justify-between px-6 py-4 text-left font-medium text-gray-900 hover:bg-gray-50 transition-colors"
             onClick={() => setOpenIndex(openIndex === index ? null : index)}
             aria-expanded={openIndex === index}
+            aria-label={`${item.question}を${openIndex === index ? '閉じる' : '開く'}`}
           >
             <span className="flex items-center gap-3">
               <span className="text-primary font-bold">Q.</span>
@@ -30,6 +31,7 @@ export default function FAQ({ items }: { items: FAQItem[] }) {
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
+              aria-hidden="true"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>

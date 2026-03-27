@@ -92,5 +92,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }))
   );
 
-  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages];
+  // Blog articles
+  const { data: blogArticles } = await supabase
+    .from('blog_articles')
+    .select('slug, updated_at')
+    .eq('status', 'published');
+
+  const blogPages: MetadataRoute.Sitemap = (blogArticles || []).map((a) => ({
+    url: `${baseUrl}/blog/${a.slug}`,
+    lastModified: a.updated_at ? new Date(a.updated_at) : updated,
+    changeFrequency: 'monthly' as const,
+    priority: 0.6,
+  }));
+
+  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages];
 }

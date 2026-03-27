@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { checkCsrf } from '@/lib/csrf';
 
 const profileSchema = z.object({
   display_name: z.string().min(1, 'お名前は必須です'),
@@ -14,6 +15,9 @@ const profileSchema = z.object({
 
 export async function PUT(request: Request) {
   try {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+
   const body = await request.json();
   const parsed = profileSchema.safeParse(body);
   if (!parsed.success) {

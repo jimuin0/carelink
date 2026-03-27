@@ -20,11 +20,12 @@ export default function HomeSearchForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex bg-white rounded shadow-sm overflow-hidden">
+    <form onSubmit={handleSubmit} className="flex bg-white rounded shadow-sm overflow-hidden" role="search" aria-label="サロン検索">
       <select
         value={area}
         onChange={(e) => setArea(e.target.value)}
-        className="w-[120px] px-3 py-2.5 text-xs text-gray-500 bg-transparent border-r border-gray-100 focus:outline-none appearance-none"
+        aria-label="エリアを選択"
+        className="w-[120px] px-3 py-2.5 text-xs text-gray-600 bg-transparent border-r border-gray-100 focus:outline-none appearance-none"
       >
         <option value="">全エリア</option>
         {prefectures.map((p) => (
@@ -36,6 +37,7 @@ export default function HomeSearchForm() {
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         placeholder="サロン名・キーワード"
+        aria-label="サロン名・キーワードで検索"
         className="flex-1 px-4 py-2.5 text-sm text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-400"
       />
       <button type="submit" className="px-6 py-2.5 bg-sky-600 text-white text-xs tracking-wider hover:bg-sky-700 transition-colors whitespace-nowrap">

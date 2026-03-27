@@ -61,7 +61,7 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
 
   return (
     <div className="section-container">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
       <Breadcrumb items={[{ label: 'ホーム', href: '/' }, { label: 'コラム', href: '/blog' }, { label: article.title }]} />
 
       <article className="max-w-3xl mx-auto">

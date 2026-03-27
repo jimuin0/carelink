@@ -37,7 +37,16 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   if (searchParams.keyword) params.set('keyword', searchParams.keyword);
   const canonical = params.toString() ? `/search?${params.toString()}` : '/search';
 
-  return { title, description, alternates: { canonical } };
+  const currentPage = parseInt(searchParams.page || '1');
+  const hasFilters = !!(searchParams.rating_min || searchParams.price_min || searchParams.price_max || searchParams.features);
+  const shouldNoIndex = hasFilters || currentPage > 1;
+
+  return {
+    title,
+    description,
+    alternates: { canonical },
+    ...(shouldNoIndex && { robots: { index: false, follow: true } }),
+  };
 }
 
 export default async function SearchPage({ searchParams }: Props) {
@@ -94,7 +103,7 @@ export default async function SearchPage({ searchParams }: Props) {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, '\\u003c') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
 
       {/* Hero */}
       <section className="bg-gradient-to-br from-sky-50 to-white">
@@ -152,8 +161,8 @@ export default async function SearchPage({ searchParams }: Props) {
               </div>
             ) : (
               <div className="text-center py-16 bg-white rounded-2xl shadow-sm">
-                <p className="text-gray-400 text-lg mb-2">該当するサロン・クリニックが見つかりませんでした</p>
-                <p className="text-gray-400 text-sm">条件を変えて再度お試しください</p>
+                <p className="text-gray-500 text-lg mb-2">該当するサロン・クリニックが見つかりませんでした</p>
+                <p className="text-gray-500 text-sm">条件を変えて再度お試しください</p>
               </div>
             )}
             <Pagination currentPage={params.page} totalPages={totalPages} baseUrl={baseUrl} />

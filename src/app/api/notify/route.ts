@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { checkCsrf } from '@/lib/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +81,9 @@ function buildSlackMessage(payload: NotifyPayload): string {
 }
 
 export async function POST(request: Request) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (isRateLimited(ip)) {
     return NextResponse.json({ ok: false, error: 'Too many requests' }, { status: 429 });

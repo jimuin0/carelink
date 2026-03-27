@@ -127,7 +127,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: prefName, href: `/${prefectureSlug}` }, { label: typeName }]} />
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{prefName}の{typeName}</h1>
@@ -194,7 +194,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: prefName, href: `/${prefectureSlug}` }, { label: cityName }]} />
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{cityName}のサロン・クリニック</h1>
@@ -284,7 +284,7 @@ function SeoTextSection({ seoContent, fallbackTitle, fallbackBody }: {
               '@type': 'Question', name: faq.question,
               acceptedAnswer: { '@type': 'Answer', text: faq.answer },
             })),
-          }),
+          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
         }} />
       )}
     </>

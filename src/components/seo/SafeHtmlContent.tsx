@@ -1,24 +1,42 @@
 const ALLOWED_TAGS = new Set(['p', 'br', 'strong', 'em', 'b', 'i', 'ul', 'ol', 'li', 'h3', 'h4', 'a']);
 
+const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/[^/])/i;
+
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"');
+}
+
+function isHrefSafe(raw: string): boolean {
+  const decoded = decodeHtmlEntities(raw).replace(/[\s\x00-\x1f]+/g, '').toLowerCase();
+  if (decoded.startsWith('javascript:') || decoded.startsWith('data:') || decoded.startsWith('vbscript:')) return false;
+  return SAFE_URL_PATTERN.test(raw) || !raw.includes(':');
+}
+
 function sanitizeHtml(raw: string): string {
-  // Remove all tags except allowed ones; strip all attributes except href on <a>
-  return raw.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (match, tag) => {
+  // Strip all script/style/iframe/object/embed tags and their content
+  let html = raw.replace(/<(script|style|iframe|object|embed|form|textarea|input|select|button)[^>]*>[\s\S]*?<\/\1>/gi, '');
+  // Strip event handler attributes globally
+  html = html.replace(/\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)/gi, '');
+
+  return html.replace(/<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (match, tag) => {
     const lower = tag.toLowerCase();
     if (!ALLOWED_TAGS.has(lower)) return '';
-    // Self-closing tags
     if (lower === 'br') return '<br />';
-    // For closing tags, keep as-is
     if (match.startsWith('</')) return `</${lower}>`;
-    // For <a> tags, preserve href only
     if (lower === 'a') {
-      const hrefMatch = match.match(/href="([^"]*)"/);
-      if (hrefMatch) {
-        const href = hrefMatch[1].replace(/javascript:/gi, '').replace(/on\w+=/gi, '');
+      const hrefMatch = match.match(/href\s*=\s*"([^"]*)"/i) || match.match(/href\s*=\s*'([^']*)'/i);
+      if (hrefMatch && isHrefSafe(hrefMatch[1])) {
+        const href = hrefMatch[1].replace(/"/g, '&quot;');
         return `<a href="${href}" rel="noopener noreferrer">`;
       }
-      return '<a>';
+      return '<a rel="noopener noreferrer">';
     }
-    // All other allowed tags: strip all attributes
     return `<${lower}>`;
   });
 }

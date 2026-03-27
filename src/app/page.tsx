@@ -408,7 +408,7 @@ export default async function Home() {
                     className="flex items-center justify-between py-3 text-xs text-gray-500 hover:text-sky-700 transition-colors border-b border-gray-100"
                   >
                     <span>{item.label}</span>
-                    <span className="text-gray-300">&rsaquo;</span>
+                    <span className="text-gray-400">&rsaquo;</span>
                   </Link>
                 ))}
               </nav>

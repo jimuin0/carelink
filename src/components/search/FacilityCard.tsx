@@ -39,7 +39,7 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
             src={facility.main_photo_url}
             alt={`${facility.name} - ${facility.business_type}`}
             fill
-            sizes="(max-width: 640px) 100vw, 50vw"
+            sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
             className="object-cover"
             placeholder="blur"
             blurDataURL={SHIMMER_BLUR}

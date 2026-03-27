@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: '特定商取引法に基づく表記',
+  description: 'CareLinkの特定商取引法に基づく表記。事業者名・所在地・販売価格・支払方法・返品条件等を掲載しています。',
 };
 
 export default function LegalPage() {
