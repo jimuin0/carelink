@@ -1,7 +1,7 @@
-# CareLink マニュアル v5.0
+# CareLink マニュアル v5.1
 
 **最終更新**: 2026年3月27日
-**バージョン**: 5.0
+**バージョン**: 5.1
 **作成者**: Claude + 神原 良祐
 **プロジェクト**: ~/Projects/carelink/
 
@@ -201,13 +201,14 @@ Supabase (PostgreSQL + Storage)
 
 ### 2.2 重要な設計ポイント
 
-- **管理画面なし**: 登録データの確認・管理はSupabase Dashboardで直接行う
+- **管理ダッシュボード**: `/admin` に施設管理画面完備（予約/顧客/スタッフ/クーポン/ブログ/カタログ/写真/口コミ/分析/設定）。`facility_members`テーブルで権限管理
 - **クライアント側INSERT**: Supabase anon keyでクライアントから直接DBに書き込む（RLSでINSERTのみ許可）
 - **通知は補助機能**: Slack通知失敗でもフォーム送信は成功扱い（DB保存が優先）
 - **LP側は全Static**: ビルド時に静的HTML生成（CDN配信）
 - **検索側はSSR/ISR**: search は `force-dynamic`（毎回DB取得）、facility は ISR（1時間キャッシュ）
-- **LayoutSwitch**: `usePathname()` で LP用/検索用のヘッダー・フッターを自動切替
-- **Supabaseクライアント2種**: クライアント用 (`supabase.ts`) とサーバー用 (`supabase-server.ts`)
+- **SEOエリアページ**: `[prefectureSlug]/[secondSlug]/[typeSlug]` の3階層動的ルーティングで283市区町村+2,054ページ自動生成
+- **LayoutSwitch**: `usePathname()` で LP用/検索用/認証用/マイページ用/管理画面用のヘッダー・フッターを自動切替
+- **Supabaseクライアント4種**: 匿名クライアント (`supabase.ts`)、ブラウザCookie対応 (`supabase-browser.ts`)、サーバー匿名 (`supabase-server.ts`)、サーバー認証Cookie対応 (`supabase-server-auth.ts`)
 
 ---
 
@@ -216,104 +217,209 @@ Supabase (PostgreSQL + Storage)
 ```
 ~/Projects/carelink/
 ├── docs/
-│   └── MANUAL.md                     … このマニュアル
+│   └── MANUAL.md                        … このマニュアル
 ├── supabase/
 │   └── migrations/
-│       └── 20260322_reviews_inquiries.sql  … 口コミ・問い合わせテーブル
+│       └── 20260322_reviews_inquiries.sql
 ├── public/
-│   ├── favicon.svg                   … ファビコン
-│   ├── apple-touch-icon.png          … Apple Touch Icon
-│   └── og-image.png                  … OGP画像（1200x630）
+│   ├── favicon.svg                      … ファビコン
+│   ├── apple-touch-icon.png             … Apple Touch Icon
+│   ├── og-image.png                     … OGP画像（1200x630）
+│   ├── manifest.json                    … PWA マニフェスト
+│   └── icons/icon-192.svg              … PWAアイコン
 ├── src/
+│   ├── middleware.ts                     … 認証トークンリフレッシュ + 保護ルート
 │   ├── app/
-│   │   ├── layout.tsx                … ルートレイアウト（メタデータ・構造化データ・GA4・Clarity）
-│   │   ├── page.tsx                  … トップページ（LP）
-│   │   ├── loading.tsx               … ルートスケルトンUI
-│   │   ├── error.tsx                 … ルートエラーページ
-│   │   ├── not-found.tsx             … ルート404ページ（robots noindex）
-│   │   ├── globals.css               … グローバルCSS（Tailwindコンポーネント定義）
-│   │   ├── robots.ts                 … robots.txt生成
-│   │   ├── sitemap.ts                … 動的sitemap.xml生成（DB連携）
+│   │   ├── layout.tsx                   … ルートレイアウト（メタデータ・構造化データ・GA4・Clarity）
+│   │   ├── page.tsx                     … トップページ（LP）
+│   │   ├── globals.css                  … グローバルCSS（Tailwindコンポーネント定義）
+│   │   ├── loading.tsx / error.tsx / not-found.tsx
+│   │   ├── robots.ts / sitemap.ts       … robots.txt / 動的sitemap.xml
 │   │   │
-│   │   ├── search/                   … 【検索サイト】施設検索
-│   │   │   ├── page.tsx              … 検索結果ページ（force-dynamic）
-│   │   │   ├── layout.tsx            … メタデータ
-│   │   │   ├── loading.tsx           … 検索スケルトンUI
-│   │   │   └── error.tsx             … 検索エラーページ
+│   │   ├── search/                      … 【検索】施設検索
+│   │   │   ├── page.tsx / layout.tsx / loading.tsx / error.tsx
+│   │   │   └── area/                    … エリアドリルダウン
+│   │   │       ├── page.tsx / loading.tsx / error.tsx
+│   │   │       └── [slug]/page.tsx
 │   │   │
-│   │   ├── facility/                 … 【検索サイト】施設詳細
-│   │   │   └── [slug]/
-│   │   │       ├── page.tsx          … 施設詳細ページ（ISR: 1時間）
-│   │   │       ├── loading.tsx       … 詳細スケルトンUI
-│   │   │       ├── not-found.tsx     … 施設404ページ（robots noindex）
-│   │   │       └── error.tsx         … 施設エラーページ
+│   │   ├── facility/[slug]/             … 【検索】施設詳細
+│   │   │   ├── page.tsx / loading.tsx / error.tsx / not-found.tsx
+│   │   │   ├── booking/                 … オンライン予約
+│   │   │   │   ├── page.tsx / loading.tsx / error.tsx
+│   │   │   │   └── complete/page.tsx
+│   │   │   ├── staff/                   … スタッフ一覧
+│   │   │   │   ├── page.tsx / loading.tsx / error.tsx
+│   │   │   │   └── [staffSlug]/page.tsx
+│   │   │   ├── blog/                    … 施設ブログ
+│   │   │   │   ├── page.tsx / loading.tsx / error.tsx
+│   │   │   │   └── [postSlug]/page.tsx
+│   │   │   └── catalog/                 … ヘアカタログ
+│   │   │       ├── page.tsx / loading.tsx
 │   │   │
-│   │   ├── salon/                    … 【LP】施設掲載登録
-│   │   │   ├── page.tsx              … 3ステップフォーム
-│   │   │   └── layout.tsx            … メタデータ・パンくず構造化データ
-│   │   ├── jobs/                     … 【LP】求職者登録
-│   │   │   ├── page.tsx              … 3ステップフォーム
-│   │   │   └── layout.tsx            … メタデータ・パンくず構造化データ
-│   │   ├── contact/                  … 【LP】お問い合わせ
-│   │   │   ├── page.tsx
-│   │   │   └── layout.tsx
-│   │   ├── privacy/
-│   │   │   └── page.tsx              … プライバシーポリシー
-│   │   ├── terms/
-│   │   │   └── page.tsx              … 利用規約
-│   │   └── api/
-│   │       └── notify/
-│   │           └── route.ts          … Slack通知API（Zod検証・レート制限付き）
+│   │   ├── [prefectureSlug]/            … 【SEO】エリアページ（283市区町村+2,054ページ）
+│   │   │   ├── page.tsx                 … 都道府県ページ
+│   │   │   └── [secondSlug]/
+│   │   │       ├── page.tsx             … 市区町村/業種ページ
+│   │   │       └── [typeSlug]/page.tsx  … 業種×エリアページ
+│   │   │
+│   │   ├── feature/                     … 【特集】特集ページ
+│   │   │   ├── page.tsx / loading.tsx
+│   │   │   └── [slug]/page.tsx / loading.tsx
+│   │   │
+│   │   ├── ranking/                     … 【ランキング】
+│   │   │   ├── page.tsx / loading.tsx / error.tsx
+│   │   │   └── [area]/page.tsx
+│   │   │
+│   │   ├── blog/                        … 【コラム】公開ブログ
+│   │   │   ├── page.tsx / error.tsx
+│   │   │   └── [slug]/page.tsx
+│   │   │
+│   │   ├── salon/                       … 【LP】施設掲載LP
+│   │   │   ├── page.tsx / layout.tsx
+│   │   ├── register/                    … 【LP】施設登録フォーム
+│   │   │   ├── page.tsx / layout.tsx
+│   │   │   └── complete/page.tsx
+│   │   ├── jobs/                        … 【LP】求職者登録
+│   │   │   ├── page.tsx / layout.tsx    … （パンくず構造化データ）
+│   │   ├── recruit/page.tsx             … 【LP】求人掲載登録
+│   │   ├── contact/                     … 【LP】お問い合わせ
+│   │   │   ├── page.tsx / layout.tsx
+│   │   ├── privacy/page.tsx             … プライバシーポリシー
+│   │   ├── terms/page.tsx               … 利用規約
+│   │   ├── legal/page.tsx               … 特定商取引法に基づく表記
+│   │   │
+│   │   ├── auth/                        … 【認証】（robots noindex）
+│   │   │   ├── layout.tsx / loading.tsx
+│   │   │   ├── login/page.tsx           … ログイン（メール+LINE）
+│   │   │   ├── signup/page.tsx          … 新規登録
+│   │   │   ├── forgot-password/page.tsx … パスワードリセット申請
+│   │   │   ├── reset-password/page.tsx  … パスワード再設定
+│   │   │   └── callback/route.ts        … OAuthコールバック
+│   │   │
+│   │   ├── mypage/                      … 【マイページ】（認証必須、robots noindex）
+│   │   │   ├── layout.tsx / page.tsx / loading.tsx / error.tsx
+│   │   │   ├── profile/page.tsx / loading.tsx
+│   │   │   ├── favorites/page.tsx / loading.tsx
+│   │   │   ├── bookings/
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   └── [id]/page.tsx
+│   │   │   └── points/page.tsx / loading.tsx
+│   │   │
+│   │   ├── admin/                       … 【管理】（facility_members権限必須、robots noindex）
+│   │   │   ├── layout.tsx / page.tsx / loading.tsx / error.tsx
+│   │   │   ├── bookings/               … 予約管理
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   └── [id]/page.tsx
+│   │   │   ├── customers/              … 顧客管理
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   └── [email]/page.tsx
+│   │   │   ├── staff/                   … スタッフ管理
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   └── [id]/edit/page.tsx
+│   │   │   ├── coupons/                … クーポン管理
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   └── new/page.tsx
+│   │   │   ├── blog/                    … ブログ管理
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   ├── new/page.tsx
+│   │   │   │   └── [id]/edit/page.tsx
+│   │   │   ├── catalog/                 … カタログ管理
+│   │   │   │   ├── page.tsx / loading.tsx
+│   │   │   │   └── new/page.tsx
+│   │   │   ├── menus/page.tsx / loading.tsx     … メニューCRUD
+│   │   │   ├── reviews/page.tsx / loading.tsx   … 口コミ管理
+│   │   │   ├── photos/page.tsx / loading.tsx    … 写真管理
+│   │   │   ├── analytics/page.tsx / loading.tsx … 売上分析
+│   │   │   └── settings/page.tsx / loading.tsx  … 施設設定
+│   │   │
+│   │   └── api/                         … APIルート（11エンドポイント）
+│   │       ├── notify/route.ts          … Slack通知（Zod検証・レート制限）
+│   │       ├── booking/route.ts         … 予約作成（競合チェック・レート制限）
+│   │       ├── booking/[id]/cancel/route.ts … 予約キャンセル
+│   │       ├── admin/booking-status/route.ts … 予約ステータス変更
+│   │       ├── slots/route.ts           … 空き枠取得
+│   │       ├── favorites/route.ts       … お気に入りトグル
+│   │       ├── profile/route.ts         … プロフィール更新
+│   │       ├── salons/route.ts          … 施設検索API
+│   │       ├── og/route.tsx             … 動的OGP画像生成（@vercel/og）
+│   │       └── auth/line/               … LINE OAuth
+│   │           ├── route.ts / callback/route.ts
 │   │
-│   ├── components/
-│   │   ├── LayoutSwitch.tsx          … LP/検索のヘッダー・フッター自動切替
-│   │   ├── ConfirmDialog.tsx         … 確認ダイアログ（フォーカストラップ付き）
-│   │   ├── Toast.tsx                 … トースト通知（role="alert"）
-│   │   ├── Header.tsx                … LP用ヘッダー
-│   │   ├── Footer.tsx                … LP用フッター
-│   │   ├── FadeIn.tsx                … スクロールフェードインアニメーション
-│   │   ├── FAQ.tsx                   … FAQアコーディオン
-│   │   ├── StepIndicator.tsx         … フォームステップインジケーター
-│   │   ├── PhotoUpload.tsx           … 写真アップロード（プレビュー付き）
-│   │   ├── Spinner.tsx               … ローディングスピナー
+│   ├── components/                      … 47コンポーネント
+│   │   ├── Header.tsx / Footer.tsx      … LP用ヘッダー・フッター
+│   │   ├── LayoutSwitch.tsx             … パス別レイアウト自動切替
+│   │   ├── ConfirmDialog.tsx            … 確認ダイアログ（フォーカストラップ）
+│   │   ├── Toast.tsx                    … トースト通知（role="alert"）
+│   │   ├── Breadcrumb.tsx               … パンくずナビ
+│   │   ├── CookieConsent.tsx            … Cookie同意バナー
+│   │   ├── FadeIn.tsx                   … スクロールフェードイン
+│   │   ├── FAQ.tsx                      … FAQアコーディオン
+│   │   ├── StepIndicator.tsx            … マルチステップ進行表示
+│   │   ├── MultiPhotoUpload.tsx         … 写真アップロード（MIME検証）
+│   │   ├── Spinner.tsx                  … ローディングスピナー
 │   │   │
-│   │   ├── search/                   … 【検索サイト用コンポーネント】
-│   │   │   ├── SearchHeader.tsx      … 検索用スティッキーヘッダー（業種ナビ）
-│   │   │   ├── SearchFooter.tsx      … 検索用ダークフッター
-│   │   │   ├── SearchBar.tsx         … 検索フォーム（キーワード/業種/エリア）
-│   │   │   ├── FacilityCard.tsx      … 施設カード（画像/評価/所在地）
-│   │   │   └── Pagination.tsx        … ページネーション（省略記号付き）
+│   │   ├── search/                      … 検索コンポーネント（8個）
+│   │   │   ├── SearchHeader.tsx / SearchFooter.tsx / SearchBar.tsx
+│   │   │   ├── FacilityCard.tsx / Pagination.tsx
+│   │   │   ├── SearchFilters.tsx        … サイドバーフィルター（地方optgroup・こだわり16条件）
+│   │   │   ├── MobileFilterDrawer.tsx   … モバイルフィルタードロワー（dialog）
+│   │   │   ├── HomeSearchForm.tsx       … トップページ検索フォーム
+│   │   │   └── HomeUserPanel.tsx        … ログインユーザーパネル
 │   │   │
-│   │   └── facility/                 … 【施設詳細用コンポーネント】
-│   │       ├── PhotoGallery.tsx      … 写真ギャラリー（メイン+サムネイル）
-│   │       ├── FacilityHeader.tsx    … 施設名・業種バッジ・評価表示
-│   │       ├── TabNavigation.tsx     … スティッキータブ（Top/Menu/口コミ/Access）
-│   │       ├── MenuList.tsx          … カテゴリ別メニュー一覧
-│   │       ├── AccessInfo.tsx        … アクセス・営業時間・Google Map
-│   │       ├── ReviewTab.tsx         … 口コミタブ（一覧+評価グラフ+投稿フォーム）
-│   │       ├── ReviewList.tsx        … 口コミカード一覧
-│   │       ├── ReviewForm.tsx        … 口コミ投稿フォーム
-│   │       ├── InquiryForm.tsx       … 施設お問い合わせフォーム
-│   │       ├── StarRating.tsx        … 星評価コンポーネント（入力/表示兼用）
-│   │       └── StickyBookingBar.tsx  … 固定下部バー（電話/お問い合わせ）
+│   │   ├── facility/                    … 施設詳細コンポーネント（21個）
+│   │   │   ├── PhotoGallery.tsx / FacilityHeader.tsx / TabNavigation.tsx
+│   │   │   ├── MenuList.tsx / AccessInfo.tsx / ReviewTab.tsx
+│   │   │   ├── ReviewList.tsx / ReviewForm.tsx / InquiryForm.tsx
+│   │   │   ├── StarRating.tsx / StickyBookingBar.tsx
+│   │   │   ├── BusinessStatusBadge.tsx  … 営業状態バッジ
+│   │   │   ├── CatalogList.tsx          … カタログ一覧
+│   │   │   ├── CouponBadge.tsx / CouponCard.tsx / CouponList.tsx
+│   │   │   ├── FavoriteButton.tsx       … お気に入りボタン
+│   │   │   ├── SimilarFacilities.tsx    … 類似施設
+│   │   │   ├── StaffCard.tsx / StaffList.tsx
+│   │   │   └── ViewCount.tsx            … 閲覧数カウンター
+│   │   │
+│   │   ├── admin/AdminMobileNav.tsx     … 管理画面モバイルナビ
+│   │   ├── auth/AuthButton.tsx          … 認証ボタン
+│   │   ├── booking/BookingFlow.tsx      … 予約フロー全体
+│   │   ├── catalog/BeforeAfterSlider.tsx … Before/After比較スライダー
+│   │   ├── home/JapanRegionMap.tsx      … 日本地図エリアマップ
+│   │   └── seo/                         … SEOコンポーネント
+│   │       ├── SafeHtmlContent.tsx      … HTMLサニタイザー
+│   │       └── RelatedLinks.tsx         … 関連リンク
 │   │
-│   ├── lib/
-│   │   ├── supabase.ts              … クライアント用Supabaseインスタンス
-│   │   ├── supabase-server.ts       … サーバー用Supabaseクライアント
-│   │   ├── facilities.ts            … 施設DBクエリ（検索/詳細/メニュー/写真/口コミ）
-│   │   ├── constants.ts             … 都道府県・業種・特徴・曜日定数
-│   │   └── validations.ts           … LP用Zodスキーマ・バリデーション
+│   ├── lib/                             … ライブラリ（27ファイル）
+│   │   ├── supabase.ts                  … クライアント匿名
+│   │   ├── supabase-browser.ts          … ブラウザCookie対応
+│   │   ├── supabase-server.ts           … サーバー匿名（公開データ読み取り専用）
+│   │   ├── supabase-server-auth.ts      … サーバー認証Cookie対応
+│   │   ├── facilities.ts               … 施設DBクエリ
+│   │   ├── staff.ts / coupons.ts / bookings.ts / schedules.ts
+│   │   ├── areas.ts / catalogs.ts / blog.ts / rankings.ts / points.ts
+│   │   ├── user.ts / admin.ts / features.ts
+│   │   ├── constants.ts                 … 都道府県・業種・特徴・曜日・regionGroups
+│   │   ├── seo-constants.ts             … SEO用定数
+│   │   ├── area-seo.ts                  … エリアSEOコンテンツ取得
+│   │   ├── analytics.ts                 … GA4イベント追跡
+│   │   ├── image-utils.ts              … SHIMMER_BLURプレースホルダー
+│   │   ├── email.ts                     … Resendメール送信
+│   │   ├── csrf.ts                      … CSRF保護
+│   │   ├── validations.ts              … LP用Zodスキーマ
+│   │   ├── validations-auth.ts          … 認証Zodスキーマ
+│   │   └── validations-booking.ts       … 予約Zodスキーマ
 │   │
-│   └── types/
-│       └── index.ts                 … 全型定義
+│   ├── types/
+│   │   ├── index.ts                     … 全型定義
+│   │   └── database.types.ts            … Supabase自動生成型
+│   │
+│   └── data/
+│       ├── articles.ts                  … コラム記事データ
+│       └── city-slugs.ts               … 市区町村スラッグマッピング
 │
-├── .env.example                     … 環境変数テンプレート
-├── next.config.mjs                  … Next.js設定（セキュリティヘッダー・画像最適化）
-├── tailwind.config.ts               … Tailwind設定
-├── tsconfig.json                    … TypeScript設定
-├── postcss.config.mjs               … PostCSS設定
-├── package.json                     … 依存関係
-└── .eslintrc.json                   … ESLint設定
+├── .env.example                         … 環境変数テンプレート
+├── next.config.mjs                      … Next.js設定（セキュリティヘッダー・画像最適化）
+├── tailwind.config.ts                   … Tailwind設定（デザイントークン）
+├── tsconfig.json / postcss.config.mjs / .eslintrc.json / package.json
 ```
 
 ---
@@ -912,13 +1018,27 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/facility/[slug]/staff` | `facility/[slug]/staff/page.tsx` | Dynamic | スタッフ一覧 |
 | `/facility/[slug]/staff/[staffSlug]` | `facility/[slug]/staff/[staffSlug]/page.tsx` | Dynamic | スタッフ詳細 |
 | `/facility/[slug]/booking` | `facility/[slug]/booking/page.tsx` | Dynamic | 予約フロー |
-| `/facility/[slug]/booking/confirm` | `facility/[slug]/booking/confirm/page.tsx` | Dynamic | 予約確認 |
 | `/facility/[slug]/booking/complete` | `facility/[slug]/booking/complete/page.tsx` | Static | 予約完了 |
 | `/facility/[slug]/blog` | `facility/[slug]/blog/page.tsx` | Dynamic | 施設ブログ一覧 |
-| `/facility/[slug]/blog/[postSlug]` | `facility/[slug]/blog/[postSlug]/page.tsx` | Dynamic | ブログ記事 |
-| `/facility/[slug]/catalog` | `facility/[slug]/catalog/page.tsx` | Dynamic | ヘアカタログ |
+| `/facility/[slug]/blog/[postSlug]` | `facility/[slug]/blog/[postSlug]/page.tsx` | Dynamic | ブログ記事（Markdown描画） |
+| `/facility/[slug]/catalog` | `facility/[slug]/catalog/page.tsx` | Dynamic | ヘアカタログ（Before/After） |
 | `/ranking` | `ranking/page.tsx` | Static | ランキングページ |
 | `/ranking/[area]` | `ranking/[area]/page.tsx` | Dynamic | エリア別ランキング |
+
+**SEOエリアページ（動的生成）**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/[prefectureSlug]` | `[prefectureSlug]/page.tsx` | Dynamic | 都道府県ページ（施設一覧+SEOテキスト） |
+| `/[prefectureSlug]/[secondSlug]` | `[prefectureSlug]/[secondSlug]/page.tsx` | Dynamic | 市区町村/業種ページ |
+| `/[prefectureSlug]/[secondSlug]/[typeSlug]` | `[prefectureSlug]/[secondSlug]/[typeSlug]/page.tsx` | Dynamic | 業種×エリア詳細ページ |
+
+**特集ページ**
+
+| パス | ファイル | レンダリング | 説明 |
+|------|---------|:----------:|------|
+| `/feature` | `feature/page.tsx` | Dynamic | 特集一覧 |
+| `/feature/[slug]` | `feature/[slug]/page.tsx` | Dynamic | 特集詳細 |
 
 **認証**
 
@@ -977,6 +1097,7 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 | `/api/favorites` | POST | お気に入りトグル（認証必須） |
 | `/api/profile` | PUT | プロフィール更新（Zod検証・認証必須） |
 | `/api/salons` | GET | 施設検索（キーワード・業種・エリアフィルタ） |
+| `/api/og` | GET | 動的OGP画像生成（@vercel/og ImageResponse） |
 | `/api/auth/line` | GET | LINE OAuthログイン |
 | `/api/auth/line/callback` | GET | LINE OAuthコールバック |
 | `/sitemap.xml` | GET | 動的サイトマップ（DB全件） |
@@ -986,18 +1107,33 @@ carelink-uploads/salons/{uuid}/photo.{ext}
 > **Dynamic** = リクエストごとにサーバー実行
 > **ISR** = Incremental Static Regeneration（キャッシュ + バックグラウンド再生成）
 
-### 8.2 特殊ページ（エラー・ローディング・404）
+### 8.2 特殊ページ（loading.tsx / error.tsx / not-found.tsx）
 
-| ファイル | スコープ | 内容 |
-|---------|--------|------|
-| `app/loading.tsx` | ルート | ヒーロー+3カードのスケルトン |
-| `app/error.tsx` | ルート | 「エラーが発生しました」+ リトライ |
-| `app/not-found.tsx` | ルート | 404 + 3つのリンク（robots noindex） |
-| `search/loading.tsx` | 検索 | 検索バー+カードグリッドのスケルトン |
-| `search/error.tsx` | 検索 | 「検索結果を表示できません」+ リトライ |
-| `facility/[slug]/loading.tsx` | 施設詳細 | パンくず+ギャラリー+タブのスケルトン |
-| `facility/[slug]/not-found.tsx` | 施設詳細 | 「施設が見つかりません」（robots noindex） |
-| `facility/[slug]/error.tsx` | 施設詳細 | 「ページを表示できません」+ リトライ |
+**loading.tsx（30ファイル）**
+
+| ディレクトリ | 内容 |
+|-------------|------|
+| `app/` | ヒーロー+3カードのスケルトン |
+| `search/` | 検索バー+カードグリッドのスケルトン |
+| `search/area/` | エリア検索スケルトン |
+| `facility/[slug]/` | パンくず+ギャラリー+タブのスケルトン |
+| `facility/[slug]/booking/` | 予約フロースピナー |
+| `facility/[slug]/staff/` | スタッフ一覧スピナー |
+| `facility/[slug]/blog/` | ブログ一覧スピナー |
+| `facility/[slug]/catalog/` | カタログスピナー |
+| `ranking/` | ランキングスピナー |
+| `feature/` / `feature/[slug]/` | 特集スピナー |
+| `auth/` | 認証ページスピナー |
+| `mypage/` | マイページスピナー |
+| `mypage/bookings/` / `mypage/favorites/` / `mypage/points/` / `mypage/profile/` | 各サブページスピナー |
+| `admin/` | 管理画面スピナー |
+| `admin/analytics/` / `admin/blog/` / `admin/bookings/` / `admin/catalog/` | 管理サブページスピナー |
+| `admin/coupons/` / `admin/customers/` / `admin/menus/` / `admin/photos/` | 管理サブページスピナー |
+| `admin/reviews/` / `admin/settings/` / `admin/staff/` | 管理サブページスピナー |
+
+**error.tsx（8ファイル）**: `app/` / `search/` / `search/area/` / `facility/[slug]/` / `facility/[slug]/booking/` / `facility/[slug]/staff/` / `facility/[slug]/blog/` / `ranking/` / `blog/` / `admin/` / `mypage/`
+
+**not-found.tsx（2ファイル）**: `app/` / `facility/[slug]/`（両方 robots noindex）
 
 ### 8.3 トップページ構成（`/`）
 
@@ -1171,32 +1307,38 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 
 ## 11. コンポーネント設計
 
-### 11.1 共通コンポーネント
+### 11.1 共通コンポーネント（12個）
 
 | コンポーネント | ファイル | 特徴 |
 |---------------|---------|------|
-| `LayoutSwitch` | `LayoutSwitch.tsx` | usePathname()でLP/検索のHeader・Footer自動切替 |
+| `LayoutSwitch` | `LayoutSwitch.tsx` | usePathname()でLP/検索/認証/マイページ/管理のHeader・Footer自動切替 |
 | `ConfirmDialog` | `ConfirmDialog.tsx` | role="dialog", フォーカストラップ, ESCで閉じる, フォーカス復元 |
 | `Toast` | `Toast.tsx` | role="alert", aria-live="assertive", 4秒自動消去, success/error/info |
 | `Header` | `Header.tsx` | LP用スティッキーヘッダー（半透明backdrop-blur） |
 | `Footer` | `Footer.tsx` | LP用3カラムフッター（運営会社情報付き） |
+| `Breadcrumb` | `Breadcrumb.tsx` | パンくずナビゲーション |
+| `CookieConsent` | `CookieConsent.tsx` | Cookie同意バナー |
 | `FadeIn` | `FadeIn.tsx` | IntersectionObserverベースのフェードイン |
 | `FAQ` | `FAQ.tsx` | `<details>`アコーディオン |
 | `StepIndicator` | `StepIndicator.tsx` | マルチステップフォーム進行表示 |
 | `MultiPhotoUpload` | `MultiPhotoUpload.tsx` | 複数写真選択+プレビュー（10MB制限・MIME検証） |
 | `Spinner` | `Spinner.tsx` | SVGスピナー |
 
-### 11.2 検索コンポーネント（`components/search/`）
+### 11.2 検索コンポーネント（`components/search/` — 8個）
 
 | コンポーネント | 説明 |
 |---------------|------|
 | `SearchHeader` | 検索サイト用スティッキーヘッダー。業種ナビ（デスクトップ）+ ハンバーガー（モバイル）。aria-expanded, aria-controls |
 | `SearchFooter` | ダークフッター。業種リンク + Copyright |
 | `SearchBar` | 検索フォーム。keyword(type="search") + 業種select + エリアselect。name属性・aria-label付き |
-| `FacilityCard` | 施設カード。画像（グラデーションplaceholder）+ 業種バッジ + 星評価 + 所在地。line-clamp |
+| `SearchFilters` | サイドバーフィルター。エリア（地方optgroup）・業種・評価・価格帯・こだわり16条件。aria-label・aria-pressed対応 |
+| `MobileFilterDrawer` | モバイルフィルタードロワー。`<dialog>`ベース、右スライドイン、背景クリック・Escape閉じ |
+| `HomeSearchForm` | トップページ検索フォーム。業種ピル+エリア選択 |
+| `HomeUserPanel` | ログインユーザーパネル（お気に入り・予約履歴リンク） |
+| `FacilityCard` | 施設カード。画像（blurプレースホルダー）+ 業種バッジ + 星評価 + 所在地。line-clamp |
 | `Pagination` | ページネーション。省略記号(...) + aria-current="page" + aria-label |
 
-### 11.3 施設詳細コンポーネント（`components/facility/`）
+### 11.3 施設詳細コンポーネント（`components/facility/` — 21個）
 
 | コンポーネント | 説明 |
 |---------------|------|
@@ -1205,19 +1347,34 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `TabNavigation` | IntersectionObserverでsticky検出。role="tablist/tab/tabpanel"。aria-selected, aria-controls, id |
 | `MenuList` | カテゴリ別グルーピング。価格/時間/おすすめバッジ。空状態対応 |
 | `AccessInfo` | 基本情報テーブル + 営業時間テーブル(dayOrder) + 特徴タグ + Google Map(iframe) |
-| `ReviewTab` | 評価サマリーカード(平均/件数/棒グラフ) + ReviewList + ReviewForm |
+| `ReviewTab` | 評価サマリーカード(平均/件数/星分布棒グラフ) + ReviewList + ReviewForm |
 | `ReviewList` | 口コミカード一覧。アバター + 名前 + 日付(JST) + 星 + コメント |
 | `ReviewForm` | Zod + react-hook-form。StarRating入力。ConfirmDialog + Toast。noValidate, htmlFor/id |
 | `InquiryForm` | 名前/メール/電話/メッセージ。Supabase INSERT + Slack通知。autocomplete属性 |
 | `StarRating` | 入力/表示兼用。readonly時: role="img" + aria-label。入力時: hover:scale-110 + aria-label="X点を選択" |
 | `StickyBookingBar` | 固定下部バー。電話(tel:リンク) + お問い合わせ(#contact-sectionスクロール) |
 | `BeforeAfterSlider` | Before/After画像比較スライダー。ポインタードラッグ+キーボード矢印対応。role="slider" |
+| `BusinessStatusBadge` | 営業状態バッジ（営業中/休業日/準備中）。aria-hidden(ドット) + role="status" |
+| `CatalogList` | カタログ一覧表示（blurプレースホルダー付き画像） |
+| `CouponBadge` | クーポンタイプバッジ（新規/リピート/期間限定/全員） |
+| `CouponCard` | クーポンカード（割引額/対象メニュー） |
+| `CouponList` | クーポン一覧（タイプ別フィルタ対応） |
+| `FavoriteButton` | お気に入りトグルボタン（ハート。認証チェック付き） |
+| `SimilarFacilities` | 類似施設カード一覧（同業種・同エリア） |
+| `StaffCard` | スタッフカード（写真・名前・役職・得意分野） |
+| `StaffList` | スタッフ一覧グリッド |
+| `ViewCount` | 閲覧数カウンター（sessionStorage安全アクセス） |
 
-### 11.5 管理画面コンポーネント（`components/admin/`）
+### 11.5 その他の専門コンポーネント
 
-| コンポーネント | 説明 |
-|---------------|------|
-| `AdminMobileNav` | モバイル管理画面ナビ。4タブ+「その他」メニュー（12項目対応）|
+| コンポーネント | ファイル | 説明 |
+|---------------|---------|------|
+| `AdminMobileNav` | `admin/AdminMobileNav.tsx` | モバイル管理画面ナビ。4タブ+「その他」メニュー（12項目対応）|
+| `AuthButton` | `auth/AuthButton.tsx` | 認証ボタン（ログイン/ログアウト切替） |
+| `BookingFlow` | `booking/BookingFlow.tsx` | 予約フロー全体（メニュー→スタッフ→日時→確認→完了） |
+| `JapanRegionMap` | `home/JapanRegionMap.tsx` | 日本地図エリアマップ（8地方クリック対応） |
+| `SafeHtmlContent` | `seo/SafeHtmlContent.tsx` | HTMLサニタイザー（許可タグのみ通す） |
+| `RelatedLinks` | `seo/RelatedLinks.tsx` | 関連リンク一覧（エリア・業種） |
 
 ### 11.4 ConfirmDialog 詳細
 
@@ -1238,7 +1395,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 
 | ページ | title | description |
 |--------|-------|-------------|
-| `/` | CareLink &#124; 医療・福祉・美容の採用×集客プラットフォーム | 医療・福祉・美容に特化した採用×集客プラットフォーム |
+| `/` | CareLink &#124; ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック | ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約 |
 | `/salon` | 【無料掲載】医療・福祉・美容の集客サイト | 掲載無料・登録3分で集客開始 |
 | `/jobs` | 医療・福祉・美容の転職サイト | 完全無料で登録、業界特化の求人情報 |
 | `/search` | 施設・サロンを探す | 施設検索ページ |
@@ -1742,6 +1899,29 @@ SQL:       SQL Editor
 | `getRankingsByArea(area)` | エリアランキング |
 | `getUserPoints(userId)` | ポイント履歴 |
 
+**`src/lib/admin.ts`**
+
+| 関数 | 用途 |
+|------|------|
+| 管理画面用クエリ群 | 予約管理・顧客管理・スタッフCRUD・メニューCRUD等 |
+
+**`src/lib/features.ts`**
+
+| 関数 | 用途 |
+|------|------|
+| 特集データ取得 | 特集一覧・特集詳細・関連施設 |
+
+**その他のユーティリティlib**
+
+| ファイル | 用途 |
+|---------|------|
+| `analytics.ts` | GA4イベント追跡（`trackEvent()`関数） |
+| `area-seo.ts` | エリアSEOコンテンツ取得（`getAreaSeoContent()`） |
+| `seo-constants.ts` | SEO用定数（メタディスクリプションテンプレート等） |
+| `image-utils.ts` | `SHIMMER_BLUR`定数（グレーSVG base64プレースホルダー） |
+| `email.ts` | Resendメール送信（予約確認/承認/拒否/キャンセル/問い合わせ通知の5テンプレ） |
+| `csrf.ts` | CSRF保護（Origin/Refererチェック） |
+
 ---
 
 ## 定数一覧（`src/lib/constants.ts`）
@@ -1749,6 +1929,7 @@ SQL:       SQL Editor
 | エクスポート名 | 内容 |
 |---------------|------|
 | `prefectures` | 全47都道府県の配列 |
+| `regionGroups` | 8地方グループ（北海道・東北/関東/中部/近畿/中国/四国/九州・沖縄）×都道府県 |
 | `businessTypes` | 6業種の配列（5業種+「その他」）※ validations.tsはre-export |
 | `facilityFeatures` | 16個の施設特徴タグ |
 | `dayOrder` | 曜日順序配列 `['mon','tue',...,'sun']` |
@@ -1791,7 +1972,7 @@ SQL:       SQL Editor
 
 ## 品質監査履歴
 
-12回の品質監査で合計100件以上の問題を修正:
+16回の品質監査で合計150件以上の問題を修正:
 
 | 回 | 検出数 | 主な修正内容 |
 |:--:|:------:|------------|
@@ -1805,6 +1986,7 @@ SQL:       SQL Editor
 | 13 | 14件 | 管理機能4点（施設設定/メニューCRUD/メール通知/予約承認フロー）・PWA manifest・保留予約アラート |
 | 14 | 17件 | Email XSS修正・PWA SVG修正・口コミ管理・写真管理・AdminMobileNav・loading.tsx 4件・Markdownエディタ・予約ページネーション |
 | 15 | 7件 | Before/Afterスライダー・エリア地方optgroup・シードデータ(スタッフ5名+カタログ6件)・マイページ予約カード・公開ブログMarkdown描画 |
+| 16 | 12件 | Markdown XSS修正(sanitizeUrl 3ファイル)・ホームページ専用metadata・admin/mypage/auth robots noindex・loading.tsx 13件一括追加 |
 
 ---
 
@@ -1812,7 +1994,8 @@ SQL:       SQL Editor
 
 | 日付 | バージョン | 内容 |
 |------|-----------|------|
-| 2026-03-27 | 5.0 | **HPB深度強化Round13-15(38件修正)**: 管理機能4点(施設設定/メニューCRUD/Resendメール通知5テンプレ/予約承認フロー)、PWA manifest、Email XSS修正(`esc()`関数)、口コミ管理/写真管理/AdminMobileNav(4タブ+その他)、Markdownエディタ(ツールバー+プレビュー)、予約ページネーション(20件/page)、Before/Afterスライダー(ポインタードラッグ+キーボード)、エリア地方optgroup、シードデータ(スタッフ5名+カタログ6件)、マイページ予約カード、公開ブログMarkdown描画、loading.tsx 4件追加 |
+| 2026-03-27 | 5.1 | **マニュアル完全照合**: ディレクトリ構成を全124ファイル反映に書き直し、コンポーネント47個全記載、lib 27ファイル全記載、loading.tsx 30件・error.tsx全記載、SEOエリアページ・特集ページ追加、Section 2.2の事実誤認2件修正（「管理画面なし」→管理ダッシュボード完備、「クライアント2種」→4種）、品質監査16回150件+に更新 |
+| 2026-03-27 | 5.0 | **HPB深度強化Round13-16(50件修正)**: 管理機能4点(施設設定/メニューCRUD/Resendメール通知5テンプレ/予約承認フロー)、PWA manifest、Email XSS修正(`esc()`関数)、口コミ管理/写真管理/AdminMobileNav(4タブ+その他)、Markdownエディタ(ツールバー+プレビュー)、予約ページネーション(20件/page)、Before/Afterスライダー(ポインタードラッグ+キーボード)、エリア地方optgroup、シードデータ(スタッフ5名+カタログ6件)、マイページ予約カード、公開ブログMarkdown描画、loading.tsx 4件追加 |
 | 2026-03-26 | 4.0 | **外部サービス設定+品質強化**: GA4設定(`G-BP8GVKJ3NZ`)、Clarity設定(`w1sqla5alv`)、Supabase Site URL+Redirect URL設定、パスワードリセット機能(`/auth/forgot-password`+`/auth/reset-password`)、/salon LP分離(CTA→/register, B方式Flow)、bookingバリデーション強化、品質監査Round10-12(18件修正)、重複/salonsページ削除、マイグレーションファイル補完、.env.example更新(SERVICE_ROLE_KEY+LINE変数追加) |
 | 2026-03-22 | 3.0 | **HPB完全再現**: Phase 2〜6実装完了（認証/マイページ/お気に入り/エリア検索/スタッフ/クーポン/オンライン予約/管理ダッシュボード/ブログ/カタログ/ランキング/GPS検索/ポイント）。全25テーブル、120+新規ファイル。品質監査9回実施（80+件修正）。セキュリティ強化（レート制限/UUID検証/non-null assertion全排除/HTTPセキュリティヘッダー5種/GA4・Clarity IDバリデーション） |
 | 2026-03-22 | 2.0 | **大規模更新**: 検索サイト全機能追加（/search, /facility/[slug]）、検索側DB5テーブル+トリガー追加、全コンポーネント（16個）追加、LayoutSwitch追加、アクセシビリティ章追加、Zodバリデーション追加、動的sitemap、エラーバウンダリ、型定義一覧、DBクエリ関数一覧、定数一覧。GitHub移行(jimuin0)・自動デプロイ反映 |
