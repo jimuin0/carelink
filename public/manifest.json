@@ -1,0 +1,27 @@
+{
+  "name": "CareLink - サロン・クリニック予約",
+  "short_name": "CareLink",
+  "description": "美容サロン・鍼灸院・整骨院・介護施設を検索・予約。口コミ・メニュー・写真で比較。",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0ea5e9",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["health", "lifestyle", "medical"],
+  "lang": "ja",
+  "dir": "ltr"
+}

@@ -31,6 +31,7 @@ export const metadata: Metadata = {
     icon: "/favicon.svg",
     apple: "/apple-touch-icon.png",
   },
+  manifest: '/manifest.json',
   other: {
     'theme-color': '#0EA5E9',
   },

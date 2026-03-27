@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
+import { sendBookingCancelled } from '@/lib/email';
 
 const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -38,7 +39,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   const { data: booking } = await supabase
     .from('bookings')
-    .select('id, user_id, status')
+    .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id')
     .eq('id', params.id)
     .single();
 
@@ -54,6 +55,27 @@ export async function POST(_request: Request, { params }: { params: { id: string
   if (error) {
     return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
   }
+
+  // Send cancellation email (non-blocking)
+  try {
+    const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', booking.facility_id).single();
+    let menuName: string | undefined;
+    if (booking.menu_id) {
+      const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).single();
+      menuName = menu?.name;
+    }
+    void sendBookingCancelled({
+      customerName: booking.customer_name,
+      customerEmail: booking.email,
+      facilityName: facility?.name || '',
+      bookingDate: booking.booking_date,
+      startTime: booking.start_time,
+      endTime: booking.end_time,
+      menuName,
+      totalPrice: booking.total_price ?? undefined,
+      bookingId: booking.id,
+    });
+  } catch {}
 
   return NextResponse.json({ success: true });
   } catch {
