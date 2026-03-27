@@ -74,7 +74,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
               </svg>
-              <span className="text-[10px] text-gray-500">{item.label}</span>
+              <span className="text-micro text-gray-500">{item.label}</span>
             </Link>
           ))}
         </nav>

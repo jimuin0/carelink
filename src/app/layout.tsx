@@ -31,6 +31,9 @@ export const metadata: Metadata = {
     icon: "/favicon.svg",
     apple: "/apple-touch-icon.png",
   },
+  other: {
+    'theme-color': '#0EA5E9',
+  },
 };
 
 export default function RootLayout({
@@ -95,7 +98,6 @@ export default function RootLayout({
                   addressRegion: "大阪府",
                   addressCountry: "JP",
                 },
-                sameAs: [],
               },
               {
                 "@context": "https://schema.org",

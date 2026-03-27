@@ -104,7 +104,7 @@ async function RecentBookings({ facilityId }: { facilityId: string }) {
             <p className="text-sm font-medium">{b.customer_name}</p>
             <p className="text-xs text-gray-500">{b.booking_date} {b.start_time?.slice(0, 5)}</p>
           </div>
-          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${statusColors[b.status] ?? ''}`}>
+          <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${statusColors[b.status] ?? ''}`}>
             {b.status}
           </span>
         </Link>

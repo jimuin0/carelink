@@ -1,11 +1,14 @@
+import { getSimilarFacilities } from '@/lib/facilities';
 import FacilityCard from '@/components/search/FacilityCard';
-import type { FacilityCardData } from '@/types';
 
 interface Props {
-  facilities: FacilityCardData[];
+  facilityId: string;
+  businessType: string;
+  prefecture: string;
 }
 
-export default function SimilarFacilities({ facilities }: Props) {
+export default async function SimilarFacilities({ facilityId, businessType, prefecture }: Props) {
+  const facilities = await getSimilarFacilities(facilityId, businessType, prefecture);
   if (facilities.length === 0) return null;
 
   return (

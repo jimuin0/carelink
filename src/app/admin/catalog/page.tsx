@@ -40,7 +40,7 @@ export default async function AdminCatalogPage() {
               <p className="font-bold text-sm">{c.title}</p>
               <div className="flex flex-wrap gap-1 mt-1">
                 {c.tags.map((tag) => (
-                  <span key={tag} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                  <span key={tag} className="text-micro bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                     {tag}
                   </span>
                 ))}

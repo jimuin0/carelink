@@ -46,7 +46,7 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
                   <div className="flex items-center gap-2">
                     <p className="font-bold text-sm">{menu.name}</p>
                     {menu.is_featured && (
-                      <span className="text-[10px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
+                      <span className="text-micro font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
                         おすすめ
                       </span>
                     )}

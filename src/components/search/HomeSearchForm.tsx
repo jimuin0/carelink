@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { prefectures } from '@/lib/constants';
+import { analytics } from '@/lib/analytics';
 
 export default function HomeSearchForm() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function HomeSearchForm() {
     const params = new URLSearchParams();
     if (keyword.trim()) params.set('keyword', keyword.trim());
     if (area) params.set('area', area);
+    analytics.searchPerformed(keyword.trim() || area || 'all');
     router.push(`/search?${params.toString()}`);
   };
 

@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
+import { SHIMMER_BLUR } from '@/lib/image-utils';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -40,6 +41,8 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
             fill
             sizes="(max-width: 640px) 100vw, 50vw"
             className="object-cover"
+            placeholder="blur"
+            blurDataURL={SHIMMER_BLUR}
           />
         ) : (
           <div className="flex items-center justify-center h-full bg-gradient-to-br from-sky-100 to-sky-50">
@@ -83,7 +86,7 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
         )}
 
         {/* メタ情報行 */}
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-[11px] text-gray-400">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-2 text-tiny text-gray-400">
           {facility.seat_count != null && facility.seat_count > 0 && (
             <span>席数{facility.seat_count}</span>
           )}
@@ -111,7 +114,7 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
               {facility.access_info && ` / ${facility.access_info}`}
             </span>
           </p>
-          <span className="badge badge-point text-[10px] shrink-0 ml-2">ポイント</span>
+          <span className="badge badge-point text-micro shrink-0 ml-2">ポイント</span>
         </div>
       </div>
     </Link>

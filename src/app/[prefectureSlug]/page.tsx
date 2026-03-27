@@ -9,6 +9,7 @@ import {
 } from '@/lib/seo-constants';
 import { regionGroups } from '@/lib/constants';
 import { getCitiesForPrefecture } from '@/data/city-slugs';
+import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import Breadcrumb from '@/components/Breadcrumb';
@@ -33,10 +34,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${name}のサロン・クリニック一覧`;
   const description = `${name}の美容サロン・鍼灸院・整骨院・介護施設を口コミ・メニュー・写真で比較。ネット予約も24時間OK。CareLink で${name}のサロン・クリニックを探そう。`;
 
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
   return {
     title,
     description,
-    openGraph: { title: `${title} | CareLink`, description },
+    openGraph: {
+      title: `${title} | CareLink`,
+      description,
+      images: [{ url: `${baseUrl}/api/og?title=${encodeURIComponent(title)}` }],
+    },
     alternates: { canonical: `/${prefectureSlug}` },
   };
 }
@@ -162,9 +168,10 @@ export default async function PrefecturePage({ params }: Props) {
           <h2 className="text-lg font-bold text-gray-900 mb-3">
             {seoContent?.h2_title || `${prefName}でサロン・クリニックをお探しの方へ`}
           </h2>
-          <p className="text-sm text-gray-600 leading-relaxed">
-            {seoContent?.body_text || `${prefName}の美容サロン・鍼灸院・整骨院・介護施設をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの施設を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。`}
-          </p>
+          <SafeHtmlContent
+            html={seoContent?.body_text || `<p>${prefName}の美容サロン・鍼灸院・整骨院・介護施設をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの施設を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。</p>`}
+            className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+          />
           {seoContent && seoContent.faq_items.length > 0 && (
             <div className="mt-6 space-y-4">
               <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>

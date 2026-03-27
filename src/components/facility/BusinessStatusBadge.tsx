@@ -35,8 +35,8 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
   const { text, className } = config[status];
 
   return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${className}`}>
-      <span className={`w-1.5 h-1.5 rounded-full ${status === 'open' ? 'bg-emerald-500' : status === 'holiday' ? 'bg-red-400' : 'bg-gray-400'}`} />
+    <span role="status" className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${className}`}>
+      <span aria-hidden="true" className={`w-1.5 h-1.5 rounded-full ${status === 'open' ? 'bg-emerald-500' : status === 'holiday' ? 'bg-red-400' : 'bg-gray-400'}`} />
       {text}
     </span>
   );

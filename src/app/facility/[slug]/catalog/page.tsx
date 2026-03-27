@@ -62,7 +62,7 @@ export default async function CatalogPage({ params }: Props) {
                     {catalog.tags.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1">
                         {catalog.tags.slice(0, 3).map((tag) => (
-                          <span key={tag} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                          <span key={tag} className="text-micro bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                             {tag}
                           </span>
                         ))}

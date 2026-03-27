@@ -14,6 +14,7 @@ import { isValidCitySlug, getCityName, getCitiesForPrefecture } from '@/data/cit
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
+import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 
 export const revalidate = 3600;
 export const dynamicParams = true;
@@ -117,9 +118,10 @@ export default async function CityTypePage({ params, searchParams }: Props) {
           <h2 className="text-lg font-bold text-gray-900 mb-3">
             {seoContent?.h2_title || `${cityName}の${typeName}をお探しの方へ`}
           </h2>
-          <p className="text-sm text-gray-600 leading-relaxed">
-            {seoContent?.body_text || `${prefName}${cityName}で${typeName}をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの${typeName}を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。`}
-          </p>
+          <SafeHtmlContent
+            html={seoContent?.body_text || `<p>${prefName}${cityName}で${typeName}をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの${typeName}を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。</p>`}
+            className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+          />
           {seoContent && seoContent.faq_items.length > 0 && (
             <div className="mt-6 space-y-4">
               <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>

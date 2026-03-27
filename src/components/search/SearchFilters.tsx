@@ -49,7 +49,7 @@ export default function SearchFilters({ className }: { className?: string }) {
     <div className={className}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-bold text-gray-800">絞り込み</h2>
-        <button onClick={clearFilters} className="text-xs text-gray-400 hover:text-sky-600 transition-colors">
+        <button onClick={clearFilters} aria-label="フィルターをクリア" className="text-xs text-gray-400 hover:text-sky-600 transition-colors">
           クリア
         </button>
       </div>
@@ -60,6 +60,7 @@ export default function SearchFilters({ className }: { className?: string }) {
         <select
           value={area}
           onChange={(e) => setArea(e.target.value)}
+          aria-label="エリアを選択"
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
@@ -75,6 +76,7 @@ export default function SearchFilters({ className }: { className?: string }) {
         <select
           value={type}
           onChange={(e) => setType(e.target.value)}
+          aria-label="業種を選択"
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
         >
           <option value="">すべて</option>
@@ -145,6 +147,7 @@ export default function SearchFilters({ className }: { className?: string }) {
               <button
                 key={feature}
                 onClick={() => toggleFeature(feature)}
+                aria-pressed={isSelected}
                 className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
                   isSelected
                     ? 'bg-sky-100 text-sky-700 border border-sky-200 font-medium'

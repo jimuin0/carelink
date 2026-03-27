@@ -47,7 +47,7 @@ export default async function AdminStaffPage() {
               {s.specialties?.length > 0 && (
                 <div className="flex flex-wrap gap-1 mt-3">
                   {s.specialties?.slice(0, 3).map((sp) => (
-                    <span key={sp} className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                    <span key={sp} className="text-micro bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
                       {sp}
                     </span>
                   ))}

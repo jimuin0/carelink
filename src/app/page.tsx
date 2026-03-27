@@ -2,6 +2,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
 import JapanRegionMap from '@/components/home/JapanRegionMap';
@@ -156,7 +157,13 @@ const worryNavItems = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  const supabase = createServerSupabaseClient();
+  const [{ count: facilityCount }, { count: reviewCount }] = await Promise.all([
+    supabase.from('facility_profiles').select('*', { count: 'exact', head: true }),
+    supabase.from('facility_reviews').select('*', { count: 'exact', head: true }),
+  ]);
+
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
@@ -174,7 +181,7 @@ export default function Home() {
             <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight tracking-wide">
               ネットでかんたんサロン予約
             </h1>
-            <p className="text-[11px] sm:text-xs text-sky-100 mt-1.5 tracking-wider">
+            <p className="text-tiny sm:text-xs text-sky-100 mt-1.5 tracking-wider">
               ヘア・ネイル・まつげ・リラク・エステ・美容クリニック
             </p>
 
@@ -197,19 +204,22 @@ export default function Home() {
               ))}
             </div>
 
-            <div className="flex items-center justify-center gap-4 sm:gap-6 mt-5 text-[10px] sm:text-[11px] text-sky-100">
-              <span className="flex items-center gap-1">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                24時間ネット予約
-              </span>
-              <span className="flex items-center gap-1">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" /></svg>
-                口コミで比較
-              </span>
-              <span className="flex items-center gap-1">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                掲載・利用すべて無料
-              </span>
+            {/* 統計カウンター */}
+            <div className="flex items-center justify-center gap-6 sm:gap-10 mt-6">
+              <div className="text-center">
+                <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
+                <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載施設数</p>
+              </div>
+              <div className="w-px h-8 bg-white/20" />
+              <div className="text-center">
+                <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
+                <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">口コミ数</p>
+              </div>
+              <div className="w-px h-8 bg-white/20" />
+              <div className="text-center">
+                <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
+                <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載・利用料</p>
+              </div>
             </div>
           </div>
         </div>
@@ -235,7 +245,7 @@ export default function Home() {
                 <div className={`absolute inset-0 bg-gradient-to-t ${banner.color}`} />
                 <div className="absolute inset-0 flex flex-col justify-end p-4">
                   <h3 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h3>
-                  <p className="text-white/80 text-[11px] mt-1">{banner.subtitle}</p>
+                  <p className="text-white/80 text-tiny mt-1">{banner.subtitle}</p>
                 </div>
               </Link>
             ))}
@@ -257,7 +267,7 @@ export default function Home() {
                 <div className="text-sky-400 mx-auto mb-2 [&>svg]:mx-auto transition-transform group-hover:scale-110">
                   {item.icon}
                 </div>
-                <span className="text-[11px] sm:text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
+                <span className="text-tiny sm:text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
               </Link>
             ))}
           </div>
@@ -365,7 +375,7 @@ export default function Home() {
                 <div className="space-y-3">
                   {regionGroups.map((region) => (
                     <div key={region.name}>
-                      <h3 className="text-[11px] font-bold text-gray-500 mb-1">{region.name}</h3>
+                      <h3 className="text-tiny font-bold text-gray-500 mb-1">{region.name}</h3>
                       <div className="flex items-center whitespace-nowrap">
                         {region.prefectures.map((pref, i) => {
                           const pSlug = getPrefectureSlug(pref);

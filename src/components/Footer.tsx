@@ -13,7 +13,7 @@ export default function Footer() {
           <div className="space-y-4">
             {regionGroups.map((region) => (
               <div key={region.name}>
-                <h3 className="text-gray-500 text-[11px] font-bold mb-1.5">{region.name}</h3>
+                <h3 className="text-gray-500 text-tiny font-bold mb-1.5">{region.name}</h3>
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                   {region.prefectures.map((pref) => {
                     const slug = getPrefectureSlug(pref);
@@ -57,7 +57,7 @@ export default function Footer() {
                         <Link
                           key={`${type}-${pref}`}
                           href={href}
-                          className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+                          className="text-tiny text-gray-500 hover:text-gray-300 transition-colors"
                         >
                           {pref}
                         </Link>

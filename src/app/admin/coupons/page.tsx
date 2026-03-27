@@ -43,7 +43,7 @@ export default async function AdminCouponsPage() {
                   <div className="flex items-center gap-2 mb-1">
                     <CouponBadge type={coupon.coupon_type} />
                     {coupon.valid_until && (
-                      <span className="text-[10px] text-gray-400">
+                      <span className="text-micro text-gray-400">
                         ~{new Date(coupon.valid_until).toLocaleDateString('ja-JP')}
                       </span>
                     )}

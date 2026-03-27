@@ -16,6 +16,7 @@ import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import Pagination from '@/components/search/Pagination';
 import RelatedLinks from '@/components/seo/RelatedLinks';
+import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 
 export const revalidate = 3600;
 export const dynamicParams = true;
@@ -259,7 +260,10 @@ function SeoTextSection({ seoContent, fallbackTitle, fallbackBody }: {
     <>
       <section className="mb-10 bg-white rounded-2xl p-6 sm:p-8">
         <h2 className="text-lg font-bold text-gray-900 mb-3">{seoContent?.h2_title || fallbackTitle}</h2>
-        <p className="text-sm text-gray-600 leading-relaxed">{seoContent?.body_text || fallbackBody}</p>
+        <SafeHtmlContent
+          html={seoContent?.body_text || fallbackBody}
+          className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+        />
         {seoContent && seoContent.faq_items.length > 0 && (
           <div className="mt-6 space-y-4">
             <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>

@@ -1,7 +1,8 @@
+import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews, getSimilarFacilities } from '@/lib/facilities';
+import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { getStaffByFacility } from '@/lib/staff';
 import { getCouponsByFacility } from '@/lib/coupons';
@@ -65,14 +66,13 @@ export default async function FacilityPage({ params }: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [{ menus }, { photos }, { reviews }, staff, coupons, catalogs, similarFacilities] = await Promise.all([
+  const [{ menus }, { photos }, { reviews }, staff, coupons, catalogs] = await Promise.all([
     getFacilityMenus(facility.id),
     getFacilityPhotos(facility.id),
     getFacilityReviews(facility.id),
     getStaffByFacility(facility.id),
     getCouponsByFacility(facility.id),
     getCatalogsByFacility(facility.id),
-    getSimilarFacilities(facility.id, facility.business_type, facility.prefecture),
   ]);
 
   const featuredMenus = menus.filter((m) => m.is_featured).slice(0, 3);
@@ -178,8 +178,17 @@ export default async function FacilityPage({ params }: Props) {
         </div>
         <TabNavigation tabs={tabs} />
 
-        {/* 類似施設 */}
-        <SimilarFacilities facilities={similarFacilities} />
+        {/* 類似施設 (ストリーミング) */}
+        <Suspense fallback={
+          <div className="px-4 sm:px-6 py-8 border-t border-gray-100 animate-pulse">
+            <div className="h-6 w-48 bg-gray-200 rounded mb-4" />
+            <div className="grid sm:grid-cols-2 gap-4">
+              {[0,1].map(i => <div key={i} className="h-40 bg-gray-100 rounded-2xl" />)}
+            </div>
+          </div>
+        }>
+          <SimilarFacilities facilityId={facility.id} businessType={facility.business_type} prefecture={facility.prefecture} />
+        </Suspense>
 
         {/* Contact section */}
         <div id="contact-section" className="px-4 sm:px-6 py-8 border-t border-gray-100">
@@ -210,7 +219,7 @@ export default async function FacilityPage({ params }: Props) {
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org',
-              '@type': 'LocalBusiness',
+              '@type': ['LocalBusiness', ...(['美容クリニック', '鍼灸・整骨'].some(t => facility.business_type?.includes(t)) ? ['MedicalBusiness'] : [])],
               name: facility.name,
               description: facility.catch_copy || facility.description,
               address: {
@@ -236,6 +245,23 @@ export default async function FacilityPage({ params }: Props) {
                   latitude: facility.latitude,
                   longitude: facility.longitude,
                 },
+              }),
+              ...((() => {
+                const priced = menus.filter(m => m.price != null && m.price > 0);
+                if (priced.length === 0) return {};
+                const minP = Math.min(...priced.map(m => m.price!));
+                const maxP = Math.max(...priced.map(m => m.price!));
+                return { priceRange: `¥${minP.toLocaleString()}〜¥${maxP.toLocaleString()}` };
+              })()),
+              ...(facility.business_hours && {
+                openingHoursSpecification: Object.entries(facility.business_hours as Record<string, { open: string; close: string } | null>)
+                  .filter(([, v]) => v !== null)
+                  .map(([day, hours]) => ({
+                    '@type': 'OpeningHoursSpecification',
+                    dayOfWeek: { mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday', sun: 'Sunday' }[day],
+                    opens: hours!.open,
+                    closes: hours!.close,
+                  })),
               }),
             }).replace(/</g, '\\u003c'),
           }}

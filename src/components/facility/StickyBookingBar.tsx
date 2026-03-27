@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { analytics } from '@/lib/analytics';
 
 export default function StickyBookingBar({ phone, facilityName, facilitySlug }: { phone: string | null; facilityName: string; facilitySlug: string }) {
   return (
@@ -9,6 +10,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug }: 
         {phone && (
           <a
             href={`tel:${phone}`}
+            onClick={() => analytics.phoneClicked(facilitySlug)}
             className="flex items-center justify-center gap-2 py-3 px-4 bg-white border-2 border-sky-500 text-sky-600 font-bold rounded-xl text-sm transition-colors hover:bg-sky-50"
           >
             <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -19,6 +21,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug }: 
         )}
         <Link
           href={`/facility/${facilitySlug}/booking`}
+          onClick={() => analytics.bookingClicked(facilitySlug)}
           className="flex-1 flex items-center justify-center gap-2 py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl text-sm transition-colors"
         >
           <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

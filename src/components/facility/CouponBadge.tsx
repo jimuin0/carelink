@@ -8,7 +8,7 @@ const badgeStyles: Record<string, { bg: string; text: string; label: string }> =
 export default function CouponBadge({ type }: { type: string }) {
   const style = badgeStyles[type] ?? badgeStyles.all;
   return (
-    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}>
+    <span className={`text-micro font-bold px-2 py-0.5 rounded-full ${style.bg} ${style.text}`}>
       {style.label}
     </span>
   );
