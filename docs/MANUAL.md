@@ -99,7 +99,7 @@
 
 | 画面 | URL | 備考 |
 |------|-----|------|
-| 本番（Vercel） | https://carelink-ruddy-psi.vercel.app | カスタムドメイン未設定 |
+| 本番（Vercel） | https://www.carelink-jp.com | カスタムドメイン未設定 |
 | 予定ドメイン | https://carelink.jp | 取得・設定後 |
 | GitHub | jimuin0/carelink | プライベート |
 | Supabase Dashboard | https://supabase.com/dashboard/project/xzafxiupbflvgbarrihe | テーブル・Storage管理 |

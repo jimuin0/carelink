@@ -3,7 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { allPrefectureSlugs, allBusinessTypeSlugs } from '@/lib/seo-constants';
 import { getAllCitySlugs } from '@/data/city-slugs';
 
-const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const updated = new Date();

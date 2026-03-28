@@ -18,7 +18,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const feature = await getFeatureBySlug(slug);
   if (!feature) return {};
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   return {
     title: feature.title,
     description: feature.description || `${feature.title} | CareLink 特集`,

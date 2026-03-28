@@ -15,7 +15,7 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
       </div>
       <h1 className="text-xl sm:text-2xl font-bold mb-2">{facility.name}</h1>
       {facility.catch_copy && (
-        <p className="text-gray-600 text-sm">{facility.catch_copy}</p>
+        <p className="text-gray-600 text-sm bg-sky-50 rounded-lg px-3 py-2 border-l-[3px] border-sky-400">{facility.catch_copy}</p>
       )}
     </div>
   );

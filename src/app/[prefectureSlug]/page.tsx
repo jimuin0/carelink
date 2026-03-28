@@ -34,7 +34,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${name}のサロン・クリニック一覧`;
   const description = `${name}の美容サロン・鍼灸院・整骨院・介護施設を口コミ・メニュー・写真で比較。ネット予約も24時間OK。CareLink で${name}のサロン・クリニックを探そう。`;
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   return {
     title,
     description,
@@ -52,7 +52,7 @@ export default async function PrefecturePage({ params }: Props) {
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) notFound();
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
   const [{ facilities, total }, seoContent] = await Promise.all([
     searchFacilities({ prefecture: prefName, sort: 'rating' }),

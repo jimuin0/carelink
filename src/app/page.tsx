@@ -219,21 +219,77 @@ export default async function Home() {
               ))}
             </div>
 
-            {/* 統計カウンター */}
+            {/* 統計カウンター / 価値訴求 */}
             <div className="flex items-center justify-center gap-6 sm:gap-10 mt-6">
-              <div className="text-center">
-                <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
-                <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載施設数</p>
+              {(facilityCount ?? 0) >= 50 ? (
+                <>
+                  <div className="text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
+                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載施設数</p>
+                  </div>
+                  <div className="w-px h-8 bg-white/20" />
+                  <div className="text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
+                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">口コミ数</p>
+                  </div>
+                  <div className="w-px h-8 bg-white/20" />
+                  <div className="text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
+                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載・利用料</p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
+                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載・利用料</p>
+                  </div>
+                  <div className="w-px h-8 bg-white/20" />
+                  <div className="text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
+                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">かんたん登録</p>
+                  </div>
+                  <div className="w-px h-8 bg-white/20" />
+                  <div className="text-center">
+                    <p className="text-2xl sm:text-3xl font-bold text-white">24h</p>
+                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">ネット予約対応</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== 安心ポイント ===== */}
+      <div className="bg-white border-t border-gray-100">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-sky-50 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
-              <div className="w-px h-8 bg-white/20" />
-              <div className="text-center">
-                <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
-                <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">口コミ数</p>
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">完全無料</h3>
+                <p className="text-xs text-gray-500 mt-0.5">掲載料・予約手数料は一切かかりません</p>
               </div>
-              <div className="w-px h-8 bg-white/20" />
-              <div className="text-center">
-                <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載・利用料</p>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-sky-50 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">認証済み施設</h3>
+                <p className="text-xs text-gray-500 mt-0.5">運営が確認した施設のみ掲載しています</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-full bg-sky-50 flex items-center justify-center shrink-0">
+                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-gray-800">24時間ネット予約</h3>
+                <p className="text-xs text-gray-500 mt-0.5">いつでもどこでもかんたん予約</p>
               </div>
             </div>
           </div>
@@ -446,6 +502,19 @@ export default async function Home() {
               </nav>
             </div>
           </div>
+        </div>
+      </div>
+      {/* ===== 施設オーナー向けCTA ===== */}
+      <div className="bg-gradient-to-r from-sky-600 to-indigo-600">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-10 text-center">
+          <h2 className="text-lg font-bold text-white">施設を掲載しませんか？</h2>
+          <p className="text-sm text-sky-100 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
+          <Link
+            href="/register"
+            className="inline-flex items-center gap-2 mt-4 px-8 py-3 bg-white text-sky-600 font-bold rounded-lg hover:bg-sky-50 transition-colors"
+          >
+            無料で掲載する
+          </Link>
         </div>
       </div>
     </div>

@@ -1,73 +1,103 @@
+'use client';
+
+import { useState } from 'react';
 import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 
+const MAIN_PREFS = ['東京都', '大阪府', '愛知県', '福岡県', '北海道', '神奈川県'];
+
 export default function Footer() {
+  const [showAllAreas, setShowAllAreas] = useState(false);
+
   return (
     <footer className="bg-gray-900 text-gray-300">
       {/* SEO: エリア×業種 内部リンク */}
       <div className="border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          {/* 全47都道府県リンク */}
+          {/* 主要エリア or 全都道府県リンク */}
           <h2 className="text-white font-bold text-sm mb-5">エリアから探す</h2>
-          <div className="space-y-4">
-            {regionGroups.map((region) => (
-              <div key={region.name}>
-                <h3 className="text-gray-500 text-tiny font-bold mb-1.5">{region.name}</h3>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  {region.prefectures.map((pref) => {
-                    const slug = getPrefectureSlug(pref);
-                    return (
-                      <Link
-                        key={pref}
-                        href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
-                        className="text-xs text-gray-400 hover:text-white transition-colors"
-                      >
-                        {pref}
-                      </Link>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* 業種×都道府県リンク (5業種 × 47都道府県 = 235リンク) */}
-          <h2 className="text-white font-bold text-sm mt-10 mb-5">業種×エリアから探す</h2>
-          <div className="space-y-5">
-            {businessTypes.map((type) => (
-              <div key={type}>
-                <h3 className="text-xs font-bold mb-2">
-                  <Link
-                    href={`/search?type=${encodeURIComponent(type)}`}
-                    className="text-gray-300 hover:text-white transition-colors"
-                  >
-                    {type}
-                  </Link>
-                </h3>
-                <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
-                  {regionGroups.flatMap((region) =>
-                    region.prefectures.map((pref) => {
-                      const pSlug = getPrefectureSlug(pref);
-                      const tSlug = getBusinessTypeSlug(type);
-                      const href = pSlug && tSlug
-                        ? `/${pSlug}/${tSlug}`
-                        : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
+          {showAllAreas ? (
+            <div className="space-y-4">
+              {regionGroups.map((region) => (
+                <div key={region.name}>
+                  <h3 className="text-gray-500 text-tiny font-bold mb-1.5">{region.name}</h3>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    {region.prefectures.map((pref) => {
+                      const slug = getPrefectureSlug(pref);
                       return (
                         <Link
-                          key={`${type}-${pref}`}
-                          href={href}
-                          className="text-tiny text-gray-500 hover:text-gray-300 transition-colors"
+                          key={pref}
+                          href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
+                          className="text-xs text-gray-400 hover:text-white transition-colors"
                         >
                           {pref}
                         </Link>
                       );
-                    })
-                  )}
+                    })}
+                  </div>
                 </div>
+              ))}
+
+              {/* 業種×都道府県リンク */}
+              <h2 className="text-white font-bold text-sm mt-8 mb-5">業種×エリアから探す</h2>
+              {businessTypes.map((type) => (
+                <div key={type}>
+                  <h3 className="text-xs font-bold mb-2">
+                    <Link
+                      href={`/search?type=${encodeURIComponent(type)}`}
+                      className="text-gray-300 hover:text-white transition-colors"
+                    >
+                      {type}
+                    </Link>
+                  </h3>
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+                    {regionGroups.flatMap((region) =>
+                      region.prefectures.map((pref) => {
+                        const pSlug = getPrefectureSlug(pref);
+                        const tSlug = getBusinessTypeSlug(type);
+                        const href = pSlug && tSlug
+                          ? `/${pSlug}/${tSlug}`
+                          : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
+                        return (
+                          <Link
+                            key={`${type}-${pref}`}
+                            href={href}
+                            className="text-tiny text-gray-500 hover:text-gray-300 transition-colors"
+                          >
+                            {pref}
+                          </Link>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {MAIN_PREFS.map((pref) => {
+                  const slug = getPrefectureSlug(pref);
+                  return (
+                    <Link
+                      key={pref}
+                      href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
+                      className="text-sm text-gray-400 hover:text-white transition-colors"
+                    >
+                      {pref}
+                    </Link>
+                  );
+                })}
               </div>
-            ))}
-          </div>
+              <button
+                onClick={() => setShowAllAreas(true)}
+                className="mt-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                すべてのエリアを表示 &rsaquo;
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

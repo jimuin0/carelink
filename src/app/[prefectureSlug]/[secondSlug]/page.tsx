@@ -107,7 +107,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
 }) {
   const typeName = getBusinessTypeName(typeSlug)!;
   const { page: pageStr } = await searchParams;
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
@@ -173,7 +173,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
   prefectureSlug: string; prefName: string; citySlug: string; cityName: string; searchParams: Promise<{ page?: string }>;
 }) {
   const { page: pageStr } = await searchParams;
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([

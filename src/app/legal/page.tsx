@@ -19,7 +19,7 @@ export default function LegalPage() {
             <Row label="所在地" value="大阪府豊中市（詳細はお問い合わせください）" />
             <Row label="電話番号" value={<>お問い合わせは<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりお願いいたします</>} />
             <Row label="メールアドレス" value={<>お問い合わせは<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりお願いいたします</>} />
-            <Row label="サービスURL" value="https://carelink-ruddy-psi.vercel.app" />
+            <Row label="サービスURL" value="https://www.carelink-jp.com" />
             <Row label="販売価格" value="各サービスページに表示された金額（税込）" />
             <Row label="支払方法" value="クレジットカード決済" />
             <Row label="支払時期" value="予約確定時" />

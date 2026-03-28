@@ -10,7 +10,7 @@ import ViewToggle from '@/components/search/ViewToggle';
 
 export const dynamic = 'force-dynamic';
 
-const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-ruddy-psi.vercel.app';
+const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
 interface Props {
   searchParams: {
