@@ -22,7 +22,7 @@ export default function SearchFooter() {
           <div className="space-y-3">
             {regionGroups.map((region) => (
               <div key={region.name}>
-                <h3 className="text-gray-500 text-tiny font-bold mb-1">{region.name}</h3>
+                <h3 className="text-gray-400 text-tiny font-bold mb-1">{region.name}</h3>
                 <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                   {region.prefectures.map((pref) => {
                     const slug = getPrefectureSlug(pref);
@@ -82,7 +82,7 @@ export default function SearchFooter() {
                         <Link
                           key={`${type}-${pref}`}
                           href={href}
-                          className="text-tiny text-gray-500 hover:text-gray-300 transition-colors"
+                          className="text-tiny text-gray-400 hover:text-gray-300 transition-colors"
                         >
                           {pref}
                         </Link>
@@ -127,7 +127,7 @@ export default function SearchFooter() {
           </div>
         </div>
 
-        <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-500">
+        <div className="mt-8 pt-6 border-t border-gray-700 flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-gray-400">
           <p>&copy; {new Date().getFullYear()} CareLink All rights reserved.</p>
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-white transition-colors">プライバシーポリシー</Link>

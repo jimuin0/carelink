@@ -337,7 +337,7 @@ export default async function Home() {
           <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
             <div className="flex items-center justify-between mb-5">
               <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">新着サロン</h2>
-              <Link href="/search?sort=newest" className="text-xs text-sky-600 hover:underline">もっと見る &rsaquo;</Link>
+              <Link href="/search?sort=newest" className="text-xs text-sky-700 hover:underline">もっと見る &rsaquo;</Link>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {latestFacilities.map((f) => (
@@ -470,7 +470,7 @@ export default async function Home() {
                 <div className="space-y-3">
                   {regionGroups.map((region) => (
                     <div key={region.name}>
-                      <h3 className="text-tiny font-bold text-gray-500 mb-1">{region.name}</h3>
+                      <h3 className="text-tiny font-bold text-gray-600 mb-1">{region.name}</h3>
                       <div className="flex items-center whitespace-nowrap">
                         {region.prefectures.map((pref, i) => {
                           const pSlug = getPrefectureSlug(pref);

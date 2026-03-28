@@ -21,7 +21,7 @@ export default function Footer() {
             <div className="space-y-4">
               {regionGroups.map((region) => (
                 <div key={region.name}>
-                  <h3 className="text-gray-500 text-tiny font-bold mb-1.5">{region.name}</h3>
+                  <h3 className="text-gray-400 text-tiny font-bold mb-1.5">{region.name}</h3>
                   <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                     {region.prefectures.map((pref) => {
                       const slug = getPrefectureSlug(pref);
@@ -63,7 +63,7 @@ export default function Footer() {
                           <Link
                             key={`${type}-${pref}`}
                             href={href}
-                            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                            className="text-xs text-gray-400 hover:text-gray-300 transition-colors"
                           >
                             {pref}
                           </Link>
@@ -92,7 +92,7 @@ export default function Footer() {
               </div>
               <button
                 onClick={() => setShowAllAreas(true)}
-                className="mt-3 text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                className="mt-3 text-xs text-gray-400 hover:text-gray-300 transition-colors"
               >
                 すべてのエリアを表示 &rsaquo;
               </button>
@@ -163,7 +163,7 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 pt-8 border-t border-gray-700 text-center text-sm text-gray-500">
+        <div className="mt-10 pt-8 border-t border-gray-700 text-center text-sm text-gray-400">
           &copy; {new Date().getFullYear()} CareLink All rights reserved.
         </div>
       </div>
