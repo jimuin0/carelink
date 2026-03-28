@@ -58,13 +58,15 @@ export async function POST(request: Request) {
     }
   }
 
-  const { error } = await supabase
+  const { data: inserted, error } = await supabase
     .from('bookings')
     .insert({
       ...parsed.data,
       user_id: user?.id ?? null,
       status: 'pending',
-    });
+    })
+    .select('id')
+    .single();
 
   if (error) {
     // DB制約違反（二重予約）の場合
@@ -73,6 +75,8 @@ export async function POST(request: Request) {
     }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
+
+  const newBookingId = inserted?.id || '';
 
   // Send email notifications (non-blocking)
   try {
@@ -103,7 +107,7 @@ export async function POST(request: Request) {
       menuName: mName,
       staffName: sName,
       totalPrice: parsed.data.total_price ?? undefined,
-      bookingId: '',
+      bookingId: newBookingId,
     };
 
     void sendBookingConfirmation(emailData);
@@ -125,7 +129,7 @@ export async function POST(request: Request) {
     // Email failure should not block booking creation
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, bookingId: newBookingId });
   } catch {
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }

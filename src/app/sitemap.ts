@@ -2,6 +2,7 @@ import type { MetadataRoute } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { allPrefectureSlugs, allBusinessTypeSlugs } from '@/lib/seo-constants';
 import { getAllCitySlugs } from '@/data/city-slugs';
+import { articles } from '@/data/articles';
 
 const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
@@ -92,15 +93,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }))
   );
 
-  // Blog articles
-  const { data: blogArticles } = await supabase
-    .from('blog_articles')
-    .select('slug, updated_at')
-    .eq('status', 'published');
-
-  const blogPages: MetadataRoute.Sitemap = (blogArticles || []).map((a) => ({
+  // Blog articles (from static data)
+  const blogPages: MetadataRoute.Sitemap = articles.map((a) => ({
     url: `${baseUrl}/blog/${a.slug}`,
-    lastModified: a.updated_at ? new Date(a.updated_at) : updated,
+    lastModified: new Date(a.publishedAt),
     changeFrequency: 'monthly' as const,
     priority: 0.6,
   }));
