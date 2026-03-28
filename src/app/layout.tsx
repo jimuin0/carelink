@@ -49,6 +49,22 @@ export default function RootLayout({
 
   return (
     <html lang="ja">
+      <head>
+        <link rel="preconnect" href="https://images.unsplash.com" />
+        <link rel="dns-prefetch" href="https://images.unsplash.com" />
+        {gaId && (
+          <>
+            <link rel="preconnect" href="https://www.googletagmanager.com" />
+            <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+          </>
+        )}
+        {clarityId && (
+          <>
+            <link rel="preconnect" href="https://www.clarity.ms" />
+            <link rel="dns-prefetch" href="https://www.clarity.ms" />
+          </>
+        )}
+      </head>
       <body className={`${notoSansJP.className} antialiased min-h-screen flex flex-col`}>
         {gaId && (
           <>

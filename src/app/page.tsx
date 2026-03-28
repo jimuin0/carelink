@@ -186,9 +186,10 @@ export default async function Home() {
         {/* Background image */}
         <div className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1400&q=80"
+            src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200&q=70&auto=format"
             alt=""
             fill
+            sizes="100vw"
             className="object-cover"
             priority
           />
@@ -200,7 +201,7 @@ export default async function Home() {
             <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight tracking-wide drop-shadow-sm">
               ネットでかんたんサロン予約
             </h1>
-            <p className="text-xs sm:text-sm text-white/80 mt-2 tracking-wider">
+            <p className="text-xs sm:text-sm text-white/90 mt-2 tracking-wider">
               ヘア・ネイル・まつげ・リラク・エステ・美容クリニック
             </p>
 
@@ -229,34 +230,34 @@ export default async function Home() {
                 <>
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
-                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">掲載施設数</p>
+                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">掲載施設数</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
-                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">口コミ数</p>
+                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">口コミ数</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">掲載・利用料</p>
+                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">掲載・利用料</p>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">掲載・利用料</p>
+                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">掲載・利用料</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
-                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">かんたん登録</p>
+                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">かんたん登録</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">24h</p>
-                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">ネット予約対応</p>
+                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">ネット予約対応</p>
                   </div>
                 </>
               )}
@@ -320,7 +321,7 @@ export default async function Home() {
                 <div className={`absolute inset-0 bg-gradient-to-t ${banner.color}`} />
                 <div className="absolute inset-0 flex flex-col justify-end p-4">
                   <h3 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h3>
-                  <p className="text-white/80 text-tiny mt-1">{banner.subtitle}</p>
+                  <p className="text-white/90 text-tiny mt-1">{banner.subtitle}</p>
                 </div>
               </Link>
             ))}
@@ -511,16 +512,18 @@ export default async function Home() {
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1400&q=80"
+            src="https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1200&q=60&auto=format"
             alt=""
             fill
+            sizes="100vw"
             className="object-cover"
+            loading="lazy"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-sky-900/85 to-indigo-900/85" />
         </div>
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6 py-12 text-center">
           <h2 className="text-lg sm:text-xl font-bold text-white">施設を掲載しませんか？</h2>
-          <p className="text-sm text-white/80 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
+          <p className="text-sm text-white/90 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
           <Link
             href="/register"
             className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-600 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
