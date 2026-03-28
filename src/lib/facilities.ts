@@ -146,6 +146,22 @@ export async function getSimilarFacilities(facilityId: string, businessType: str
   return (data || []) as FacilityCardData[];
 }
 
+export async function getNearbyFacilities(facilityId: string, prefecture: string, city: string, limit = 4) {
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase
+    .from('facility_profiles')
+    .select(
+      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
+    )
+    .eq('status', 'published')
+    .eq('prefecture', prefecture)
+    .eq('city', city)
+    .neq('id', facilityId)
+    .order('rating_avg', { ascending: false })
+    .limit(limit);
+  return (data || []) as FacilityCardData[];
+}
+
 export async function getLatestFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase

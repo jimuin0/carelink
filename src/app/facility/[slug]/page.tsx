@@ -23,6 +23,7 @@ import CatalogList from '@/components/facility/CatalogList';
 import QASection from '@/components/facility/QASection';
 import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
+import NearbyFacilities from '@/components/facility/NearbyFacilities';
 import type { Facility, FacilityMenu } from '@/types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
@@ -234,6 +235,11 @@ export default async function FacilityPage({ params }: Props) {
           </div>
         }>
           <SimilarFacilities facilityId={facility.id} businessType={facility.business_type} prefecture={facility.prefecture} />
+        </Suspense>
+
+        {/* 近くのサロン */}
+        <Suspense fallback={null}>
+          <NearbyFacilities facilityId={facility.id} prefecture={facility.prefecture} city={facility.city} />
         </Suspense>
 
         {/* Contact section */}
