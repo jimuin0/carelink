@@ -30,7 +30,7 @@ export default function SalonPage() {
       {/* Hero */}
       <section className="bg-gradient-to-br from-sky-50 to-white">
         <div className="section-container text-center">
-          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black mb-6 leading-tight">
+          <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 leading-tight">
             あなたの施設を、
             <br />
             <span className="text-primary">必要な人に届ける</span>
