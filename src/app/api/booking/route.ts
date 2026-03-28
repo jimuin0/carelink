@@ -4,25 +4,7 @@ import { NextResponse } from 'next/server';
 import { bookingSchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
-
-const bookingLog = new Map<string, number[]>();
-const BOOKING_RATE_LIMIT = 3;
-const BOOKING_RATE_WINDOW = 300_000; // 5 minutes
-
-function isBookingRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = (bookingLog.get(ip) || []).filter((t) => now - t < BOOKING_RATE_WINDOW);
-  if (timestamps.length >= BOOKING_RATE_LIMIT) return true;
-  timestamps.push(now);
-  bookingLog.set(ip, timestamps);
-  // Clean old entries (keep map size reasonable)
-  if (bookingLog.size > 1000) {
-    Array.from(bookingLog.entries()).forEach(([key, ts]) => {
-      if (ts.every((t) => now - t >= BOOKING_RATE_WINDOW)) bookingLog.delete(key);
-    });
-  }
-  return false;
-}
+import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 
 export async function POST(request: Request) {
   try {
@@ -30,7 +12,7 @@ export async function POST(request: Request) {
   if (csrfError) return csrfError;
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (isBookingRateLimited(ip)) {
+  if (await checkRateLimit(bookingRateLimit, ip, 3, 300_000, 'booking')) {
     return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
   }
 

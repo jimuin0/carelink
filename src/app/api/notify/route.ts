@@ -1,30 +1,9 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
+import { notifyRateLimit, checkRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
-
-// Note: In-memory rate limiting is per serverless instance.
-// On Vercel, instances are short-lived so this provides limited protection.
-// For production, consider Upstash Redis for distributed rate limiting.
-const requestLog = new Map<string, number[]>();
-const RATE_LIMIT = 5; // max requests
-const RATE_WINDOW = 60_000; // per 60 seconds
-
-function isRateLimited(ip: string): boolean {
-  const now = Date.now();
-  const timestamps = (requestLog.get(ip) || []).filter((t) => now - t < RATE_WINDOW);
-  if (timestamps.length >= RATE_LIMIT) return true;
-  timestamps.push(now);
-  requestLog.set(ip, timestamps);
-  // Prevent unbounded growth
-  if (requestLog.size > 1000) {
-    Array.from(requestLog.entries()).forEach(([key, ts]) => {
-      if (ts.every((t) => now - t >= RATE_WINDOW)) requestLog.delete(key);
-    });
-  }
-  return false;
-}
 
 function escSlack(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -85,7 +64,7 @@ export async function POST(request: Request) {
   if (csrfError) return csrfError;
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (isRateLimited(ip)) {
+  if (await checkRateLimit(notifyRateLimit, ip, 5, 60_000, 'notify')) {
     return NextResponse.json({ ok: false, error: 'Too many requests' }, { status: 429 });
   }
 

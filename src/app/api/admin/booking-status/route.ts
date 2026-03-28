@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 
@@ -124,9 +125,8 @@ export async function POST(request: Request) {
       } else {
         await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
       }
-    } catch {
-      // Email failure should not block status update
-      console.error('Email notification failed');
+    } catch (e) {
+      Sentry.captureException(e, { tags: { feature: 'booking-email' } });
     }
 
     return NextResponse.json({ success: true });

@@ -52,13 +52,17 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       type: 'website',
       url,
       siteName: 'CareLink',
-      ...(facility.main_photo_url && { images: [{ url: facility.main_photo_url }] }),
+      images: [{
+        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}`,
+        width: 1200,
+        height: 630,
+      }],
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      ...(facility.main_photo_url && { images: [facility.main_photo_url] }),
+      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}`],
     },
   };
 }

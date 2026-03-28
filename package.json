@@ -6,13 +6,18 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test": "jest",
+    "test:ci": "jest --ci"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
     "@react-map/japan": "^1.0.10",
+    "@sentry/nextjs": "^10.46.0",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.2",
+    "@upstash/ratelimit": "^2.0.8",
+    "@upstash/redis": "^1.37.0",
     "@vercel/analytics": "^2.0.1",
     "@vercel/speed-insights": "^2.0.0",
     "leaflet": "^1.9.4",
@@ -24,12 +29,18 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^30.0.0",
     "@types/leaflet": "^1.9.21",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "14.2.35",
+    "jest": "^30.3.0",
+    "jest-environment-jsdom": "^30.3.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
