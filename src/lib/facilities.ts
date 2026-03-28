@@ -11,15 +11,17 @@ function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: numbe
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
+// Card list queries use facility_card_view (has computed min_price, max_price, menu_count, coupon_count, photo_count)
+const CARD_VIEW = 'facility_card_view';
+const CARD_COLS = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
+
 export async function searchFacilities(params: SearchParams) {
   const supabase = createServerSupabaseClient();
   const isGeoSearch = params.lat != null && params.lng != null;
 
-  const baseCols = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
-
   let query = supabase
-    .from('facility_profiles')
-    .select(isGeoSearch ? `${baseCols}, latitude, longitude` : baseCols, { count: isGeoSearch ? undefined : 'exact' })
+    .from(CARD_VIEW)
+    .select(isGeoSearch ? `${CARD_COLS}, latitude, longitude` : CARD_COLS, { count: isGeoSearch ? undefined : 'exact' })
     .eq('status', 'published');
 
   if (params.type) query = query.eq('business_type', params.type);
@@ -78,10 +80,8 @@ export async function searchFacilities(params: SearchParams) {
 export async function getPopularFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_profiles')
-    .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
-    )
+    .from(CARD_VIEW)
+    .select(CARD_COLS)
     .eq('status', 'published')
     .order('rating_count', { ascending: false })
     .limit(limit);
@@ -133,10 +133,8 @@ export async function getFacilityReviews(facilityId: string) {
 export async function getSimilarFacilities(facilityId: string, businessType: string, prefecture: string, limit = 4) {
   const supabase = createServerSupabaseClient();
   const { data } = await supabase
-    .from('facility_profiles')
-    .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
-    )
+    .from(CARD_VIEW)
+    .select(CARD_COLS)
     .eq('status', 'published')
     .eq('business_type', businessType)
     .eq('prefecture', prefecture)
@@ -149,10 +147,8 @@ export async function getSimilarFacilities(facilityId: string, businessType: str
 export async function getNearbyFacilities(facilityId: string, prefecture: string, city: string, limit = 4) {
   const supabase = createServerSupabaseClient();
   const { data } = await supabase
-    .from('facility_profiles')
-    .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
-    )
+    .from(CARD_VIEW)
+    .select(CARD_COLS)
     .eq('status', 'published')
     .eq('prefecture', prefecture)
     .eq('city', city)
@@ -165,10 +161,8 @@ export async function getNearbyFacilities(facilityId: string, prefecture: string
 export async function getLatestFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_profiles')
-    .select(
-      'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
-    )
+    .from(CARD_VIEW)
+    .select(CARD_COLS)
     .eq('status', 'published')
     .order('created_at', { ascending: false })
     .limit(limit);

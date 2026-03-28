@@ -182,21 +182,25 @@ export default async function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
-      <div className="relative overflow-hidden bg-gradient-to-b from-sky-600 to-sky-500">
-        <div
-          className="absolute inset-0 opacity-[0.07]"
-          style={{
-            backgroundImage: 'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
-            backgroundSize: '24px 24px',
-          }}
-        />
+      <div className="relative overflow-hidden">
+        {/* Background image */}
+        <div className="absolute inset-0">
+          <Image
+            src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1400&q=80"
+            alt=""
+            fill
+            className="object-cover"
+            priority
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-sky-900/80 via-sky-800/70 to-sky-700/80" />
+        </div>
 
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6">
-          <div className="pt-8 sm:pt-10 pb-7 sm:pb-9 text-center">
-            <h1 className="text-xl sm:text-2xl font-bold text-white leading-tight tracking-wide">
+          <div className="pt-10 sm:pt-14 pb-9 sm:pb-12 text-center">
+            <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight tracking-wide drop-shadow-sm">
               ネットでかんたんサロン予約
             </h1>
-            <p className="text-tiny sm:text-xs text-sky-100 mt-1.5 tracking-wider">
+            <p className="text-xs sm:text-sm text-white/80 mt-2 tracking-wider">
               ヘア・ネイル・まつげ・リラク・エステ・美容クリニック
             </p>
 
@@ -206,12 +210,12 @@ export default async function Home() {
               </div>
             </div>
 
-            <div className="flex items-center justify-center gap-2 max-w-[620px] mx-auto">
+            <div className="flex items-center justify-center gap-2 flex-wrap max-w-[620px] mx-auto">
               {categories.map((cat) => (
                 <Link
                   key={cat.type}
                   href={`/search?type=${encodeURIComponent(cat.type)}`}
-                  className="inline-flex items-center gap-1.5 bg-white/15 hover:bg-white/25 backdrop-blur-sm rounded-full px-3.5 py-1.5 text-xs font-medium text-white transition-colors"
+                  className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-2 text-xs font-medium text-white transition-all shadow-sm hover:shadow"
                 >
                   <span className="[&>svg]:w-4 [&>svg]:h-4">{cat.icon}</span>
                   <span>{cat.name}</span>
@@ -225,34 +229,34 @@ export default async function Home() {
                 <>
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
-                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載施設数</p>
+                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">掲載施設数</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
-                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">口コミ数</p>
+                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">口コミ数</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載・利用料</p>
+                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">掲載・利用料</p>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">掲載・利用料</p>
+                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">掲載・利用料</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
-                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">かんたん登録</p>
+                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">かんたん登録</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">24h</p>
-                    <p className="text-micro sm:text-tiny text-sky-100 mt-0.5">ネット予約対応</p>
+                    <p className="text-tiny sm:text-xs text-white/70 mt-0.5">ネット予約対応</p>
                   </div>
                 </>
               )}
@@ -504,13 +508,22 @@ export default async function Home() {
         </div>
       </div>
       {/* ===== 施設オーナー向けCTA ===== */}
-      <div className="bg-gradient-to-r from-sky-600 to-indigo-600">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-10 text-center">
-          <h2 className="text-lg font-bold text-white">施設を掲載しませんか？</h2>
-          <p className="text-sm text-sky-100 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
+      <div className="relative overflow-hidden">
+        <div className="absolute inset-0">
+          <Image
+            src="https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1400&q=80"
+            alt=""
+            fill
+            className="object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-r from-sky-900/85 to-indigo-900/85" />
+        </div>
+        <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6 py-12 text-center">
+          <h2 className="text-lg sm:text-xl font-bold text-white">施設を掲載しませんか？</h2>
+          <p className="text-sm text-white/80 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
           <Link
             href="/register"
-            className="inline-flex items-center gap-2 mt-4 px-8 py-3 bg-white text-sky-600 font-bold rounded-lg hover:bg-sky-50 transition-colors"
+            className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-600 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
           >
             無料で掲載する
           </Link>

@@ -63,7 +63,7 @@ export default function Footer() {
                           <Link
                             key={`${type}-${pref}`}
                             href={href}
-                            className="text-tiny text-gray-500 hover:text-gray-300 transition-colors"
+                            className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
                           >
                             {pref}
                           </Link>
