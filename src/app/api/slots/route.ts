@@ -1,6 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
+import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 
 export async function GET(request: Request) {
   try {
@@ -10,8 +11,6 @@ export async function GET(request: Request) {
   const date = searchParams.get('date');
   const rawDuration = parseInt(searchParams.get('duration') || '60');
   const duration = Number.isNaN(rawDuration) ? 60 : Math.min(Math.max(rawDuration, 15), 480);
-
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
   if (!facilityId || !staffId || !date) {

@@ -1,5 +1,12 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import { getAreasByParent } from '@/lib/areas';
+
+export const metadata: Metadata = {
+  title: 'エリアから探す',
+  description: '都道府県・地域からサロン・クリニックを検索。お近くの美容サロン・鍼灸院・整骨院・介護施設を簡単に見つけられます。',
+  alternates: { canonical: '/search/area' },
+};
 
 export default async function AreaSearchPage() {
   const regions = await getAreasByParent(null);

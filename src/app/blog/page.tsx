@@ -4,8 +4,8 @@ import Breadcrumb from '@/components/Breadcrumb';
 import { articles } from '@/data/articles';
 
 export const metadata: Metadata = {
-  title: 'コラム',
-  description: '介護・鍼灸・美容業界の転職に役立つ情報をお届けします。キャリアアップ、面接対策、給料事情など。',
+  title: 'コラム｜美容・健康の役立つ情報',
+  description: '美容サロン・鍼灸院の利用ガイドや最新トレンド情報をお届け。初めてのサロン選びからケア方法まで役立つコラムが満載です。',
 };
 
 export default function BlogPage() {

@@ -4,8 +4,7 @@ import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
-
-const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 const validStatuses = ['confirmed', 'completed', 'cancelled', 'no_show'];
 
 export async function POST(request: Request) {

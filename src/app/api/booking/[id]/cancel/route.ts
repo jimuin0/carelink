@@ -3,8 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingCancelled } from '@/lib/email';
-
-const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
   try {

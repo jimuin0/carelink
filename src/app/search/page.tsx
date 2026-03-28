@@ -130,7 +130,7 @@ export default async function SearchPage({ searchParams }: Props) {
             </ol>
           </nav>
           <h1 className="text-2xl sm:text-3xl font-bold text-center mb-6">サロン・クリニックを探す</h1>
-          <Suspense><SearchBar /></Suspense>
+          <Suspense fallback={null}><SearchBar /></Suspense>
         </div>
       </section>
 
@@ -140,7 +140,7 @@ export default async function SearchPage({ searchParams }: Props) {
           {/* デスクトップ: サイドバー */}
           <aside className="hidden lg:block w-64 shrink-0">
             <div className="sticky top-4">
-              <Suspense>
+              <Suspense fallback={null}>
                 <SearchFilters className="bg-white rounded-2xl shadow-sm p-5" />
               </Suspense>
             </div>

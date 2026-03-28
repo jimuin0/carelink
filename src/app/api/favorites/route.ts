@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
+import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 
 export async function POST(request: Request) {
   try {
@@ -9,7 +10,6 @@ export async function POST(request: Request) {
     if (csrfError) return csrfError;
 
     const { facilityId } = await request.json();
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!facilityId || !uuidRegex.test(facilityId)) {
       return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
     }
