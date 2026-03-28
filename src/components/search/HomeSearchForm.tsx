@@ -26,7 +26,7 @@ export default function HomeSearchForm() {
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGeoLoading(false);
-        router.push(`/search?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}&sort=distance`);
+        router.push(`/search?lat=${pos.coords.latitude}&lng=${pos.coords.longitude}`);
       },
       () => setGeoLoading(false),
       { timeout: 10000 }

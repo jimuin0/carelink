@@ -153,7 +153,7 @@ export interface SearchParams {
   price_min?: number;
   price_max?: number;
   features?: string[];
-  sort?: 'rating' | 'newest' | 'popular' | 'distance';
+  sort?: 'rating' | 'newest' | 'popular';
   page?: number;
   lat?: number;
   lng?: number;

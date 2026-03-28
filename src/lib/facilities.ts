@@ -18,7 +18,7 @@ export async function searchFacilities(params: SearchParams) {
   const baseCols = 'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count';
 
   let query = supabase
-    .from('facility_card_view')
+    .from('facility_profiles')
     .select(isGeoSearch ? `${baseCols}, latitude, longitude` : baseCols, { count: isGeoSearch ? undefined : 'exact' })
     .eq('status', 'published');
 
@@ -41,9 +41,7 @@ export async function searchFacilities(params: SearchParams) {
     }
   }
 
-  // TODO: available_date / available_time filtering
-  // These params are passed through for URL preservation and future availability filtering.
-  // Client-side can use the /api/availability route to check specific facility slots.
+  // available_date / available_time: URL保持用。空き枠検索は /api/availability で個別確認。
 
   if (isGeoSearch) {
     query = query.limit(500);
@@ -65,8 +63,6 @@ export async function searchFacilities(params: SearchParams) {
     query = query.order('rating_avg', { ascending: false });
   } else if (params.sort === 'popular') {
     query = query.order('view_count', { ascending: false, nullsFirst: false });
-  } else if (params.sort === 'distance') {
-    query = query.order('created_at', { ascending: false });
   } else {
     query = query.order('created_at', { ascending: false });
   }
@@ -82,7 +78,7 @@ export async function searchFacilities(params: SearchParams) {
 export async function getPopularFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_card_view')
+    .from('facility_profiles')
     .select(
       'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
     )
@@ -137,7 +133,7 @@ export async function getFacilityReviews(facilityId: string) {
 export async function getSimilarFacilities(facilityId: string, businessType: string, prefecture: string, limit = 4) {
   const supabase = createServerSupabaseClient();
   const { data } = await supabase
-    .from('facility_card_view')
+    .from('facility_profiles')
     .select(
       'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
     )
@@ -153,7 +149,7 @@ export async function getSimilarFacilities(facilityId: string, businessType: str
 export async function getLatestFacilities(limit = 6) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_card_view')
+    .from('facility_profiles')
     .select(
       'id, slug, name, business_type, catch_copy, prefecture, city, access_info, rating_avg, rating_count, main_photo_url, min_price, max_price, menu_count, coupon_count, photo_count, business_hours, seat_count'
     )

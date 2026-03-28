@@ -116,9 +116,8 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
               {facility.access_info && ` / ${facility.access_info}`}
             </span>
           </p>
-          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+          <div className="shrink-0 ml-2">
             <CompareButton facilityId={facility.id} />
-            <span className="badge badge-point text-micro">ポイント</span>
           </div>
         </div>
       </div>

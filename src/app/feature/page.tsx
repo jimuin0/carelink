@@ -57,8 +57,12 @@ export default async function FeatureListPage() {
           </div>
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl">
-            <p className="text-gray-500 text-sm">現在公開中の特集はありません。</p>
-            <Link href="/" className="text-sky-600 text-sm mt-2 inline-block hover:underline">
+            <svg className="w-12 h-12 text-gray-300 mx-auto mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" />
+            </svg>
+            <p className="text-gray-500 text-sm font-medium">特集記事を準備中です</p>
+            <p className="text-gray-400 text-xs mt-1">季節やテーマに合わせた特集をお届けします</p>
+            <Link href="/" className="text-sky-600 text-sm mt-4 inline-block hover:underline">
               トップページに戻る
             </Link>
           </div>

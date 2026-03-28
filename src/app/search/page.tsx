@@ -51,7 +51,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
 }
 
 export default async function SearchPage({ searchParams }: Props) {
-  const validSorts = ['rating', 'newest', 'popular', 'distance'] as const;
+  const validSorts = ['rating', 'newest', 'popular'] as const;
   const sort = validSorts.includes(searchParams.sort as typeof validSorts[number])
     ? (searchParams.sort as typeof validSorts[number])
     : 'newest';

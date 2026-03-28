@@ -12,8 +12,6 @@
   --care-pink: #EC4899;
   --care-green: #059669;
   --care-indigo: #6366F1;
-  --gradient-start: #0EA5E9;
-  --gradient-end: #6366F1;
 }
 
 body {
@@ -69,10 +67,6 @@ body {
   }
   .badge-coupon {
     @apply bg-pink-100 text-pink-700;
-  }
-  .badge-point {
-    background: linear-gradient(135deg, var(--gradient-start), var(--gradient-end));
-    @apply text-white;
   }
   .badge-instant {
     @apply bg-emerald-100 text-emerald-700;

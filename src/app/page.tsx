@@ -487,8 +487,7 @@ export default async function Home() {
               <nav>
                 {[
                   { href: '/mypage/favorites', label: 'お気に入り一覧' },
-                  { href: '/contact', label: 'よくある質問' },
-                  { href: '/contact', label: 'ヘルプ' },
+                  { href: '/contact', label: 'お問い合わせ' },
                 ].map((item) => (
                   <Link
                     key={`${item.href}-${item.label}`}
