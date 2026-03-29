@@ -15,7 +15,7 @@ function decodeHtmlEntities(str: string): string {
 function isHrefSafe(raw: string): boolean {
   const decoded = decodeHtmlEntities(raw).replace(/[\s\x00-\x1f]+/g, '').toLowerCase();
   if (decoded.startsWith('javascript:') || decoded.startsWith('data:') || decoded.startsWith('vbscript:')) return false;
-  return SAFE_URL_PATTERN.test(raw) || !raw.includes(':');
+  return SAFE_URL_PATTERN.test(decoded) || !decoded.includes(':');
 }
 
 function sanitizeHtml(raw: string): string {

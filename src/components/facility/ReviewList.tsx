@@ -93,16 +93,27 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
         window.location.href = '/auth/login';
         return;
       }
-      if (myHelpful.has(reviewId)) {
-        await supabase.from('review_helpful').delete().eq('review_id', reviewId).eq('user_id', user.id);
+      const wasHelpful = myHelpful.has(reviewId);
+      if (wasHelpful) {
         setMyHelpful((prev) => { const next = new Set(prev); next.delete(reviewId); return next; });
         setHelpfulMap((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 1) - 1 }));
+        const { error } = await supabase.from('review_helpful').delete().eq('review_id', reviewId).eq('user_id', user.id);
+        if (error) {
+          setMyHelpful((prev) => new Set(prev).add(reviewId));
+          setHelpfulMap((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 0) + 1 }));
+        }
       } else {
-        await supabase.from('review_helpful').insert({ review_id: reviewId, user_id: user.id });
         setMyHelpful((prev) => new Set(prev).add(reviewId));
         setHelpfulMap((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 0) + 1 }));
+        const { error } = await supabase.from('review_helpful').insert({ review_id: reviewId, user_id: user.id });
+        if (error) {
+          setMyHelpful((prev) => { const next = new Set(prev); next.delete(reviewId); return next; });
+          setHelpfulMap((prev) => ({ ...prev, [reviewId]: (prev[reviewId] || 1) - 1 }));
+        }
       }
-    } catch { /* ignore */ }
+    } catch {
+      // network error — revert to server state on next page load
+    }
     setHelpfulLoading(null);
   };
 

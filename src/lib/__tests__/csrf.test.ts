@@ -47,4 +47,20 @@ describe('checkCsrf', () => {
     const req = makeRequest({ origin: 'http://localhost:3000', host: 'localhost:3000' });
     expect(checkCsrf(req)).toBeNull();
   });
+
+  test('ドメイン末尾一致の偽サイトを拒否する', () => {
+    const req = makeRequest({ origin: 'https://evil-carelink.jp', host: 'carelink.jp' });
+    const res = checkCsrf(req);
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
+  });
+
+  test('不正なorigin形式は拒否する', () => {
+    const req = makeRequest({ origin: 'not-a-url', host: 'carelink.jp' });
+    const res = checkCsrf(req);
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
+  });
 });

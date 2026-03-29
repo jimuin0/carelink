@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       .select('facility_id, role')
       .eq('user_id', user.id)
       .single();
-    if (!membership) {
+    if (!membership || !['owner', 'admin'].includes(membership.role)) {
       return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     }
 
@@ -129,7 +129,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'admin-booking-status' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

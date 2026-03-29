@@ -8,13 +8,17 @@ import * as Sentry from '@sentry/nextjs';
 export function checkCsrf(request: Request): NextResponse | null {
   const origin = request.headers.get('origin');
   const host = request.headers.get('host');
-  if (origin && host && !origin.endsWith(host)) {
-    Sentry.captureMessage('CSRF validation failed', {
-      level: 'warning',
-      tags: { feature: 'csrf' },
-      extra: { origin, host, url: request.url },
-    });
-    return NextResponse.json({ error: '不正なリクエストです' }, { status: 403 });
+  if (origin && host) {
+    let originHost: string;
+    try { originHost = new URL(origin).host; } catch { originHost = ''; }
+    if (originHost !== host) {
+      Sentry.captureMessage('CSRF validation failed', {
+        level: 'warning',
+        tags: { feature: 'csrf' },
+        extra: { origin, host, url: request.url },
+      });
+      return NextResponse.json({ error: '不正なリクエストです' }, { status: 403 });
+    }
   }
   return null;
 }
