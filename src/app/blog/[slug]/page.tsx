@@ -51,12 +51,15 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
 
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'Article',
+    '@type': 'BlogPosting',
     headline: article.title,
     description: article.description,
     datePublished: article.publishedAt,
-    author: { '@type': 'Organization', name: 'CareLink' },
-    publisher: { '@type': 'Organization', name: 'CareLink' },
+    dateModified: article.publishedAt,
+    author: { '@type': 'Organization', name: 'CareLink', url: 'https://www.carelink-jp.com' },
+    publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://www.carelink-jp.com' },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': `https://www.carelink-jp.com/blog/${article.slug}` },
+    inLanguage: 'ja',
   };
 
   return (

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
+import * as Sentry from '@sentry/nextjs';
 
 const profileSchema = z.object({
   display_name: z.string().min(1, 'お名前は必須です'),
@@ -57,7 +58,8 @@ export async function PUT(request: Request) {
   }
 
   return NextResponse.json({ success: true });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'profile' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

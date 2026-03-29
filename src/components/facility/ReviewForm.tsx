@@ -65,11 +65,15 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    let hasTypeError = false;
+    let hasSizeError = false;
     const valid = files.filter((f) => {
-      if (!ALLOWED_TYPES.includes(f.type)) { setToast({ type: 'error', message: 'JPEG/PNG/WebPのみ対応です' }); return false; }
-      if (f.size > MAX_FILE_SIZE) { setToast({ type: 'error', message: '5MB以下の画像を選択してください' }); return false; }
+      if (!ALLOWED_TYPES.includes(f.type)) { hasTypeError = true; return false; }
+      if (f.size > MAX_FILE_SIZE) { hasSizeError = true; return false; }
       return true;
     });
+    if (hasTypeError) setToast({ type: 'error', message: 'JPEG/PNG/WebPのみ対応です' });
+    else if (hasSizeError) setToast({ type: 'error', message: '5MB以下の画像を選択してください' });
     const combined = [...photos, ...valid].slice(0, MAX_PHOTOS);
     setPhotos(combined);
     setPhotoPreviews(combined.map((f) => URL.createObjectURL(f)));
@@ -177,8 +181,8 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
             {photoPreviews.map((url, i) => (
               <div key={i} className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-100">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`写真${i + 1}`} className="w-full h-full object-cover" />
-                <button type="button" onClick={() => removePhoto(i)} className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded-full text-xs flex items-center justify-center">
+                <img src={url} alt={`口コミ投稿用プレビュー写真${i + 1}`} className="w-full h-full object-cover" />
+                <button type="button" onClick={() => removePhoto(i)} aria-label={`写真${i + 1}を削除`} className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded-full text-xs flex items-center justify-center">
                   ×
                 </button>
               </div>

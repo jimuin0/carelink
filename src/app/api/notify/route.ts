@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { notifyRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import * as Sentry from '@sentry/nextjs';
 
 export const dynamic = 'force-dynamic';
 
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!slackRes.ok) {
@@ -102,7 +104,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ ok: true });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'notify' } });
     return NextResponse.json({ ok: false }, { status: 500 });
   }
 }

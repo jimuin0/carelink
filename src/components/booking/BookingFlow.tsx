@@ -52,7 +52,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     setSlots([]);
     setSelectedSlot(null);
 
-    fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`)
+    fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
+      signal: AbortSignal.timeout(10000),
+    })
       .then((r) => r.json())
       .then((data) => setSlots(data.slots ?? []))
       .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
@@ -81,6 +83,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         note: note || null,
         total_price: calculatePrice(),
       }),
+      signal: AbortSignal.timeout(15000),
     });
 
     if (res.ok) {

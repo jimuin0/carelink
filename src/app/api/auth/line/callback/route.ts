@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -39,25 +40,36 @@ export async function GET(request: Request) {
         client_id: process.env.NEXT_PUBLIC_LINE_CHANNEL_ID!,
         client_secret: process.env.LINE_CHANNEL_SECRET!,
       }),
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!tokenRes.ok) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_token_failed`);
     }
 
-    const tokens = await tokenRes.json();
+    let tokens: { access_token: string; id_token?: string };
+    try {
+      tokens = await tokenRes.json();
+    } catch {
+      return NextResponse.redirect(`${origin}/auth/login?error=line_token_failed`);
+    }
 
     // Get user profile from LINE
     const profileRes = await fetch('https://api.line.me/v2/profile', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!profileRes.ok) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_profile_failed`);
     }
 
-    const lineProfile: { userId: string; displayName: string; pictureUrl?: string } =
-      await profileRes.json();
+    let lineProfile: { userId: string; displayName: string; pictureUrl?: string };
+    try {
+      lineProfile = await profileRes.json();
+    } catch {
+      return NextResponse.redirect(`${origin}/auth/login?error=line_profile_failed`);
+    }
 
     // Extract email from id_token (base64 decode payload)
     let email: string | null = null;
@@ -148,7 +160,8 @@ export async function GET(request: Request) {
     }
 
     return NextResponse.redirect(`${origin}${safeRedirect}`);
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'line-auth' } });
     return NextResponse.redirect(`${origin}/auth/login?error=line_unexpected`);
   }
 }

@@ -1,4 +1,5 @@
 import { Resend } from 'resend';
+import * as Sentry from '@sentry/nextjs';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -65,13 +66,22 @@ function wrapHtml(body: string): string {
   </body></html>`;
 }
 
+/** メール送信ラッパー（エラーログ付き） */
+async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string) {
+  try {
+    await resend.emails.send(params);
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'email', email_type: context } });
+  }
+}
+
 /** 予約受付確認（顧客向け） */
 export async function sendBookingConfirmation(data: BookingEmailData) {
   const resend = getResend();
   if (!resend) return;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await resend.emails.send({
+  await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】${data.facilityName}のご予約を受け付けました`,
@@ -81,7 +91,7 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),
-  });
+  }, 'booking_confirmation');
 }
 
 /** 予約確定通知（顧客向け） */
@@ -90,7 +100,7 @@ export async function sendBookingConfirmed(data: BookingEmailData) {
   if (!resend) return;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await resend.emails.send({
+  await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】${data.facilityName}のご予約が確定しました`,
@@ -101,7 +111,7 @@ export async function sendBookingConfirmed(data: BookingEmailData) {
       <p>当日のご来店をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
     `),
-  });
+  }, 'booking_confirmed');
 }
 
 /** 予約キャンセル通知（顧客向け） */
@@ -110,7 +120,7 @@ export async function sendBookingCancelled(data: BookingEmailData) {
   if (!resend) return;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await resend.emails.send({
+  await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】${data.facilityName}のご予約がキャンセルされました`,
@@ -121,7 +131,7 @@ export async function sendBookingCancelled(data: BookingEmailData) {
       <p>またのご利用をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/search" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">他のサロンを探す</a></p>
     `),
-  });
+  }, 'booking_cancelled');
 }
 
 /** 新規予約通知（施設向け） */
@@ -130,7 +140,7 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
   if (!resend) return;
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
-  await resend.emails.send({
+  await safeSend(resend, {
     from: FROM,
     to: data.facilityEmail,
     subject: `【CareLink】新しい予約が入りました - ${data.customerName}様`,
@@ -143,7 +153,7 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
     `),
-  });
+  }, 'new_booking_notification');
 }
 
 /** 予約ステータス変更通知（顧客向け） */
@@ -161,7 +171,7 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
 
-  await resend.emails.send({
+  await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: `【CareLink】予約ステータスが「${statusLabel}」に変更されました`,
@@ -172,5 +182,5 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
       ${bookingDetailHtml(data)}
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
     `),
-  });
+  }, 'booking_status_update');
 }

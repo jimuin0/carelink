@@ -51,6 +51,7 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ facilityId }),
+        signal: AbortSignal.timeout(10000),
       });
 
       if (res.ok) {

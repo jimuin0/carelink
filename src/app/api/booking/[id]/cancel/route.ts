@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingCancelled } from '@/lib/email';
+import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
@@ -77,7 +78,8 @@ export async function POST(_request: Request, { params }: { params: { id: string
   } catch {}
 
   return NextResponse.json({ success: true });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'booking-cancel' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

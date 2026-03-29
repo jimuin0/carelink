@@ -11,7 +11,7 @@ import Toast from '@/components/Toast';
 const inquirySchema = z.object({
   name: z.string().min(1, 'お名前を入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください'),
-  phone: z.string().optional().or(z.literal('')),
+  phone: z.string().regex(/^0\d{1,4}-?\d{1,4}-?\d{3,4}$/, '正しい電話番号を入力してください').or(z.literal('')).optional(),
   message: z.string().min(1, 'お問い合わせ内容を入力してください').max(1000, '1000文字以内で入力してください'),
 });
 
@@ -58,6 +58,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
             message: data.message,
           },
         }),
+        signal: AbortSignal.timeout(10000),
       }).catch(() => {});
 
       setSubmitted(true);
@@ -98,6 +99,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
         <div>
           <label htmlFor="inquiry_phone" className="form-label">電話番号</label>
           <input {...register('phone')} id="inquiry_phone" type="tel" className="form-input" placeholder="090-1234-5678" autoComplete="tel" />
+          {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
         </div>
 
         <div>

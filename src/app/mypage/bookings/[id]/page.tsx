@@ -45,7 +45,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
     setCancelling(true);
 
     try {
-      const res = await fetch(`/api/booking/${params.id}/cancel`, { method: 'POST' });
+      const res = await fetch(`/api/booking/${params.id}/cancel`, { method: 'POST', signal: AbortSignal.timeout(10000) });
       if (res.ok) {
         setToast({ type: 'success', message: '予約をキャンセルしました' });
         setBooking((prev) => prev ? { ...prev, status: 'cancelled' } : null);

@@ -71,7 +71,9 @@ export default function RegisterPage() {
     const digits = code.replace(/\D/g, '');
     if (digits.length !== 7) return;
     try {
-      const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`);
+      const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`, {
+        signal: AbortSignal.timeout(5000),
+      });
       const data = await res.json();
       if (data.results?.[0]) {
         const r = data.results[0];
@@ -172,6 +174,7 @@ export default function RegisterPage() {
             desired_start_date: data.desired_start_date || undefined,
           },
         }),
+        signal: AbortSignal.timeout(10000),
       }).catch(() => {});
 
       setIsDirty(false);

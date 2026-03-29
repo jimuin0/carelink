@@ -64,7 +64,9 @@ export default function BookingChangePage() {
     setSlots([]);
     setSelectedSlot(null);
     try {
-      const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id || ''}&date=${date}&duration=${booking.duration}`);
+      const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id || ''}&date=${date}&duration=${booking.duration}`, {
+        signal: AbortSignal.timeout(10000),
+      });
       const data = await res.json();
       setSlots(data.slots ?? []);
     } catch { setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); }

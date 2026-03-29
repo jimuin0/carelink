@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import * as Sentry from '@sentry/nextjs';
 
 export async function POST(request: Request) {
   try {
@@ -118,7 +119,8 @@ export async function POST(request: Request) {
     }
 
     return NextResponse.json({ success: true, points_earned: pointsEarned });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'booking-complete' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

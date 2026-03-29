@@ -2,9 +2,16 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+import * as Sentry from '@sentry/nextjs';
 
 export async function GET(request: Request) {
   try {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'slots')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます', slots: [] }, { status: 429 });
+  }
+
   const { searchParams } = new URL(request.url);
   const facilityId = searchParams.get('facilityId');
   const staffId = searchParams.get('staffId');
@@ -29,7 +36,8 @@ export async function GET(request: Request) {
   });
 
   return NextResponse.json({ slots: (data ?? []) as AvailableSlot[] });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'slots' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
   }
 }

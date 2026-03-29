@@ -1,9 +1,16 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+import * as Sentry from '@sentry/nextjs';
 
 export async function GET(request: Request) {
   try {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    if (inMemoryRateLimit(ip, 10, 60_000, 'availability')) {
+      return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+    }
+
     const { searchParams } = new URL(request.url);
     const facilityId = searchParams.get('facilityId');
     const staffId = searchParams.get('staffId');
@@ -16,7 +23,8 @@ export async function GET(request: Request) {
     if (staffId && !uuidRegex.test(staffId)) {
       return NextResponse.json({ error: 'スタッフIDが不正です' }, { status: 400 });
     }
-    if (Number.isNaN(year) || Number.isNaN(month) || month < 1 || month > 12) {
+    const currentYear = new Date().getFullYear();
+    if (Number.isNaN(year) || Number.isNaN(month) || month < 1 || month > 12 || year < currentYear - 1 || year > currentYear + 2) {
       return NextResponse.json({ error: '年月が不正です' }, { status: 400 });
     }
 
@@ -92,7 +100,8 @@ export async function GET(request: Request) {
     await Promise.all(promises);
 
     return NextResponse.json({ dates });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'availability' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

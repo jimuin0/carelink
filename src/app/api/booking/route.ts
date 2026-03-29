@@ -5,6 +5,7 @@ import { bookingSchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import * as Sentry from '@sentry/nextjs';
 
 export async function POST(request: Request) {
   try {
@@ -41,6 +42,11 @@ export async function POST(request: Request) {
   );
 
   const { data: { user } } = await supabase.auth.getUser();
+
+  // 時間バリデーション
+  if (parsed.data.start_time >= parsed.data.end_time) {
+    return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
+  }
 
   // 競合チェック
   if (parsed.data.staff_id) {
@@ -80,32 +86,26 @@ export async function POST(request: Request) {
 
   // Send email notifications (non-blocking)
   try {
-    const { data: facility } = await supabase
-      .from('facility_profiles')
-      .select('name, phone')
-      .eq('id', parsed.data.facility_id)
-      .single();
-
-    let mName: string | undefined;
-    let sName: string | undefined;
-    if (parsed.data.menu_id) {
-      const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).single();
-      mName = menu?.name;
-    }
-    if (parsed.data.staff_id) {
-      const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).single();
-      sName = staff?.name;
-    }
+    const [facilityResult, menuResult, staffResult, ownerResult] = await Promise.all([
+      supabase.from('facility_profiles').select('name, phone').eq('id', parsed.data.facility_id).single(),
+      parsed.data.menu_id
+        ? supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).eq('facility_id', parsed.data.facility_id).single()
+        : Promise.resolve({ data: null }),
+      parsed.data.staff_id
+        ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
+        : Promise.resolve({ data: null }),
+      supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner').single(),
+    ]);
 
     const emailData = {
       customerName: parsed.data.customer_name,
       customerEmail: parsed.data.email,
-      facilityName: facility?.name || '',
+      facilityName: facilityResult.data?.name || '',
       bookingDate: parsed.data.booking_date,
       startTime: parsed.data.start_time,
       endTime: parsed.data.end_time,
-      menuName: mName,
-      staffName: sName,
+      menuName: menuResult.data?.name,
+      staffName: staffResult.data?.name,
       totalPrice: parsed.data.total_price ?? undefined,
       bookingId: newBookingId,
     };
@@ -113,14 +113,8 @@ export async function POST(request: Request) {
     void sendBookingConfirmation(emailData);
 
     // Notify facility owner
-    const { data: owner } = await supabase
-      .from('facility_members')
-      .select('user_id')
-      .eq('facility_id', parsed.data.facility_id)
-      .eq('role', 'owner')
-      .single();
-    if (owner) {
-      const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', owner.user_id).single();
+    if (ownerResult.data) {
+      const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', ownerResult.data.user_id).single();
       if (ownerProfile?.email) {
         void sendNewBookingNotification({ ...emailData, facilityEmail: ownerProfile.email });
       }
@@ -130,7 +124,8 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ success: true, bookingId: newBookingId });
-  } catch {
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'booking' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
