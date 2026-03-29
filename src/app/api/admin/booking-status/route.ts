@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
+import { sendPushToUser } from '@/lib/push';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 const validStatuses = ['confirmed', 'completed', 'cancelled', 'no_show'];
 
@@ -126,6 +127,22 @@ export async function POST(request: Request) {
       }
     } catch (e) {
       Sentry.captureException(e, { tags: { feature: 'booking-email' } });
+    }
+
+    // Push notification to booking user
+    if (booking.user_id) {
+      const statusLabels: Record<string, string> = {
+        confirmed: '予約が確定しました',
+        cancelled: '予約がキャンセルされました',
+        completed: '施術が完了しました',
+        no_show: '来店確認が取れませんでした',
+      };
+      void sendPushToUser(booking.user_id, {
+        title: statusLabels[status] || 'ステータス更新',
+        body: `${facility?.name || ''} ${booking.booking_date} ${booking.start_time}〜`,
+        url: `/mypage/bookings/${booking.id}`,
+        tag: `booking-status-${booking.id}`,
+      });
     }
 
     return NextResponse.json({ success: true });

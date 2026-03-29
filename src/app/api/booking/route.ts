@@ -5,6 +5,7 @@ import { bookingSchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import * as Sentry from '@sentry/nextjs';
 
 export async function POST(request: Request) {
@@ -144,6 +145,27 @@ export async function POST(request: Request) {
     }
   } catch {
     // Email failure should not block booking creation
+  }
+
+  // Push notifications (non-blocking)
+  try {
+    void sendPushToFacilityOwners(parsed.data.facility_id, {
+      title: '新規予約',
+      body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
+      url: '/admin/bookings',
+      tag: `booking-${newBookingId}`,
+    });
+
+    if (user) {
+      void sendPushToUser(user.id, {
+        title: '予約を受け付けました',
+        body: `${parsed.data.booking_date} ${parsed.data.start_time}〜のご予約を承りました`,
+        url: `/mypage/bookings/${newBookingId}`,
+        tag: `booking-confirm-${newBookingId}`,
+      });
+    }
+  } catch {
+    // Push failure should not block booking creation
   }
 
   return NextResponse.json({ success: true, bookingId: newBookingId });
