@@ -58,41 +58,46 @@ export default function SearchFooter() {
             ))}
           </div>
 
-          <h2 className="text-white font-bold text-sm mt-8 mb-5">業種×エリアから探す</h2>
-          <div className="space-y-4">
-            {businessTypes.map((type) => (
-              <div key={type}>
-                <h3 className="text-xs font-bold mb-1.5">
-                  <Link
-                    href={`/search?type=${encodeURIComponent(type)}`}
-                    className="text-gray-300 hover:text-white transition-colors"
-                  >
-                    {type}
-                  </Link>
-                </h3>
-                <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
-                  {regionGroups.flatMap((region) =>
-                    region.prefectures.map((pref) => {
-                      const pSlug = getPrefectureSlug(pref);
-                      const tSlug = getBusinessTypeSlug(type);
-                      const href = pSlug && tSlug
-                        ? `/${pSlug}/${tSlug}`
-                        : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
-                      return (
-                        <Link
-                          key={`${type}-${pref}`}
-                          href={href}
-                          className="text-tiny text-gray-400 hover:text-gray-300 transition-colors"
-                        >
-                          {pref}
-                        </Link>
-                      );
-                    })
-                  )}
+          <details className="mt-8">
+            <summary className="text-white font-bold text-sm mb-5 cursor-pointer list-none flex items-center gap-2">
+              業種×エリアから探す
+              <svg className="w-4 h-4 text-gray-400 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div className="space-y-4">
+              {businessTypes.map((type) => (
+                <div key={type}>
+                  <h3 className="text-xs font-bold mb-1.5">
+                    <Link
+                      href={`/search?type=${encodeURIComponent(type)}`}
+                      className="text-gray-300 hover:text-white transition-colors"
+                    >
+                      {type}
+                    </Link>
+                  </h3>
+                  <div className="flex flex-wrap gap-x-2.5 gap-y-0.5">
+                    {regionGroups.flatMap((region) =>
+                      region.prefectures.map((pref) => {
+                        const pSlug = getPrefectureSlug(pref);
+                        const tSlug = getBusinessTypeSlug(type);
+                        const href = pSlug && tSlug
+                          ? `/${pSlug}/${tSlug}`
+                          : `/search?type=${encodeURIComponent(type)}&area=${encodeURIComponent(pref)}`;
+                        return (
+                          <Link
+                            key={`${type}-${pref}`}
+                            href={href}
+                            className="text-tiny text-gray-400 hover:text-gray-300 transition-colors"
+                          >
+                            {pref}
+                          </Link>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          </details>
         </div>
       </div>
 
@@ -111,18 +116,15 @@ export default function SearchFooter() {
           <div>
             <h3 className="text-white font-bold text-sm mb-3">業種から探す</h3>
             <nav className="flex flex-col gap-1.5 text-sm">
-              {businessTypes.map((type) => {
-                const tSlug = getBusinessTypeSlug(type);
-                return (
-                  <Link
-                    key={type}
-                    href={tSlug ? `/search?type=${encodeURIComponent(type)}` : `/search?type=${encodeURIComponent(type)}`}
-                    className="hover:text-white transition-colors"
-                  >
-                    {type}
-                  </Link>
-                );
-              })}
+              {businessTypes.map((type) => (
+                <Link
+                  key={type}
+                  href={`/search?type=${encodeURIComponent(type)}`}
+                  className="hover:text-white transition-colors"
+                >
+                  {type}
+                </Link>
+              ))}
             </nav>
           </div>
         </div>

@@ -45,5 +45,9 @@ export default withSentryConfig(nextConfig, {
   hideSourceMaps: true,
   bundleSizeOptimizations: {
     excludeDebugStatements: true,
+    excludePerformanceMonitoring: true,
+    excludeReplayIframe: true,
+    excludeReplayShadowDom: true,
+    excludeReplayWorker: true,
   },
 });
