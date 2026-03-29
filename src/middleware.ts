@@ -41,6 +41,21 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // /admin ルートへの権限チェック（facility_members owner/admin のみ）
+  if (user && request.nextUrl.pathname.startsWith('/admin')) {
+    const { data: membership } = await supabase
+      .from('facility_members')
+      .select('role')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single();
+    if (!membership || !['owner', 'admin'].includes(membership.role)) {
+      const url = request.nextUrl.clone();
+      url.pathname = '/mypage';
+      return NextResponse.redirect(url);
+    }
+  }
+
   // 認証済みユーザーがログイン/登録ページにアクセスした場合リダイレクト
   if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
     const url = request.nextUrl.clone();

@@ -71,7 +71,7 @@ export async function POST(request: Request) {
 
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
   if (!webhookUrl) {
-    return NextResponse.json({ ok: false, error: 'SLACK_WEBHOOK_URL not set' }, { status: 500 });
+    return NextResponse.json({ ok: false, error: '通知の送信に失敗しました' }, { status: 500 });
   }
 
   try {

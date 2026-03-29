@@ -50,7 +50,8 @@ export async function POST(_request: Request, { params }: { params: { id: string
   const { error } = await supabase
     .from('bookings')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
-    .eq('id', params.id);
+    .eq('id', params.id)
+    .eq('user_id', user.id);
 
   if (error) {
     return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
@@ -64,7 +65,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
       const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).single();
       menuName = menu?.name;
     }
-    void sendBookingCancelled({
+    const emailData = {
       customerName: booking.customer_name,
       customerEmail: booking.email,
       facilityName: facility?.name || '',
@@ -74,7 +75,23 @@ export async function POST(_request: Request, { params }: { params: { id: string
       menuName,
       totalPrice: booking.total_price ?? undefined,
       bookingId: booking.id,
-    });
+    };
+    void sendBookingCancelled(emailData);
+
+    // サロンオーナーにキャンセル通知
+    const { data: owner } = await supabase
+      .from('facility_members')
+      .select('user_id')
+      .eq('facility_id', booking.facility_id)
+      .eq('role', 'owner')
+      .limit(1)
+      .single();
+    if (owner) {
+      const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', owner.user_id).single();
+      if (ownerProfile?.email) {
+        void sendBookingCancelled({ ...emailData, customerEmail: ownerProfile.email });
+      }
+    }
   } catch {}
 
   return NextResponse.json({ success: true });

@@ -10,7 +10,7 @@ export default async function MyPageDashboard() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('display_name')
+    .select('display_name, phone, prefecture')
     .eq('id', user.id)
     .single();
 
@@ -27,6 +27,18 @@ export default async function MyPageDashboard() {
         </h1>
         <p className="text-sm text-gray-500">マイページでは、お気に入りやプロフィールを管理できます。</p>
       </div>
+
+      {(!profile?.display_name || !profile?.phone || !profile?.prefecture) && (
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <p className="text-sm font-bold text-amber-800 mb-1">プロフィールを完成させましょう</p>
+          <p className="text-xs text-amber-700 mb-2">
+            {[!profile?.display_name && '表示名', !profile?.phone && '電話番号', !profile?.prefecture && '都道府県'].filter(Boolean).join('・')}が未設定です。
+          </p>
+          <Link href="/mypage/profile" className="text-xs text-primary font-medium hover:underline">
+            プロフィールを設定する
+          </Link>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Link href="/mypage/favorites" className="bg-white rounded-2xl shadow-sm p-6 hover:shadow-md transition-shadow">

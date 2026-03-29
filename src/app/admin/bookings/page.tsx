@@ -58,7 +58,8 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
   const baseParams = new URLSearchParams();
   if (searchParams.status) baseParams.set('status', searchParams.status);
   if (searchParams.date) baseParams.set('date', searchParams.date);
-  const baseUrl = `/admin/bookings?${baseParams.toString()}`;
+  const paramStr = baseParams.toString();
+  const baseUrl = paramStr ? `/admin/bookings?${paramStr}` : '/admin/bookings';
 
   return (
     <div>
@@ -128,11 +129,11 @@ export default async function AdminBookingsPage({ searchParams }: Props) {
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 mt-6">
           {page > 1 && (
-            <Link href={`${baseUrl}${baseParams.toString() ? '&' : ''}page=${page - 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">前へ</Link>
+            <Link href={`${baseUrl}${paramStr ? '&' : '?'}page=${page - 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">前へ</Link>
           )}
           <span className="text-sm text-gray-500">{page} / {totalPages}</span>
           {page < totalPages && (
-            <Link href={`${baseUrl}${baseParams.toString() ? '&' : ''}page=${page + 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">次へ</Link>
+            <Link href={`${baseUrl}${paramStr ? '&' : '?'}page=${page + 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">次へ</Link>
           )}
         </div>
       )}

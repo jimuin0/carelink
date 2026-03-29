@@ -3,7 +3,8 @@ import { cookies } from 'next/headers';
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
-  const redirect = searchParams.get('redirect') || '/mypage';
+  const rawRedirect = searchParams.get('redirect') || '/mypage';
+  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';
 
   const channelId = process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
   if (!channelId) {

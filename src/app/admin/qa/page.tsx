@@ -34,7 +34,8 @@ export default function AdminQAPage() {
       .from('facility_qa')
       .select('*')
       .eq('facility_id', fId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(100);
     setQaList((data ?? []) as QAItem[]);
   }, []);
 

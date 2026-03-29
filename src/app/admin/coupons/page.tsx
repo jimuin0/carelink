@@ -64,6 +64,9 @@ export default async function AdminCouponsPage() {
                   )}
                 </div>
               </div>
+              <div className="flex gap-3 mt-3 pt-3 border-t">
+                <Link href={`/admin/coupons/${coupon.id}/edit`} className="text-xs text-primary hover:underline">編集</Link>
+              </div>
             </div>
           ))}
         </div>

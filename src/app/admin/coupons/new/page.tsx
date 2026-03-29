@@ -19,7 +19,11 @@ export default function NewCouponPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const handleCreate = async () => {
-    if (saving || !name) return;
+    if (saving) return;
+    if (!name.trim()) {
+      setToast({ type: 'error', message: 'クーポン名を入力してください' });
+      return;
+    }
     setSaving(true);
 
     const supabase = createBrowserSupabaseClient();

@@ -22,7 +22,8 @@ export default function AdminReviewsPage() {
       .from('facility_reviews')
       .select('*')
       .eq('facility_id', fId)
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(100);
     if (filter !== 'all') query = query.eq('status', filter);
     const { data } = await query;
     setReviews((data ?? []) as FacilityReview[]);

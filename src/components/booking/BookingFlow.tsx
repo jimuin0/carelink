@@ -47,19 +47,67 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
 
   // Fetch available slots
   useEffect(() => {
-    if (!selectedDate || !selectedStaff || selectedMenus.length === 0) return;
+    if (!selectedDate || selectedMenus.length === 0) return;
+    // 指名なし(selectedStaff===null)の場合はスタッフが必要
+    if (selectedStaff === null && staff.length === 0) return;
     setSlotsLoading(true);
     setSlots([]);
     setSelectedSlot(null);
 
-    fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
-      signal: AbortSignal.timeout(10000),
-    })
-      .then((r) => r.json())
-      .then((data) => setSlots(data.slots ?? []))
-      .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
-      .finally(() => setSlotsLoading(false));
-  }, [selectedDate, selectedStaff, selectedMenus, facility.id, totalDuration]);
+    if (selectedStaff) {
+      // 指名あり: 1人分のスロット取得
+      fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
+        signal: AbortSignal.timeout(10000),
+      })
+        .then((r) => r.json())
+        .then((data) => setSlots(data.slots ?? []))
+        .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
+        .finally(() => setSlotsLoading(false));
+    } else {
+      // 指名なし: 全スタッフのスロットを並列取得→マージ
+      Promise.all(
+        staff.map((s) =>
+          fetch(`/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${selectedDate}&duration=${totalDuration}`, {
+            signal: AbortSignal.timeout(10000),
+          }).then((r) => r.json()).catch(() => ({ slots: [] }))
+        )
+      ).then((results) => {
+        const merged = new Map<string, AvailableSlot>();
+        results.forEach((r) => {
+          (r.slots ?? []).forEach((slot: AvailableSlot) => merged.set(slot.slot_start, slot));
+        });
+        setSlots(Array.from(merged.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start)));
+      }).catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
+        .finally(() => setSlotsLoading(false));
+    }
+  }, [selectedDate, selectedStaff, selectedMenus, facility.id, totalDuration, staff]);
+
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const [availablePoints, setAvailablePoints] = useState(0);
+  const [usePoints, setUsePoints] = useState(false);
+  const [pointsToUse, setPointsToUse] = useState(0);
+
+  // Check auth, warn guest users, fetch points
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAuthenticated(!!user);
+      if (user) {
+        supabase.from('user_points').select('points').eq('user_id', user.id).then(({ data }) => {
+          const total = (data ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
+          setAvailablePoints(Math.max(0, total));
+        });
+      }
+    }).catch(() => setIsAuthenticated(false));
+  }, []);
+
+  // Warn on unsaved changes
+  useEffect(() => {
+    if (step === 'menu') return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [step]);
 
   const handleSubmit = async () => {
     if (submitting) return;
@@ -82,12 +130,14 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         phone: phone || null,
         note: note || null,
         total_price: calculatePrice(),
+        points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
       }),
       signal: AbortSignal.timeout(15000),
     });
 
     if (res.ok) {
-      router.push(`/facility/${facility.slug}/booking/complete`);
+      const body = await res.json().catch(() => null);
+      router.push(`/facility/${facility.slug}/booking/complete?id=${body?.bookingId || ''}`);
     } else {
       const body = await res.json().catch(() => null);
       setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
@@ -115,8 +165,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     return price;
   };
 
-  // Generate date options (next 30 days)
-  const dateOptions = Array.from({ length: 30 }, (_, i) => {
+  // Generate date options (next 60 days)
+  const dateOptions = Array.from({ length: 60 }, (_, i) => {
     const d = new Date();
     d.setDate(d.getDate() + i + 1);
     const year = d.getFullYear();
@@ -158,6 +208,12 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       {step === 'menu' && (
         <div className="space-y-3">
           <h2 className="font-bold">メニューを選択<span className="text-xs font-normal text-gray-400 ml-2">（複数選択可）</span></h2>
+          {menus.length === 0 && (
+            <div className="bg-white rounded-xl p-8 text-center">
+              <p className="text-gray-400">メニューが登録されていません</p>
+              <p className="text-xs text-gray-400 mt-2">施設にお問い合わせください</p>
+            </div>
+          )}
           {menus.map((menu) => {
             const isSelected = selectedMenus.some((m) => m.id === menu.id);
             return (
@@ -206,10 +262,18 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       {step === 'staff' && (
         <div className="space-y-3">
           <h2 className="font-bold">スタッフを選択</h2>
+          {staff.length === 0 && (
+            <div className="bg-gray-50 rounded-xl p-6 text-center">
+              <p className="text-gray-500 text-sm mb-3">スタッフが登録されていません</p>
+              <button onClick={() => { setSelectedStaff(null); setStep('date'); }} className="btn-primary text-sm !py-2 !px-6">指名なしで進む</button>
+            </div>
+          )}
           {staff.length > 0 && (
             <button
-              onClick={() => { setSelectedStaff(staff[0]); setStep('date'); }}
-              className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
+              onClick={() => { setSelectedStaff(null); setStep('date'); }}
+              className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                selectedStaff === null ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
+              }`}
             >
               <p className="font-bold text-sm">指名なし</p>
               <p className="text-xs text-gray-500">空いているスタッフが対応します</p>
@@ -437,6 +501,42 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               </div>
             )}
           </div>
+
+          {isAuthenticated && availablePoints > 0 && calculatePrice() !== null && (
+            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={usePoints} onChange={(e) => { setUsePoints(e.target.checked); if (!e.target.checked) setPointsToUse(0); }} />
+                <span>ポイントを使う（{availablePoints.toLocaleString()}pt 利用可能）</span>
+              </label>
+              {usePoints && (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={Math.min(availablePoints, calculatePrice() || 0)}
+                    value={pointsToUse}
+                    onChange={(e) => setPointsToUse(Math.min(Number(e.target.value) || 0, availablePoints, calculatePrice() || 0))}
+                    className="form-input !w-28 text-sm"
+                  />
+                  <span className="text-xs text-gray-500">pt（1pt=1円）</span>
+                  <button type="button" onClick={() => setPointsToUse(Math.min(availablePoints, calculatePrice() || 0))} className="text-xs text-primary hover:underline">全額使用</button>
+                </div>
+              )}
+              {usePoints && pointsToUse > 0 && (
+                <p className="text-sm font-bold">お支払い金額: ¥{((calculatePrice() || 0) - pointsToUse).toLocaleString()}</p>
+              )}
+            </div>
+          )}
+
+          {isAuthenticated === false && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">
+              <p className="font-bold">ログインしていません</p>
+              <p className="text-xs mt-1">ログインせずに予約すると、予約履歴から確認・キャンセルできません。</p>
+              <a href={`/auth/login?redirect=/facility/${facility.slug}/booking`} className="text-xs text-primary hover:underline mt-1 inline-block">
+                ログインする
+              </a>
+            </div>
+          )}
 
           <div className="flex gap-3">
             <button onClick={() => setStep('info')} className="text-sm text-gray-500 hover:underline">

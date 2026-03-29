@@ -20,7 +20,8 @@ export default async function AdminBlogPage() {
     .from('blog_posts')
     .select('*')
     .eq('facility_id', membership.facility_id)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(100);
 
   const posts = (data ?? []) as BlogPost[];
 

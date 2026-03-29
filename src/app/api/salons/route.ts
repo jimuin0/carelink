@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
-
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
 
 export async function GET(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
@@ -13,11 +8,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
+  const supabase = createServerSupabaseClient();
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
 
   if (id && /^[0-9a-f-]{36}$/i.test(id)) {
-    const { data, error } = await supabaseAdmin
+    const { data, error } = await supabase
       .from('salons')
       .select('*')
       .eq('id', id)
@@ -27,7 +23,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(data);
   }
 
-  let query = supabaseAdmin
+  let query = supabase
     .from('salons')
     .select('*')
     .eq('is_public', true)

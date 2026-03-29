@@ -1,0 +1,125 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import Toast from '@/components/Toast';
+
+interface Salon {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  status: string;
+  created_at: string;
+}
+
+export default function AdminRegistrationsPage() {
+  const [salons, setSalons] = useState<Salon[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const loadSalons = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    const { data } = await supabase
+      .from('salons')
+      .select('id, name, email, phone, status, created_at')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (data) setSalons(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { loadSalons(); }, [loadSalons]);
+
+  const handleApprove = async (salon: Salon) => {
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { error } = await supabase
+        .from('salons')
+        .update({ status: 'approved' })
+        .eq('id', salon.id);
+      if (error) {
+        setToast({ type: 'error', message: '承認に失敗しました' });
+        return;
+      }
+      setToast({ type: 'success', message: `${salon.name}を承認しました` });
+      loadSalons();
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    }
+  };
+
+  const handleReject = async (salon: Salon) => {
+    if (!confirm(`${salon.name}を却下しますか？`)) return;
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { error } = await supabase
+        .from('salons')
+        .update({ status: 'rejected' })
+        .eq('id', salon.id);
+      if (error) {
+        setToast({ type: 'error', message: '却下に失敗しました' });
+        return;
+      }
+      setToast({ type: 'success', message: `${salon.name}を却下しました` });
+      loadSalons();
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    }
+  };
+
+  const statusLabel = (s: string) => {
+    switch (s) {
+      case 'pending': return { text: '審査中', cls: 'bg-yellow-100 text-yellow-700' };
+      case 'approved': return { text: '承認済', cls: 'bg-green-100 text-green-700' };
+      case 'rejected': return { text: '却下', cls: 'bg-red-100 text-red-700' };
+      default: return { text: s, cls: 'bg-gray-100 text-gray-700' };
+    }
+  };
+
+  return (
+    <div>
+      <h1 className="text-2xl font-bold mb-6">施設登録管理</h1>
+
+      {loading ? (
+        <div className="animate-pulse space-y-3">
+          {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}
+        </div>
+      ) : salons.length === 0 ? (
+        <div className="bg-white rounded-xl p-8 text-center">
+          <p className="text-gray-400">登録申請はありません</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {salons.map((salon) => {
+            const st = statusLabel(salon.status);
+            return (
+              <div key={salon.id} className="bg-white rounded-xl p-4 shadow-sm">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${st.cls}`}>{st.text}</span>
+                      <span className="text-xs text-gray-400">
+                        {new Date(salon.created_at).toLocaleDateString('ja-JP')}
+                      </span>
+                    </div>
+                    <p className="font-bold">{salon.name}</p>
+                    <p className="text-xs text-gray-500">{salon.email}{salon.phone ? ` / ${salon.phone}` : ''}</p>
+                  </div>
+                  {salon.status === 'pending' && (
+                    <div className="flex gap-2">
+                      <button onClick={() => handleApprove(salon)} className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600">承認</button>
+                      <button onClick={() => handleReject(salon)} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200">却下</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+    </div>
+  );
+}

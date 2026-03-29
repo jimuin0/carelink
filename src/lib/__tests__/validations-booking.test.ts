@@ -64,8 +64,18 @@ describe('bookingSchema', () => {
     expect(result.success).toBe(true);
   });
 
-  test('start_timeが不正だとエラー', () => {
+  test('start_timeが不正（25:00）だとエラー', () => {
     const result = bookingSchema.safeParse({ ...validBooking, start_time: '25:00' });
-    expect(result.success).toBe(true); // regexは形式チェックのみ（\d{2}:\d{2}）
+    expect(result.success).toBe(false);
+  });
+
+  test('start_timeが有効（23:59）なら通る', () => {
+    const result = bookingSchema.safeParse({ ...validBooking, start_time: '23:59' });
+    expect(result.success).toBe(true);
+  });
+
+  test('過去日のbooking_dateはエラー', () => {
+    const result = bookingSchema.safeParse({ ...validBooking, booking_date: '2020-01-01' });
+    expect(result.success).toBe(false);
   });
 });

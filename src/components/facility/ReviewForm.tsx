@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { supabase } from '@/lib/supabase';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import StarRating from './StarRating';
@@ -87,15 +86,46 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
   };
 
   const onSubmit = async (data: ReviewFormData) => {
+    const sb = createBrowserSupabaseClient();
+
+    // Rate limit: 1 review per facility per 24h
+    const { data: { user } } = await sb.auth.getUser();
+    if (user) {
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+      const { data: recent } = await sb
+        .from('facility_reviews')
+        .select('id')
+        .eq('facility_id', facilityId)
+        .eq('user_id', user.id)
+        .gte('created_at', since)
+        .limit(1);
+      if (recent && recent.length > 0) {
+        setToast({ type: 'error', message: '同じ施設への口コミは24時間に1回までです' });
+        return;
+      }
+    }
+
     const avg = Math.round(
       (data.rating_skill + data.rating_service + data.rating_atmosphere + data.rating_cleanliness + data.rating_explanation) / 5
     );
 
     try {
+      // Check verified visit
+      let isVerifiedVisit = false;
+      if (user) {
+        const { data: completedBooking } = await sb
+          .from('bookings')
+          .select('id')
+          .eq('facility_id', facilityId)
+          .eq('user_id', user.id)
+          .eq('status', 'completed')
+          .limit(1);
+        isVerifiedVisit = (completedBooking?.length ?? 0) > 0;
+      }
+
       // Upload photos
       const photo_urls: string[] = [];
       if (photos.length > 0) {
-        const sb = createBrowserSupabaseClient();
         for (const file of photos) {
           const ext = file.name.split('.').pop() || 'jpg';
           const path = `reviews/${facilityId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
@@ -107,7 +137,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
         }
       }
 
-      const { error } = await supabase.from('facility_reviews').insert({
+      const { error } = await sb.from('facility_reviews').insert({
         facility_id: facilityId,
         reviewer_name: data.reviewer_name,
         rating: avg,
@@ -118,6 +148,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
         rating_explanation: data.rating_explanation,
         comment: data.comment || null,
         photo_urls: photo_urls.length > 0 ? photo_urls : null,
+        ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
       });
       if (error) throw error;
 

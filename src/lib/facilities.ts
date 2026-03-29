@@ -30,7 +30,7 @@ export async function searchFacilities(params: SearchParams) {
   if (params.keyword) {
     const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&');
     query = query.or(
-      `name.ilike.%${escaped}%,catch_copy.ilike.%${escaped}%,description.ilike.%${escaped}%,city.ilike.%${escaped}%`
+      `name.ilike.%${escaped}%,catch_copy.ilike.%${escaped}%,description.ilike.%${escaped}%,city.ilike.%${escaped}%,nearest_station.ilike.%${escaped}%`
     );
   }
 

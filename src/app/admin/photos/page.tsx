@@ -33,7 +33,8 @@ export default function AdminPhotosPage() {
       .from('facility_photos')
       .select('*')
       .eq('facility_id', fId)
-      .order('sort_order', { ascending: true });
+      .order('sort_order', { ascending: true })
+      .limit(100);
     setPhotos((data ?? []) as FacilityPhoto[]);
   }, []);
 

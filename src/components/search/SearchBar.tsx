@@ -1,8 +1,24 @@
 'use client';
 
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
+
+const HISTORY_KEY = 'carelink_search_history';
+const MAX_HISTORY = 5;
+
+function getSearchHistory(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+  } catch { return []; }
+}
+
+function addSearchHistory(term: string) {
+  if (!term.trim()) return;
+  const history = getSearchHistory().filter((h) => h !== term.trim());
+  history.unshift(term.trim());
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+}
 
 export default function SearchBar() {
   const router = useRouter();
@@ -10,9 +26,13 @@ export default function SearchBar() {
   const [keyword, setKeyword] = useState(searchParams.get('keyword') || '');
   const [type, setType] = useState(searchParams.get('type') || '');
   const [prefecture, setPrefecture] = useState(searchParams.get('area') || '');
+  const [history, setHistory] = useState<string[]>([]);
+
+  useEffect(() => { setHistory(getSearchHistory()); }, []);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
+    if (keyword.trim()) addSearchHistory(keyword.trim());
     const params = new URLSearchParams();
     if (keyword) params.set('keyword', keyword);
     if (type) params.set('type', type);
@@ -60,6 +80,16 @@ export default function SearchBar() {
       <button type="submit" className="btn-primary w-full mt-3 !py-3">
         検索する
       </button>
+      {history.length > 0 && !keyword && (
+        <div className="flex flex-wrap gap-2 mt-3">
+          <span className="text-xs text-gray-400">最近の検索:</span>
+          {history.map((h) => (
+            <button key={h} type="button" onClick={() => { setKeyword(h); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded-full hover:bg-gray-200">
+              {h}
+            </button>
+          ))}
+        </div>
+      )}
     </form>
   );
 }

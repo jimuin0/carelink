@@ -78,6 +78,19 @@ export default function AdminMenusPage() {
         updated_at: new Date().toISOString(),
       };
 
+      // Duplicate name check
+      const { data: existing } = await supabase
+        .from('facility_menus')
+        .select('id')
+        .eq('facility_id', facilityId)
+        .eq('name', editForm.name.trim())
+        .maybeSingle();
+      if (existing && existing.id !== editForm.id) {
+        setToast({ type: 'error', message: '同じ名前のメニューが既に存在します' });
+        setSaving(false);
+        return;
+      }
+
       if (editForm.id) {
         const { error } = await supabase.from('facility_menus').update(payload).eq('id', editForm.id).eq('facility_id', facilityId);
         if (error) throw error;

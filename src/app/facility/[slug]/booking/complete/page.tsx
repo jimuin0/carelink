@@ -2,9 +2,12 @@ import Link from 'next/link';
 
 interface Props {
   params: { slug: string };
+  searchParams: { id?: string };
 }
 
-export default function BookingCompletePage({ params }: Props) {
+export default function BookingCompletePage({ params, searchParams }: Props) {
+  const bookingId = searchParams.id;
+
   return (
     <div className="bg-gray-50 min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md text-center">
@@ -15,6 +18,9 @@ export default function BookingCompletePage({ params }: Props) {
             </svg>
           </div>
           <h1 className="text-xl font-bold mb-2">予約を受け付けました</h1>
+          {bookingId && (
+            <p className="text-xs text-gray-400 mb-1 font-mono">予約番号: {bookingId.slice(0, 8).toUpperCase()}</p>
+          )}
           <p className="text-sm text-gray-500 mb-6">
             ご登録のメールアドレスに確認メールをお送りしました。
             施設からの確認をお待ちください。

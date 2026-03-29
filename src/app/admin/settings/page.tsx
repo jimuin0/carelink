@@ -115,6 +115,17 @@ export default function AdminSettingsPage() {
 
   const handleSave = async () => {
     if (saving || !facilityId || !name) return;
+
+    // 営業時間の整合性チェック
+    for (const d of dayOrder) {
+      if (closedDays.includes(d)) continue;
+      const h = hours[d] || { open: '09:00', close: '19:00' };
+      if (h.close <= h.open) {
+        setToast({ type: 'error', message: `${dayLabels[d]}の閉店時間は開店時間より後にしてください` });
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const businessHours: BusinessHours = {};

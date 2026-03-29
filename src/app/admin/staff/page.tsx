@@ -22,6 +22,7 @@ export default async function AdminStaffPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">スタッフ管理</h1>
+        <Link href="/admin/staff/new" className="btn-primary text-sm !py-2 !px-4">追加</Link>
       </div>
 
       {staff.length === 0 ? (
@@ -31,30 +32,35 @@ export default async function AdminStaffPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {staff.map((s) => (
-            <Link
+            <div
               key={s.id}
-              href={`/admin/staff/${s.id}/edit`}
-              className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow"
+              className="bg-white rounded-xl p-4 shadow-sm"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-sky-100 flex items-center justify-center text-sky-600 font-bold">
-                  {s.name.charAt(0)}
+              <Link href={`/admin/staff/${s.id}/edit`} className="block hover:opacity-80">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-sky-100 flex items-center justify-center text-sky-600 font-bold">
+                    {s.name.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="font-bold">{s.name}</p>
+                    {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
+                  </div>
                 </div>
-                <div>
-                  <p className="font-bold">{s.name}</p>
-                  {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
-                </div>
+                {s.specialties?.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-3">
+                    {s.specialties?.slice(0, 3).map((sp) => (
+                      <span key={sp} className="text-micro bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
+                        {sp}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </Link>
+              <div className="flex gap-3 mt-3 pt-3 border-t">
+                <Link href={`/admin/staff/${s.id}/edit`} className="text-xs text-primary hover:underline">編集</Link>
+                <Link href={`/admin/staff/${s.id}/schedule`} className="text-xs text-gray-500 hover:underline">スケジュール</Link>
               </div>
-              {s.specialties?.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-3">
-                  {s.specialties?.slice(0, 3).map((sp) => (
-                    <span key={sp} className="text-micro bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full">
-                      {sp}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </Link>
+            </div>
           ))}
         </div>
       )}

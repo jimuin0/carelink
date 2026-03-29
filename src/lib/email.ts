@@ -94,6 +94,26 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
   }, 'booking_confirmation');
 }
 
+/** 予約リマインド通知（前日） */
+export async function sendBookingReminder(data: BookingEmailData) {
+  const resend = getResend();
+  if (!resend) return;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
+  await safeSend(resend, {
+    from: FROM,
+    to: data.customerEmail,
+    subject: `【CareLink】明日のご予約リマインド - ${data.facilityName}`,
+    html: wrapHtml(`
+      <p>${name} 様</p>
+      <p>明日、${facility}のご予約がございます。</p>
+      ${bookingDetailHtml(data)}
+      <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+    `),
+  }, 'booking_reminder');
+}
+
 /** 予約確定通知（顧客向け） */
 export async function sendBookingConfirmed(data: BookingEmailData) {
   const resend = getResend();

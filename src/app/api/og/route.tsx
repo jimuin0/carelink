@@ -5,8 +5,8 @@ export const runtime = 'edge';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const title = searchParams.get('title') || 'CareLink';
-  const subtitle = searchParams.get('subtitle') || 'ネットでかんたんサロン予約';
+  const title = (searchParams.get('title') || 'CareLink').slice(0, 60);
+  const subtitle = (searchParams.get('subtitle') || 'ネットでかんたんサロン予約').slice(0, 60);
 
   return new ImageResponse(
     (

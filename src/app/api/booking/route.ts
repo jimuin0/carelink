@@ -64,10 +64,24 @@ export async function POST(request: Request) {
     }
   }
 
+  // Handle points deduction
+  const pointsUsed = parsed.data.points_used || 0;
+  if (pointsUsed > 0 && user) {
+    const { data: pointRows } = await supabase.from('user_points').select('points').eq('user_id', user.id);
+    const balance = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
+    if (balance < pointsUsed) {
+      return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
+    }
+  }
+
+  // Strip non-DB fields before insert
+  const { points_used: _pointsUsed, ...bookingData } = parsed.data;
+  void _pointsUsed; // acknowledged
+
   const { data: inserted, error } = await supabase
     .from('bookings')
     .insert({
-      ...parsed.data,
+      ...bookingData,
       user_id: user?.id ?? null,
       status: 'pending',
     })
@@ -83,6 +97,15 @@ export async function POST(request: Request) {
   }
 
   const newBookingId = inserted?.id || '';
+
+  // Deduct points
+  if (pointsUsed > 0 && user && newBookingId) {
+    await supabase.from('user_points').insert({
+      user_id: user.id,
+      points: -pointsUsed,
+      reason: `予約利用 (${newBookingId.slice(0, 8)})`,
+    });
+  }
 
   // Send email notifications (non-blocking)
   try {
