@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useEffect } from 'react';
 import { businessTypes, prefectures } from '@/lib/constants';
+import SearchSuggest from './SearchSuggest';
 
 const HISTORY_KEY = 'carelink_search_history';
 const MAX_HISTORY = 5;
@@ -27,6 +28,7 @@ export default function SearchBar() {
   const [type, setType] = useState(searchParams.get('type') || '');
   const [prefecture, setPrefecture] = useState(searchParams.get('area') || '');
   const [history, setHistory] = useState<string[]>([]);
+  const [suggestOpen, setSuggestOpen] = useState(false);
 
   useEffect(() => { setHistory(getSearchHistory()); }, []);
 
@@ -43,15 +45,25 @@ export default function SearchBar() {
   return (
     <form onSubmit={handleSearch} className="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
       <div className="grid sm:grid-cols-4 gap-3">
-        <input
-          type="search"
-          name="keyword"
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          placeholder="キーワード（店名・エリアなど）"
-          className="form-input sm:col-span-2"
-          autoComplete="off"
-        />
+        <div className="relative sm:col-span-2">
+          <input
+            type="search"
+            name="keyword"
+            value={keyword}
+            onChange={(e) => { setKeyword(e.target.value); setSuggestOpen(true); }}
+            onFocus={() => setSuggestOpen(true)}
+            onBlur={() => setSuggestOpen(false)}
+            placeholder="キーワード（店名・エリアなど）"
+            className="form-input w-full"
+            autoComplete="off"
+          />
+          <SearchSuggest
+            query={keyword}
+            onSelect={(v) => setKeyword(v)}
+            visible={suggestOpen}
+            onClose={() => setSuggestOpen(false)}
+          />
+        </div>
         <select
           name="type"
           value={type}

@@ -3,6 +3,7 @@
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useState, useCallback } from 'react';
 import { businessTypes, facilityFeatures, regionGroups } from '@/lib/constants';
+import StationSearch from './StationSearch';
 
 export default function SearchFilters({ className }: { className?: string }) {
   const router = useRouter();
@@ -84,6 +85,12 @@ export default function SearchFilters({ className }: { className?: string }) {
             </optgroup>
           ))}
         </select>
+      </div>
+
+      {/* 最寄駅 */}
+      <div className="mb-5">
+        <label className="block text-xs font-medium text-gray-600 mb-1.5">最寄駅</label>
+        <StationSearch />
       </div>
 
       {/* 業種 */}

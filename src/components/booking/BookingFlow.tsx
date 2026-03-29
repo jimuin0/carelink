@@ -6,7 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 
-type Step = 'menu' | 'staff' | 'date' | 'time' | 'info' | 'confirm';
+type Step = 'menu' | 'staff' | 'datetime' | 'confirm';
 
 interface Props {
   facility: { id: string; slug: string; name: string };
@@ -45,17 +45,15 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
 
   const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
 
-  // Fetch available slots
+  // Fetch available slots when date changes
   useEffect(() => {
     if (!selectedDate || selectedMenus.length === 0) return;
-    // 指名なし(selectedStaff===null)の場合はスタッフが必要
     if (selectedStaff === null && staff.length === 0) return;
     setSlotsLoading(true);
     setSlots([]);
     setSelectedSlot(null);
 
     if (selectedStaff) {
-      // 指名あり: 1人分のスロット取得
       fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
         signal: AbortSignal.timeout(10000),
       })
@@ -64,7 +62,6 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
         .finally(() => setSlotsLoading(false));
     } else {
-      // 指名なし: 全スタッフのスロットを並列取得→マージ
       Promise.all(
         staff.map((s) =>
           fetch(`/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${selectedDate}&duration=${totalDuration}`, {
@@ -87,7 +84,6 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const [usePoints, setUsePoints] = useState(false);
   const [pointsToUse, setPointsToUse] = useState(0);
 
-  // Check auth, warn guest users, fetch points
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
@@ -111,6 +107,14 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
 
   const handleSubmit = async () => {
     if (submitting) return;
+    if (!customerName || !email) {
+      setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
+      return;
+    }
     setSubmitting(true);
 
     const res = await fetch('/api/booking', {
@@ -137,7 +141,14 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
 
     if (res.ok) {
       const body = await res.json().catch(() => null);
-      router.push(`/facility/${facility.slug}/booking/complete?id=${body?.bookingId || ''}`);
+      const completeParams = new URLSearchParams({
+        id: body?.bookingId || '',
+        date: selectedDate || '',
+        time: selectedSlot?.slot_start || '',
+        end_time: selectedSlot?.slot_end || '',
+        facility: facility.name || '',
+      });
+      router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
     } else {
       const body = await res.json().catch(() => null);
       setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
@@ -178,10 +189,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const steps: { key: Step; label: string }[] = [
     { key: 'menu', label: 'メニュー' },
     { key: 'staff', label: 'スタッフ' },
-    { key: 'date', label: '日時' },
-    { key: 'time', label: '時間' },
-    { key: 'info', label: '情報' },
-    { key: 'confirm', label: '確認' },
+    { key: 'datetime', label: '日時' },
+    { key: 'confirm', label: '確認・予約' },
   ];
   const currentIndex = steps.findIndex((s) => s.key === step);
 
@@ -199,12 +208,12 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             <span className={`text-xs whitespace-nowrap ${i <= currentIndex ? 'text-primary font-bold' : 'text-gray-400'}`}>
               {s.label}
             </span>
-            {i < steps.length - 1 && <div className="w-4 h-px bg-gray-200" />}
+            {i < steps.length - 1 && <div className="w-6 h-px bg-gray-200" />}
           </div>
         ))}
       </div>
 
-      {/* Step: Menu (multi-select) */}
+      {/* Step 1: Menu (multi-select + coupon) */}
       {step === 'menu' && (
         <div className="space-y-3">
           <h2 className="font-bold">メニューを選択<span className="text-xs font-normal text-gray-400 ml-2">（複数選択可）</span></h2>
@@ -243,6 +252,36 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               </button>
             );
           })}
+
+          {/* Coupon selection */}
+          {coupons.length > 0 && (
+            <div className="mt-4">
+              <h3 className="font-bold text-sm mb-2">クーポンを使う</h3>
+              <div className="space-y-2">
+                <button
+                  onClick={() => setSelectedCoupon(null)}
+                  className={`w-full text-left p-3 rounded-xl border text-sm ${
+                    !selectedCoupon ? 'border-primary bg-sky-50' : 'border-gray-200'
+                  }`}
+                >
+                  クーポンなし
+                </button>
+                {coupons.map((coupon) => (
+                  <button
+                    key={coupon.id}
+                    onClick={() => setSelectedCoupon(coupon)}
+                    className={`w-full text-left p-3 rounded-xl border text-sm ${
+                      selectedCoupon?.id === coupon.id ? 'border-primary bg-sky-50' : 'border-gray-200'
+                    }`}
+                  >
+                    <p className="font-bold">{coupon.name}</p>
+                    {coupon.description && <p className="text-xs text-gray-500">{coupon.description}</p>}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {selectedMenus.length > 0 && (
             <div className="pt-2 border-t space-y-2">
               <div className="text-sm text-gray-600">
@@ -258,31 +297,21 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         </div>
       )}
 
-      {/* Step: Staff */}
+      {/* Step 2: Staff */}
       {step === 'staff' && (
         <div className="space-y-3">
           <h2 className="font-bold">スタッフを選択</h2>
-          {staff.length === 0 && (
-            <div className="bg-gray-50 rounded-xl p-6 text-center">
-              <p className="text-gray-500 text-sm mb-3">スタッフが登録されていません</p>
-              <button onClick={() => { setSelectedStaff(null); setStep('date'); }} className="btn-primary text-sm !py-2 !px-6">指名なしで進む</button>
-            </div>
-          )}
-          {staff.length > 0 && (
-            <button
-              onClick={() => { setSelectedStaff(null); setStep('date'); }}
-              className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                selectedStaff === null ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
-              }`}
-            >
-              <p className="font-bold text-sm">指名なし</p>
-              <p className="text-xs text-gray-500">空いているスタッフが対応します</p>
-            </button>
-          )}
+          <button
+            onClick={() => { setSelectedStaff(null); setStep('datetime'); }}
+            className="w-full text-left p-4 rounded-xl border border-sky-300 bg-sky-50 transition-colors hover:bg-sky-100"
+          >
+            <p className="font-bold text-sm text-sky-700">指名なし（おまかせ）</p>
+            <p className="text-xs text-gray-500">空いているスタッフが対応します</p>
+          </button>
           {staff.map((s) => (
             <button
               key={s.id}
-              onClick={() => { setSelectedStaff(s); setStep('date'); }}
+              onClick={() => { setSelectedStaff(s); setStep('datetime'); }}
               className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
             >
               <div className="flex items-center justify-between">
@@ -302,206 +331,196 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         </div>
       )}
 
-      {/* Step: Date */}
-      {step === 'date' && (
-        <div className="space-y-3">
-          <h2 className="font-bold">日付を選択</h2>
-          <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-            {dateOptions.map((date) => {
-              const d = new Date(date);
-              const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-              const isWeekend = d.getDay() === 0 || d.getDay() === 6;
-              return (
-                <button
-                  key={date}
-                  onClick={() => { setSelectedDate(date); setStep('time'); }}
-                  className={`p-3 rounded-xl border text-center transition-colors ${
-                    selectedDate === date ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
-                  }`}
-                >
-                  <p className="text-xs text-gray-500">{d.getMonth() + 1}/{d.getDate()}</p>
-                  <p className={`text-sm font-bold ${isWeekend ? 'text-red-500' : ''}`}>
-                    {dayNames[d.getDay()]}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-          <button onClick={() => setStep('staff')} className="text-sm text-gray-500 hover:underline">
-            戻る
-          </button>
-        </div>
-      )}
+      {/* Step 3: DateTime (date + time combined) */}
+      {step === 'datetime' && (
+        <div className="space-y-4">
+          <h2 className="font-bold">日時を選択</h2>
 
-      {/* Step: Time */}
-      {step === 'time' && (
-        <div className="space-y-3">
-          <h2 className="font-bold">時間を選択</h2>
-          <p className="text-sm text-gray-500">{selectedDate}</p>
-          {slotsLoading ? (
-            <div className="text-center py-8">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          {/* Date grid */}
+          <div>
+            <p className="text-xs text-gray-500 mb-2">日付を選択してください</p>
+            <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
+              {dateOptions.map((date) => {
+                const d = new Date(date);
+                const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const isActive = selectedDate === date;
+                return (
+                  <button
+                    key={date}
+                    onClick={() => setSelectedDate(date)}
+                    className={`p-2 rounded-lg border text-center transition-colors ${
+                      isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
+                    }`}
+                  >
+                    <p className="text-micro text-gray-400">{d.getMonth() + 1}/{d.getDate()}</p>
+                    <p className={`text-xs font-bold ${isWeekend ? 'text-red-500' : ''}`}>
+                      {dayNames[d.getDay()]}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
-          ) : slots.length === 0 ? (
-            <div className="bg-white rounded-xl p-6 text-center">
-              <p className="text-gray-400 text-sm">この日は予約可能な時間帯がありません</p>
-              <button onClick={() => setStep('date')} className="mt-3 text-sm text-primary hover:underline">
-                別の日付を選ぶ
-              </button>
-            </div>
-          ) : (
-            <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-              {slots.map((slot) => (
-                <button
-                  key={slot.slot_start}
-                  onClick={() => { setSelectedSlot(slot); setStep('info'); }}
-                  className="p-3 rounded-xl border border-gray-200 hover:border-sky-300 text-center"
-                >
-                  <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>
-                </button>
-              ))}
+          </div>
+
+          {/* Time slots (shown when date is selected) */}
+          {selectedDate && (
+            <div>
+              <p className="text-xs text-gray-500 mb-2">
+                {(() => {
+                  const d = new Date(selectedDate);
+                  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
+                  return `${d.getMonth() + 1}/${d.getDate()}（${dayNames[d.getDay()]}）の空き時間`;
+                })()}
+              </p>
+              {slotsLoading ? (
+                <div className="text-center py-6">
+                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                </div>
+              ) : slots.length === 0 ? (
+                <div className="bg-gray-50 rounded-xl p-4 text-center">
+                  <p className="text-gray-400 text-sm">この日は予約可能な時間帯がありません</p>
+                  <p className="text-xs text-gray-400 mt-1">別の日付をお選びください</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                  {slots.map((slot) => {
+                    const isActive = selectedSlot?.slot_start === slot.slot_start;
+                    return (
+                      <button
+                        key={slot.slot_start}
+                        onClick={() => setSelectedSlot(slot)}
+                        className={`p-2.5 rounded-xl border text-center transition-colors ${
+                          isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
+                        }`}
+                      >
+                        <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
-          <button onClick={() => setStep('date')} className="text-sm text-gray-500 hover:underline">
-            戻る
-          </button>
-        </div>
-      )}
 
-      {/* Step: Customer Info */}
-      {step === 'info' && (
-        <div className="space-y-4">
-          <h2 className="font-bold">お客様情報</h2>
-          <div>
-            <label htmlFor="booking-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
-            <input
-              id="booking-name"
-              value={customerName}
-              onChange={(e) => setCustomerName(e.target.value)}
-              className="form-input"
-              placeholder="山田 太郎"
-            />
-          </div>
-          <div>
-            <label htmlFor="booking-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-            <input
-              id="booking-email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              type="email"
-              className="form-input"
-              placeholder="example@email.com"
-            />
-          </div>
-          <div>
-            <label htmlFor="booking-phone" className="form-label">電話番号</label>
-            <input
-              id="booking-phone"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              type="tel"
-              className="form-input"
-              placeholder="090-1234-5678"
-            />
-          </div>
-          <div>
-            <label htmlFor="booking-note" className="form-label">備考</label>
-            <textarea
-              id="booking-note"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              className="form-input"
-              rows={3}
-              placeholder="ご要望があればご記入ください"
-            />
-          </div>
-          <div className="flex gap-3">
-            <button onClick={() => setStep('time')} className="text-sm text-gray-500 hover:underline">
+          <div className="flex gap-3 pt-2">
+            <button onClick={() => setStep('staff')} className="text-sm text-gray-500 hover:underline">
               戻る
             </button>
-            <button
-              onClick={() => {
-                if (!customerName || !email) {
-                  setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
-                  return;
-                }
-                if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-                  setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
-                  return;
-                }
-                setStep('confirm');
-              }}
-              className="btn-primary flex-1 !py-3"
-            >
-              確認へ進む
-            </button>
+            {selectedSlot && (
+              <button onClick={() => setStep('confirm')} className="btn-primary flex-1 !py-3">
+                次へ（確認・予約）
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* Step: Confirm */}
+      {/* Step 4: Confirm (info + summary + submit combined) */}
       {step === 'confirm' && (
         <div className="space-y-4">
-          <h2 className="font-bold">予約内容の確認</h2>
-          <div className="bg-white rounded-xl border border-gray-200 p-4 space-y-3">
-            <div className="flex justify-between text-sm">
+          <h2 className="font-bold">予約内容の確認・お客様情報</h2>
+
+          {/* Summary card */}
+          <div className="bg-sky-50 rounded-xl border border-sky-200 p-4 space-y-2 text-sm">
+            <div className="flex justify-between">
               <span className="text-gray-500">施設</span>
               <span className="font-medium">{facility.name}</span>
             </div>
-            {selectedMenus.length > 0 && (
-              <div className="text-sm">
-                <span className="text-gray-500">メニュー</span>
-                {selectedMenus.map((m) => (
-                  <div key={m.id} className="flex justify-between mt-1">
-                    <span className="font-medium ml-2">{m.name}</span>
-                    <span className="text-gray-500">{m.price !== null ? `¥${m.price.toLocaleString()}` : ''} {m.duration_minutes ? `${m.duration_minutes}分` : ''}</span>
-                  </div>
-                ))}
+            {selectedMenus.map((m) => (
+              <div key={m.id} className="flex justify-between">
+                <span className="text-gray-500 ml-2">{m.name}</span>
+                <span className="text-gray-500">{m.price !== null ? `¥${m.price.toLocaleString()}` : ''}</span>
               </div>
-            )}
+            ))}
             {selectedStaff && (
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between">
                 <span className="text-gray-500">スタッフ</span>
-                <span className="font-medium">
-                  {selectedStaff.name}
-                  {selectedStaff.nomination_fee > 0 && (
-                    <span className="text-xs text-gray-400 ml-1">(指名料 ¥{selectedStaff.nomination_fee.toLocaleString()})</span>
-                  )}
+                <span className="font-medium">{selectedStaff.name}
+                  {selectedStaff.nomination_fee > 0 && <span className="text-xs text-gray-400 ml-1">(+¥{selectedStaff.nomination_fee.toLocaleString()})</span>}
                 </span>
               </div>
             )}
             {selectedCoupon && (
-              <div className="flex justify-between text-sm">
+              <div className="flex justify-between">
                 <span className="text-gray-500">クーポン</span>
                 <span className="font-medium text-red-500">{selectedCoupon.name}</span>
               </div>
             )}
-            <div className="flex justify-between text-sm">
+            <div className="flex justify-between">
               <span className="text-gray-500">日時</span>
               <span className="font-medium">{selectedDate} {selectedSlot?.slot_start.slice(0, 5)}〜{selectedSlot?.slot_end.slice(0, 5)}</span>
             </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">お名前</span>
-              <span className="font-medium">{customerName}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">メール</span>
-              <span className="font-medium">{email}</span>
-            </div>
-            {phone && (
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">電話</span>
-                <span className="font-medium">{phone}</span>
-              </div>
-            )}
-            {calculatePrice() !== null && (
-              <div className="flex justify-between text-sm border-t pt-3">
-                <span className="text-gray-500">合計金額</span>
-                <span className="font-bold text-lg">¥{calculatePrice()?.toLocaleString()}</span>
-              </div>
-            )}
+            {calculatePrice() !== null && (() => {
+              const menuTotal = selectedMenus.reduce((s, m) => s + (m.price || 0), 0);
+              const finalPrice = calculatePrice() ?? 0;
+              const hasCouponDiscount = selectedCoupon && menuTotal > finalPrice;
+              return (
+                <div className="border-t border-sky-200 pt-2 mt-2 space-y-1">
+                  {hasCouponDiscount && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">通常合計</span>
+                      <span className="text-gray-400 line-through">¥{menuTotal.toLocaleString()}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span className="font-bold">{hasCouponDiscount ? 'クーポン適用後' : '合計金額'}</span>
+                    <span className="font-bold text-lg text-red-500">¥{finalPrice.toLocaleString()}</span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
 
+          {/* Customer info form */}
+          <div className="space-y-3">
+            <h3 className="font-bold text-sm">お客様情報</h3>
+            <div>
+              <label htmlFor="booking-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+              <input
+                id="booking-name"
+                value={customerName}
+                onChange={(e) => setCustomerName(e.target.value)}
+                className="form-input"
+                placeholder="山田 太郎"
+              />
+            </div>
+            <div>
+              <label htmlFor="booking-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+              <input
+                id="booking-email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                type="email"
+                className="form-input"
+                placeholder="example@email.com"
+              />
+            </div>
+            <div>
+              <label htmlFor="booking-phone" className="form-label">電話番号</label>
+              <input
+                id="booking-phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                type="tel"
+                className="form-input"
+                placeholder="090-1234-5678"
+              />
+            </div>
+            <div>
+              <label htmlFor="booking-note" className="form-label">備考</label>
+              <textarea
+                id="booking-note"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="form-input"
+                rows={3}
+                placeholder="ご要望があればご記入ください"
+              />
+            </div>
+          </div>
+
+          {/* Points */}
           {isAuthenticated && availablePoints > 0 && calculatePrice() !== null && (
             <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
               <label className="flex items-center gap-2 text-sm">
@@ -539,7 +558,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           )}
 
           <div className="flex gap-3">
-            <button onClick={() => setStep('info')} className="text-sm text-gray-500 hover:underline">
+            <button onClick={() => setStep('datetime')} className="text-sm text-gray-500 hover:underline">
               戻る
             </button>
             <button
@@ -549,35 +568,6 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             >
               {submitting ? '予約中...' : 'この内容で予約する'}
             </button>
-          </div>
-        </div>
-      )}
-
-      {/* Coupon selection (shown on menu step) */}
-      {step === 'menu' && coupons.length > 0 && (
-        <div className="mt-6">
-          <h3 className="font-bold text-sm mb-2">クーポンを使う</h3>
-          <div className="space-y-2">
-            <button
-              onClick={() => setSelectedCoupon(null)}
-              className={`w-full text-left p-3 rounded-xl border text-sm ${
-                !selectedCoupon ? 'border-primary bg-sky-50' : 'border-gray-200'
-              }`}
-            >
-              クーポンなし
-            </button>
-            {coupons.map((coupon) => (
-              <button
-                key={coupon.id}
-                onClick={() => setSelectedCoupon(coupon)}
-                className={`w-full text-left p-3 rounded-xl border text-sm ${
-                  selectedCoupon?.id === coupon.id ? 'border-primary bg-sky-50' : 'border-gray-200'
-                }`}
-              >
-                <p className="font-bold">{coupon.name}</p>
-                {coupon.description && <p className="text-xs text-gray-500">{coupon.description}</p>}
-              </button>
-            ))}
           </div>
         </div>
       )}

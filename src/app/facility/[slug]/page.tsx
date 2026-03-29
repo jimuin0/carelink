@@ -102,12 +102,12 @@ export default async function FacilityPage({ params }: Props) {
     ...(catalogs.length > 0 ? [{
       key: 'catalog',
       label: `カタログ(${catalogs.length})`,
-      content: <CatalogList catalogs={catalogs} />,
+      content: <CatalogList catalogs={catalogs} staff={staff} menus={menus} />,
     }] : []),
     ...(coupons.length > 0 ? [{
       key: 'coupon',
       label: `クーポン(${coupons.length})`,
-      content: <CouponList coupons={coupons} />,
+      content: <CouponList coupons={coupons} menus={menus} />,
     }] : []),
     {
       key: 'qa',
@@ -414,7 +414,7 @@ export default async function FacilityPage({ params }: Props) {
       </div>
 
       <ViewCount facilityId={facility.id} facilityName={facility.name} facilitySlug={params.slug} mainPhotoUrl={facility.main_photo_url} businessType={facility.business_type} />
-      <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} />
+      <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} facilityId={facility.id} />
     </div>
   );
 }

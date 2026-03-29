@@ -66,7 +66,17 @@ export interface Facility {
   rating_avg: number;
   rating_count: number;
   main_photo_url: string | null;
+  view_count: number;
   status: 'draft' | 'published' | 'suspended';
+}
+
+export interface FacilitySuggestion {
+  id: string;
+  name: string;
+  slug: string;
+  city: string;
+  nearest_station: string | null;
+  business_type: string;
 }
 
 export interface FacilityMenu {

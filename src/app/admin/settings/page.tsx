@@ -357,6 +357,54 @@ export default function AdminSettingsPage() {
         </div>
       </section>
 
+      {/* データエクスポート */}
+      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h2 className="text-lg font-bold mb-4">データエクスポート</h2>
+        <p className="text-sm text-gray-500 mb-4">予約データをCSV形式でダウンロードできます。</p>
+        <button
+          type="button"
+          onClick={async () => {
+            if (!facilityId) return;
+            const supabase = createBrowserSupabaseClient();
+            const { data } = await supabase
+              .from('bookings')
+              .select('id, booking_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at')
+              .eq('facility_id', facilityId)
+              .order('booking_date', { ascending: false })
+              .limit(5000);
+            if (!data || data.length === 0) {
+              setToast({ type: 'error', message: 'エクスポートする予約データがありません' });
+              return;
+            }
+            const csvSafe = (v: string | number | null | undefined): string => {
+              const s = String(v ?? '');
+              const escaped = s.replace(/"/g, '""');
+              const needsPrefix = /^[=+\-@\t\r]/.test(s);
+              return `"${needsPrefix ? "'" : ''}${escaped}"`;
+            };
+            const headers = ['予約ID', '予約日', '開始時間', '終了時間', '顧客名', 'メール', '電話', 'ステータス', '金額', '備考', '作成日'];
+            const csvRows = [
+              headers.map((h) => `"${h}"`).join(','),
+              ...data.map((r) =>
+                [r.id, r.booking_date, r.start_time, r.end_time, r.customer_name, r.email, r.phone, r.status, r.total_price, r.note, r.created_at].map(csvSafe).join(',')
+              ),
+            ];
+            const bom = '\uFEFF';
+            const blob = new Blob([bom + csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `carelink-bookings-${new Date().toISOString().slice(0, 10)}.csv`;
+            a.click();
+            setTimeout(() => URL.revokeObjectURL(url), 200);
+            setToast({ type: 'success', message: data.length >= 5000 ? 'CSVをダウンロードしました（5000件で切り捨て）' : 'CSVをダウンロードしました' });
+          }}
+          className="text-sm px-4 py-2 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+        >
+          予約データCSVダウンロード
+        </button>
+      </section>
+
       {/* 保存ボタン(下部) */}
       <div className="flex justify-end">
         <button onClick={handleSave} disabled={saving} className="btn-primary px-8 !py-3">

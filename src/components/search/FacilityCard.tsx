@@ -26,9 +26,11 @@ function getTodayHours(hours: FacilityCardData['business_hours']): string | null
 interface Props {
   facility: FacilityCardData;
   showBadges?: boolean;
+  monthlyBookings?: number;
+  isAvailable?: boolean;
 }
 
-export default function FacilityCard({ facility, showBadges = true }: Props) {
+export default function FacilityCard({ facility, showBadges = true, monthlyBookings, isAvailable }: Props) {
   const todayHours = getTodayHours(facility.business_hours);
   const hasCoupons = (facility.coupon_count ?? 0) > 0;
 
@@ -59,6 +61,21 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
             <>
               <span className="badge badge-instant">予約OK</span>
               {hasCoupons && <span className="badge badge-coupon">クーポンあり</span>}
+              {monthlyBookings != null && monthlyBookings > 0 && (
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-orange-100 text-orange-700 text-xs font-bold rounded-full">
+                  今月{monthlyBookings}件予約
+                </span>
+              )}
+              {isAvailable === true && (
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-green-100 text-green-700 text-xs font-bold rounded-full">
+                  空きあり
+                </span>
+              )}
+              {isAvailable === false && (
+                <span className="inline-flex items-center gap-0.5 px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                  空きなし
+                </span>
+              )}
             </>
           )}
         </div>
@@ -75,11 +92,20 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
         {/* 価格帯 */}
         {facility.min_price != null && (
           <p className="text-sm mb-1">
-            <span className="font-bold text-sky-700">
-              {facility.min_price === facility.max_price
-                ? `¥${facility.min_price.toLocaleString()}`
-                : `¥${facility.min_price.toLocaleString()}〜¥${(facility.max_price ?? facility.min_price).toLocaleString()}`}
-            </span>
+            {hasCoupons ? (
+              <>
+                <span className="text-gray-400 line-through text-xs mr-1">
+                  ¥{facility.min_price.toLocaleString()}〜
+                </span>
+                <span className="font-bold text-red-500">クーポン価格あり</span>
+              </>
+            ) : (
+              <span className="font-bold text-sky-700">
+                {facility.min_price === facility.max_price
+                  ? `¥${facility.min_price.toLocaleString()}`
+                  : `¥${facility.min_price.toLocaleString()}〜¥${(facility.max_price ?? facility.min_price).toLocaleString()}`}
+              </span>
+            )}
           </p>
         )}
 

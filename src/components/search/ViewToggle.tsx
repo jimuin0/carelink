@@ -9,9 +9,11 @@ const MapView = dynamic(() => import('./MapView'), { ssr: false, loading: () => 
 
 interface Props {
   facilities: FacilityCardData[];
+  bookingCounts?: Record<string, number>;
+  availableIds?: string[];
 }
 
-export default function ViewToggle({ facilities }: Props) {
+export default function ViewToggle({ facilities, bookingCounts, availableIds }: Props) {
   const [view, setView] = useState<'list' | 'map'>('list');
 
   return (
@@ -42,7 +44,7 @@ export default function ViewToggle({ facilities }: Props) {
       ) : (
         facilities.length > 0 ? (
           <div className="grid sm:grid-cols-2 gap-6">
-            {facilities.map((f) => (<FacilityCard key={f.id} facility={f} />))}
+            {facilities.map((f) => (<FacilityCard key={f.id} facility={f} monthlyBookings={bookingCounts?.[f.id]} isAvailable={availableIds ? availableIds.includes(f.id) : undefined} />))}
           </div>
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl shadow-sm">

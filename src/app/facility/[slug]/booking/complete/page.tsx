@@ -1,12 +1,71 @@
 import Link from 'next/link';
+import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 
 interface Props {
   params: { slug: string };
-  searchParams: { id?: string };
+  searchParams: { id?: string; date?: string; time?: string; end_time?: string; facility?: string };
+}
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^\d{2}:\d{2}$/;
+
+function buildIcsContent(date?: string, time?: string, endTime?: string, facility?: string, bookingId?: string): string | null {
+  if (!date || !time || !DATE_RE.test(date) || !TIME_RE.test(time)) return null;
+
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+
+  const [h, m] = time.split(':');
+  const dtStart = date.replace(/-/g, '') + 'T' + h.padStart(2, '0') + m.padStart(2, '0') + '00';
+
+  let dtEnd: string;
+  if (endTime && TIME_RE.test(endTime)) {
+    const [eh, em] = endTime.split(':');
+    dtEnd = date.replace(/-/g, '') + 'T' + eh.padStart(2, '0') + em.padStart(2, '0') + '00';
+  } else {
+    // Fallback: +1 hour with proper day rollover
+    const startDate = new Date(`${date}T${time}:00`);
+    startDate.setHours(startDate.getHours() + 1);
+    const ey = startDate.getFullYear();
+    const emo = String(startDate.getMonth() + 1).padStart(2, '0');
+    const ed = String(startDate.getDate()).padStart(2, '0');
+    const eho = String(startDate.getHours()).padStart(2, '0');
+    const emi = String(startDate.getMinutes()).padStart(2, '0');
+    dtEnd = `${ey}${emo}${ed}T${eho}${emi}00`;
+  }
+
+  const summary = facility ? `${facility} 予約` : 'CareLink 予約';
+  const uid = bookingId || crypto.randomUUID();
+
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//CareLink//Booking//JA',
+    'BEGIN:VTIMEZONE',
+    'TZID:Asia/Tokyo',
+    'BEGIN:STANDARD',
+    'DTSTART:19700101T000000',
+    'TZOFFSETFROM:+0900',
+    'TZOFFSETTO:+0900',
+    'TZNAME:JST',
+    'END:STANDARD',
+    'END:VTIMEZONE',
+    'BEGIN:VEVENT',
+    `UID:${uid}@carelink-jp.com`,
+    `DTSTAMP:${stamp}`,
+    `DTSTART;TZID=Asia/Tokyo:${dtStart}`,
+    `DTEND;TZID=Asia/Tokyo:${dtEnd}`,
+    `SUMMARY:${summary}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+    '',
+  ].join('\r\n');
 }
 
 export default function BookingCompletePage({ params, searchParams }: Props) {
   const bookingId = searchParams.id;
+  const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
+  const icsDataUri = icsContent ? `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}` : null;
 
   return (
     <div className="bg-gray-50 min-h-screen flex items-center justify-center px-4">
@@ -29,12 +88,22 @@ export default function BookingCompletePage({ params, searchParams }: Props) {
             <Link href={`/facility/${params.slug}`} className="btn-primary block w-full !py-3">
               施設ページに戻る
             </Link>
+            {icsDataUri && (
+              <a
+                href={icsDataUri}
+                download="carelink-booking.ics"
+                className="block w-full text-center text-sm py-2.5 border border-sky-200 rounded-lg text-sky-600 hover:bg-sky-50 transition-colors"
+              >
+                カレンダーに追加（.ics）
+              </a>
+            )}
             <Link href="/mypage/bookings" className="block text-sm text-primary hover:underline">
               予約履歴を確認
             </Link>
           </div>
         </div>
       </div>
+      <PushPermissionBanner />
     </div>
   );
 }

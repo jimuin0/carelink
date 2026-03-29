@@ -1,5 +1,5 @@
 import { createServerSupabaseClient } from './supabase-server';
-import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams } from '@/types';
+import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 
 const PER_PAGE = 20;
 
@@ -42,8 +42,6 @@ export async function searchFacilities(params: SearchParams) {
       query = query.contains('features', [f]);
     }
   }
-
-  // available_date / available_time: URL保持用。空き枠検索は /api/availability で個別確認。
 
   if (isGeoSearch) {
     query = query.limit(500);
@@ -196,6 +194,145 @@ export async function getLatestReviews(limit = 6) {
   }));
 
   return { reviews: reviews as LatestReviewWithFacility[], error };
+}
+
+// Check which facilities have availability on a given date/time
+export async function getAvailableFacilityIds(
+  facilityIds: string[],
+  dateStr: string,
+  timeSlot?: string
+): Promise<Set<string>> {
+  if (facilityIds.length === 0) return new Set();
+  const supabase = createServerSupabaseClient();
+  const dayOfWeek = new Date(dateStr).getDay(); // 0=Sun
+
+  // 1. Get staff schedules for this day of week
+  const { data: staffSchedules } = await supabase
+    .from('staff_schedules')
+    .select('staff_id, start_time, end_time')
+    .eq('day_of_week', dayOfWeek);
+
+  // 2. Get staff → facility mapping
+  const { data: staffProfiles } = await supabase
+    .from('staff_profiles')
+    .select('id, facility_id')
+    .eq('is_active', true)
+    .in('facility_id', facilityIds);
+
+  if (!staffProfiles || staffProfiles.length === 0) return new Set();
+
+  const staffToFacility = new Map<string, string>();
+  for (const sp of staffProfiles) {
+    staffToFacility.set(sp.id, sp.facility_id);
+  }
+  const staffIds = staffProfiles.map((s) => s.id);
+
+  // 3. Check schedule overrides (holidays)
+  const { data: overrides } = await supabase
+    .from('schedule_overrides')
+    .select('staff_id, is_holiday, start_time, end_time')
+    .eq('date', dateStr)
+    .in('staff_id', staffIds);
+
+  const holidayStaff = new Set<string>();
+  const overrideMap = new Map<string, ScheduleOverride>();
+  for (const o of overrides || []) {
+    if (o.is_holiday) {
+      holidayStaff.add(o.staff_id);
+    } else {
+      overrideMap.set(o.staff_id, o as ScheduleOverride);
+    }
+  }
+
+  // 4. Get existing bookings for this date
+  const { data: bookings } = await supabase
+    .from('bookings')
+    .select('staff_id, start_time, end_time')
+    .eq('booking_date', dateStr)
+    .in('status', ['pending', 'confirmed'])
+    .in('facility_id', facilityIds);
+
+  const staffBookings = new Map<string, { start: string; end: string }[]>();
+  for (const b of bookings || []) {
+    if (!b.staff_id) continue;
+    const list = staffBookings.get(b.staff_id) || [];
+    list.push({ start: b.start_time, end: b.end_time });
+    staffBookings.set(b.staff_id, list);
+  }
+
+  // 5. Determine time range filter
+  let filterStart: string | null = null;
+  let filterEnd: string | null = null;
+  if (timeSlot === 'morning') { filterStart = '09:00'; filterEnd = '12:00'; }
+  else if (timeSlot === 'afternoon') { filterStart = '12:00'; filterEnd = '17:00'; }
+  else if (timeSlot === 'evening') { filterStart = '17:00'; filterEnd = '23:00'; }
+
+  // 6. Check each staff for availability
+  const scheduleMap = new Map<string, { start: string; end: string }>();
+  for (const s of staffSchedules || []) {
+    scheduleMap.set(s.staff_id, { start: s.start_time, end: s.end_time });
+  }
+
+  const availableFacilities = new Set<string>();
+
+  for (const staffId of staffIds) {
+    if (holidayStaff.has(staffId)) continue;
+    const facilityId = staffToFacility.get(staffId);
+    if (!facilityId || availableFacilities.has(facilityId)) continue;
+
+    // Determine working hours
+    const override = overrideMap.get(staffId);
+    const schedule = scheduleMap.get(staffId);
+    const workStart = override?.start_time || schedule?.start;
+    const workEnd = override?.end_time || schedule?.end;
+    if (!workStart || !workEnd) continue;
+
+    // Apply time filter
+    if (filterStart && filterEnd) {
+      if (workEnd <= filterStart || workStart >= filterEnd) continue;
+    }
+
+    // Check if at least one slot is free (simplified: if # bookings < working hours)
+    const existingBookings = staffBookings.get(staffId) || [];
+    const workMinutes = timeToMinutes(workEnd) - timeToMinutes(workStart);
+    const bookedMinutes = existingBookings.reduce((sum, b) => sum + Math.max(0, timeToMinutes(b.end) - timeToMinutes(b.start)), 0);
+    if (bookedMinutes < workMinutes) {
+      availableFacilities.add(facilityId);
+    }
+  }
+
+  return availableFacilities;
+}
+
+function timeToMinutes(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + (m || 0);
+}
+
+export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Record<string, number>> {
+  if (facilityIds.length === 0) return {};
+  const supabase = createServerSupabaseClient();
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const monthStart = `${year}-${month}-01`;
+  const nextMonth = now.getMonth() + 2 > 12
+    ? `${year + 1}-01-01`
+    : `${year}-${String(now.getMonth() + 2).padStart(2, '0')}-01`;
+
+  const { data } = await supabase
+    .from('bookings')
+    .select('facility_id')
+    .in('facility_id', facilityIds)
+    .in('status', ['pending', 'confirmed', 'completed'])
+    .gte('booking_date', monthStart)
+    .lt('booking_date', nextMonth);
+
+  const counts: Record<string, number> = {};
+  for (const row of data || []) {
+    counts[row.facility_id] = (counts[row.facility_id] || 0) + 1;
+  }
+  return counts;
 }
 
 export interface LatestReviewWithFacility {

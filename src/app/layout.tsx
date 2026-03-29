@@ -134,6 +134,9 @@ export default function RootLayout({
         />
         <LayoutSwitch>{children}</LayoutSwitch>
         <CookieConsent />
+        <Script id="sw-register" strategy="lazyOnload">
+          {`if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{})}`}
+        </Script>
         <Analytics />
         <SpeedInsights />
         {clarityId && (

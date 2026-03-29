@@ -2,11 +2,16 @@
 
 import Link from 'next/link';
 import { analytics } from '@/lib/analytics';
+import RemainingSlots from './RemainingSlots';
 
-export default function StickyBookingBar({ phone, facilityName, facilitySlug }: { phone: string | null; facilityName: string; facilitySlug: string }) {
+export default function StickyBookingBar({ phone, facilityName, facilitySlug, facilityId }: { phone: string | null; facilityName: string; facilitySlug: string; facilityId: string }) {
   return (
     <div className="sticky-bar">
-      <div className="max-w-3xl mx-auto flex gap-3">
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center justify-center gap-2 mb-1">
+          <RemainingSlots facilityId={facilityId} />
+        </div>
+        <div className="flex gap-3">
         {phone && (
           <a
             href={`tel:${phone}`}
@@ -45,6 +50,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug }: 
           </svg>
           問合せ
         </button>
+        </div>
       </div>
     </div>
   );

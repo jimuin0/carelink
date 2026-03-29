@@ -1,9 +1,12 @@
 import CouponCard from './CouponCard';
-import type { Coupon } from '@/types';
+import type { Coupon, FacilityMenu } from '@/types';
 
 const typeOrder = ['new_customer', 'repeat', 'limited_time', 'all'];
 
-export default function CouponList({ coupons }: { coupons: Coupon[] }) {
+export default function CouponList({ coupons, menus }: { coupons: Coupon[]; menus?: FacilityMenu[] }) {
+  const representativePrice = menus && menus.length > 0
+    ? Math.min(...menus.filter((m) => m.price != null).map((m) => m.price as number))
+    : null;
   if (coupons.length === 0) {
     return (
       <div className="text-center py-8">
@@ -34,7 +37,7 @@ export default function CouponList({ coupons }: { coupons: Coupon[] }) {
           )}
           <div className="space-y-3">
             {group.items.map((coupon) => (
-              <CouponCard key={coupon.id} coupon={coupon} />
+              <CouponCard key={coupon.id} coupon={coupon} menuPrice={representativePrice} />
             ))}
           </div>
         </div>

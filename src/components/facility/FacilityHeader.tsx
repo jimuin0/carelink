@@ -1,9 +1,10 @@
 import type { Facility } from '@/types';
+import ViewingNow from './ViewingNow';
 
 export default function FacilityHeader({ facility }: { facility: Facility }) {
   return (
     <div className="px-4 sm:px-6 py-5">
-      <div className="flex items-center gap-2 mb-2">
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
         <span className="badge badge-primary">{facility.business_type}</span>
         {facility.rating_count > 0 && (
           <div className="flex items-center gap-1">
@@ -12,6 +13,10 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
             <span className="text-xs text-gray-400">({facility.rating_count}件)</span>
           </div>
         )}
+        {facility.view_count > 0 && (
+          <span className="text-xs text-gray-400">閲覧 {facility.view_count.toLocaleString()}回</span>
+        )}
+        <ViewingNow viewCount={facility.view_count} />
       </div>
       <h1 className="text-xl sm:text-2xl font-bold mb-2">{facility.name}</h1>
       {facility.catch_copy && (

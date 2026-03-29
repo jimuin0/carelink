@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { searchFacilities } from '@/lib/facilities';
+import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
 import SearchFilters from '@/components/search/SearchFilters';
 import MobileFilterDrawer from '@/components/search/MobileFilterDrawer';
@@ -75,6 +75,15 @@ export default async function SearchPage({ searchParams }: Props) {
 
   const { facilities, total, perPage } = await searchFacilities(params);
   const totalPages = Math.ceil(total / perPage);
+
+  // 緊急性シグナル: 当月予約件数 + 空き検索
+  const facilityIds = facilities.map((f) => f.id);
+  const [bookingCounts, availableIds] = await Promise.all([
+    facilityIds.length > 0 ? getMonthlyBookingCounts(facilityIds) : Promise.resolve({}),
+    searchParams.available_date && facilityIds.length > 0
+      ? getAvailableFacilityIds(facilityIds, searchParams.available_date, searchParams.available_time)
+      : Promise.resolve(null),
+  ]);
 
   // Build base URL for pagination
   const baseParams = new URLSearchParams();
@@ -162,7 +171,7 @@ export default async function SearchPage({ searchParams }: Props) {
             </div>
 
             {/* Cards/Map with view toggle */}
-            <ViewToggle facilities={facilities} />
+            <ViewToggle facilities={facilities} bookingCounts={bookingCounts} availableIds={availableIds ? Array.from(availableIds) : undefined} />
             <Pagination currentPage={params.page} totalPages={totalPages} baseUrl={baseUrl} />
           </div>
         </div>
