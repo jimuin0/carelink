@@ -75,7 +75,7 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
         {/* 価格帯 */}
         {facility.min_price != null && (
           <p className="text-sm mb-1">
-            <span className="font-bold text-sky-600">
+            <span className="font-bold text-sky-700">
               {facility.min_price === facility.max_price
                 ? `¥${facility.min_price.toLocaleString()}`
                 : `¥${facility.min_price.toLocaleString()}〜¥${(facility.max_price ?? facility.min_price).toLocaleString()}`}
@@ -94,7 +94,7 @@ export default function FacilityCard({ facility, showBadges = true }: Props) {
           )}
           {todayHours && <span>{todayHours}</span>}
           {hasCoupons && (
-            <span className="text-pink-500 font-medium">クーポン{facility.coupon_count}枚</span>
+            <span className="text-pink-700 font-medium">クーポン{facility.coupon_count}枚</span>
           )}
           {(facility.photo_count ?? 0) > 0 && (
             <span>写真{facility.photo_count}枚</span>

@@ -528,7 +528,7 @@ export default async function Home() {
           <p className="text-sm text-white/90 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
           <Link
             href="/register"
-            className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-600 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
+            className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-700 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
           >
             無料で掲載する
           </Link>

@@ -42,7 +42,7 @@ export default function HomeUserPanel() {
         <div className="px-4 py-4 space-y-2.5">
           <Link
             href={`/auth/login?redirect=${encodeURIComponent(pathname)}`}
-            className="block w-full text-center py-2 bg-sky-600 text-white text-xs tracking-wider rounded hover:bg-sky-700 transition-colors"
+            className="block w-full text-center py-2 bg-sky-700 text-white text-xs tracking-wider rounded hover:bg-sky-800 transition-colors"
           >
             ログインする
           </Link>
@@ -76,7 +76,7 @@ export default function HomeUserPanel() {
             className={`flex items-center justify-between px-4 py-2.5 text-xs text-gray-600 hover:text-sky-700 hover:bg-sky-50/50 transition-colors ${i < arr.length - 1 ? 'border-b border-gray-100' : ''}`}
           >
             <span>{item.label}</span>
-            <span className="text-gray-400 text-micro">&rsaquo;</span>
+            <span className="text-gray-500 text-micro">&rsaquo;</span>
           </Link>
         ))}
       </nav>

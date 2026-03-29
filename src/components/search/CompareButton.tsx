@@ -43,7 +43,7 @@ export default function CompareButton({ facilityId }: { facilityId: string }) {
     <button
       onClick={toggle}
       className={`text-micro px-2 py-1 rounded-full border transition-colors ${
-        isAdded ? 'bg-sky-100 border-sky-300 text-sky-700 font-bold' : 'bg-white border-gray-200 text-gray-400 hover:border-sky-300'
+        isAdded ? 'bg-sky-100 border-sky-300 text-sky-700 font-bold' : 'bg-white border-gray-200 text-gray-600 hover:border-sky-300'
       }`}
       title={isAdded ? '比較から外す' : '比較に追加'}
       aria-label={isAdded ? '比較から外す' : '比較に追加'}

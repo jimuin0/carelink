@@ -44,7 +44,7 @@ export default function MobileBottomNav() {
               key={item.href}
               href={item.href}
               className={`flex-1 flex flex-col items-center py-2 text-[10px] transition-colors ${
-                isActive ? 'text-sky-500' : 'text-gray-400'
+                isActive ? 'text-sky-700' : 'text-gray-600'
               }`}
             >
               <svg className="w-5 h-5 mb-0.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24">
