@@ -2,12 +2,19 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 
 export async function POST(request: NextRequest) {
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown';
+    const isLimited = await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'rl:push-sub');
+    if (isLimited) {
+      return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
+    }
 
     const cookieStore = cookies();
     const supabase = createServerClient(

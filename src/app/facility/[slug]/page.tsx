@@ -80,6 +80,10 @@ export default async function FacilityPage({ params }: Props) {
     getCouponsByFacility(facility.id),
     getCatalogsByFacility(facility.id),
   ]);
+  const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs'];
+  results.forEach((r, i) => {
+    if (r.status === 'rejected') console.error(`[facility/${params.slug}] ${queryNames[i]} fetch failed:`, r.reason);
+  });
   const menus: FacilityMenu[] = results[0].status === 'fulfilled' ? results[0].value.menus : [];
   const photos: FacilityPhoto[] = results[1].status === 'fulfilled' ? results[1].value.photos : [];
   const reviews: FacilityReview[] = results[2].status === 'fulfilled' ? results[2].value.reviews : [];

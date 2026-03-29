@@ -64,10 +64,16 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
 
   useEffect(() => {
     if ((!isDirty && photos.length === 0) || submitted) return;
-    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ''; };
     window.addEventListener('beforeunload', handler);
     return () => window.removeEventListener('beforeunload', handler);
   }, [isDirty, photos.length, submitted]);
+
+  // Cleanup blob URLs on unmount to prevent memory leaks
+  useEffect(() => {
+    return () => { photoPreviews.forEach((url) => URL.revokeObjectURL(url)); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
