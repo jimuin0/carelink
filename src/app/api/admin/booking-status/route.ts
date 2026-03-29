@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/nextjs';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 const validStatuses = ['confirmed', 'completed', 'cancelled', 'no_show'];
 
@@ -12,6 +13,11 @@ export async function POST(request: Request) {
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'admin-status')) {
+      return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
+    }
 
     const body = await request.json();
     const { bookingId, status, reason } = body;

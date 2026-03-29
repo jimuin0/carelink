@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendBookingCancelled } from '@/lib/email';
 import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -10,6 +11,11 @@ export async function POST(_request: Request, { params }: { params: { id: string
   try {
   const csrfError = checkCsrf(_request);
   if (csrfError) return csrfError;
+
+  const ip = _request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'cancel')) {
+    return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
+  }
 
   if (!uuidRegex.test(params.id)) {
     return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });

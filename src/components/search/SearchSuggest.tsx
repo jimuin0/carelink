@@ -21,6 +21,8 @@ export default function SearchSuggest({ query, onSelect, visible, onClose }: Pro
   const router = useRouter();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const abortRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     if (!query || query.length < 1) {
       setResults({ facilities: [], areas: [] });
@@ -28,15 +30,23 @@ export default function SearchSuggest({ query, onSelect, visible, onClose }: Pro
     }
 
     if (timerRef.current) clearTimeout(timerRef.current);
+    abortRef.current?.abort();
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     timerRef.current = setTimeout(() => {
-      fetch(`/api/facilities/suggest?q=${encodeURIComponent(query)}`)
+      fetch(`/api/facilities/suggest?q=${encodeURIComponent(query)}`, {
+        signal: controller.signal,
+      })
         .then((r) => r.json())
-        .then((data) => setResults(data))
-        .catch(() => {});
+        .then((data) => { if (!controller.signal.aborted) setResults(data); })
+        .catch((err) => { if (err.name !== 'AbortError') setResults({ facilities: [], areas: [] }); });
     }, 300);
 
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
+      controller.abort();
     };
   }, [query]);
 

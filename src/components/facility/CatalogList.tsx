@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import Image from 'next/image';
 import type { TreatmentCatalog, StaffProfile, FacilityMenu } from '@/types';
 import { SHIMMER_BLUR } from '@/lib/image-utils';
@@ -16,6 +16,7 @@ interface Props {
 
 export default function CatalogList({ catalogs, staff, menus }: Props) {
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const allTags = useMemo(() => Array.from(new Set(catalogs.flatMap((c) => c.tags || []))), [catalogs]);
 
   if (catalogs.length === 0) {
     return (
@@ -24,8 +25,6 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
       </div>
     );
   }
-
-  const allTags = Array.from(new Set(catalogs.flatMap((c) => c.tags || [])));
   const filtered = selectedTag ? catalogs.filter((c) => c.tags?.includes(selectedTag)) : catalogs;
 
   const getStaffName = (staffId?: string | null) => {

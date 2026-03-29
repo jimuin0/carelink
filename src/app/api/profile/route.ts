@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 
 const profileSchema = z.object({
@@ -18,6 +19,11 @@ export async function PUT(request: Request) {
   try {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
+
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'profile')) {
+    return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
+  }
 
   const body = await request.json();
   const parsed = profileSchema.safeParse(body);

@@ -21,6 +21,10 @@ export const notifyRateLimit = redis
   ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, '60 s'), prefix: 'rl:notify' })
   : null;
 
+export const mutationRateLimit = redis
+  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, '60 s'), prefix: 'rl:mutation' })
+  : null;
+
 // in-memory fallback (Upstash未設定時)
 const store = new Map<string, number[]>();
 

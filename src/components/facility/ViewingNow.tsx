@@ -1,13 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useRef } from 'react';
 
 export default function ViewingNow({ viewCount }: { viewCount: number }) {
-  const [viewers, setViewers] = useState(0);
-
-  useEffect(() => {
-    setViewers(Math.max(1, Math.floor(viewCount / 100) + Math.floor(Math.random() * 3) + 1));
-  }, [viewCount]);
+  const randomOffset = useRef(Math.floor(Math.random() * 3) + 1);
+  const viewers = Math.max(1, Math.floor(viewCount / 100) + randomOffset.current);
 
   if (viewers <= 0) return null;
 

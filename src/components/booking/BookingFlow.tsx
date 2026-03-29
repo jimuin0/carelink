@@ -49,34 +49,38 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   useEffect(() => {
     if (!selectedDate || selectedMenus.length === 0) return;
     if (selectedStaff === null && staff.length === 0) return;
+    const controller = new AbortController();
     setSlotsLoading(true);
     setSlots([]);
     setSelectedSlot(null);
 
     if (selectedStaff) {
       fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
-        signal: AbortSignal.timeout(10000),
+        signal: controller.signal,
       })
         .then((r) => r.json())
-        .then((data) => setSlots(data.slots ?? []))
-        .catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
-        .finally(() => setSlotsLoading(false));
+        .then((data) => { if (!controller.signal.aborted) setSlots(data.slots ?? []); })
+        .catch((err) => { if (err.name !== 'AbortError') setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); })
+        .finally(() => { if (!controller.signal.aborted) setSlotsLoading(false); });
     } else {
       Promise.all(
         staff.map((s) =>
           fetch(`/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${selectedDate}&duration=${totalDuration}`, {
-            signal: AbortSignal.timeout(10000),
+            signal: controller.signal,
           }).then((r) => r.json()).catch(() => ({ slots: [] }))
         )
       ).then((results) => {
+        if (controller.signal.aborted) return;
         const merged = new Map<string, AvailableSlot>();
         results.forEach((r) => {
           (r.slots ?? []).forEach((slot: AvailableSlot) => merged.set(slot.slot_start, slot));
         });
         setSlots(Array.from(merged.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start)));
-      }).catch(() => setToast({ type: 'error', message: '空き枠の取得に失敗しました' }))
-        .finally(() => setSlotsLoading(false));
+      }).catch((err) => { if (err.name !== 'AbortError') setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); })
+        .finally(() => { if (!controller.signal.aborted) setSlotsLoading(false); });
     }
+
+    return () => controller.abort();
   }, [selectedDate, selectedStaff, selectedMenus, facility.id, totalDuration, staff]);
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);

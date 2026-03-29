@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import * as Sentry from '@sentry/nextjs';
 
@@ -9,6 +10,11 @@ export async function POST(request: Request) {
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
+
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'complete')) {
+      return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
+    }
 
     const body = await request.json();
     const { bookingId } = body;

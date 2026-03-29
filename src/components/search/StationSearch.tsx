@@ -13,7 +13,7 @@ export default function StationSearch() {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
-    fetch('/api/stations')
+    fetch('/api/stations', { signal: AbortSignal.timeout(10000) })
       .then((r) => r.json())
       .then((data) => setStations(data.stations || []))
       .catch(() => {})
