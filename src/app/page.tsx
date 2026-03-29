@@ -87,21 +87,21 @@ const featureBanners = [
   {
     title: '春のヘアチェンジ特集',
     subtitle: 'イメチェンするなら今がチャンス',
-    image: 'https://images.unsplash.com/photo-1560066984-138dadb4c035?w=600&h=300&fit=crop',
+    image: '/images/banner-hair.webp',
     href: '/search?keyword=ヘアカラー カット',
     color: 'from-transparent via-transparent to-black/60',
   },
   {
     title: '疲れたカラダにご褒美リラク',
     subtitle: '至福のひとときを見つけよう',
-    image: 'https://images.unsplash.com/photo-1544161515-4ab6ce6db874?w=600&h=300&fit=crop',
+    image: '/images/banner-relax.webp',
     href: '/search?type=リラクサロン',
     color: 'from-transparent via-transparent to-black/60',
   },
   {
     title: '理想の目元をつくる',
     subtitle: 'まつ毛パーマ・エクステ特集',
-    image: 'https://images.unsplash.com/photo-1588516903720-8ceb67f9ef84?w=600&h=300&fit=crop',
+    image: '/images/banner-eyelash.webp',
     href: '/search?type=ネイル・まつげサロン',
     color: 'from-transparent via-transparent to-black/60',
   },
@@ -186,7 +186,7 @@ export default async function Home() {
         {/* Background image */}
         <div className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1560066984-138dadb4c035?w=1200&q=70&auto=format"
+            src="/images/hero.webp"
             alt=""
             fill
             sizes="100vw"
@@ -514,7 +514,7 @@ export default async function Home() {
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
           <Image
-            src="https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9?w=1200&q=60&auto=format"
+            src="/images/cta.webp"
             alt=""
             fill
             sizes="100vw"

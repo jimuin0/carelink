@@ -1,12 +1,14 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
 import Footer from '@/components/Footer';
 import SearchHeader from '@/components/search/SearchHeader';
 import SearchFooter from '@/components/search/SearchFooter';
-import MobileBottomNav from '@/components/search/MobileBottomNav';
 import { isValidPrefectureSlug } from '@/lib/seo-constants';
+
+const MobileBottomNav = dynamic(() => import('@/components/search/MobileBottomNav'), { ssr: false });
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();

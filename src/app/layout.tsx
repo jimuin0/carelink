@@ -3,8 +3,10 @@ import { Noto_Sans_JP } from "next/font/google";
 import Script from "next/script";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import dynamic from "next/dynamic";
 import LayoutSwitch from "@/components/LayoutSwitch";
-import CookieConsent from "@/components/CookieConsent";
+
+const CookieConsent = dynamic(() => import("@/components/CookieConsent"), { ssr: false });
 import "./globals.css";
 
 const notoSansJP = Noto_Sans_JP({
@@ -33,7 +35,7 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.json',
   other: {
-    'theme-color': '#0EA5E9',
+    'theme-color': '#0284C7',
   },
 };
 
@@ -50,35 +52,23 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <head>
-        <link rel="preconnect" href="https://images.unsplash.com" />
-        <link rel="dns-prefetch" href="https://images.unsplash.com" />
-        {gaId && (
-          <>
-            <link rel="preconnect" href="https://www.googletagmanager.com" />
-            <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
-          </>
-        )}
-        {clarityId && (
-          <>
-            <link rel="preconnect" href="https://www.clarity.ms" />
-            <link rel="dns-prefetch" href="https://www.clarity.ms" />
-          </>
-        )}
+        {gaId && <link rel="dns-prefetch" href="https://www.googletagmanager.com" />}
+        {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}
       </head>
       <body className={`${notoSansJP.className} antialiased min-h-screen flex flex-col`}>
         {gaId && (
           <>
             <Script
               src={`https://www.googletagmanager.com/gtag/js?id=${gaId}`}
-              strategy="afterInteractive"
+              strategy="lazyOnload"
             />
-            <Script id="ga4" strategy="afterInteractive">
+            <Script id="ga4" strategy="lazyOnload">
               {`window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','${gaId}');`}
             </Script>
           </>
         )}
         {clarityId && (
-          <Script id="clarity" strategy="afterInteractive">
+          <Script id="clarity" strategy="lazyOnload">
             {`(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","${clarityId}");`}
           </Script>
         )}
