@@ -24,7 +24,7 @@ import QASection from '@/components/facility/QASection';
 import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import NearbyFacilities from '@/components/facility/NearbyFacilities';
-import type { Facility, FacilityMenu } from '@/types';
+import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
@@ -72,7 +72,7 @@ export default async function FacilityPage({ params }: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [{ menus }, { photos }, { reviews }, staff, coupons, catalogs] = await Promise.all([
+  const results = await Promise.allSettled([
     getFacilityMenus(facility.id),
     getFacilityPhotos(facility.id),
     getFacilityReviews(facility.id),
@@ -80,6 +80,12 @@ export default async function FacilityPage({ params }: Props) {
     getCouponsByFacility(facility.id),
     getCatalogsByFacility(facility.id),
   ]);
+  const menus: FacilityMenu[] = results[0].status === 'fulfilled' ? results[0].value.menus : [];
+  const photos: FacilityPhoto[] = results[1].status === 'fulfilled' ? results[1].value.photos : [];
+  const reviews: FacilityReview[] = results[2].status === 'fulfilled' ? results[2].value.reviews : [];
+  const staff: StaffProfile[] = results[3].status === 'fulfilled' ? results[3].value : [];
+  const coupons: Coupon[] = results[4].status === 'fulfilled' ? results[4].value : [];
+  const catalogs: TreatmentCatalog[] = results[5].status === 'fulfilled' ? results[5].value : [];
 
   const featuredMenus = menus.filter((m) => m.is_featured).slice(0, 3);
 

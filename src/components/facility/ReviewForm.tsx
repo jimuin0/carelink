@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -49,7 +49,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
   const [photos, setPhotos] = useState<File[]>([]);
   const [photoPreviews, setPhotoPreviews] = useState<string[]>([]);
 
-  const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting }, reset } = useForm<ReviewFormData>({
+  const { register, handleSubmit, setValue, watch, formState: { errors, isSubmitting, isDirty }, reset } = useForm<ReviewFormData>({
     resolver: zodResolver(reviewSchema),
     defaultValues: {
       reviewer_name: '',
@@ -61,6 +61,13 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
       comment: '',
     },
   });
+
+  useEffect(() => {
+    if ((!isDirty && photos.length === 0) || submitted) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty, photos.length, submitted]);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -219,9 +226,9 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
               </div>
             ))}
             {photos.length < MAX_PHOTOS && (
-              <label className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-sky-400 transition-colors">
+              <label className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-sky-400 transition-colors" aria-label="写真を追加">
                 <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" />
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" aria-label="口コミ写真を選択" />
               </label>
             )}
           </div>

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import type { FacilityReview } from '@/types';
 import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
@@ -173,8 +174,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
               <div className="flex gap-2 mt-3">
                 {review.photo_urls.map((url, i) => (
                   <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden bg-gray-200">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={url} alt={`${review.reviewer_name}さんの口コミ写真${i + 1}`} className="w-full h-full object-cover" />
+                    <Image src={url} alt={`${review.reviewer_name}さんの口コミ写真${i + 1}`} fill className="object-cover" sizes="64px" />
                   </div>
                 ))}
               </div>

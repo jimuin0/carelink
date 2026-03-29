@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Link from 'next/link';
 import Toast from '@/components/Toast';
@@ -93,10 +94,9 @@ export default function PreferredStaffPage() {
         <div className="space-y-3">
           {staff.map((s) => (
             <div key={s.id} className="bg-white rounded-xl shadow-sm p-4 flex items-center gap-4">
-              <div className="w-12 h-12 rounded-full bg-sky-100 overflow-hidden shrink-0 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-full bg-sky-100 overflow-hidden shrink-0 flex items-center justify-center relative">
                 {s.staff_photo ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={s.staff_photo} alt={s.staff_name} className="w-full h-full object-cover" />
+                  <Image src={s.staff_photo} alt={s.staff_name} fill className="object-cover" sizes="48px" />
                 ) : (
                   <span className="text-sky-500 font-bold">{s.staff_name.charAt(0)}</span>
                 )}

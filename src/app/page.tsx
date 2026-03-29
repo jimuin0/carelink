@@ -534,6 +534,37 @@ export default async function Home() {
           </Link>
         </div>
       </div>
+
+      {/* JSON-LD: Organization */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'Organization',
+            name: 'CareLink',
+            url: 'https://www.carelink-jp.com',
+            description: 'ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約できるプラットフォーム',
+          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+        }}
+      />
+      {/* JSON-LD: WebSite with SearchAction */}
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            '@context': 'https://schema.org',
+            '@type': 'WebSite',
+            name: 'CareLink',
+            url: 'https://www.carelink-jp.com',
+            potentialAction: {
+              '@type': 'SearchAction',
+              target: 'https://www.carelink-jp.com/search?keyword={search_term_string}',
+              'query-input': 'required name=search_term_string',
+            },
+          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+        }}
+      />
     </div>
   );
 }

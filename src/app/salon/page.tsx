@@ -1,5 +1,17 @@
+import type { Metadata } from 'next';
 import Link from 'next/link';
 import FAQ from '@/components/FAQ';
+
+export const metadata: Metadata = {
+  title: '施設を掲載しませんか？ | CareLink',
+  description: 'CareLink（ケアリンク）は掲載料無料の美容・医療・福祉ポータルサイト。最短3分で掲載登録完了。新規のお客様に施設を知ってもらいましょう。',
+  alternates: { canonical: '/salon' },
+  openGraph: {
+    title: '施設を掲載しませんか？ | CareLink',
+    description: '掲載料無料。登録3分・すぐに集客開始。',
+    type: 'website',
+  },
+};
 
 const faqItems = [
   {

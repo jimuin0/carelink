@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import type { FacilityMenu } from '@/types';
@@ -204,8 +205,7 @@ export default function AdminMenusPage() {
                 <input id="menu-photo" value={editForm.photo_url} onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })} className="form-input" placeholder="https://xxx.supabase.co/storage/v1/..." maxLength={500} />
                 {editForm.photo_url && (
                   <div className="mt-2 w-20 h-20 relative rounded-lg overflow-hidden bg-gray-100">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={editForm.photo_url} alt="プレビュー" className="w-full h-full object-cover" />
+                    <Image src={editForm.photo_url} alt="プレビュー" fill className="object-cover" sizes="80px" unoptimized />
                   </div>
                 )}
               </div>
@@ -238,8 +238,7 @@ export default function AdminMenusPage() {
                   <div key={menu.id} className="flex items-center gap-4 p-4">
                     {menu.photo_url && (
                       <div className="shrink-0 w-12 h-12 relative rounded-lg overflow-hidden bg-gray-100">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={menu.photo_url} alt={menu.name} className="w-full h-full object-cover" />
+                        <Image src={menu.photo_url} alt={menu.name} fill className="object-cover" sizes="48px" unoptimized />
                       </div>
                     )}
                     <div className="flex-1 min-w-0">

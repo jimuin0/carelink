@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 
@@ -177,8 +178,7 @@ export default function AdminFeaturesPage() {
                 <input id="feat-image" value={editForm.image_url} onChange={(e) => setEditForm({ ...editForm, image_url: e.target.value })} className="form-input" maxLength={500} placeholder="https://xxx.supabase.co/storage/v1/..." />
                 {editForm.image_url && (
                   <div className="mt-2 w-full h-32 relative rounded-lg overflow-hidden bg-gray-100">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={editForm.image_url} alt="プレビュー" className="w-full h-full object-cover" />
+                    <Image src={editForm.image_url} alt="プレビュー" fill className="object-cover" sizes="100%" unoptimized />
                   </div>
                 )}
               </div>
@@ -219,8 +219,7 @@ export default function AdminFeaturesPage() {
             <div key={feature.id} className="flex items-center gap-4 p-4">
               {feature.image_url ? (
                 <div className="shrink-0 w-16 h-12 relative rounded-lg overflow-hidden bg-gray-100">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={feature.image_url} alt={feature.title} className="w-full h-full object-cover" />
+                  <Image src={feature.image_url} alt={feature.title} fill className="object-cover" sizes="64px" unoptimized />
                 </div>
               ) : (
                 <div className="shrink-0 w-16 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
