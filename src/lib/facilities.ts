@@ -168,35 +168,6 @@ export async function getLatestFacilities(limit = 6) {
   return { facilities: (data || []) as FacilityCardData[], error };
 }
 
-export async function getLatestReviews(limit = 6) {
-  const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from('facility_reviews')
-    .select('id, rating, comment, reviewer_name, created_at, facility_id')
-    .eq('status', 'published')
-    .order('created_at', { ascending: false })
-    .limit(limit);
-
-  if (!data || data.length === 0) return { reviews: [] as LatestReviewWithFacility[], error };
-
-  // Fetch facility names for these reviews
-  const facilityIds = Array.from(new Set(data.map((r) => r.facility_id)));
-  const { data: facilities } = await supabase
-    .from('facility_profiles')
-    .select('id, name, slug')
-    .in('id', facilityIds);
-
-  const facilityMap = new Map((facilities || []).map((f) => [f.id, f]));
-
-  const reviews = data.map((r) => ({
-    ...r,
-    facility_name: facilityMap.get(r.facility_id)?.name || '',
-    facility_slug: facilityMap.get(r.facility_id)?.slug || '',
-  }));
-
-  return { reviews: reviews as LatestReviewWithFacility[], error };
-}
-
 // Check which facilities have availability on a given date/time
 export async function getAvailableFacilityIds(
   facilityIds: string[],
@@ -336,13 +307,3 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
   return counts;
 }
 
-export interface LatestReviewWithFacility {
-  id: string;
-  rating: number;
-  comment: string | null;
-  reviewer_name: string;
-  created_at: string;
-  facility_id: string;
-  facility_name: string;
-  facility_slug: string;
-}
