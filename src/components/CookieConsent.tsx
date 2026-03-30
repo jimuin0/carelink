@@ -16,6 +16,11 @@ export default function CookieConsent() {
     setVisible(false);
   };
 
+  const decline = () => {
+    localStorage.setItem('cookie-consent', 'declined');
+    setVisible(false);
+  };
+
   if (!visible) return null;
 
   return (
@@ -28,12 +33,20 @@ export default function CookieConsent() {
           </Link>
           をご覧ください。
         </p>
-        <button
-          onClick={accept}
-          className="shrink-0 bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors"
-        >
-          同意する
-        </button>
+        <div className="flex gap-2 shrink-0">
+          <button
+            onClick={decline}
+            className="text-sm px-4 py-2 text-gray-300 hover:text-white transition-colors"
+          >
+            拒否する
+          </button>
+          <button
+            onClick={accept}
+            className="bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors"
+          >
+            同意する
+          </button>
+        </div>
       </div>
     </div>
   );

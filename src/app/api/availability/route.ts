@@ -55,23 +55,26 @@ export async function GET(request: Request) {
 
     const dates: Record<string, { slots: number; status: 'available' | 'few' | 'full' }> = {};
 
-    // Query each date in parallel (batched)
-    const promises: Promise<void>[] = [];
-
+    // Build list of future dates to check
+    const futureDates: string[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const dateObj = new Date(dateStr + 'T00:00:00+09:00');
-
-      // Skip past dates
       if (dateObj < today) {
         dates[dateStr] = { slots: 0, status: 'full' };
-        continue;
+      } else {
+        futureDates.push(dateStr);
       }
+    }
 
-      const promise = (async () => {
+    // Process dates in batches to limit concurrent DB calls
+    const BATCH_SIZE = 5;
+    for (let i = 0; i < futureDates.length; i += BATCH_SIZE) {
+      const batch = futureDates.slice(i, i + BATCH_SIZE);
+      await Promise.all(batch.map(async (dateStr) => {
         let totalSlots = 0;
 
-        // Check slots for each staff member
+        // Check slots for each staff member sequentially per date
         for (const sid of staffIds) {
           const { data } = await supabase.rpc('get_available_slots', {
             p_facility_id: facilityId,
@@ -80,24 +83,15 @@ export async function GET(request: Request) {
             p_duration_minutes: 60,
           });
           totalSlots += (data || []).length;
+          // Early exit: once we know enough slots exist, skip remaining staff
+          if (totalSlots >= 3) break;
         }
 
-        let status: 'available' | 'few' | 'full';
-        if (totalSlots >= 3) {
-          status = 'available';
-        } else if (totalSlots >= 1) {
-          status = 'few';
-        } else {
-          status = 'full';
-        }
-
+        const status: 'available' | 'few' | 'full' =
+          totalSlots >= 3 ? 'available' : totalSlots >= 1 ? 'few' : 'full';
         dates[dateStr] = { slots: totalSlots, status };
-      })();
-
-      promises.push(promise);
+      }));
     }
-
-    await Promise.all(promises);
 
     return NextResponse.json({ dates });
   } catch (e) {

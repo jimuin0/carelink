@@ -33,14 +33,25 @@ describe('checkCsrf', () => {
     expect((res as any).status).toBe(403);
   });
 
-  test('originヘッダーなしの場合はnullを返す（通過）', () => {
+  test('originもrefererもない場合は403を返す', () => {
     const req = makeRequest({ host: 'carelink.jp' });
+    const res = checkCsrf(req);
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
+  });
+
+  test('refererのみでorigin一致時はnullを返す（通過）', () => {
+    const req = makeRequest({ referer: 'https://carelink.jp/page', host: 'carelink.jp' });
     expect(checkCsrf(req)).toBeNull();
   });
 
-  test('hostヘッダーなしの場合はnullを返す（通過）', () => {
+  test('hostヘッダーなしの場合は403を返す', () => {
     const req = makeRequest({ origin: 'https://carelink.jp' });
-    expect(checkCsrf(req)).toBeNull();
+    const res = checkCsrf(req);
+    expect(res).not.toBeNull();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    expect((res as any).status).toBe(403);
   });
 
   test('localhost同士は通過する', () => {

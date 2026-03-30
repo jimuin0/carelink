@@ -79,16 +79,25 @@ export default function BookingChangePage() {
     if (!booking || !selectedSlot || submitting) return;
     setSubmitting(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.from('bookings').update({
-        booking_date: selectedDate,
-        start_time: selectedSlot.slot_start,
-        end_time: selectedSlot.slot_end,
-        updated_at: new Date().toISOString(),
-      }).eq('id', bookingId);
-      if (error) throw error;
-      setToast({ type: 'success', message: '日時を変更しました' });
-      setTimeout(() => router.push('/mypage/bookings'), 1500);
+      const res = await fetch(`/api/booking/${bookingId}/change`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-csrf-token': '1',
+        },
+        body: JSON.stringify({
+          booking_date: selectedDate,
+          start_time: selectedSlot.slot_start,
+          end_time: selectedSlot.slot_end,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setToast({ type: 'error', message: data.error || '変更に失敗しました' });
+      } else {
+        setToast({ type: 'success', message: '日時を変更しました' });
+        setTimeout(() => router.push('/mypage/bookings'), 1500);
+      }
     } catch { setToast({ type: 'error', message: '変更に失敗しました' }); }
     setSubmitting(false);
   };

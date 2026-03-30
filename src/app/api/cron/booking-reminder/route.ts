@@ -1,4 +1,4 @@
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 
@@ -13,12 +13,13 @@ export async function GET(request: Request) {
   }
 
   try {
-    const supabase = createServerSupabaseClient();
+    // Use service role client to bypass RLS (cron has no auth context)
+    const supabase = createServiceRoleClient();
 
-    // Get tomorrow's date in JST
-    const tomorrow = new Date();
-    tomorrow.setHours(tomorrow.getHours() + 9); // UTC to JST
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // Get tomorrow's date in JST (UTC+9)
+    const now = new Date();
+    const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    const tomorrow = new Date(jstNow.getTime() + 24 * 60 * 60 * 1000);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
     // Find confirmed bookings for tomorrow

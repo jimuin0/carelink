@@ -30,21 +30,26 @@ export async function getAreaBySlug(slug: string): Promise<Area | null> {
 
 export async function getAreaBreadcrumb(area: Area): Promise<Area[]> {
   const supabase = createServerSupabaseClient();
-  const breadcrumb: Area[] = [area];
-  let current = area;
+
+  // Collect all parent IDs first, then fetch in a single query
+  const parentIds: string[] = [];
+  let currentId = area.parent_id;
+  // Pre-fetch all areas to avoid N+1 (areas table is small)
+  const { data: allAreas } = await supabase.from('areas').select('*');
+  const areaMap = new Map((allAreas ?? []).map((a) => [a.id, a as Area]));
 
   let depth = 0;
-  while (current.parent_id && depth < 10) {
-    const { data } = await supabase
-      .from('areas')
-      .select('*')
-      .eq('id', current.parent_id)
-      .single();
-    if (!data) break;
-    breadcrumb.unshift(data as Area);
-    current = data as Area;
+  while (currentId && depth < 10) {
+    parentIds.unshift(currentId);
+    const parent = areaMap.get(currentId);
+    if (!parent) break;
+    currentId = parent.parent_id;
     depth++;
   }
 
+  const breadcrumb: Area[] = parentIds
+    .map((id) => areaMap.get(id))
+    .filter((a): a is Area => !!a);
+  breadcrumb.push(area);
   return breadcrumb;
 }

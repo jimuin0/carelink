@@ -4,6 +4,8 @@ import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogPost } from '@/lib/blog';
 
+export const revalidate = 3600;
+
 function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
   if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;

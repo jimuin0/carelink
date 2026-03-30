@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createServerSupabaseClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 
@@ -86,7 +87,7 @@ export async function getPopularFacilities(limit = 6) {
   return { facilities: (data || []) as FacilityCardData[], error };
 }
 
-export async function getFacilityBySlug(slug: string) {
+export const getFacilityBySlug = cache(async (slug: string) => {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
     .from('facility_profiles')
@@ -95,7 +96,7 @@ export async function getFacilityBySlug(slug: string) {
     .eq('status', 'published')
     .single();
   return { facility: data as Facility | null, error };
-}
+});
 
 export async function getFacilityMenus(facilityId: string) {
   const supabase = createServerSupabaseClient();

@@ -5,6 +5,8 @@ import { getFacilityBySlug } from '@/lib/facilities';
 import { getStaffByFacility } from '@/lib/staff';
 import StaffList from '@/components/facility/StaffList';
 
+export const revalidate = 3600;
+
 interface Props {
   params: { slug: string };
 }

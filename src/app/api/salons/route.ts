@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import * as Sentry from '@sentry/nextjs';
 
 export async function GET(req: NextRequest) {
+  try {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 20, 60_000, 'salons')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
@@ -41,4 +43,8 @@ export async function GET(req: NextRequest) {
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
   return NextResponse.json(data || []);
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'salons' } });
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 }

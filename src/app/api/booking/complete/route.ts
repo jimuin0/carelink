@@ -99,7 +99,7 @@ export async function POST(request: Request) {
     }
 
     // Insert customer visit record
-    await supabase.from('customer_visits').insert({
+    const { error: visitError } = await supabase.from('customer_visits').insert({
       facility_id: membership.facility_id,
       booking_id: booking.id,
       customer_email: booking.email,
@@ -109,18 +109,24 @@ export async function POST(request: Request) {
       staff_name: staffName,
       amount: booking.total_price,
     });
+    if (visitError) {
+      Sentry.captureException(visitError, { tags: { feature: 'booking-complete', step: 'visit-insert' } });
+    }
 
     // Calculate and insert points (1 point per 100 yen)
     let pointsEarned = 0;
     if (booking.user_id && booking.total_price && booking.total_price > 0) {
       pointsEarned = Math.floor(booking.total_price / 100);
       if (pointsEarned > 0) {
-        await supabase.from('user_points').insert({
+        const { error: pointError } = await supabase.from('user_points').insert({
           user_id: booking.user_id,
           points: pointsEarned,
           reason: '来店ポイント',
           booking_id: booking.id,
         });
+        if (pointError) {
+          Sentry.captureException(pointError, { tags: { feature: 'booking-complete', step: 'point-insert' } });
+        }
       }
     }
 

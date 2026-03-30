@@ -4,6 +4,8 @@ import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
 import { prefectures } from '@/lib/constants';
 
+export const revalidate = 3600;
+
 export const metadata: Metadata = {
   title: '人気ランキング | CareLink',
   description: '口コミ評価の高い美容・医療・福祉施設をランキング形式でご紹介。エリア別のランキングもご覧いただけます。',

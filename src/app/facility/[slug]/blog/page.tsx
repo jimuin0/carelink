@@ -5,6 +5,8 @@ import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogsByFacility } from '@/lib/blog';
 
+export const revalidate = 3600;
+
 interface Props {
   params: { slug: string };
 }

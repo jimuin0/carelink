@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -70,9 +70,10 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
   }, [isDirty, photos.length, submitted]);
 
   // Cleanup blob URLs on unmount to prevent memory leaks
+  const photoPreviewsRef = useRef(photoPreviews);
+  photoPreviewsRef.current = photoPreviews;
   useEffect(() => {
-    return () => { photoPreviews.forEach((url) => URL.revokeObjectURL(url)); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { photoPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url)); };
   }, []);
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {

@@ -15,7 +15,7 @@ export default function Header() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden sm:flex items-center gap-6">
+          <nav className="hidden sm:flex items-center gap-6" aria-label="メインナビゲーション">
             <Link
               href="/search"
               className="text-gray-700 hover:text-primary font-medium transition-colors"
@@ -59,7 +59,7 @@ export default function Header() {
             isOpen ? 'max-h-64 opacity-100' : 'max-h-0 opacity-0'
           }`}
         >
-          <nav className="pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4">
+          <nav className="pb-4 border-t border-gray-100 pt-4 flex flex-col gap-4" aria-label="モバイルナビゲーション">
             <Link
               href="/search"
               className="text-gray-700 font-medium hover:text-primary transition-colors"

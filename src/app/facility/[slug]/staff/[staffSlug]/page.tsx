@@ -5,6 +5,8 @@ import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getStaffBySlug, getStaffPhotos } from '@/lib/staff';
 
+export const revalidate = 3600;
+
 interface Props {
   params: { slug: string; staffSlug: string };
 }
@@ -67,7 +69,7 @@ export default async function StaffDetailPage({ params }: Props) {
               {staff.years_experience && (
                 <p className="text-sm text-gray-500">経験{staff.years_experience}年</p>
               )}
-              {staff.instagram_url && (
+              {staff.instagram_url && /^https?:\/\//i.test(staff.instagram_url) && (
                 <a
                   href={staff.instagram_url}
                   target="_blank"

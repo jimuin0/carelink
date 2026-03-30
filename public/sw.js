@@ -1,4 +1,4 @@
-const CACHE_NAME = 'carelink-v1';
+const CACHE_NAME = 'carelink-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -67,8 +67,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'CareLink';
   const options = {
     body: data.body || '',
-    icon: '/icons/icon-192.png',
-    badge: '/icons/icon-72.png',
+    icon: '/icons/icon-192.svg',
+    badge: '/icons/icon-192.svg',
     data: { url: data.url || '/' },
     tag: data.tag || 'carelink-notification',
   };

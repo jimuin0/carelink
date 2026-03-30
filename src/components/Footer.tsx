@@ -118,7 +118,7 @@ export default function Footer() {
           {/* Service Links */}
           <div>
             <h3 className="text-white font-bold text-sm mb-4">サービス</h3>
-            <nav className="flex flex-col gap-2 text-sm">
+            <nav className="flex flex-col gap-2 text-sm" aria-label="サービスリンク">
               <Link href="/search" className="hover:text-white transition-colors">
                 サロンを探す
               </Link>
@@ -134,7 +134,7 @@ export default function Footer() {
           {/* Legal Links */}
           <div>
             <h3 className="text-white font-bold text-sm mb-4">その他</h3>
-            <nav className="flex flex-col gap-2 text-sm">
+            <nav className="flex flex-col gap-2 text-sm" aria-label="法的情報">
               <Link href="/privacy" className="hover:text-white transition-colors">
                 プライバシーポリシー
               </Link>

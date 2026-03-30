@@ -6,6 +6,8 @@ import { getFacilityBySlug } from '@/lib/facilities';
 import { getCatalogsByFacility } from '@/lib/catalogs';
 import BeforeAfterSlider from '@/components/catalog/BeforeAfterSlider';
 
+export const revalidate = 3600;
+
 interface Props {
   params: { slug: string };
 }

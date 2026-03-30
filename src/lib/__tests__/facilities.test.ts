@@ -1,5 +1,10 @@
 const mockFrom = jest.fn();
 
+jest.mock('react', () => ({
+  ...jest.requireActual('react'),
+  cache: (fn: unknown) => fn,
+}));
+
 jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom }),
 }));

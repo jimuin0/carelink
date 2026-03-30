@@ -65,8 +65,41 @@ export async function POST(request: Request) {
     }
   }
 
+  // Server-side price calculation (do not trust client total_price)
+  let serverTotalPrice: number | null = null;
+  if (parsed.data.menu_id) {
+    const { data: menuRow } = await supabase
+      .from('facility_menus')
+      .select('price')
+      .eq('id', parsed.data.menu_id)
+      .eq('facility_id', parsed.data.facility_id)
+      .single();
+    if (menuRow) {
+      serverTotalPrice = menuRow.price;
+      // Apply coupon discount if provided
+      if (parsed.data.coupon_id) {
+        const { data: coupon } = await supabase
+          .from('facility_coupons')
+          .select('discount_type, discount_value')
+          .eq('id', parsed.data.coupon_id)
+          .eq('facility_id', parsed.data.facility_id)
+          .single();
+        if (coupon && serverTotalPrice != null) {
+          if (coupon.discount_type === 'percentage') {
+            serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
+          } else if (coupon.discount_type === 'fixed') {
+            serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
+          }
+        }
+      }
+    }
+  }
+
   // Handle points deduction
   const pointsUsed = parsed.data.points_used || 0;
+  if (pointsUsed > 0 && !user) {
+    return NextResponse.json({ error: 'ポイント利用には認証が必要です' }, { status: 401 });
+  }
   if (pointsUsed > 0 && user) {
     const { data: pointRows } = await supabase.from('user_points').select('points').eq('user_id', user.id);
     const balance = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
@@ -76,13 +109,14 @@ export async function POST(request: Request) {
   }
 
   // Strip non-DB fields before insert
-  const { points_used: _pointsUsed, ...bookingData } = parsed.data;
-  void _pointsUsed; // acknowledged
+  const { points_used: _pointsUsed, total_price: _clientPrice, ...bookingData } = parsed.data;
+  void _pointsUsed; void _clientPrice; // use server-calculated price
 
   const { data: inserted, error } = await supabase
     .from('bookings')
     .insert({
       ...bookingData,
+      total_price: serverTotalPrice,
       user_id: user?.id ?? null,
       status: 'pending',
     })
@@ -99,13 +133,25 @@ export async function POST(request: Request) {
 
   const newBookingId = inserted?.id || '';
 
-  // Deduct points
+  // Deduct points atomically: insert then verify balance didn't go negative
   if (pointsUsed > 0 && user && newBookingId) {
     await supabase.from('user_points').insert({
       user_id: user.id,
       points: -pointsUsed,
       reason: `予約利用 (${newBookingId.slice(0, 8)})`,
     });
+    // Re-verify balance to detect race condition
+    const { data: recheck } = await supabase.from('user_points').select('points').eq('user_id', user.id);
+    const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
+    if (newBalance < 0) {
+      // Rollback: delete the deduction record
+      await supabase.from('user_points').delete()
+        .eq('user_id', user.id)
+        .eq('reason', `予約利用 (${newBookingId.slice(0, 8)})`);
+      // Cancel the booking
+      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
+    }
   }
 
   // Send email notifications (non-blocking)

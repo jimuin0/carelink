@@ -84,7 +84,7 @@ export default function AdminSettingsPage() {
           dayOrder.forEach((d) => {
             if (!bh[d]) closed.push(d);
           });
-          setHours({ ...hours, ...bh });
+          setHours(prev => ({ ...prev, ...bh }));
           setClosedDays(closed);
         }
       }
