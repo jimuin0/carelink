@@ -17,6 +17,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${staff.name} | ${facility.name} | CareLink`,
     description: `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties?.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`,
+    alternates: { canonical: `/facility/${params.slug}/staff/${params.staffSlug}` },
   };
 }
 

@@ -15,6 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${area.name}のサロン・クリニック | CareLink`,
     description: `${area.name}エリアの美容・医療・福祉施設を検索。口コミ・メニュー・クーポン情報も掲載。`,
+    alternates: { canonical: `/search/area/${params.slug}` },
   };
 }
 

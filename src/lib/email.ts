@@ -66,6 +66,9 @@ function wrapHtml(body: string): string {
   </body></html>`;
 }
 
+// テスト用にpure関数をexport
+export { esc, formatDate, formatTime };
+
 /** メール送信ラッパー（エラーログ付き） */
 async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string) {
   try {

@@ -4,6 +4,7 @@ import Link from 'next/link';
 export const metadata: Metadata = {
   title: '利用規約',
   description: 'CareLinkのサービス利用規約。サービス概要・利用条件・禁止事項・免責事項等について定めています。',
+  alternates: { canonical: '/terms' },
 };
 
 export default function TermsPage() {

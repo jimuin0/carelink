@@ -9,6 +9,7 @@ export const revalidate = 3600;
 export const metadata: Metadata = {
   title: '特集一覧',
   description: 'CareLink の特集・おすすめ企画。季節やテーマに合わせたサロン・クリニック情報をお届けします。',
+  alternates: { canonical: '/feature' },
 };
 
 export default async function FeatureListPage() {

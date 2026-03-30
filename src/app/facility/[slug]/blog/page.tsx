@@ -15,6 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `ブログ | ${facility.name} | CareLink`,
     description: `${facility.name}のブログ記事一覧。最新情報やお役立ち情報をお届けします。`,
+    alternates: { canonical: `/facility/${params.slug}/blog` },
   };
 }
 

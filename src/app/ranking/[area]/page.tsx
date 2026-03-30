@@ -12,6 +12,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${area}の人気ランキング | CareLink`,
     description: `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`,
+    alternates: { canonical: `/ranking/${params.area}` },
   };
 }
 

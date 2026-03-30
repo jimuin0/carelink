@@ -37,6 +37,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${post.title} | ${facility.name} | CareLink`,
     description: post.content.slice(0, 120),
+    alternates: { canonical: `/facility/${params.slug}/blog/${params.postSlug}` },
   };
 }
 

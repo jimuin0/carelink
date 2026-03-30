@@ -7,6 +7,7 @@ import { prefectures } from '@/lib/constants';
 export const metadata: Metadata = {
   title: '人気ランキング | CareLink',
   description: '口コミ評価の高い美容・医療・福祉施設をランキング形式でご紹介。エリア別のランキングもご覧いただけます。',
+  alternates: { canonical: '/ranking' },
 };
 
 export default async function RankingPage() {
