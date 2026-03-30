@@ -137,7 +137,7 @@ export default async function StaffDetailPage({ params }: Props) {
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 {portfolioPhotos.map((photo) => (
                   <div key={photo.id} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100">
-                    <Image src={photo.photo_url} alt={photo.caption || '作品'} fill className="object-cover" />
+                    <Image src={photo.photo_url} alt={photo.caption || '作品'} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-cover" />
                     {photo.caption && (
                       <p className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs p-2 truncate">
                         {photo.caption}
@@ -159,7 +159,7 @@ export default async function StaffDetailPage({ params }: Props) {
               <div className="grid grid-cols-2 gap-3">
                 {beforeAfterPhotos.map((photo) => (
                   <div key={photo.id} className="relative aspect-[4/3] rounded-xl overflow-hidden bg-gray-100">
-                    <Image src={photo.photo_url} alt={photo.caption || 'ビフォーアフター'} fill className="object-cover" />
+                    <Image src={photo.photo_url} alt={photo.caption || 'ビフォーアフター'} fill sizes="50vw" className="object-cover" />
                     {photo.caption && (
                       <p className="absolute bottom-0 left-0 right-0 bg-black/50 text-white text-xs p-2 truncate">
                         {photo.caption}

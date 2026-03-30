@@ -58,7 +58,7 @@ export default async function FacilityBlogPage({ params }: Props) {
                   <div className="flex">
                     {post.thumbnail_url && (
                       <div className="relative w-28 h-28 sm:w-36 sm:h-36 shrink-0 bg-gray-100">
-                        <Image src={post.thumbnail_url} alt={post.title} fill className="object-cover" />
+                        <Image src={post.thumbnail_url} alt={post.title} fill sizes="144px" className="object-cover" />
                       </div>
                     )}
                     <div className="p-4 flex-1">
