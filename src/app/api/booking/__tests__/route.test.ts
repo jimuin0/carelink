@@ -215,7 +215,7 @@ describe('POST /api/booking', () => {
         return fluent({ data: { price: 10000 }, error: null });
       }
       if (callNum === 2) {
-        // facility_coupons discount lookup
+        // coupons discount lookup
         return fluent({ data: { discount_type: 'percentage', discount_value: 20 }, error: null });
       }
       if (callNum === 3) {

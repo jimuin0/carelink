@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       // Apply coupon discount if provided
       if (parsed.data.coupon_id) {
         const { data: coupon } = await supabase
-          .from('facility_coupons')
+          .from('coupons')
           .select('discount_type, discount_value')
           .eq('id', parsed.data.coupon_id)
           .eq('facility_id', parsed.data.facility_id)
