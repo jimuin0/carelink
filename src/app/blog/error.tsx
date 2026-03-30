@@ -1,11 +1,13 @@
 'use client';
 
 export default function BlogError({
+  error,
   reset,
 }: {
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  void error;
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="text-center">

@@ -7,6 +7,11 @@ export const metadata: Metadata = {
   title: 'コラム｜美容・健康の役立つ情報',
   description: '美容サロン・鍼灸院の利用ガイドや最新トレンド情報をお届け。初めてのサロン選びからケア方法まで役立つコラムが満載です。',
   alternates: { canonical: '/blog' },
+  openGraph: {
+    title: 'コラム｜美容・健康の役立つ情報 | CareLink',
+    description: '美容サロン・鍼灸院の利用ガイドや最新トレンド情報をお届け。',
+    type: 'website',
+  },
 };
 
 export default function BlogPage() {

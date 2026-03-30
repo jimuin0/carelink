@@ -155,6 +155,7 @@ export default function ContactPage() {
 
             <label className="flex items-start gap-2 text-sm text-gray-600">
               <input
+                id="contact-policy"
                 type="checkbox"
                 checked={agreed}
                 onChange={(e) => setAgreed(e.target.checked)}

@@ -121,12 +121,12 @@ export default function RecruitPage() {
             <div className="space-y-4">
               <div>
                 <label className="form-label">施設名 *</label>
-                <input {...register('facility_name')} className="form-input w-full" placeholder="例: ○○鍼灸院" />
+                <input {...register('facility_name')} className="form-input w-full" placeholder="例: ○○鍼灸院" aria-required="true" />
                 {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">業種 *</label>
-                <select {...register('business_type')} className="form-input w-full">
+                <select {...register('business_type')} className="form-input w-full" aria-required="true">
                   <option value="">選択してください</option>
                   {businessTypes.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
@@ -134,17 +134,17 @@ export default function RecruitPage() {
               </div>
               <div>
                 <label className="form-label">代表者名 *</label>
-                <input {...register('representative_name')} className="form-input w-full" />
+                <input {...register('representative_name')} className="form-input w-full" aria-required="true" />
                 {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">担当者名 *</label>
-                <input {...register('contact_name')} className="form-input w-full" />
+                <input {...register('contact_name')} className="form-input w-full" aria-required="true" />
                 {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">メールアドレス *</label>
-                <input type="email" {...register('email')} className="form-input w-full" />
+                <input type="email" {...register('email')} className="form-input w-full" aria-required="true" />
                 {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
               </div>
               <div>

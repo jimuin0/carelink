@@ -2,6 +2,13 @@ import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { prefectures } from '@/lib/constants';
+
+export const revalidate = 3600;
+
+export function generateStaticParams() {
+  return prefectures.map((area) => ({ area: encodeURIComponent(area) }));
+}
 
 interface Props {
   params: { area: string };
@@ -9,10 +16,13 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const area = decodeURIComponent(params.area);
+  const title = `${area}の人気ランキング | CareLink`;
+  const description = `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`;
   return {
-    title: `${area}の人気ランキング | CareLink`,
-    description: `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`,
+    title,
+    description,
     alternates: { canonical: `/ranking/${params.area}` },
+    openGraph: { title, description, type: 'website' },
   };
 }
 
@@ -37,12 +47,15 @@ export default async function AreaRankingPage({ params }: Props) {
           <div className="space-y-4">
             {facilities.map((f, i) => (
               <div key={f.id} className="flex items-start gap-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
                   i === 0 ? 'bg-yellow-400 text-white' :
                   i === 1 ? 'bg-gray-300 text-white' :
                   i === 2 ? 'bg-amber-600 text-white' :
                   'bg-gray-100 text-gray-500'
-                }`}>
+                }`}
+                  aria-label={`第${i + 1}位`}
+                >
                   {i + 1}
                 </div>
                 <div className="flex-1">

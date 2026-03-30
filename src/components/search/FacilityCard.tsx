@@ -6,7 +6,7 @@ import CompareButton from './CompareButton';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1" aria-label={`${rating.toFixed(1)}点、${count}件のレビュー`}>
       <span className="text-amber-400 text-sm" aria-hidden="true">{'★'.repeat(Math.floor(rating))}</span>
       <span className="text-sm font-bold text-gray-700">{rating.toFixed(1)}</span>
       <span className="text-xs text-gray-500">({count}件)</span>
