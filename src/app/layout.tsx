@@ -14,6 +14,7 @@ const notoSansJP = Noto_Sans_JP({
   subsets: ["latin"],
   weight: ["400", "500", "700"],
   display: "swap",
+  preload: true,
 });
 
 export const metadata: Metadata = {
@@ -53,6 +54,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <head>
+        <link rel="preconnect" href="https://xzafxiupbflvgbarrihe.supabase.co" />
         {gaId && <link rel="dns-prefetch" href="https://www.googletagmanager.com" />}
         {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}
       </head>

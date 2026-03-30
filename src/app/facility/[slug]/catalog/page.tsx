@@ -60,7 +60,7 @@ export default async function CatalogPage({ params }: Props) {
                     />
                   ) : catalog.after_photo_url ? (
                     <div className="relative aspect-square bg-gray-100">
-                      <Image src={catalog.after_photo_url} alt={catalog.title} fill className="object-cover" />
+                      <Image src={catalog.after_photo_url} alt={catalog.title} fill sizes="(max-width: 640px) 50vw, 33vw" className="object-cover" />
                     </div>
                   ) : (
                     <div className="aspect-square bg-gray-100 flex items-center justify-center">

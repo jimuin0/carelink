@@ -92,6 +92,7 @@ export default function Footer() {
               </div>
               <button
                 onClick={() => setShowAllAreas(true)}
+                aria-expanded={false}
                 className="mt-3 text-xs text-gray-400 hover:text-gray-300 transition-colors"
               >
                 すべてのエリアを表示 &rsaquo;

@@ -54,7 +54,7 @@ export default async function StaffDetailPage({ params }: Props) {
           <div className="flex gap-4 sm:gap-6 mb-8">
             <div className="relative w-24 h-24 sm:w-32 sm:h-32 rounded-full overflow-hidden bg-gray-100 shrink-0">
               {staff.photo_url ? (
-                <Image src={staff.photo_url} alt={staff.name} fill className="object-cover" />
+                <Image src={staff.photo_url} alt={staff.name} fill sizes="128px" className="object-cover" />
               ) : (
                 <div className="flex items-center justify-center h-full bg-gradient-to-br from-sky-50 to-sky-100">
                   <svg className="w-12 h-12 text-sky-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">

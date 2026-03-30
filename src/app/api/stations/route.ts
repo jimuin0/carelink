@@ -1,9 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'stations')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+
   const q = request.nextUrl.searchParams.get('q')?.trim() || '';
   const supabase = createServerSupabaseClient();
 

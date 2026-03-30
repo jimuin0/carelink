@@ -15,7 +15,7 @@ export function generateMetadata({ params }: { params: { slug: string } }): Meta
     title: article.title,
     description: article.description,
     alternates: { canonical: `/blog/${params.slug}` },
-    openGraph: { title: article.title, description: article.description, type: 'article', publishedTime: article.publishedAt },
+    openGraph: { title: article.title, description: article.description, type: 'article', publishedTime: article.publishedAt, images: [{ url: `/api/og?title=${encodeURIComponent(article.title.slice(0, 50))}`, width: 1200, height: 630 }] },
   };
 }
 
