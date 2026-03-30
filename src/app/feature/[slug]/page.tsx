@@ -9,6 +9,12 @@ import FacilityCard from '@/components/search/FacilityCard';
 
 export const revalidate = 3600;
 
+export async function generateStaticParams() {
+  const { getPublishedFeatures } = await import('@/lib/features');
+  const features = await getPublishedFeatures(100);
+  return features.map((f) => ({ slug: f.slug }));
+}
+
 interface Props {
   params: Promise<{ slug: string }>;
 }

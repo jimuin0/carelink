@@ -187,7 +187,7 @@ export default async function Home() {
         <div className="absolute inset-0">
           <Image
             src="/images/hero.webp"
-            alt=""
+            alt="CareLink - ネットでかんたんサロン予約"
             fill
             sizes="100vw"
             className="object-cover"
@@ -515,7 +515,7 @@ export default async function Home() {
         <div className="absolute inset-0">
           <Image
             src="/images/cta.webp"
-            alt=""
+            alt="施設掲載のご案内"
             fill
             sizes="100vw"
             className="object-cover"

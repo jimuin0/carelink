@@ -25,11 +25,21 @@ import QASection from '@/components/facility/QASection';
 import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import NearbyFacilities from '@/components/facility/NearbyFacilities';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
 
 const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
 export const revalidate = 3600;
+
+export async function generateStaticParams() {
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase
+    .from('facility_profiles')
+    .select('slug')
+    .eq('status', 'published');
+  return (data || []).map((f) => ({ slug: f.slug }));
+}
 
 interface Props {
   params: { slug: string };

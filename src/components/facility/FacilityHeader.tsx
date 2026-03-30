@@ -8,8 +8,8 @@ export default function FacilityHeader({ facility }: { facility: Facility }) {
         <span className="badge badge-primary">{facility.business_type}</span>
         {facility.rating_count > 0 && (
           <div className="flex items-center gap-1">
-            <span className="text-amber-400">★</span>
-            <span className="text-sm font-bold">{Number(facility.rating_avg).toFixed(1)}</span>
+            <span className="text-amber-400" aria-hidden="true">★</span>
+            <span className="text-sm font-bold" aria-label={`評価${Number(facility.rating_avg).toFixed(1)}点`}>{Number(facility.rating_avg).toFixed(1)}</span>
             <span className="text-xs text-gray-400">({facility.rating_count}件)</span>
           </div>
         )}

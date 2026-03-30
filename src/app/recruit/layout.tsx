@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   alternates: {
     canonical: '/recruit',
   },
+  openGraph: {
+    title: '施設を無料で掲載 | CareLink',
+    description: '掲載料無料。ネット予約・口コミで集客を強化できます。',
+    type: 'website',
+  },
 };
 
 export default function RecruitLayout({

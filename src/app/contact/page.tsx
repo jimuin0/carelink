@@ -97,7 +97,7 @@ export default function ContactPage() {
               <label htmlFor="contact-name" className="form-label">
                 お名前 <span className="text-red-500">*</span>
               </label>
-              <input id="contact-name" {...register('name')} className="form-input" placeholder="山田 太郎" />
+              <input id="contact-name" {...register('name')} className="form-input" placeholder="山田 太郎" aria-required="true" />
               {errors.name && <p className="form-error" role="alert">{errors.name.message}</p>}
             </div>
 
@@ -111,6 +111,7 @@ export default function ContactPage() {
                 type="email"
                 className="form-input"
                 placeholder="example@email.com"
+                aria-required="true"
               />
               {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>

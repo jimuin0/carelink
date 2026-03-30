@@ -28,7 +28,13 @@ export async function middleware(request: NextRequest) {
   );
 
   // トークンリフレッシュ（全リクエストで実行）
-  const { data: { user } } = await supabase.auth.getUser();
+  let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    // Supabase障害時はリクエストを通す（保護ルートは後段でリダイレクト）
+  }
 
   // 保護ルートへの未認証アクセスをリダイレクト
   const isProtected = PROTECTED_PATHS.some((path) =>

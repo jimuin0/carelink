@@ -40,6 +40,8 @@ export async function GET(req: NextRequest) {
     query = query.ilike('address', `%${escaped}%`);
   }
 
+  query = query.limit(50);
+
   const { data, error } = await query;
   if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
   return NextResponse.json(data || []);

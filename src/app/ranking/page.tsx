@@ -10,6 +10,11 @@ export const metadata: Metadata = {
   title: '人気ランキング | CareLink',
   description: '口コミ評価の高い美容・医療・福祉施設をランキング形式でご紹介。エリア別のランキングもご覧いただけます。',
   alternates: { canonical: '/ranking' },
+  openGraph: {
+    title: '人気ランキング | CareLink',
+    description: '口コミ評価の高い施設をランキング形式でご紹介',
+    type: 'website',
+  },
 };
 
 export default async function RankingPage() {
@@ -38,12 +43,15 @@ export default async function RankingPage() {
           <div className="space-y-4">
             {facilities.map((f, i) => (
               <div key={f.id} className="flex items-start gap-4">
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
+                <div
+                  className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${
                   i === 0 ? 'bg-yellow-400 text-white' :
                   i === 1 ? 'bg-gray-300 text-white' :
                   i === 2 ? 'bg-amber-600 text-white' :
                   'bg-gray-100 text-gray-500'
-                }`}>
+                }`}
+                  aria-label={`第${i + 1}位`}
+                >
                   {i + 1}
                 </div>
                 <div className="flex-1">

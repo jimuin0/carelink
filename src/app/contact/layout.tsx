@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   alternates: {
     canonical: '/contact',
   },
+  openGraph: {
+    title: 'お問い合わせ | CareLink',
+    description: '施設の掲載、検索に関するご質問など、お気軽にお問い合わせください。',
+    type: 'website',
+  },
 };
 
 export default function ContactLayout({

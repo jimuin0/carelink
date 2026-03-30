@@ -6,6 +6,20 @@ import { getBlogPost } from '@/lib/blog';
 
 export const revalidate = 3600;
 
+export async function generateStaticParams() {
+  const { createServerSupabaseClient } = await import('@/lib/supabase-server');
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase
+    .from('blog_posts')
+    .select('slug, facility_id, facility_profiles!inner(slug)')
+    .eq('is_published', true)
+    .limit(200);
+  return (data || []).map((p: Record<string, unknown>) => ({
+    slug: (p.facility_profiles as { slug: string })?.slug,
+    postSlug: p.slug as string,
+  }));
+}
+
 function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
   if (/^https?:\/\//i.test(trimmed) || trimmed.startsWith('/')) return trimmed;
@@ -36,10 +50,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!facility) return {};
   const post = await getBlogPost(facility.id, params.postSlug);
   if (!post) return {};
+  const title = `${post.title} | ${facility.name} | CareLink`;
+  const description = post.content.slice(0, 120);
   return {
-    title: `${post.title} | ${facility.name} | CareLink`,
-    description: post.content.slice(0, 120),
+    title,
+    description,
     alternates: { canonical: `/facility/${params.slug}/blog/${params.postSlug}` },
+    openGraph: { title, description, type: 'article' },
   };
 }
 

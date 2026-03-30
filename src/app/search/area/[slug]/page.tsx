@@ -5,6 +5,15 @@ import { getAreaBySlug, getAreasByParent, getAreaBreadcrumb } from '@/lib/areas'
 import { searchFacilities } from '@/lib/facilities';
 import FacilityCard from '@/components/search/FacilityCard';
 
+export const revalidate = 3600;
+
+export async function generateStaticParams() {
+  const { createServerSupabaseClient } = await import('@/lib/supabase-server');
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase.from('areas').select('slug');
+  return (data || []).map((a) => ({ slug: a.slug }));
+}
+
 interface Props {
   params: { slug: string };
 }
@@ -12,10 +21,13 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const area = await getAreaBySlug(params.slug);
   if (!area) return {};
+  const title = `${area.name}のサロン・クリニック | CareLink`;
+  const description = `${area.name}エリアの美容・医療・福祉施設を検索。口コミ・メニュー・クーポン情報も掲載。`;
   return {
-    title: `${area.name}のサロン・クリニック | CareLink`,
-    description: `${area.name}エリアの美容・医療・福祉施設を検索。口コミ・メニュー・クーポン情報も掲載。`,
+    title,
+    description,
     alternates: { canonical: `/search/area/${params.slug}` },
+    openGraph: { title, description, type: 'website' },
   };
 }
 

@@ -180,38 +180,38 @@ export async function POST(request: Request) {
       bookingId: newBookingId,
     };
 
-    void sendBookingConfirmation(emailData);
+    sendBookingConfirmation(emailData).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-email' } }));
 
     // Notify facility owner
     if (ownerResult.data) {
       const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', ownerResult.data.user_id).single();
       if (ownerProfile?.email) {
-        void sendNewBookingNotification({ ...emailData, facilityEmail: ownerProfile.email });
+        sendNewBookingNotification({ ...emailData, facilityEmail: ownerProfile.email }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-email-owner' } }));
       }
     }
-  } catch {
-    // Email failure should not block booking creation
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'booking-email-setup' } });
   }
 
   // Push notifications (non-blocking)
   try {
-    void sendPushToFacilityOwners(parsed.data.facility_id, {
+    sendPushToFacilityOwners(parsed.data.facility_id, {
       title: '新規予約',
       body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
       url: '/admin/bookings',
       tag: `booking-${newBookingId}`,
-    });
+    }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-push-owner' } }));
 
     if (user) {
-      void sendPushToUser(user.id, {
+      sendPushToUser(user.id, {
         title: '予約を受け付けました',
         body: `${parsed.data.booking_date} ${parsed.data.start_time}〜のご予約を承りました`,
         url: `/mypage/bookings/${newBookingId}`,
         tag: `booking-confirm-${newBookingId}`,
-      });
+      }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-push-user' } }));
     }
-  } catch {
-    // Push failure should not block booking creation
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'booking-push-setup' } });
   }
 
   return NextResponse.json({ success: true, bookingId: newBookingId });

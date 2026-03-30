@@ -7,6 +7,20 @@ import { getStaffBySlug, getStaffPhotos } from '@/lib/staff';
 
 export const revalidate = 3600;
 
+export async function generateStaticParams() {
+  const { createServerSupabaseClient } = await import('@/lib/supabase-server');
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase
+    .from('staff_profiles')
+    .select('slug, facility_id, facility_profiles!inner(slug)')
+    .eq('is_active', true)
+    .limit(200);
+  return (data || []).map((s: Record<string, unknown>) => ({
+    slug: (s.facility_profiles as { slug: string })?.slug,
+    staffSlug: s.slug as string,
+  }));
+}
+
 interface Props {
   params: { slug: string; staffSlug: string };
 }
@@ -16,10 +30,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!facility) return {};
   const staff = await getStaffBySlug(facility.id, params.staffSlug);
   if (!staff) return {};
+  const title = `${staff.name} | ${facility.name} | CareLink`;
+  const description = `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties?.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`;
   return {
-    title: `${staff.name} | ${facility.name} | CareLink`,
-    description: `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties?.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`,
+    title,
+    description,
     alternates: { canonical: `/facility/${params.slug}/staff/${params.staffSlug}` },
+    openGraph: { title, description, type: 'profile' },
   };
 }
 

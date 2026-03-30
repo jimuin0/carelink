@@ -35,10 +35,16 @@ export function inMemoryRateLimit(ip: string, limit: number, windowMs: number, p
   if (timestamps.length >= limit) return true;
   timestamps.push(now);
   store.set(key, timestamps);
-  if (store.size > 1000) {
+  // 定期的にexpired entryを掃除（メモリリーク防止）
+  if (store.size > 500) {
     Array.from(store.entries()).forEach(([k, ts]) => {
       if (ts.every((t: number) => now - t >= windowMs)) store.delete(k);
     });
+    // それでも多い場合は古いものから削除
+    if (store.size > 1000) {
+      const entries = Array.from(store.keys());
+      entries.slice(0, entries.length - 500).forEach((k) => store.delete(k));
+    }
   }
   return false;
 }
