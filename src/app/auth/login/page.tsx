@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -10,6 +10,14 @@ import { loginSchema, type LoginFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const rawRedirect = searchParams.get('redirect') || '/mypage';
@@ -57,6 +65,7 @@ export default function LoginPage() {
                 className="form-input"
                 placeholder="example@email.com"
                 autoComplete="email"
+                aria-required="true"
               />
               {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
@@ -70,6 +79,7 @@ export default function LoginPage() {
                 className="form-input"
                 placeholder="8文字以上"
                 autoComplete="current-password"
+                aria-required="true"
               />
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>

@@ -14,10 +14,13 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
+  const title = `スタッフ一覧 | ${facility.name} | CareLink`;
+  const description = `${facility.name}のスタッフ紹介。経歴・得意分野・作品集をご覧いただけます。`;
   return {
-    title: `スタッフ一覧 | ${facility.name} | CareLink`,
-    description: `${facility.name}のスタッフ紹介。経歴・得意分野・作品集をご覧いただけます。`,
+    title,
+    description,
     alternates: { canonical: `/facility/${params.slug}/staff` },
+    openGraph: { title, description },
   };
 }
 

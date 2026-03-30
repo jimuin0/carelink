@@ -12,9 +12,13 @@ interface Props {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
+  const title = `予約 | ${facility.name} | CareLink`;
+  const description = `${facility.name}のオンライン予約ページ`;
   return {
-    title: `予約 | ${facility.name} | CareLink`,
-    description: `${facility.name}のオンライン予約ページ`,
+    title,
+    description,
+    openGraph: { title, description },
+    robots: { index: false, follow: true },
   };
 }
 

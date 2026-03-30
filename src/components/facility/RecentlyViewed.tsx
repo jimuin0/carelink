@@ -22,7 +22,7 @@ export default function RecentlyViewed() {
           <Link key={f.id} href={`/facility/${f.slug}`} className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors">
             <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 shrink-0">
               {f.photo_url ? (
-                <Image src={f.photo_url} alt={f.name} width={48} height={48} className="w-full h-full object-cover" />
+                <Image src={f.photo_url} alt={f.name} width={48} height={48} sizes="48px" className="w-full h-full object-cover" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-gray-300">
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

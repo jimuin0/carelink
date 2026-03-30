@@ -2,6 +2,13 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
+import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
+import HomeSearchForm from '@/components/search/HomeSearchForm';
+import HomeUserPanel from '@/components/search/HomeUserPanel';
+import JapanRegionMap from '@/components/home/JapanRegionMap';
+import FacilityCard from '@/components/search/FacilityCard';
+import { getLatestFacilities } from '@/lib/facilities';
 
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
@@ -13,13 +20,6 @@ export const metadata: Metadata = {
     type: 'website',
   },
 };
-import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
-import HomeSearchForm from '@/components/search/HomeSearchForm';
-import HomeUserPanel from '@/components/search/HomeUserPanel';
-import JapanRegionMap from '@/components/home/JapanRegionMap';
-import FacilityCard from '@/components/search/FacilityCard';
-import { getLatestFacilities } from '@/lib/facilities';
 
 
 const categories = [
@@ -535,19 +535,6 @@ export default async function Home() {
         </div>
       </div>
 
-      {/* JSON-LD: Organization */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            '@context': 'https://schema.org',
-            '@type': 'Organization',
-            name: 'CareLink',
-            url: 'https://www.carelink-jp.com',
-            description: 'ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約できるプラットフォーム',
-          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
-        }}
-      />
       {/* JSON-LD: WebSite with SearchAction */}
       <script
         type="application/ld+json"

@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 
-export default function SearchError({ reset }: { error: Error; reset: () => void }) {
+export default function SearchError({ error, reset }: { error: Error; reset: () => void }) {
+  void error;
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
       <div className="text-center">

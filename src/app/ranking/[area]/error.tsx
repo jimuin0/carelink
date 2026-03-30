@@ -1,6 +1,7 @@
 'use client';
 
-export default function RankingAreaError({ reset }: { error: Error; reset: () => void }) {
+export default function RankingAreaError({ error, reset }: { error: Error; reset: () => void }) {
+  void error;
   return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <div className="text-center">

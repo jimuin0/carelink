@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useSearchParams } from 'next/navigation';
@@ -10,6 +10,14 @@ import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 
 export default function SignupPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
+      <SignupContent />
+    </Suspense>
+  );
+}
+
+function SignupContent() {
   const searchParams = useSearchParams();
   const rawRedirect = searchParams.get('redirect') || '/mypage';
   const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';
@@ -57,6 +65,7 @@ export default function SignupPage() {
                 className="form-input"
                 placeholder="山田 太郎"
                 autoComplete="name"
+                aria-required="true"
               />
               {errors.display_name && <p className="form-error" role="alert">{errors.display_name.message}</p>}
             </div>
@@ -70,6 +79,7 @@ export default function SignupPage() {
                 className="form-input"
                 placeholder="example@email.com"
                 autoComplete="email"
+                aria-required="true"
               />
               {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>
@@ -83,6 +93,7 @@ export default function SignupPage() {
                 className="form-input"
                 placeholder="8文字以上"
                 autoComplete="new-password"
+                aria-required="true"
               />
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
@@ -96,6 +107,7 @@ export default function SignupPage() {
                 className="form-input"
                 placeholder="もう一度入力"
                 autoComplete="new-password"
+                aria-required="true"
               />
               {errors.password_confirm && <p className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>

@@ -34,7 +34,8 @@ export default function ReviewTab({ facilityId, initialReviews }: Props) {
       .select('*')
       .eq('facility_id', facilityId)
       .eq('status', 'published')
-      .order('created_at', { ascending: false });
+      .order('created_at', { ascending: false })
+      .limit(50);
     if (data) setReviews(data);
   };
 
