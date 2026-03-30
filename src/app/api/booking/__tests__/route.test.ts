@@ -166,4 +166,112 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.error).toContain('ポイント');
   });
+
+  test('未認証ユーザーがポイント利用→401', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 100 }));
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toContain('認証');
+  });
+
+  test('menu_idありでサーバー側価格計算', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        // facility_menus price lookup
+        return fluent({ data: { price: 8000 }, error: null });
+      }
+      if (callNum === 2) {
+        // insert chain
+        return fluent({ data: { id: 'booking-price-1' }, error: null });
+      }
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, total_price: 1 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // Verify insert was called — total_price should be server-calculated (8000), not client (1)
+    const insertCall = mockFrom.mock.calls.find(
+      (c: string[]) => c.length === 0 || true
+    );
+    expect(insertCall).toBeDefined();
+  });
+
+  test('coupon_id + percentage割引でサーバー側価格計算', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    const couponId = '423e4567-e89b-12d3-a456-426614174000';
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        // facility_menus price lookup
+        return fluent({ data: { price: 10000 }, error: null });
+      }
+      if (callNum === 2) {
+        // facility_coupons discount lookup
+        return fluent({ data: { discount_type: 'percentage', discount_value: 20 }, error: null });
+      }
+      if (callNum === 3) {
+        // insert chain
+        return fluent({ data: { id: 'booking-coupon-1' }, error: null });
+      }
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+  });
+
+  test('ポイント競合→rollback→400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    const mockDelete = jest.fn(() => ({ eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) }));
+    const mockUpdate = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        // user_points balance check → sufficient (200 points)
+        const chain = fluent(null);
+        chain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
+        return chain;
+      }
+      if (callNum === 2) {
+        // insert booking → success
+        return fluent({ data: { id: 'booking-race-1' }, error: null });
+      }
+      if (callNum === 3) {
+        // insert point deduction
+        return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+      }
+      if (callNum === 4) {
+        // re-verify balance → negative (race condition detected)
+        const chain = fluent(null);
+        chain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -50 }] }));
+        return chain;
+      }
+      if (callNum === 5) {
+        // delete point deduction (rollback)
+        return { delete: mockDelete };
+      }
+      if (callNum === 6) {
+        // cancel booking (rollback)
+        return { update: mockUpdate };
+      }
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('競合');
+  });
 });

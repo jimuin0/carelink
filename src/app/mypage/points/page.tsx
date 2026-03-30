@@ -9,7 +9,7 @@ export default async function PointsPage() {
 
   const { data } = await supabase
     .from('user_points')
-    .select('*')
+    .select('id, points, reason, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
 

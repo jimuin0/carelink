@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import * as Sentry from '@sentry/nextjs';
 import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { getStaffByFacility } from '@/lib/staff';
@@ -82,7 +83,7 @@ export default async function FacilityPage({ params }: Props) {
   ]);
   const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs'];
   results.forEach((r, i) => {
-    if (r.status === 'rejected') console.error(`[facility/${params.slug}] ${queryNames[i]} fetch failed:`, r.reason);
+    if (r.status === 'rejected') Sentry.captureException(r.reason, { tags: { feature: 'facility-detail', query: queryNames[i], slug: params.slug } });
   });
   const menus: FacilityMenu[] = results[0].status === 'fulfilled' ? results[0].value.menus : [];
   const photos: FacilityPhoto[] = results[1].status === 'fulfilled' ? results[1].value.photos : [];
