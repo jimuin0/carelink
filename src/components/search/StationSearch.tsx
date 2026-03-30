@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 export default function StationSearch() {
@@ -10,6 +10,8 @@ export default function StationSearch() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  const handleClose = useCallback(() => setOpen(false), []);
+
   useEffect(() => {
     if (!open) return;
     setLoading(true);
@@ -18,7 +20,10 @@ export default function StationSearch() {
       .then((data) => setStations(data.stations || []))
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [open]);
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, handleClose]);
 
   const filtered = query
     ? stations.filter((s) => s.includes(query))

@@ -58,7 +58,12 @@ self.addEventListener('fetch', (event) => {
 
 // Web Push notification handler
 self.addEventListener('push', (event) => {
-  const data = event.data ? event.data.json() : {};
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: 'CareLink', body: '' };
+  }
   const title = data.title || 'CareLink';
   const options = {
     body: data.body || '',
