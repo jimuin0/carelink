@@ -92,7 +92,7 @@ export default function ContactPage() {
             </Link>
           </div>
         ) : (
-          <form onSubmit={handleSubmit(() => setShowConfirm(true))} className="space-y-6">
+          <form onSubmit={handleSubmit(() => setShowConfirm(true))} noValidate className="space-y-6">
             <div>
               <label htmlFor="contact-name" className="form-label">
                 お名前 <span className="text-red-500">*</span>

@@ -196,7 +196,7 @@ export default function RegisterPage() {
       <p className="text-center text-gray-500 text-sm mb-8">掲載料は一切かかりません。最短3分で登録できます。</p>
       <div className="max-w-2xl mx-auto">
         <StepIndicator currentStep={step} totalSteps={3} labels={stepLabels} />
-        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} className="card">
+        <form onSubmit={handleSubmit(() => setShowConfirm(true))} onChange={handleFieldChange} noValidate className="card">
 
           {/* Step 1: 基本情報 */}
           {step === 1 && (

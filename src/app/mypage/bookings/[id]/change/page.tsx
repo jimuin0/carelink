@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -58,22 +58,31 @@ export default function BookingChangePage() {
     load().catch(() => setLoading(false));
   }, [bookingId, router]);
 
+  const slotsAbortRef = useRef<AbortController | null>(null);
+
   const loadSlots = useCallback(async (date: string) => {
     if (!booking) return;
+    slotsAbortRef.current?.abort();
+    const controller = new AbortController();
+    slotsAbortRef.current = controller;
     setSlotsLoading(true);
     setSlots([]);
     setSelectedSlot(null);
     try {
       const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id || ''}&date=${date}&duration=${booking.duration}`, {
-        signal: AbortSignal.timeout(10000),
+        signal: controller.signal,
       });
       const data = await res.json();
-      setSlots(data.slots ?? []);
-    } catch { setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); }
-    setSlotsLoading(false);
+      if (!controller.signal.aborted) setSlots(data.slots ?? []);
+    } catch (e) {
+      if (e instanceof DOMException && e.name === 'AbortError') return;
+      setToast({ type: 'error', message: '空き枠の取得に失敗しました' });
+    }
+    if (!controller.signal.aborted) setSlotsLoading(false);
   }, [booking]);
 
   useEffect(() => { if (selectedDate) loadSlots(selectedDate); }, [selectedDate, loadSlots]);
+  useEffect(() => () => { slotsAbortRef.current?.abort(); }, []);
 
   const handleSubmit = async () => {
     if (!booking || !selectedSlot || submitting) return;

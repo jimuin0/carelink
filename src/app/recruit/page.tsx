@@ -116,7 +116,7 @@ export default function RecruitPage() {
 
         <StepIndicator currentStep={step} totalSteps={2} labels={['施設情報', '施設詳細']} />
 
-        <form onSubmit={handleSubmit(onSubmit)} className="card mt-8">
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="card mt-8">
           {step === 1 && (
             <div className="space-y-4">
               <div>

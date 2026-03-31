@@ -140,7 +140,7 @@ export default function ProfileEditPage() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
+        <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
           <div>
             <label htmlFor="profile-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
             <input

@@ -6,9 +6,7 @@ const nextConfig = {
       { protocol: 'https', hostname: 'xzafxiupbflvgbarrihe.supabase.co' },
     ],
   },
-  experimental: {
-    instrumentationHook: true,
-  },
+  experimental: {},
   async headers() {
     return [
       {
@@ -22,7 +20,9 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: https: blob:",
-              "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://*.upstash.io https://*.ingest.sentry.io",
+              "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://*.upstash.io https://*.ingest.sentry.io https://zipcloud.ibsnet.co.jp",
+              "worker-src 'self'",
+              "manifest-src 'self'",
               "frame-src 'self'",
               "object-src 'none'",
               "base-uri 'self'",
