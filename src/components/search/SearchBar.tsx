@@ -16,9 +16,11 @@ function getSearchHistory(): string[] {
 
 function addSearchHistory(term: string) {
   if (!term.trim()) return;
-  const history = getSearchHistory().filter((h) => h !== term.trim());
-  history.unshift(term.trim());
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+  try {
+    const history = getSearchHistory().filter((h) => h !== term.trim());
+    history.unshift(term.trim());
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(history.slice(0, MAX_HISTORY)));
+  } catch { /* storage full or private browsing */ }
 }
 
 export default function SearchBar() {
