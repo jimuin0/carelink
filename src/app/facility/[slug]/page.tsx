@@ -17,6 +17,7 @@ import ReviewTab from '@/components/facility/ReviewTab';
 import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
 import FavoriteButton from '@/components/facility/FavoriteButton';
+import ShareButtons from '@/components/facility/ShareButtons';
 import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
@@ -204,7 +205,8 @@ export default async function FacilityPage({ params }: Props) {
               )}
             </div>
           </div>
-          <div className="pt-5 pr-4">
+          <div className="pt-5 pr-4 flex items-center gap-2">
+            <ShareButtons url={`${SITE_URL}/facility/${params.slug}`} title={`${facility.name} | CareLink`} />
             <FavoriteButton facilityId={facility.id} />
           </div>
         </div>
