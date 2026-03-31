@@ -267,10 +267,10 @@ export default async function FacilityPage({ params }: Props) {
 
         {/* Contact section */}
         <div id="contact-section" className="px-4 sm:px-6 py-8 border-t border-gray-100">
-          <h3 className="text-lg font-bold mb-2 flex items-center gap-2">
+          <h2 className="text-lg font-bold mb-2 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             お問い合わせ
-          </h3>
+          </h2>
           <p className="text-gray-500 text-sm mb-4">
             ご予約・ご質問は、お電話またはフォームからお気軽にどうぞ。
           </p>
@@ -448,10 +448,10 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
       {/* 施設紹介 */}
       {facility.description && (
         <div>
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+          <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             こだわり・紹介
-          </h3>
+          </h2>
           <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{facility.description}</p>
         </div>
       )}
@@ -459,10 +459,10 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
       {/* おすすめメニュー */}
       {featuredMenus.length > 0 && (
         <div>
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+          <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-amber-400 rounded-full" />
             おすすめメニュー
-          </h3>
+          </h2>
           <div className="space-y-3">
             {featuredMenus.map((menu) => (
               <div key={menu.id} className="flex items-start justify-between p-4 bg-amber-50 rounded-xl border border-amber-100">
@@ -487,10 +487,10 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
       {/* 特徴タグ */}
       {facility.features && facility.features.length > 0 && (
         <div>
-          <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+          <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             特徴・こだわり
-          </h3>
+          </h2>
           <div className="flex flex-wrap gap-2">
             {facility.features.map((feature) => (
               <Link key={feature} href={`/search?keyword=${encodeURIComponent(feature)}`} className="text-xs bg-sky-50 text-sky-700 px-3 py-1.5 rounded-full font-medium hover:bg-sky-100 transition-colors">
@@ -503,10 +503,10 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
 
       {/* 基本情報（簡易） */}
       <div>
-        <h3 className="text-lg font-bold mb-3 flex items-center gap-2">
+        <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
           <span className="w-1 h-5 bg-sky-500 rounded-full" />
           基本情報
-        </h3>
+        </h2>
         <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
           <div className="flex">
             <span className="text-gray-500 w-20 shrink-0">住所</span>

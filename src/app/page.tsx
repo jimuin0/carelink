@@ -6,7 +6,8 @@ import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import HomeUserPanel from '@/components/search/HomeUserPanel';
-import JapanRegionMap from '@/components/home/JapanRegionMap';
+import dynamic from 'next/dynamic';
+const JapanRegionMap = dynamic(() => import('@/components/home/JapanRegionMap'), { ssr: false, loading: () => <div className="h-64 bg-gray-50 rounded-2xl animate-pulse" /> });
 import FacilityCard from '@/components/search/FacilityCard';
 import { getLatestFacilities } from '@/lib/facilities';
 
@@ -27,7 +28,7 @@ const categories = [
     name: 'ヘア',
     type: 'ヘアサロン',
     icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <circle cx="6" cy="6" r="3" />
         <circle cx="6" cy="18" r="3" />
         <path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12" />
@@ -38,7 +39,7 @@ const categories = [
     name: 'ネイル・まつげ',
     type: 'ネイル・まつげサロン',
     icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 2l2.09 6.26L20 10l-4.74 3.74L17 20l-5-3.5L7 20l1.74-6.26L4 10l5.91-1.74L12 2z" />
       </svg>
     ),
@@ -47,7 +48,7 @@ const categories = [
     name: 'リラク',
     type: 'リラクサロン',
     icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M7 11c-1.5 0-3-1-3-3s2.5-4 4-2c.5.7.7 1.4.7 2" />
         <path d="M17 11c1.5 0 3-1 3-3s-2.5-4-4-2c-.5.7-.7 1.4-.7 2" />
         <path d="M12 11V8c0-1.5-.5-3-2-4" />
@@ -60,7 +61,7 @@ const categories = [
     name: 'エステ',
     type: 'エステサロン',
     icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <circle cx="12" cy="9" r="5" />
         <path d="M9.5 7.5c0 0 1-1 2.5-1s2.5 1 2.5 1" />
         <circle cx="10" cy="9" r=".5" fill="currentColor" />
@@ -75,7 +76,7 @@ const categories = [
     name: '美容クリニック',
     type: '美容クリニック',
     icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 2C8 2 4 6 4 10c0 5 8 12 8 12s8-7 8-12c0-4-4-8-8-8z" />
         <path d="M12 7v6M9 10h6" />
       </svg>
@@ -112,7 +113,7 @@ const worryNavItems = [
     label: '髪をイメチェンしたい',
     href: '/search?keyword=ヘアカラー カット',
     icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
         <path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12" />
       </svg>
@@ -122,7 +123,7 @@ const worryNavItems = [
     label: 'まつ毛をぱっちりしたい',
     href: '/search?type=ネイル・まつげサロン',
     icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" />
       </svg>
     ),
@@ -131,7 +132,7 @@ const worryNavItems = [
     label: '肩こり・腰痛がつらい',
     href: '/search?keyword=肩こり 腰痛 整体',
     icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M18 20a6 6 0 00-12 0" /><circle cx="12" cy="10" r="4" />
         <path d="M12 14v2" />
       </svg>
@@ -141,7 +142,7 @@ const worryNavItems = [
     label: 'お肌をキレイにしたい',
     href: '/search?type=エステサロン',
     icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 3c-4.97 0-9 4.03-9 9v1c0 1.1.9 2 2 2h1a2 2 0 002-2v-1a2 2 0 00-2-2" />
         <path d="M12 3c4.97 0 9 4.03 9 9v1c0 1.1-.9 2-2 2h-1a2 2 0 01-2-2v-1a2 2 0 012-2" />
         <circle cx="9" cy="10" r="1" fill="currentColor" /><circle cx="15" cy="10" r="1" fill="currentColor" />
@@ -152,7 +153,7 @@ const worryNavItems = [
     label: 'ネイルをおしゃれに',
     href: '/search?keyword=ネイル ジェル',
     icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M12 2l2.09 6.26L20 10l-4.74 3.74L17 20l-5-3.5L7 20l1.74-6.26L4 10l5.91-1.74L12 2z" />
       </svg>
     ),
@@ -161,7 +162,7 @@ const worryNavItems = [
     label: '日頃の疲れを癒したい',
     href: '/search?type=リラクサロン',
     icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
         <path d="M7 11c-1.5 0-3-1-3-3s2.5-4 4-2c.5.7.7 1.4.7 2" />
         <path d="M17 11c1.5 0 3-1 3-3s-2.5-4-4-2c-.5.7-.7 1.4-.7 2" />
         <path d="M12 11V8c0-1.5-.5-3-2-4" /><path d="M12 8c0-1.5.5-3 2-4" />
@@ -274,7 +275,7 @@ export default async function Home() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-sky-50 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
                 <h3 className="text-sm font-bold text-gray-800">完全無料</h3>
@@ -283,7 +284,7 @@ export default async function Home() {
             </div>
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-sky-50 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
                 <h3 className="text-sm font-bold text-gray-800">認証済み施設</h3>
@@ -292,7 +293,7 @@ export default async function Home() {
             </div>
             <div className="flex items-start gap-3">
               <div className="w-10 h-10 rounded-full bg-sky-50 flex items-center justify-center shrink-0">
-                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
                 <h3 className="text-sm font-bold text-gray-800">24時間ネット予約</h3>
