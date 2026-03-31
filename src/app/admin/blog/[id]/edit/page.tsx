@@ -169,13 +169,13 @@ export default function EditBlogPage() {
         </div>
 
         <div className="flex items-center gap-3 pt-4">
-          <button onClick={() => router.push('/admin/blog')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push('/admin/blog')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '保存中...' : '保存する'}
           </button>
-          <button onClick={handleDelete} className="text-sm text-red-500 hover:underline">
+          <button type="button" onClick={handleDelete} className="text-sm text-red-500 hover:underline">
             削除
           </button>
         </div>

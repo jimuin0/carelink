@@ -66,12 +66,12 @@ export async function POST(request: Request) {
 
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (await checkRateLimit(notifyRateLimit, ip, 5, 60_000, 'notify')) {
-    return NextResponse.json({ ok: false, error: 'Too many requests' }, { status: 429 });
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
   }
 
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
   if (!webhookUrl) {
-    return NextResponse.json({ ok: false, error: '通知の送信に失敗しました' }, { status: 500 });
+    return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
   }
 
   try {
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
 
     const result = payloadSchema.safeParse(body);
     if (!result.success) {
-      return NextResponse.json({ ok: false, error: 'Invalid payload' }, { status: 400 });
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
     }
 
     const payload = result.data as NotifyPayload;
@@ -100,12 +100,12 @@ export async function POST(request: Request) {
     });
 
     if (!slackRes.ok) {
-      return NextResponse.json({ ok: false, error: 'Slack通知の送信に失敗しました' }, { status: 502 });
+      return NextResponse.json({ error: 'Slack通知の送信に失敗しました' }, { status: 502 });
     }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'notify' } });
-    return NextResponse.json({ ok: false }, { status: 500 });
+    return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
   }
 }

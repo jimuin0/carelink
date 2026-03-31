@@ -141,6 +141,7 @@ export default function UserChatPage() {
               <p className="text-gray-400 text-sm p-4 text-center">メッセージはありません</p>
             ) : rooms.map((room) => (
               <button
+                type="button"
                 key={room.id}
                 onClick={() => setSelectedRoom(room.id)}
                 className={`w-full text-left p-4 border-b border-gray-100 transition-colors ${
@@ -190,6 +191,7 @@ export default function UserChatPage() {
                     maxLength={1000}
                   />
                   <button
+                    type="button"
                     onClick={sendMessage}
                     disabled={!input.trim()}
                     aria-label="送信"

@@ -38,6 +38,7 @@ export default function Header() {
 
           {/* Mobile hamburger */}
           <button
+            type="button"
             className="sm:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setIsOpen(!isOpen)}
             aria-label="メニュー"

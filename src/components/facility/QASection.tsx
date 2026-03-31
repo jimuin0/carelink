@@ -105,6 +105,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
           <div className="flex items-center justify-between mt-2">
             <span className="text-xs text-gray-400">{question.length}/500</span>
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={submitting || !question.trim()}
               className="bg-sky-500 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-600 transition-colors disabled:opacity-50"
@@ -126,6 +127,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
           {qaList.map((qa) => (
             <div key={qa.id} className="bg-gray-50 rounded-xl overflow-hidden">
               <button
+                type="button"
                 onClick={() => setExpandedId(expandedId === qa.id ? null : qa.id)}
                 aria-expanded={expandedId === qa.id}
                 className="w-full text-left p-4 flex items-start gap-3"

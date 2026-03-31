@@ -44,6 +44,7 @@ export default function SearchHeader() {
           </div>
 
           <button
+            type="button"
             className="md:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
             onClick={() => setIsOpen(!isOpen)}
             aria-label="メニュー"

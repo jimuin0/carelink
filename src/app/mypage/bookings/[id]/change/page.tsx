@@ -139,7 +139,7 @@ export default function BookingChangePage() {
             const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
             const isWeekend = d.getDay() === 0 || d.getDay() === 6;
             return (
-              <button key={date} onClick={() => setSelectedDate(date)}
+              <button type="button" key={date} onClick={() => setSelectedDate(date)}
                 className={`p-2 rounded-xl border text-center transition-colors ${selectedDate === date ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
                 <p className="text-xs text-gray-500">{d.getMonth() + 1}/{d.getDate()}</p>
                 <p className={`text-sm font-bold ${isWeekend ? 'text-red-500' : ''}`}>{dayNames[d.getDay()]}</p>
@@ -159,7 +159,7 @@ export default function BookingChangePage() {
           ) : (
             <div className="grid grid-cols-4 sm:grid-cols-6 gap-2">
               {slots.map((slot) => (
-                <button key={slot.slot_start} onClick={() => setSelectedSlot(slot)}
+                <button type="button" key={slot.slot_start} onClick={() => setSelectedSlot(slot)}
                   className={`p-3 rounded-xl border text-center transition-colors ${selectedSlot?.slot_start === slot.slot_start ? 'border-sky-500 bg-sky-50' : 'border-gray-200 hover:border-sky-300'}`}>
                   <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>
                 </button>
@@ -171,8 +171,8 @@ export default function BookingChangePage() {
 
       {selectedSlot && (
         <div className="flex gap-3">
-          <button onClick={() => router.back()} className="flex-1 py-3 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">キャンセル</button>
-          <button onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={() => router.back()} className="flex-1 py-3 text-sm text-gray-500 hover:bg-gray-100 rounded-xl transition-colors">キャンセル</button>
+          <button type="button" onClick={handleSubmit} disabled={submitting} className="btn-primary flex-1 !py-3">
             {submitting ? '変更中...' : `${selectedDate} ${selectedSlot.slot_start.slice(0, 5)}に変更する`}
           </button>
         </div>

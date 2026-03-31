@@ -29,11 +29,6 @@ body {
   .btn-primary:hover:not(:disabled) {
     background-color: var(--primary-dark);
   }
-  .btn-accent {
-    @apply inline-flex items-center justify-center px-8 py-4 text-white font-bold rounded-lg
-           transition-all duration-200 hover:opacity-90 active:scale-95;
-    background-color: var(--accent);
-  }
   .btn-outline {
     @apply inline-flex items-center justify-center px-8 py-4 font-bold rounded-lg border-2
            transition-all duration-200 hover:opacity-90 active:scale-95;

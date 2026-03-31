@@ -142,13 +142,13 @@ export default function CouponEditPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button onClick={() => router.push('/admin/coupons')} className="text-sm text-gray-500 hover:underline">戻る</button>
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={() => router.push('/admin/coupons')} className="text-sm text-gray-500 hover:underline">戻る</button>
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
         <div className="pt-2 border-t">
-          <button onClick={handleDelete} className="text-sm text-red-500 hover:underline">このクーポンを削除</button>
+          <button type="button" onClick={handleDelete} className="text-sm text-red-500 hover:underline">このクーポンを削除</button>
         </div>
       </div>
 

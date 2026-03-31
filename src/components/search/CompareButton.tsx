@@ -41,6 +41,7 @@ export default function CompareButton({ facilityId }: { facilityId: string }) {
 
   return (
     <button
+      type="button"
       onClick={toggle}
       className={`text-micro px-2 py-1 rounded-full border transition-colors ${
         isAdded ? 'bg-sky-100 border-sky-300 text-sky-700 font-bold' : 'bg-white border-gray-200 text-gray-600 hover:border-sky-300'

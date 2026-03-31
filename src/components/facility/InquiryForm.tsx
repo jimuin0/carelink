@@ -74,7 +74,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
       <div className="text-center py-8">
         <p className="text-lg font-bold mb-2">お問い合わせを送信しました</p>
         <p className="text-gray-500 text-sm mb-4">担当者より折り返しご連絡いたします。</p>
-        <button onClick={() => setSubmitted(false)} className="text-sky-600 text-sm hover:underline">
+        <button type="button" onClick={() => setSubmitted(false)} className="text-sky-600 text-sm hover:underline">
           別のお問い合わせをする
         </button>
       </div>

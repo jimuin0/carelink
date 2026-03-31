@@ -150,6 +150,7 @@ export default function AdminQAPage() {
       <div className="flex gap-2 mb-4">
         {(['all', 'pending', 'answered'] as const).map((f) => (
           <button
+            type="button"
             key={f}
             onClick={() => setFilter(f)}
             className={`px-4 py-2 text-sm rounded-lg transition-colors ${
@@ -186,8 +187,8 @@ export default function AdminQAPage() {
               <p className="text-xs text-gray-400 mt-1 text-right">{answerText.length}/1000</p>
             </div>
             <div className="flex gap-3 mt-4">
-              <button onClick={() => { setAnsweringId(null); setAnswerText(''); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button onClick={handleAnswer} disabled={saving || !answerText.trim()} className="btn-primary flex-1 !py-2.5">{saving ? '送信中...' : '回答を送信'}</button>
+              <button type="button" onClick={() => { setAnsweringId(null); setAnswerText(''); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button type="button" onClick={handleAnswer} disabled={saving || !answerText.trim()} className="btn-primary flex-1 !py-2.5">{saving ? '送信中...' : '回答を送信'}</button>
             </div>
           </div>
         </div>
@@ -223,6 +224,7 @@ export default function AdminQAPage() {
                 <div className="flex gap-1 shrink-0">
                   {qa.status === 'pending' ? (
                     <button
+                      type="button"
                       onClick={() => { setAnsweringId(qa.id); setAnswerText(qa.answer || ''); }}
                       className="text-xs bg-sky-500 text-white px-3 py-1.5 rounded-lg hover:bg-sky-600 transition-colors"
                     >
@@ -230,7 +232,7 @@ export default function AdminQAPage() {
                     </button>
                   ) : (
                     <>
-                      <button onClick={() => togglePublic(qa)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label={qa.is_public ? '非公開にする' : '公開にする'}>
+                      <button type="button" onClick={() => togglePublic(qa)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label={qa.is_public ? '非公開にする' : '公開にする'}>
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           {qa.is_public
                             ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -238,12 +240,12 @@ export default function AdminQAPage() {
                           }
                         </svg>
                       </button>
-                      <button onClick={() => { setAnsweringId(qa.id); setAnswerText(qa.answer || ''); }} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
+                      <button type="button" onClick={() => { setAnsweringId(qa.id); setAnswerText(qa.answer || ''); }} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>
                     </>
                   )}
-                  <button onClick={() => handleDelete(qa.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
+                  <button type="button" onClick={() => handleDelete(qa.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                   </button>
                 </div>

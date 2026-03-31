@@ -187,7 +187,7 @@ export default function AdminSettingsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">施設設定</h1>
-        <button onClick={handleSave} disabled={saving} className="btn-primary px-6 !py-2.5">
+        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 !py-2.5">
           {saving ? '保存中...' : '保存する'}
         </button>
       </div>
@@ -407,7 +407,7 @@ export default function AdminSettingsPage() {
 
       {/* 保存ボタン(下部) */}
       <div className="flex justify-end">
-        <button onClick={handleSave} disabled={saving} className="btn-primary px-8 !py-3">
+        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-8 !py-3">
           {saving ? '保存中...' : '施設情報を保存'}
         </button>
       </div>

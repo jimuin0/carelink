@@ -61,6 +61,7 @@ export default function AuthButton() {
   return (
     <div className="relative">
       <button
+        type="button"
         onClick={() => setMenuOpen(!menuOpen)}
         className="flex items-center gap-2 min-h-[44px] min-w-[44px] justify-center"
         aria-label="ユーザーメニュー"
@@ -97,6 +98,7 @@ export default function AuthButton() {
               プロフィール編集
             </Link>
             <button
+              type="button"
               onClick={handleLogout}
               className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
             >

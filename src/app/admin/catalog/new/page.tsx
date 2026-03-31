@@ -64,10 +64,10 @@ export default function NewCatalogPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button onClick={() => router.push('/admin/catalog')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push('/admin/catalog')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '保存中...' : 'カタログを追加'}
           </button>
         </div>

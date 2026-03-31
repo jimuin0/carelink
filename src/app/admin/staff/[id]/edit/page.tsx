@@ -109,10 +109,10 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
-          <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '保存中...' : '保存'}
           </button>
         </div>

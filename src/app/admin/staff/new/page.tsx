@@ -92,8 +92,8 @@ export default function NewStaffPage() {
         </div>
 
         <div className="flex gap-3 pt-4">
-          <button onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">戻る</button>
-          <button onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
+          <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">戻る</button>
+          <button type="button" onClick={handleCreate} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '追加中...' : 'スタッフを追加'}
           </button>
         </div>

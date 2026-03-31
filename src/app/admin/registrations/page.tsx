@@ -108,8 +108,8 @@ export default function AdminRegistrationsPage() {
                   </div>
                   {salon.status === 'pending' && (
                     <div className="flex gap-2">
-                      <button onClick={() => handleApprove(salon)} className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600">承認</button>
-                      <button onClick={() => handleReject(salon)} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200">却下</button>
+                      <button type="button" onClick={() => handleApprove(salon)} className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600">承認</button>
+                      <button type="button" onClick={() => handleReject(salon)} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200">却下</button>
                     </div>
                   )}
                 </div>

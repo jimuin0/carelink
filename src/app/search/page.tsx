@@ -217,6 +217,7 @@ function MobileFilterButton({ filterCount }: { filterCount: number }) {
       <MobileFilterDrawer />
       <div className="lg:hidden fixed bottom-20 right-4 z-30">
         <button
+          type="button"
           className="flex items-center gap-2 px-4 py-3 bg-sky-500 text-white rounded-full shadow-lg hover:bg-sky-600 transition-colors"
           onClick={() => {
             const dialog = document.getElementById('mobile-filter-dialog');

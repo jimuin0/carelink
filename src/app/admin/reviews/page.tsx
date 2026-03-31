@@ -129,6 +129,7 @@ export default function AdminReviewsPage() {
       <div className="flex gap-2 mb-6">
         {([['all', 'すべて'], ['published', '公開中'], ['hidden', '非表示']] as const).map(([value, label]) => (
           <button
+            type="button"
             key={value}
             onClick={() => setFilter(value)}
             className={`text-sm px-4 py-2 rounded-full font-bold transition-colors ${
@@ -166,6 +167,7 @@ export default function AdminReviewsPage() {
                   <p className="text-xs text-gray-400 mt-2">{new Date(review.created_at).toLocaleDateString('ja-JP')}</p>
                 </div>
                 <button
+                  type="button"
                   onClick={() => toggleStatus(review)}
                   disabled={updating === review.id}
                   className={`shrink-0 text-xs px-4 py-2 rounded-lg font-bold transition-colors ${
@@ -198,6 +200,7 @@ export default function AdminReviewsPage() {
                   maxLength={500}
                 />
                 <button
+                  type="button"
                   onClick={() => submitReply(review.id)}
                   disabled={replyingTo === review.id || !(replyText[review.id]?.trim())}
                   className="shrink-0 text-xs px-4 py-2 bg-sky-500 text-white rounded-lg font-bold hover:bg-sky-600 disabled:opacity-50 transition-colors"

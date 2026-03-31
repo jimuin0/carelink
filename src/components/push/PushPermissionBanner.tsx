@@ -79,6 +79,7 @@ export default function PushPermissionBanner() {
           <p className="text-xs text-gray-500 mt-0.5">予約確認・リマインドをプッシュ通知でお届けします</p>
           <div className="flex gap-2 mt-3">
             <button
+              type="button"
               onClick={handleSubscribe}
               disabled={subscribing}
               className="px-4 py-1.5 bg-sky-500 text-white text-xs font-bold rounded-lg hover:bg-sky-600 transition-colors"
@@ -86,6 +87,7 @@ export default function PushPermissionBanner() {
               {subscribing ? '設定中...' : '通知を許可'}
             </button>
             <button
+              type="button"
               onClick={() => setShow(false)}
               className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
             >

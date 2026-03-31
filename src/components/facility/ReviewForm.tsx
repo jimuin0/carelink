@@ -183,7 +183,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
       <div className="text-center py-8">
         <p className="text-lg font-bold mb-2">口コミを投稿しました</p>
         <p className="text-gray-500 text-sm mb-4">ご投稿ありがとうございます。</p>
-        <button onClick={() => router.refresh()} className="text-sky-600 text-sm hover:underline">
+        <button type="button" onClick={() => router.refresh()} className="text-sky-600 text-sm hover:underline">
           ページを更新する
         </button>
       </div>

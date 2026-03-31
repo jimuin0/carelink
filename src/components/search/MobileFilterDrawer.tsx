@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { Suspense, useEffect, useRef } from 'react';
 import SearchFilters from './SearchFilters';
 
 export default function MobileFilterDrawer() {
@@ -26,6 +26,7 @@ export default function MobileFilterDrawer() {
         <div className="flex items-center justify-between p-4 border-b border-gray-100">
           <h2 className="text-sm font-bold text-gray-800">絞り込み</h2>
           <button
+            type="button"
             onClick={() => dialogRef.current?.close()}
             className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="閉じる"
@@ -35,7 +36,9 @@ export default function MobileFilterDrawer() {
             </svg>
           </button>
         </div>
-        <SearchFilters className="p-5" />
+        <Suspense fallback={<div className="p-5 animate-pulse"><div className="h-8 bg-gray-200 rounded mb-3" /><div className="h-8 bg-gray-200 rounded mb-3" /><div className="h-8 bg-gray-200 rounded" /></div>}>
+          <SearchFilters className="p-5" />
+        </Suspense>
       </div>
     </dialog>
   );

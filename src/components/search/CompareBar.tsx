@@ -23,6 +23,7 @@ export default function CompareBar() {
         比較する
       </Link>
       <button
+        type="button"
         onClick={() => setCompareList([])}
         aria-label="比較リストをクリア"
         className="text-xs text-gray-400 hover:text-red-500 transition-colors"

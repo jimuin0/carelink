@@ -30,6 +30,7 @@ export default function TabNavigation({ tabs }: Props) {
         <div className="flex border-b border-gray-200 px-4 sm:px-6 overflow-x-auto scrollbar-hide" role="tablist">
           {tabs.map((tab) => (
             <button
+              type="button"
               key={tab.key}
               id={`tab-${tab.key}`}
               role="tab"

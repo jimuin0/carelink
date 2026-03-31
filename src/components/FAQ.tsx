@@ -15,6 +15,7 @@ export default function FAQ({ items }: { items: FAQItem[] }) {
       {items.map((item, index) => (
         <div key={item.question} className="border border-gray-200 rounded-lg overflow-hidden">
           <button
+            type="button"
             className="w-full flex items-center justify-between px-6 py-4 text-left font-medium text-gray-900 hover:bg-gray-50 transition-colors"
             onClick={() => setOpenIndex(openIndex === index ? null : index)}
             aria-expanded={openIndex === index}

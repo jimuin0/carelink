@@ -183,6 +183,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
             {/* 役に立った */}
             <div className="mt-3 flex items-center gap-4">
               <button
+                type="button"
                 onClick={() => toggleHelpful(review.id)}
                 disabled={helpfulLoading === review.id}
                 className={`inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-full transition-colors ${

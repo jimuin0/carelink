@@ -26,6 +26,7 @@ export default function GlobalError({
               申し訳ございません。時間をおいて再度お試しください。
             </p>
             <button
+              type="button"
               onClick={reset}
               style={{ padding: '0.5rem 1.5rem', background: '#0284c7', color: 'white', border: 'none', borderRadius: '0.5rem', cursor: 'pointer' }}
             >

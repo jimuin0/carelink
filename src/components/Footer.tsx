@@ -91,6 +91,7 @@ export default function Footer() {
                 })}
               </div>
               <button
+                type="button"
                 onClick={() => setShowAllAreas(true)}
                 aria-expanded={false}
                 className="mt-3 text-xs text-gray-400 hover:text-gray-300 transition-colors"

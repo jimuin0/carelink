@@ -92,11 +92,11 @@ export default function BookingCalendarPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">予約台帳</h1>
         <div className="flex items-center gap-2">
-          <button onClick={() => navigateDate(-1)} aria-label="前日" className="p-2 hover:bg-gray-100 rounded-lg">
+          <button type="button" onClick={() => navigateDate(-1)} aria-label="前日" className="p-2 hover:bg-gray-100 rounded-lg">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="px-3 py-2 border border-gray-200 rounded-lg text-sm" />
-          <button onClick={() => navigateDate(1)} aria-label="翌日" className="p-2 hover:bg-gray-100 rounded-lg">
+          <button type="button" onClick={() => navigateDate(1)} aria-label="翌日" className="p-2 hover:bg-gray-100 rounded-lg">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </button>
         </div>

@@ -41,6 +41,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-2 px-4 sm:px-6 pt-4 mb-2">
           <button
+            type="button"
             onClick={() => setSelectedTag(null)}
             className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
               !selectedTag ? 'bg-sky-500 text-white border-sky-500' : 'bg-white text-gray-600 border-gray-200 hover:border-sky-300'
@@ -50,6 +51,7 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
           </button>
           {allTags.map((tag) => (
             <button
+              type="button"
               key={tag}
               onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
               className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${

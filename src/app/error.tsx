@@ -23,7 +23,7 @@ export default function Error({
         <p className="text-gray-600 mb-8">
           申し訳ございません。時間をおいて再度お試しください。
         </p>
-        <button onClick={reset} className="btn-primary">
+        <button type="button" onClick={reset} className="btn-primary">
           もう一度試す
         </button>
       </div>

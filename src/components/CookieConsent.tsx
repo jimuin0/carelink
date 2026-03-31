@@ -35,12 +35,14 @@ export default function CookieConsent() {
         </p>
         <div className="flex gap-2 shrink-0">
           <button
+            type="button"
             onClick={decline}
             className="text-sm px-4 py-2 text-gray-300 hover:text-white transition-colors"
           >
             拒否する
           </button>
           <button
+            type="button"
             onClick={accept}
             className="bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors"
           >

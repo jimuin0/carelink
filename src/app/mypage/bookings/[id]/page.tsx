@@ -121,6 +121,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
 
       {canCancel && (
         <button
+          type="button"
           onClick={handleCancel}
           disabled={cancelling}
           className="w-full mt-4 py-3 rounded-xl border border-red-300 text-red-600 font-bold hover:bg-red-50 transition-colors"
@@ -130,6 +131,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
       )}
 
       <button
+        type="button"
         onClick={() => router.push('/mypage/bookings')}
         className="w-full mt-3 text-sm text-gray-500 hover:underline text-center py-2"
       >

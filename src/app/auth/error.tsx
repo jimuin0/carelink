@@ -7,7 +7,7 @@ export default function AuthError({ error, reset }: { error: Error; reset: () =>
       <div className="text-center">
         <h2 className="text-2xl font-bold text-gray-900 mb-4">エラーが発生しました</h2>
         <p className="text-gray-600 mb-8">認証処理中にエラーが発生しました。再度お試しください。</p>
-        <button onClick={reset} className="btn-primary">もう一度試す</button>
+        <button type="button" onClick={reset} className="btn-primary">もう一度試す</button>
       </div>
     </div>
   );

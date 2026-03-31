@@ -83,6 +83,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
         <div className="flex gap-2 mt-2 overflow-x-auto px-4 pb-2">
           {photos.map((photo, i) => (
             <button
+              type="button"
               key={photo.id}
               onClick={() => { setSelected(i); setImgError(false); }}
               className={`relative w-20 h-14 flex-shrink-0 rounded-lg overflow-hidden border-2 transition-colors ${
@@ -112,11 +113,11 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
           aria-modal="true"
           aria-label="写真拡大表示"
         >
-          <button onClick={(e) => { e.stopPropagation(); setLightboxOpen(false); }} className="absolute top-4 right-4 text-white/70 hover:text-white p-2" aria-label="閉じる">
+          <button type="button" onClick={(e) => { e.stopPropagation(); setLightboxOpen(false); }} className="absolute top-4 right-4 text-white/70 hover:text-white p-2" aria-label="閉じる">
             <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
           {photos.length > 1 && (
-            <button onClick={(e) => { e.stopPropagation(); goPrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2" aria-label="前の写真">
+            <button type="button" onClick={(e) => { e.stopPropagation(); goPrev(); }} className="absolute left-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2" aria-label="前の写真">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
           )}
@@ -130,7 +131,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
             />
           </div>
           {photos.length > 1 && (
-            <button onClick={(e) => { e.stopPropagation(); goNext(); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2" aria-label="次の写真">
+            <button type="button" onClick={(e) => { e.stopPropagation(); goNext(); }} className="absolute right-4 top-1/2 -translate-y-1/2 text-white/70 hover:text-white p-2" aria-label="次の写真">
               <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
             </button>
           )}

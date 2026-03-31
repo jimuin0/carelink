@@ -117,6 +117,7 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
           <p className="text-sm font-bold text-amber-800 mb-3">この予約を承認しますか？</p>
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={() => handleStatusChange('confirmed')}
               disabled={updating}
               className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
@@ -124,6 +125,7 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
               {updating ? '処理中...' : '承認する'}
             </button>
             <button
+              type="button"
               onClick={() => handleStatusChange('cancelled')}
               disabled={updating}
               className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
@@ -191,6 +193,7 @@ export default function AdminBookingDetailPage({ params }: { params: { id: strin
             <div className="flex flex-wrap gap-2">
               {Object.entries(statusConfig).map(([value, cfg]) => (
                 <button
+                  type="button"
                   key={value}
                   onClick={() => handleStatusChange(value)}
                   disabled={updating || booking.status === value}

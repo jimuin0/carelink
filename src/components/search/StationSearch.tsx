@@ -53,7 +53,7 @@ export default function StationSearch() {
             <div className="p-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold">駅から探す</h3>
-                <button onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="閉じる">&times;</button>
+                <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="閉じる">&times;</button>
               </div>
               <input
                 type="text"
@@ -72,6 +72,7 @@ export default function StationSearch() {
               ) : (
                 filtered.map((station) => (
                   <button
+                    type="button"
                     key={station}
                     onClick={() => handleSelect(station)}
                     className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-sky-50 transition-colors"

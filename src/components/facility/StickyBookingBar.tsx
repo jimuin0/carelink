@@ -38,6 +38,7 @@ export default function StickyBookingBar({ phone, facilityName, facilitySlug, fa
           今すぐ予約する
         </Link>
         <button
+          type="button"
           onClick={() => {
             const el = document.getElementById('contact-section');
             if (el) el.scrollIntoView({ behavior: 'smooth' });

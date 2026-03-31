@@ -62,7 +62,7 @@ export default function SearchFilters({ className }: { className?: string }) {
     <div className={className}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-bold text-gray-800">絞り込み</h2>
-        <button onClick={clearFilters} aria-label="フィルターをクリア" className="text-xs text-gray-400 hover:text-sky-600 transition-colors">
+        <button type="button" onClick={clearFilters} aria-label="フィルターをクリア" className="text-xs text-gray-400 hover:text-sky-600 transition-colors">
           クリア
         </button>
       </div>
@@ -193,6 +193,7 @@ export default function SearchFilters({ className }: { className?: string }) {
             const isSelected = selectedFeatures.includes(feature);
             return (
               <button
+                type="button"
                 key={feature}
                 onClick={() => toggleFeature(feature)}
                 aria-pressed={isSelected}
@@ -211,6 +212,7 @@ export default function SearchFilters({ className }: { className?: string }) {
 
       {/* 適用ボタン */}
       <button
+        type="button"
         onClick={applyFilters}
         className="w-full py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold rounded-lg transition-colors"
       >

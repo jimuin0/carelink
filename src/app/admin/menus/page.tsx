@@ -161,7 +161,7 @@ export default function AdminMenusPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">メニュー管理</h1>
-        <button onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 !py-2.5">
+        <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 !py-2.5">
           メニュー追加
         </button>
       </div>
@@ -215,8 +215,8 @@ export default function AdminMenusPage() {
               </label>
             </div>
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
+              <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
             </div>
           </div>
         </div>
@@ -226,7 +226,7 @@ export default function AdminMenusPage() {
       {menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-2">メニューがまだ登録されていません</p>
-          <button onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初のメニューを追加する</button>
+          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初のメニューを追加する</button>
         </div>
       ) : (
         <div className="space-y-6">
@@ -253,10 +253,10 @@ export default function AdminMenusPage() {
                       {menu.duration_minutes != null && <p className="text-xs text-gray-400">{menu.duration_minutes}分</p>}
                     </div>
                     <div className="flex gap-1 shrink-0">
-                      <button onClick={() => startEdit(menu)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
+                      <button type="button" onClick={() => startEdit(menu)} className="p-2 text-gray-400 hover:text-sky-600 hover:bg-sky-50 rounded-lg transition-colors" aria-label="編集">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                       </button>
-                      <button onClick={() => handleDelete(menu.id)} disabled={deleting === menu.id} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
+                      <button type="button" onClick={() => handleDelete(menu.id)} disabled={deleting === menu.id} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors" aria-label="削除">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                       </button>
                     </div>

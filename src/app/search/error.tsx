@@ -13,7 +13,7 @@ export default function SearchError({ error, reset }: { error: Error; reset: () 
           一時的な問題が発生しています。しばらくしてからもう一度お試しください。
         </p>
         <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <button onClick={reset} className="btn-primary text-sm px-6 py-3">
+          <button type="button" onClick={reset} className="btn-primary text-sm px-6 py-3">
             もう一度試す
           </button>
           <Link href="/" className="btn-outline text-sm px-6 py-3">

@@ -122,7 +122,7 @@ export default function StaffSchedulePage() {
   return (
     <div>
       <div className="flex items-center gap-3 mb-6">
-        <button onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
+        <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
         <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
       </div>
 
@@ -174,7 +174,7 @@ export default function StaffSchedulePage() {
             </div>
           ))}
         </div>
-        <button onClick={handleSaveSchedules} disabled={saving} className="btn-primary mt-4 !py-2">
+        <button type="button" onClick={handleSaveSchedules} disabled={saving} className="btn-primary mt-4 !py-2">
           {saving ? '保存中...' : 'スケジュールを保存'}
         </button>
       </div>
@@ -216,7 +216,7 @@ export default function StaffSchedulePage() {
               </div>
             </>
           )}
-          <button onClick={handleAddOverride} className="btn-primary text-sm !py-2 !px-4">追加</button>
+          <button type="button" onClick={handleAddOverride} className="btn-primary text-sm !py-2 !px-4">追加</button>
         </div>
 
         {overrides.length === 0 ? (
@@ -233,7 +233,7 @@ export default function StaffSchedulePage() {
                     <span className="ml-2 text-gray-600">{ov.start_time}〜{ov.end_time}</span>
                   )}
                 </div>
-                <button onClick={() => handleDeleteOverride(ov.id)} className="text-xs text-red-400 hover:text-red-600">削除</button>
+                <button type="button" onClick={() => handleDeleteOverride(ov.id)} className="text-xs text-red-400 hover:text-red-600">削除</button>
               </div>
             ))}
           </div>

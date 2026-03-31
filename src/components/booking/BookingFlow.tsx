@@ -231,6 +231,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
             const isSelected = selectedMenus.some((m) => m.id === menu.id);
             return (
               <button
+                type="button"
                 key={menu.id}
                 onClick={() => {
                   setSelectedMenus((prev) =>
@@ -263,6 +264,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               <h3 className="font-bold text-sm mb-2">クーポンを使う</h3>
               <div className="space-y-2">
                 <button
+                  type="button"
                   onClick={() => setSelectedCoupon(null)}
                   className={`w-full text-left p-3 rounded-xl border text-sm ${
                     !selectedCoupon ? 'border-primary bg-sky-50' : 'border-gray-200'
@@ -272,6 +274,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 </button>
                 {coupons.map((coupon) => (
                   <button
+                    type="button"
                     key={coupon.id}
                     onClick={() => setSelectedCoupon(coupon)}
                     className={`w-full text-left p-3 rounded-xl border text-sm ${
@@ -293,7 +296,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 <span className="ml-3">合計 ¥{selectedMenus.reduce((s, m) => s + (m.price || 0), 0).toLocaleString()}</span>
                 <span className="ml-3">{selectedMenus.reduce((s, m) => s + (m.duration_minutes || 60), 0)}分</span>
               </div>
-              <button onClick={() => setStep('staff')} className="btn-primary w-full !py-3">
+              <button type="button" onClick={() => setStep('staff')} className="btn-primary w-full !py-3">
                 次へ（スタッフ選択）
               </button>
             </div>
@@ -306,6 +309,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         <div className="space-y-3">
           <h2 className="font-bold">スタッフを選択</h2>
           <button
+            type="button"
             onClick={() => { setSelectedStaff(null); setStep('datetime'); }}
             className="w-full text-left p-4 rounded-xl border border-sky-300 bg-sky-50 transition-colors hover:bg-sky-100"
           >
@@ -314,6 +318,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           </button>
           {staff.map((s) => (
             <button
+              type="button"
               key={s.id}
               onClick={() => { setSelectedStaff(s); setStep('datetime'); }}
               className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
@@ -329,7 +334,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               </div>
             </button>
           ))}
-          <button onClick={() => setStep('menu')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => setStep('menu')} className="text-sm text-gray-500 hover:underline">
             戻る
           </button>
         </div>
@@ -351,6 +356,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 const isActive = selectedDate === date;
                 return (
                   <button
+                    type="button"
                     key={date}
                     onClick={() => setSelectedDate(date)}
                     className={`p-2 rounded-lg border text-center transition-colors ${
@@ -392,6 +398,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                     const isActive = selectedSlot?.slot_start === slot.slot_start;
                     return (
                       <button
+                        type="button"
                         key={slot.slot_start}
                         onClick={() => setSelectedSlot(slot)}
                         className={`p-2.5 rounded-xl border text-center transition-colors ${
@@ -408,11 +415,11 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           )}
 
           <div className="flex gap-3 pt-2">
-            <button onClick={() => setStep('staff')} className="text-sm text-gray-500 hover:underline">
+            <button type="button" onClick={() => setStep('staff')} className="text-sm text-gray-500 hover:underline">
               戻る
             </button>
             {selectedSlot && (
-              <button onClick={() => setStep('confirm')} className="btn-primary flex-1 !py-3">
+              <button type="button" onClick={() => setStep('confirm')} className="btn-primary flex-1 !py-3">
                 次へ（確認・予約）
               </button>
             )}
@@ -564,10 +571,11 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           )}
 
           <div className="flex gap-3">
-            <button onClick={() => setStep('datetime')} className="text-sm text-gray-500 hover:underline">
+            <button type="button" onClick={() => setStep('datetime')} className="text-sm text-gray-500 hover:underline">
               戻る
             </button>
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={submitting}
               className="btn-primary flex-1 !py-3"

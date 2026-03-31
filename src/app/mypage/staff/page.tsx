@@ -109,6 +109,7 @@ export default function PreferredStaffPage() {
                 )}
               </div>
               <button
+                type="button"
                 onClick={() => handleRemove(s.id)}
                 className="text-xs text-red-500 hover:text-red-600 px-3 py-1.5 border border-red-200 rounded-full hover:bg-red-50 transition-colors"
               >

@@ -200,12 +200,14 @@ export default function AdminPhotosPage() {
                     )}
                     <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
                       <button
+                        type="button"
                         onClick={() => setAsMain(photo)}
                         className="px-3 py-1.5 bg-white text-gray-800 text-xs font-bold rounded-lg hover:bg-sky-50"
                       >
                         メインに設定
                       </button>
                       <button
+                        type="button"
                         onClick={() => handleDelete(photo)}
                         disabled={deleting === photo.id}
                         className="px-3 py-1.5 bg-white text-red-600 text-xs font-bold rounded-lg hover:bg-red-50"

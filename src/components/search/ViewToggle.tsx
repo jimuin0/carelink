@@ -21,6 +21,7 @@ export default function ViewToggle({ facilities, bookingCounts, availableIds }: 
       <div className="flex justify-end">
         <div className="flex gap-1 bg-gray-100 rounded-lg p-0.5">
         <button
+          type="button"
           onClick={() => setView('list')}
           aria-label="リスト表示"
           className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors ${view === 'list' ? 'bg-white text-gray-900 font-bold shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
@@ -29,6 +30,7 @@ export default function ViewToggle({ facilities, bookingCounts, availableIds }: 
           リスト
         </button>
         <button
+          type="button"
           onClick={() => setView('map')}
           aria-label="マップ表示"
           className={`flex items-center gap-1 px-3 py-1.5 rounded-md text-sm transition-colors ${view === 'map' ? 'bg-white text-gray-900 font-bold shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
