@@ -51,7 +51,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
 
   return (
     <div role="region" aria-label="写真ギャラリー" tabIndex={0} onKeyDown={handleKeyDown}>
-      <div className="relative aspect-[16/9] bg-gray-100 cursor-pointer" onClick={() => setLightboxOpen(true)}>
+      <div className="relative aspect-[16/9] bg-gray-100 cursor-pointer" role="button" tabIndex={0} aria-label="写真を拡大表示" onClick={() => setLightboxOpen(true)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLightboxOpen(true); } }}>
         {imgError ? (
           <div className="flex items-center justify-center h-full bg-gradient-to-br from-sky-100 to-sky-50">
             <p className="text-sky-300 text-sm">画像を読み込めませんでした</p>

@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation';
 import Breadcrumb from '@/components/Breadcrumb';
 import { articles, type ArticleSection } from '@/data/articles';
 
+export const revalidate = false;
+
 export function generateStaticParams() {
   return articles.map((a) => ({ slug: a.slug }));
 }

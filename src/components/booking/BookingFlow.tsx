@@ -487,6 +487,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="form-input"
                 placeholder="山田 太郎"
+                aria-required="true"
               />
             </div>
             <div>
@@ -498,6 +499,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 type="email"
                 className="form-input"
                 placeholder="example@email.com"
+                aria-required="true"
               />
             </div>
             <div>

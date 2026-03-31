@@ -195,7 +195,7 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
       <form onSubmit={handleSubmit(() => setShowConfirm(true))} noValidate className="space-y-4">
         <div>
           <label htmlFor="reviewer_name" className="form-label">お名前 <span className="text-red-500">*</span></label>
-          <input {...register('reviewer_name')} id="reviewer_name" className="form-input" placeholder="ニックネーム可" autoComplete="name" />
+          <input {...register('reviewer_name')} id="reviewer_name" className="form-input" placeholder="ニックネーム可" autoComplete="name" aria-required="true" />
           {errors.reviewer_name && <p className="form-error" role="alert">{errors.reviewer_name.message}</p>}
         </div>
 

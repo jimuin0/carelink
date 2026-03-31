@@ -131,7 +131,7 @@ export default function ContactPage() {
               <label htmlFor="contact-inquiry-type" className="form-label">
                 お問い合わせ種別 <span className="text-red-500">*</span>
               </label>
-              <select id="contact-inquiry-type" {...register('inquiry_type')} className="form-input">
+              <select id="contact-inquiry-type" {...register('inquiry_type')} className="form-input" aria-required="true">
                 <option value="">選択してください</option>
                 <option value="掲載について">掲載について</option>
                 <option value="施設検索について">施設検索について</option>
@@ -149,6 +149,7 @@ export default function ContactPage() {
                 {...register('message')}
                 className="form-input min-h-[150px]"
                 placeholder="お問い合わせ内容をご記入ください"
+                aria-required="true"
               />
               {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
             </div>

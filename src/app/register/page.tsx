@@ -202,36 +202,36 @@ export default function RegisterPage() {
           {step === 1 && (
             <div className="space-y-5">
               <div>
-                <label className="form-label">施設名 <span className="text-red-500">*</span></label>
-                <input {...register('facility_name')} className="form-input" placeholder="例：リラクゼーションサロン ABC" />
+                <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
+                <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="例：リラクゼーションサロン ABC" aria-required="true" />
                 {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
-                <label className="form-label">業種 <span className="text-red-500">*</span></label>
-                <select {...register('business_type')} className="form-input">
+                <label htmlFor="reg-business-type" className="form-label">業種 <span className="text-red-500">*</span></label>
+                <select {...register('business_type')} id="reg-business-type" className="form-input" aria-required="true">
                   <option value="">選択してください</option>
                   {businessTypes.map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
                 {errors.business_type && <p className="form-error" role="alert">{errors.business_type.message}</p>}
               </div>
               <div>
-                <label className="form-label">代表者名 <span className="text-red-500">*</span></label>
-                <input {...register('representative_name')} className="form-input" placeholder="例：山田 太郎" />
+                <label htmlFor="reg-rep-name" className="form-label">代表者名 <span className="text-red-500">*</span></label>
+                <input {...register('representative_name')} id="reg-rep-name" className="form-input" placeholder="例：山田 太郎" aria-required="true" />
                 {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
               </div>
               <div>
-                <label className="form-label">担当者名 <span className="text-red-500">*</span></label>
-                <input {...register('contact_name')} className="form-input" placeholder="例：山田 花子" />
+                <label htmlFor="reg-contact-name" className="form-label">担当者名 <span className="text-red-500">*</span></label>
+                <input {...register('contact_name')} id="reg-contact-name" className="form-input" placeholder="例：山田 花子" aria-required="true" />
                 {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
               </div>
               <div>
-                <label className="form-label">メールアドレス <span className="text-red-500">*</span></label>
-                <input {...register('email')} type="email" autoComplete="email" className="form-input" placeholder="example@email.com" />
+                <label htmlFor="reg-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+                <input {...register('email')} id="reg-email" type="email" autoComplete="email" className="form-input" placeholder="example@email.com" aria-required="true" />
                 {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
               </div>
               <div>
-                <label className="form-label">電話番号 <span className="text-red-500">*</span></label>
-                <input {...register('phone')} onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" />
+                <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
+                <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" />
                 {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
               <div>

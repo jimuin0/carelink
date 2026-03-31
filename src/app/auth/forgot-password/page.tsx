@@ -78,6 +78,7 @@ export default function ForgotPasswordPage() {
                 className="form-input"
                 placeholder="example@email.com"
                 autoComplete="email"
+                aria-required="true"
               />
               {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
             </div>

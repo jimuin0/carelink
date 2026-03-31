@@ -61,6 +61,7 @@ export default function ResetPasswordPage() {
                 className="form-input"
                 placeholder="8文字以上"
                 autoComplete="new-password"
+                aria-required="true"
               />
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
@@ -74,6 +75,7 @@ export default function ResetPasswordPage() {
                 className="form-input"
                 placeholder="もう一度入力"
                 autoComplete="new-password"
+                aria-required="true"
               />
               {errors.password_confirm && <p className="form-error" role="alert">{errors.password_confirm.message}</p>}
             </div>

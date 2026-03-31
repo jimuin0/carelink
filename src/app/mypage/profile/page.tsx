@@ -147,6 +147,7 @@ export default function ProfileEditPage() {
               {...register('display_name', { required: 'お名前は必須です' })}
               id="profile-name"
               className="form-input"
+              aria-required="true"
             />
             {errors.display_name && <p className="form-error" role="alert">{errors.display_name.message}</p>}
           </div>
