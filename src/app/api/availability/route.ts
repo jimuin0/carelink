@@ -4,6 +4,8 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: Request) {
   try {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';

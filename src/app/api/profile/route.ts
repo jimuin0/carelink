@@ -6,6 +6,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 
+export const dynamic = 'force-dynamic';
+
 const profileSchema = z.object({
   display_name: z.string().min(1, 'お名前は必須です'),
   phone: z.string().nullable().optional(),

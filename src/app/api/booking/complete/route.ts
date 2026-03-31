@@ -6,6 +6,8 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import * as Sentry from '@sentry/nextjs';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
     const csrfError = checkCsrf(request);

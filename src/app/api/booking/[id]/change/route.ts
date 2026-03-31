@@ -7,6 +7,8 @@ import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
 
+export const dynamic = 'force-dynamic';
+
 const changeSchema = z.object({
   booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),

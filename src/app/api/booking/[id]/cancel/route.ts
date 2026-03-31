@@ -7,6 +7,8 @@ import { sendBookingCancelled } from '@/lib/email';
 import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(_request: Request, { params }: { params: { id: string } }) {
   try {
   const csrfError = checkCsrf(_request);

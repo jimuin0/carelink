@@ -5,6 +5,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: NextRequest) {
   try {
     const csrfError = checkCsrf(request);

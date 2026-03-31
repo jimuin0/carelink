@@ -8,6 +8,8 @@ import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import * as Sentry from '@sentry/nextjs';
 
+export const dynamic = 'force-dynamic';
+
 export async function POST(request: Request) {
   try {
   const csrfError = checkCsrf(request);

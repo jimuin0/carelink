@@ -3,6 +3,8 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 
+export const dynamic = 'force-dynamic';
+
 export async function GET(req: NextRequest) {
   try {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
