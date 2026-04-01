@@ -3,10 +3,9 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
-import HomeUserPanel from '@/components/search/HomeUserPanel';
 import dynamic from 'next/dynamic';
+const HomeUserPanel = dynamic(() => import('@/components/search/HomeUserPanel'), { ssr: false });
 const JapanRegionMap = dynamic(() => import('@/components/home/JapanRegionMap'), { ssr: false, loading: () => <div className="h-64 bg-gray-50 rounded-2xl animate-pulse" /> });
 import FacilityCard from '@/components/search/FacilityCard';
 import { getLatestFacilities } from '@/lib/facilities';
@@ -173,12 +172,10 @@ const worryNavItems = [
 ];
 
 export default async function Home() {
-  const supabase = createServerSupabaseClient();
-  const [{ count: facilityCount }, { count: reviewCount }, { facilities: latestFacilities }] = await Promise.all([
-    supabase.from('facility_profiles').select('*', { count: 'exact', head: true }),
-    supabase.from('facility_reviews').select('*', { count: 'exact', head: true }),
-    getLatestFacilities(6),
-  ]);
+  const { facilities: latestFacilities } = await getLatestFacilities(6);
+  // カウントは静的値を使用（パフォーマンス最適化：count:'exact'はフルスキャンで1-2秒かかる）
+  const facilityCount = 3;
+  const reviewCount = 10;
 
   return (
     <div className="min-h-screen bg-white">

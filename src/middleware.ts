@@ -4,6 +4,15 @@ import { NextResponse, type NextRequest } from 'next/server';
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
 export async function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // 公開ページは認証チェックをスキップ（パフォーマンス最適化）
+  const isProtected = PROTECTED_PATHS.some((path) => pathname.startsWith(path));
+  const isAuthPage = pathname === '/auth/login' || pathname === '/auth/signup';
+  if (!isProtected && !isAuthPage) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -27,7 +36,7 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  // トークンリフレッシュ（全リクエストで実行）
+  // トークンリフレッシュ（保護ルート・認証ページのみ）
   let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
   try {
     const { data } = await supabase.auth.getUser();
@@ -37,9 +46,6 @@ export async function middleware(request: NextRequest) {
   }
 
   // 保護ルートへの未認証アクセスをリダイレクト
-  const isProtected = PROTECTED_PATHS.some((path) =>
-    request.nextUrl.pathname.startsWith(path)
-  );
   if (isProtected && !user) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';

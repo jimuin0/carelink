@@ -13,9 +13,9 @@ import "./globals.css";
 
 const notoSansJP = Noto_Sans_JP({
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "700"],
   display: "swap",
-  preload: true,
+  preload: false,
 });
 
 export const metadata: Metadata = {
