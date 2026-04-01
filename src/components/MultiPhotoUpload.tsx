@@ -80,7 +80,7 @@ export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadPr
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
       {slots.map((slot, i) => (
-        <div key={i}>
+        <div key={slot.label}>
           <p className="text-xs text-gray-500 mb-1">
             {slot.label}
             {slot.required && <span className="text-red-500 ml-0.5">*</span>}

@@ -1,8 +1,8 @@
 import { createServerClient } from '@supabase/ssr';
-import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,11 +91,7 @@ export async function GET(request: Request) {
     }
 
     // Admin client (service role) for user management
-    const adminSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!,
-      { auth: { autoRefreshToken: false, persistSession: false } }
-    );
+    const adminSupabase = createServiceRoleClient();
 
     // Create user if not exists (ignore "already registered" error)
     await adminSupabase.auth.admin.createUser({
