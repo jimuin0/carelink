@@ -7,7 +7,7 @@ import {
   businessTypeSlugs,
   getPrefectureName,
 } from '@/lib/seo-constants';
-import { regionGroups } from '@/lib/constants';
+import { regionGroups, SITE_URL } from '@/lib/constants';
 import { getCitiesForPrefecture } from '@/data/city-slugs';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 import { searchFacilities } from '@/lib/facilities';
@@ -34,14 +34,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${name}のサロン・クリニック一覧`;
   const description = `${name}の美容サロン・鍼灸院・整骨院・介護施設を口コミ・メニュー・写真で比較。ネット予約も24時間OK。CareLink で${name}のサロン・クリニックを探そう。`;
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   return {
     title,
     description,
     openGraph: {
       title: `${title} | CareLink`,
       description,
-      images: [{ url: `${baseUrl}/api/og?title=${encodeURIComponent(title)}` }],
+      images: [{ url: `${SITE_URL}/api/og?title=${encodeURIComponent(title)}` }],
     },
     alternates: { canonical: `/${prefectureSlug}` },
   };
@@ -51,8 +50,6 @@ export default async function PrefecturePage({ params }: Props) {
   const { prefectureSlug } = await params;
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) notFound();
-
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
   const [{ facilities, total }, seoContent] = await Promise.all([
     searchFacilities({ prefecture: prefName, sort: 'rating' }),
@@ -71,7 +68,7 @@ export default async function PrefecturePage({ params }: Props) {
     itemListElement: facilities.slice(0, 10).map((f, i) => ({
       '@type': 'ListItem',
       position: i + 1,
-      url: `${baseUrl}/facility/${f.slug}`,
+      url: `${SITE_URL}/facility/${f.slug}`,
       name: f.name,
     })),
   };

@@ -1,6 +1,5 @@
 import type { MetadataRoute } from 'next';
-
-const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
+import { SITE_URL } from '@/lib/constants';
 
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -9,6 +8,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: ['/admin/', '/mypage/', '/auth/'],
     },
-    sitemap: `${baseUrl}/sitemap.xml`,
+    sitemap: `${SITE_URL}/sitemap.xml`,
   };
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
 import { notFound } from 'next/navigation';
+import { SITE_URL } from '@/lib/constants';
 import { getFeatureBySlug } from '@/lib/features';
 import { searchFacilities } from '@/lib/facilities';
 import Breadcrumb from '@/components/Breadcrumb';
@@ -24,17 +25,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const feature = await getFeatureBySlug(slug);
   if (!feature) return {};
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   return {
     title: feature.title,
     description: feature.description || `${feature.title} | CareLink 特集`,
-    alternates: { canonical: `${baseUrl}/feature/${slug}` },
+    alternates: { canonical: `${SITE_URL}/feature/${slug}` },
     openGraph: {
       title: `${feature.title} | CareLink`,
       description: feature.description || undefined,
       images: feature.banner_image_url
         ? [{ url: feature.banner_image_url }]
-        : [{ url: `${baseUrl}/api/og?title=${encodeURIComponent(feature.title)}&subtitle=${encodeURIComponent('特集')}` }],
+        : [{ url: `${SITE_URL}/api/og?title=${encodeURIComponent(feature.title)}&subtitle=${encodeURIComponent('特集')}` }],
     },
   };
 }

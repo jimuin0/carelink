@@ -3,6 +3,7 @@ import { Noto_Sans_JP } from "next/font/google";
 import Script from "next/script";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import dynamic from "next/dynamic";
+import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
 
 const Analytics = dynamic(() => import("@vercel/analytics/react").then(m => ({ default: m.Analytics })), { ssr: false });
@@ -18,7 +19,7 @@ const notoSansJP = Noto_Sans_JP({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com'),
+  metadataBase: new URL(SITE_URL),
   title: {
     default: "CareLink | 医療・福祉・美容の集客プラットフォーム",
     template: "%s | CareLink",

@@ -43,3 +43,6 @@ export const dayLabels: Record<string, string> = {
 
 /** UUID v4 validation pattern */
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** サイトURL（環境変数 or デフォルト） */
+export const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';

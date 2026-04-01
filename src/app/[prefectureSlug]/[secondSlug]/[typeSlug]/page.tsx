@@ -7,7 +7,7 @@ import {
   getBusinessTypeName,
   isValidBusinessTypeSlug,
 } from '@/lib/seo-constants';
-import { facilityFeatures } from '@/lib/constants';
+import { facilityFeatures, SITE_URL } from '@/lib/constants';
 import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import { isValidCitySlug, getCityName, getCitiesForPrefecture } from '@/data/city-slugs';
@@ -53,7 +53,6 @@ export default async function CityTypePage({ params, searchParams }: Props) {
   }
 
   const { page: pageStr } = await searchParams;
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
@@ -67,7 +66,7 @@ export default async function CityTypePage({ params, searchParams }: Props) {
     '@context': 'https://schema.org', '@type': 'ItemList',
     name: `${cityName}の${typeName}`, numberOfItems: total,
     itemListElement: facilities.map((f, i) => ({
-      '@type': 'ListItem', position: (page - 1) * perPage + i + 1, url: `${baseUrl}/facility/${f.slug}`, name: f.name,
+      '@type': 'ListItem', position: (page - 1) * perPage + i + 1, url: `${SITE_URL}/facility/${f.slug}`, name: f.name,
     })),
   };
 

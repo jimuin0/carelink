@@ -9,7 +9,7 @@ function getResend(): Resend | null {
 }
 
 const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink.jp>';
-const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
+import { SITE_URL } from '@/lib/constants';
 
 /** HTML特殊文字エスケープ（XSS防止） */
 function esc(str: string): string {

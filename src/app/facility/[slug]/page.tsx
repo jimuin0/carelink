@@ -27,9 +27,8 @@ import BusinessStatusBadge from '@/components/facility/BusinessStatusBadge';
 import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import NearbyFacilities from '@/components/facility/NearbyFacilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { SITE_URL } from '@/lib/constants';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
-
-const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://www.carelink-jp.com';
 
 export const revalidate = 3600;
 
