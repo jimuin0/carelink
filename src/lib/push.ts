@@ -1,14 +1,20 @@
 import { createServiceRoleClient } from './supabase-server';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const webpush = require('web-push');
-
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 const VAPID_SUBJECT = 'mailto:support@carelink-jp.com';
+let vapidConfigured = false;
 
-if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
+function getWebPush() {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const webpush = require('web-push');
+  if (!vapidConfigured) {
+    const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    const priv = process.env.VAPID_PRIVATE_KEY;
+    if (pub && priv) {
+      webpush.setVapidDetails(VAPID_SUBJECT, pub, priv);
+      vapidConfigured = true;
+    }
+  }
+  return webpush;
 }
 
 interface PushPayload {
@@ -24,8 +30,9 @@ interface PushPayload {
  * Removes stale subscriptions (410 Gone).
  */
 export async function sendPushToUser(userId: string, payload: PushPayload): Promise<boolean> {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return false;
+  if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return false;
 
+  const webpush = getWebPush();
   const supabase = createServiceRoleClient();
   const { data: sub } = await supabase
     .from('push_subscriptions')
@@ -60,7 +67,7 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
  * Send push notification to all subscribers of a facility (owners/admins).
  */
 export async function sendPushToFacilityOwners(facilityId: string, payload: PushPayload): Promise<void> {
-  if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
+  if (!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
 
   const supabase = createServiceRoleClient();
   const { data: members } = await supabase
