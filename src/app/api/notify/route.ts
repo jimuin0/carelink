@@ -78,10 +78,10 @@ export async function POST(request: Request) {
     const body = await request.json();
 
     const payloadSchema = z.discriminatedUnion('type', [
-      z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string(), business_type: z.string(), representative_name: z.string(), phone: z.string(), email: z.string(), address: z.string().optional(), desired_start_date: z.string().optional() }) }),
-      z.object({ type: z.literal('contact'), data: z.object({ name: z.string(), inquiry_type: z.string(), email: z.string(), message: z.string() }) }),
-      z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string(), name: z.string(), email: z.string(), phone: z.string(), message: z.string() }) }),
-      z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string(), contact_name: z.string(), email: z.string(), phone: z.string(), business_type: z.string() }) }),
+      z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string().max(200), business_type: z.string().max(100), representative_name: z.string().max(100), phone: z.string().max(30), email: z.string().max(254), address: z.string().max(300).optional(), desired_start_date: z.string().max(30).optional() }) }),
+      z.object({ type: z.literal('contact'), data: z.object({ name: z.string().max(100), inquiry_type: z.string().max(100), email: z.string().max(254), message: z.string().max(2000) }) }),
+      z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string().max(200), name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), message: z.string().max(2000) }) }),
+      z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string().max(200), contact_name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), business_type: z.string().max(100) }) }),
     ]);
 
     const result = payloadSchema.safeParse(body);

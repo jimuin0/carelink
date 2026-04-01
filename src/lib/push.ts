@@ -12,6 +12,8 @@ function getWebPush() {
     if (pub && priv) {
       webpush.setVapidDetails(VAPID_SUBJECT, pub, priv);
       vapidConfigured = true;
+    } else {
+      console.warn('[Push] VAPID keys not configured — push notifications disabled');
     }
   }
   return webpush;

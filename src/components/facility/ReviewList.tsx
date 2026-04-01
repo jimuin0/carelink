@@ -173,7 +173,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
             {review.photo_urls && review.photo_urls.length > 0 && (
               <div className="flex gap-2 mt-3">
                 {review.photo_urls.map((url, i) => (
-                  <div key={url} className="relative w-16 h-16 rounded-lg overflow-hidden bg-gray-200">
+                  <div key={`${review.id}-photo-${i}`} className="relative w-16 h-16 rounded-lg overflow-hidden bg-gray-200">
                     <Image src={url} alt={`${review.reviewer_name}さんの口コミ写真${i + 1}`} fill className="object-cover" sizes="64px" />
                   </div>
                 ))}

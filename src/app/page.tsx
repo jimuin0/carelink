@@ -536,23 +536,6 @@ export default async function Home() {
         </div>
       </div>
 
-      {/* JSON-LD: WebSite with SearchAction */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            '@context': 'https://schema.org',
-            '@type': 'WebSite',
-            name: 'CareLink',
-            url: 'https://www.carelink-jp.com',
-            potentialAction: {
-              '@type': 'SearchAction',
-              target: 'https://www.carelink-jp.com/search?keyword={search_term_string}',
-              'query-input': 'required name=search_term_string',
-            },
-          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
-        }}
-      />
     </div>
   );
 }
