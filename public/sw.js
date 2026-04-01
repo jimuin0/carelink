@@ -1,8 +1,9 @@
-const CACHE_NAME = 'carelink-v2';
+const CACHE_NAME = 'carelink-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
   '/favicon.svg',
+  '/offline.html',
 ];
 
 self.addEventListener('install', (event) => {
@@ -34,9 +35,11 @@ self.addEventListener('fetch', (event) => {
     || /\.(svg|png|jpg|jpeg|webp|woff2?|css|js)$/.test(url.pathname);
 
   if (!isStatic) {
-    // HTML pages: network only, fallback to cache for offline
+    // HTML pages: network only, fallback to offline page
     event.respondWith(
-      fetch(event.request).catch(() => caches.match(event.request))
+      fetch(event.request).catch(() =>
+        caches.match(event.request).then((cached) => cached || caches.match('/offline.html'))
+      )
     );
     return;
   }
@@ -67,8 +70,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'CareLink';
   const options = {
     body: data.body || '',
-    icon: '/icons/icon-192.svg',
-    badge: '/icons/icon-192.svg',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
     data: { url: data.url || '/' },
     tag: data.tag || 'carelink-notification',
   };
