@@ -37,6 +37,9 @@ export const metadata: Metadata = {
     apple: "/apple-touch-icon.png",
   },
   manifest: '/manifest.json',
+  verification: {
+    google: process.env.NEXT_PUBLIC_GSC_VERIFICATION || undefined,
+  },
   other: {
     'theme-color': '#0284C7',
   },

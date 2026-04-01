@@ -3,10 +3,11 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
-import SearchFilters from '@/components/search/SearchFilters';
-import MobileFilterDrawer from '@/components/search/MobileFilterDrawer';
+import dynamic from 'next/dynamic';
 import Pagination from '@/components/search/Pagination';
-import ViewToggle from '@/components/search/ViewToggle';
+const SearchFilters = dynamic(() => import('@/components/search/SearchFilters'));
+const MobileFilterDrawer = dynamic(() => import('@/components/search/MobileFilterDrawer'), { ssr: false });
+const ViewToggle = dynamic(() => import('@/components/search/ViewToggle'), { ssr: false });
 
 export const dynamic = 'force-dynamic';
 
