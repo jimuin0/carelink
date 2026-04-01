@@ -230,13 +230,16 @@ Supabase (PostgreSQL + Storage)
 ├── docs/
 │   └── MANUAL.md                        … このマニュアル
 ├── supabase/
-│   └── migrations/
-│       └── 20260322_reviews_inquiries.sql
+│   └── migrations/                         … DBマイグレーション（18ファイル）
+├── .github/
+│   └── workflows/ci.yml                   … GitHub Actions CI（lint/tsc/test）
 ├── public/
 │   ├── favicon.svg                      … ファビコン
 │   ├── apple-touch-icon.png             … Apple Touch Icon
 │   ├── og-image.png                     … OGP画像（1200x630）
 │   ├── manifest.json                    … PWA マニフェスト
+│   ├── sw.js                            … Service Worker（Push通知+オフライン）
+│   ├── offline.html                     … オフラインフォールバック
 │   └── icons/icon-192.svg              … PWAアイコン
 ├── src/
 │   ├── middleware.ts                     … 認証トークンリフレッシュ + 保護ルート
@@ -265,8 +268,7 @@ Supabase (PostgreSQL + Storage)
 │   │   │   │   ├── page.tsx / loading.tsx / error.tsx
 │   │   │   │   └── [postSlug]/page.tsx
 │   │   │   └── catalog/                 … ヘアカタログ
-│   │   │       ├── page.tsx / loading.tsx
-│   │   │       └── [catalogId]/page.tsx  … カタログ詳細
+│   │   │       └── page.tsx / loading.tsx
 │   │   │
 │   │   ├── compare/page.tsx             … 【検索】施設比較（最大3件横並び）
 │   │   │
@@ -293,9 +295,8 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── register/                    … 【LP】施設登録フォーム
 │   │   │   ├── page.tsx / layout.tsx
 │   │   │   └── complete/page.tsx
-│   │   ├── jobs/                        … 【LP】求職者登録
-│   │   │   ├── page.tsx / layout.tsx    … （パンくず構造化データ）
-│   │   ├── recruit/page.tsx             … 【LP】求人掲載登録
+│   │   ├── recruit/                     … 【LP】求人掲載登録
+│   │   │   ├── page.tsx / layout.tsx
 │   │   ├── contact/                     … 【LP】お問い合わせ
 │   │   │   ├── page.tsx / layout.tsx
 │   │   ├── privacy/page.tsx             … プライバシーポリシー
@@ -359,7 +360,7 @@ Supabase (PostgreSQL + Storage)
 │   │   │   ├── registrations/page.tsx    … 施設掲載申請一覧
 │   │   │   └── staff/new/page.tsx        … スタッフ新規追加
 │   │   │
-│   │   └── api/                         … APIルート（17エンドポイント）
+│   │   └── api/                         … APIルート（18エンドポイント）
 │   │       ├── notify/route.ts          … Slack通知（Zod検証・レート制限）
 │   │       ├── booking/route.ts         … 予約作成（競合チェック・レート制限）
 │   │       ├── booking/[id]/cancel/route.ts … 予約キャンセル
@@ -387,7 +388,7 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── MultiPhotoUpload.tsx         … 写真アップロード（MIME検証）
 │   │   ├── Spinner.tsx                  … ローディングスピナー
 │   │   │
-│   │   ├── search/                      … 検索コンポーネント（10個）
+│   │   ├── search/                      … 検索コンポーネント（16個）
 │   │   │   ├── SearchHeader.tsx / SearchFooter.tsx / SearchBar.tsx
 │   │   │   ├── FacilityCard.tsx / Pagination.tsx
 │   │   │   ├── SearchFilters.tsx        … サイドバーフィルター（地方optgroup・こだわり16条件）
@@ -450,7 +451,12 @@ Supabase (PostgreSQL + Storage)
 │       └── city-slugs.ts               … 市区町村スラッグマッピング
 │
 ├── .env.example                         … 環境変数テンプレート
-├── next.config.mjs                      … Next.js設定（セキュリティヘッダー・画像最適化）
+├── next.config.mjs                      … Next.js設定（セキュリティヘッダー・画像最適化・Sentry）
+├── sentry.client.config.ts              … Sentry Client（無効化、100KB JS削減）
+├── sentry.server.config.ts              … Sentry Server（tracesSampleRate 0.1）
+├── sentry.edge.config.ts                … Sentry Edge（tracesSampleRate 0.1）
+├── jest.config.js                       … Jest設定（jsdom・@/*エイリアス・uncrypto ESM対応）
+├── vercel.json                          … Vercel設定
 ├── tailwind.config.ts                   … Tailwind設定（デザイントークン）
 ├── tsconfig.json / postcss.config.mjs / .eslintrc.json / package.json
 ```
@@ -897,18 +903,35 @@ CREATE POLICY "Allow anonymous insert" ON facility_inquiries FOR INSERT WITH CHE
 CREATE OR REPLACE FUNCTION update_facility_rating()
 RETURNS TRIGGER AS $$
 BEGIN
-  UPDATE facility_profiles SET
-    rating_avg = COALESCE(
-      (SELECT ROUND(AVG(rating)::numeric, 1) FROM facility_reviews
-       WHERE facility_id = COALESCE(NEW.facility_id, OLD.facility_id)
-       AND status = 'published'), 0),
-    rating_count = COALESCE(
-      (SELECT COUNT(*) FROM facility_reviews
-       WHERE facility_id = COALESCE(NEW.facility_id, OLD.facility_id)
-       AND status = 'published'), 0),
-    updated_at = NOW()
-  WHERE id = COALESCE(NEW.facility_id, OLD.facility_id);
-  RETURN COALESCE(NEW, OLD);
+  IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
+    UPDATE facility_profiles SET
+      rating_avg = COALESCE((
+        SELECT ROUND(AVG(rating)::numeric, 1)
+        FROM facility_reviews
+        WHERE facility_id = NEW.facility_id AND status = 'published'
+      ), 0),
+      rating_count = (
+        SELECT COUNT(*)
+        FROM facility_reviews
+        WHERE facility_id = NEW.facility_id AND status = 'published'
+      )
+    WHERE id = NEW.facility_id;
+    RETURN NEW;
+  ELSIF TG_OP = 'DELETE' THEN
+    UPDATE facility_profiles SET
+      rating_avg = COALESCE((
+        SELECT ROUND(AVG(rating)::numeric, 1)
+        FROM facility_reviews
+        WHERE facility_id = OLD.facility_id AND status = 'published'
+      ), 0),
+      rating_count = (
+        SELECT COUNT(*)
+        FROM facility_reviews
+        WHERE facility_id = OLD.facility_id AND status = 'published'
+      )
+    WHERE id = OLD.facility_id;
+    RETURN OLD;
+  END IF;
 END;
 $$ LANGUAGE plpgsql;
 
@@ -1319,7 +1342,7 @@ review-photos/{review_id}/{timestamp}.{ext}
 | フィールド | バリデーション |
 |-----------|--------------|
 | 施設名 | 1文字以上 |
-| 業種 | セレクト必須（6業種+その他） |
+| 業種 | セレクト必須（7業種+その他） |
 | 代表者名 | 1文字以上 |
 | 担当者名 | 1文字以上 |
 | メールアドレス | Email形式 |
@@ -2133,7 +2156,7 @@ npx tsc --noEmit  # 型チェックのみ
 | `area-seo.ts` | エリアSEOコンテンツ取得（`getAreaSeoContent()`） |
 | `seo-constants.ts` | SEO用定数（メタディスクリプションテンプレート等） |
 | `image-utils.ts` | `SHIMMER_BLUR`定数（グレーSVG base64プレースホルダー） |
-| `email.ts` | Resendメール送信（予約確認/承認/拒否/キャンセル/問い合わせ通知の5テンプレ） |
+| `email.ts` | Resendメール送信（6テンプレ: 予約受付確認/リマインド/予約確定/予約キャンセル/新規予約通知(施設向け)/ステータス変更） |
 | `csrf.ts` | CSRF保護（Origin/Refererチェック） |
 
 ---
@@ -2144,7 +2167,7 @@ npx tsc --noEmit  # 型チェックのみ
 |---------------|------|
 | `prefectures` | 全47都道府県の配列 |
 | `regionGroups` | 8地方グループ（北海道・東北/関東/中部/近畿/中国/四国/九州・沖縄）×都道府県 |
-| `businessTypes` | 6業種の配列（5業種+「その他」）※ validations.tsはre-export |
+| `businessTypes` | 8業種の配列（7業種+「その他」）※ validations.tsはre-export |
 | `facilityFeatures` | 16個の施設特徴タグ |
 | `dayOrder` | 曜日順序配列 `['mon','tue',...,'sun']` |
 | `dayLabels` | 曜日ラベル `{mon:'月', tue:'火', ...}` |
@@ -2160,7 +2183,7 @@ npx tsc --noEmit  # 型チェックのみ
 | `validations.ts` | `reviewSchema`, `inquirySchema` | 検索サイトフォーム |
 | `validations-auth.ts` | `loginSchema`, `signupSchema` | 認証フォーム |
 | `validations-booking.ts` | `bookingSchema` | 予約フォーム（UUID/日付/時間検証） |
-| `validations-admin.ts` | スタッフ/クーポン/施設設定スキーマ | 管理画面フォーム |
+| ~~`validations-admin.ts`~~ | 未実装（管理画面はインラインZod検証） | - |
 
 ---
 
