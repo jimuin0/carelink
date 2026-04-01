@@ -59,7 +59,7 @@
 
 | サイト | パス | 用途 | ヘッダー/フッター |
 |--------|------|------|-------------------|
-| LP（ランディングページ） | `/`, `/salon`, `/jobs`, `/recruit`, `/contact`, `/privacy`, `/terms` | 施設登録・求職者登録・お問い合わせ | Header + Footer |
+| LP（ランディングページ） | `/`, `/salon`, `/register`, `/recruit`, `/contact`, `/privacy`, `/terms`, `/legal` | 施設登録・求人掲載・お問い合わせ | Header + Footer |
 | 検索サイト | `/search`, `/search/area`, `/facility/[slug]`, `/ranking` | 施設検索・詳細・口コミ・エリア検索・ランキング | SearchHeader + SearchFooter |
 | 認証 | `/auth/login`, `/auth/signup`, `/auth/callback` | ユーザー認証（メール+LINE） | なし（専用レイアウト） |
 | マイページ | `/mypage`, `/mypage/profile`, `/mypage/favorites`, `/mypage/bookings`, `/mypage/points`, `/mypage/coupons`, `/mypage/chat`, `/mypage/staff` | ユーザーダッシュボード | 認証ガード付きレイアウト |
@@ -161,7 +161,7 @@ Vercel (Next.js App Router)
     |-- [LP側]
     |   |-- src/app/page.tsx              … トップページ（LP）
     |   |-- src/app/salon/page.tsx        … 施設掲載登録（3ステップフォーム）
-    |   |-- src/app/jobs/page.tsx         … 求職者登録（3ステップフォーム）
+    |   |-- src/app/recruit/page.tsx      … 求人掲載登録（3ステップフォーム）
     |   |-- src/app/contact/page.tsx      … お問い合わせフォーム
     |   |-- src/app/api/notify/route.ts   … Slack通知 API Route
     |
@@ -354,7 +354,10 @@ Supabase (PostgreSQL + Storage)
 │   │   │   ├── settings/page.tsx / loading.tsx  … 施設設定
 │   │   │   ├── chat/page.tsx              … チャット管理（Realtime）
 │   │   │   ├── qa/page.tsx                … Q&A管理
-│   │   │   └── features/page.tsx          … 特集記事管理
+│   │   │   ├── features/page.tsx          … 特集記事管理
+│   │   │   ├── inquiries/page.tsx        … 施設宛お問い合わせ一覧
+│   │   │   ├── registrations/page.tsx    … 施設掲載申請一覧
+│   │   │   └── staff/new/page.tsx        … スタッフ新規追加
 │   │   │
 │   │   └── api/                         … APIルート（17エンドポイント）
 │   │       ├── notify/route.ts          … Slack通知（Zod検証・レート制限）
@@ -975,19 +978,19 @@ review-photos/{review_id}/{timestamp}.{ext}
   └─ 2営業日以内に連絡
 ```
 
-### 7.2 求職者登録フロー（LP: /jobs）
+### 7.2 求人掲載登録フロー（LP: /recruit）
 
 ```
-【求職者】/jobs にアクセス
-  ├─ Step 1: 基本情報（氏名・フリガナ・電話・メール等）
-  ├─ Step 2: 経歴（職種・資格・経験年数等）
-  ├─ Step 3: 希望条件（雇用形態・勤務地・年収・自己PR）
+【施設担当者】/recruit にアクセス
+  ├─ Step 1: 基本情報（施設名・業種・代表者・担当者・メール・電話）
+  ├─ Step 2: 詳細情報（郵便番号・住所・営業時間・定休日・席数・スタッフ数）
+  ├─ Step 3: PR情報（PR文・写真・希望開始日）
   ├─ 同意チェック → 確認ダイアログ
   ├─ Supabase INSERT + Slack通知
-  └─ 完了画面
+  └─ 完了画面: 「担当者より2営業日以内にご連絡いたします。」
 
 【管理者】
-  └─ Supabase Dashboardで確認・対応
+  └─ Supabase Dashboard / admin/registrationsで確認・対応
 ```
 
 ### 7.3 施設検索フロー（検索: /search）
@@ -1098,7 +1101,7 @@ review-photos/{review_id}/{timestamp}.{ext}
 | `/` | `page.tsx` | Static | トップページ |
 | `/salon` | `salon/page.tsx` | Static | 施設掲載LP（CTA→/register） |
 | `/register` | `register/page.tsx` | Static | 施設掲載登録フォーム |
-| `/jobs` | `jobs/page.tsx` | Static | 求職者登録 |
+| ~~`/jobs`~~ | 削除済み（`/recruit`に統合） | - | - |
 | `/recruit` | `recruit/page.tsx` | Static | 求人掲載登録 |
 | `/contact` | `contact/page.tsx` | Static | お問い合わせ |
 | `/blog` | `blog/page.tsx` | Static | コラム一覧 |
@@ -1192,6 +1195,9 @@ review-photos/{review_id}/{timestamp}.{ext}
 | `/admin/chat` | `admin/chat/page.tsx` | Dynamic | チャット管理（Supabase Realtime） |
 | `/admin/qa` | `admin/qa/page.tsx` | Dynamic | Q&A管理（質問回答・公開/非公開） |
 | `/admin/features` | `admin/features/page.tsx` | Dynamic | 特集記事CRUD管理 |
+| `/admin/inquiries` | `admin/inquiries/page.tsx` | Dynamic | 施設宛お問い合わせ一覧 |
+| `/admin/registrations` | `admin/registrations/page.tsx` | Dynamic | 施設掲載申請一覧 |
+| `/admin/staff/new` | `admin/staff/new/page.tsx` | Dynamic | スタッフ新規追加 |
 
 **API Routes**
 
@@ -1558,7 +1564,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 |--------|-------|-------------|
 | `/` | CareLink &#124; ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック | ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約 |
 | `/salon` | 【無料掲載】医療・福祉・美容の集客サイト | 掲載無料・登録3分で集客開始 |
-| `/jobs` | 医療・福祉・美容の転職サイト | 完全無料で登録、業界特化の求人情報 |
+| `/recruit` | 求人掲載登録 | 掲載無料・登録3分で集客開始 |
 | `/search` | 施設・サロンを探す | 施設検索ページ |
 | `/facility/[slug]` | {施設名} - {業種} | {キャッチコピー} or {紹介文先頭160文字} |
 
@@ -1570,7 +1576,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | 全ページ（layout.tsx） | `LocalBusiness` | 事業者名・住所（大阪府堺市）・料金帯 |
 | 全ページ（layout.tsx） | `FAQPage` | よくある質問4問 |
 | `/salon`（layout.tsx） | `BreadcrumbList` | トップ → 施設・サロンの方 |
-| `/jobs`（layout.tsx） | `BreadcrumbList` | トップ → 求職者の方 |
+| `/recruit`（layout.tsx） | `BreadcrumbList` | トップ → 求人掲載 |
 | `/facility/[slug]` | `LocalBusiness` | 施設名・住所・電話・評価・営業時間 |
 | `/facility/[slug]` | `BreadcrumbList` | トップ → 施設名 |
 
@@ -1599,7 +1605,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 |-----|------|:------:|
 | `/` | weekly | 1.0 |
 | `/search` | daily | 0.9 |
-| `/salon`, `/jobs` | weekly | 0.9 |
+| `/salon`, `/recruit` | weekly | 0.9 |
 | `/facility/{slug}` | weekly | 0.8（DB全件） |
 | `/contact` | monthly | 0.5 |
 | `/privacy`, `/terms` | monthly | 0.3 |
@@ -2182,7 +2188,7 @@ npx tsc --noEmit  # 型チェックのみ
 ## エラー監視（Sentry）
 
 - `@sentry/nextjs` 導入、`next.config.mjs` を `withSentryConfig()` でラップ
-- 3設定ファイル: `sentry.client.config.ts` / `sentry.server.config.ts` / `sentry.edge.config.ts`（DSN + tracesSampleRate 0.1）
+- 3設定ファイル: `sentry.client.config.ts`（**無効化**、100KB JS削減）/ `sentry.server.config.ts` / `sentry.edge.config.ts`（DSN + tracesSampleRate 0.1）
 - `src/app/global-error.tsx`（Root Layout エラーバウンダリ）
 - 全8 APIルートの catch に `Sentry.captureException` 追加
 - CSP: `script-src` に `https://browser.sentry-cdn.com`、`connect-src` に `https://*.ingest.sentry.io` 追加
