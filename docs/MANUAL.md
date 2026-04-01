@@ -671,6 +671,29 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | ALTER `facility_menus` | `photo_url TEXT` 追加 | 検索・管理 |
 | ALTER `staff_profiles` | `nomination_fee INT DEFAULT 0` 追加 | 予約・管理 |
 
+### 6.1.1 マイグレーションファイル一覧（18ファイル）
+
+| ファイル | 内容 |
+|---------|------|
+| `20260320_initial_tables.sql` | 初期テーブル: salons, job_seekers, contacts |
+| `20260321_facilities_phase1.sql` | Phase 1: facility_profiles（施設公開データ） |
+| `20260321000000_enable_rls.sql` | RLS有効化: salons, job_seekers, contacts（INSERT only） |
+| `20260321000001_storage_policy.sql` | Storageポリシー: carelink-uploads（匿名アップロード+公開読取） |
+| `20260321000002_contacts_phone.sql` | contacts.phone カラム追加 |
+| `20260322_reviews_inquiries.sql` | facility_reviews, facility_inquiries + インデックス |
+| `20260323_phase2_users_search.sql` | Phase 2: profiles, favorites, areas, view_count |
+| `20260323_phase3_staff_coupons.sql` | Phase 3: staff_profiles, coupons, coupon_menus, menu_staff |
+| `20260323_phase4_bookings.sql` | Phase 4: staff_schedules, schedule_overrides, bookings |
+| `20260323_phase5_admin.sql` | Phase 5: facility_members, customer_visits |
+| `20260323_phase6_advanced.sql` | Phase 6: treatment_catalogs, blog_posts, review_replies, user_points |
+| `20260326_salons_extend.sql` | salons拡張: contact_phone, website, nearest_station, features[] |
+| `20260328_performance_indexes.sql` | パフォーマンスインデックス4件（実行済み） |
+| `20260328_reviews_extend.sql` | facility_reviews拡張: 5軸評価, photo_urls, is_verified_visit |
+| `20260330_phase_c_infra.sql` | push_subscriptions, facility_card_view, 追加インデックス |
+| `20260331_data_enrichment.sql` | シードデータ: スタッフ経験年数, スケジュール, ブログ, カタログ, エリア階層 |
+| `20260331_push_subscriptions_and_indexes.sql` | push_subscriptions再構築（制約+RLS） |
+| `combined_phase2_to_6.sql` | Phase 2-6統合マイグレーション（冪等トランザクション） |
+
 ### 6.2 LP側テーブル（DDL）
 
 #### salons テーブル
@@ -1203,27 +1226,33 @@ review-photos/{review_id}/{timestamp}.{ext}
 
 **loading.tsx（51ファイル）**
 
-| ディレクトリ | 内容 |
-|-------------|------|
-| `app/` | ヒーロー+3カードのスケルトン |
-| `search/` | 検索バー+カードグリッドのスケルトン |
-| `search/area/` | エリア検索スケルトン |
-| `facility/[slug]/` | パンくず+ギャラリー+タブのスケルトン |
-| `facility/[slug]/booking/` | 予約フロースピナー |
-| `facility/[slug]/staff/` | スタッフ一覧スピナー |
-| `facility/[slug]/blog/` | ブログ一覧スピナー |
-| `facility/[slug]/catalog/` | カタログスピナー |
-| `ranking/` | ランキングスピナー |
-| `feature/` / `feature/[slug]/` | 特集スピナー |
-| `auth/` | 認証ページスピナー |
-| `mypage/` | マイページスピナー |
-| `mypage/bookings/` / `mypage/favorites/` / `mypage/points/` / `mypage/profile/` | 各サブページスピナー |
-| `admin/` | 管理画面スピナー |
-| `admin/analytics/` / `admin/blog/` / `admin/bookings/` / `admin/catalog/` | 管理サブページスピナー |
-| `admin/coupons/` / `admin/customers/` / `admin/menus/` / `admin/photos/` | 管理サブページスピナー |
-| `admin/reviews/` / `admin/settings/` / `admin/staff/` | 管理サブページスピナー |
+| グループ | ディレクトリ |
+|---------|-------------|
+| ルート | `app/` |
+| 検索 (4) | `search/` `search/area/` `search/area/[slug]/` |
+| 施設 (5) | `facility/[slug]/` `facility/[slug]/booking/` `facility/[slug]/staff/` `facility/[slug]/blog/` `facility/[slug]/catalog/` |
+| 特集 (2) | `feature/` `feature/[slug]/` |
+| ランキング (2) | `ranking/` `ranking/[area]/` |
+| 比較 (1) | `compare/` |
+| エリアSEO (3) | `[prefectureSlug]/` `[prefectureSlug]/[secondSlug]/` `[prefectureSlug]/[secondSlug]/[typeSlug]/` |
+| 認証 (1) | `auth/` |
+| マイページ (8) | `mypage/` `mypage/bookings/` `mypage/bookings/[id]/change/` `mypage/profile/` `mypage/favorites/` `mypage/points/` `mypage/coupons/` `mypage/chat/` `mypage/staff/` |
+| 管理 (22) | `admin/` `admin/settings/` `admin/menus/` `admin/reviews/` `admin/photos/` `admin/bookings/` `admin/bookings/calendar/` `admin/bookings/[id]/` `admin/blog/` `admin/blog/[id]/edit/` `admin/catalog/` `admin/analytics/` `admin/coupons/` `admin/coupons/[id]/edit/` `admin/customers/` `admin/customers/[email]/` `admin/staff/` `admin/staff/[id]/edit/` `admin/staff/[id]/schedule/` `admin/chat/` `admin/qa/` `admin/features/` `admin/inquiries/` `admin/registrations/` |
 
-**error.tsx（28ファイル）** + `global-error.tsx`（Root Layout用）: `app/` / `search/` / `search/area/` / `facility/[slug]/` / `facility/[slug]/booking/` / `facility/[slug]/staff/` / `facility/[slug]/blog/` / `ranking/` / `blog/` / `admin/` / `mypage/`
+**error.tsx（28ファイル）** + `global-error.tsx`（Root Layout用）
+
+| グループ | ディレクトリ |
+|---------|-------------|
+| ルート (1) | `app/` |
+| 検索 (3) | `search/` `search/area/` `search/area/[slug]/` |
+| 施設 (4) | `facility/[slug]/` `facility/[slug]/booking/` `facility/[slug]/staff/` `facility/[slug]/blog/` |
+| 公開ページ (3) | `blog/` `contact/` `register/` |
+| ランキング (2) | `ranking/` `ranking/[area]/` |
+| 比較 (1) | `compare/` |
+| エリアSEO (3) | `[prefectureSlug]/` `[prefectureSlug]/[secondSlug]/` `[prefectureSlug]/[secondSlug]/[typeSlug]/` |
+| 認証 (1) | `auth/` |
+| マイページ (1) | `mypage/` |
+| 管理 (9) | `admin/` `admin/bookings/[id]/` `admin/blog/[id]/edit/` `admin/coupons/[id]/edit/` `admin/customers/[email]/` `admin/staff/[id]/edit/` `admin/staff/[id]/schedule/` `admin/inquiries/` `admin/registrations/` |
 
 **not-found.tsx（2ファイル）**: `app/` / `facility/[slug]/`（両方 robots noindex）
 
@@ -1336,6 +1365,29 @@ review-photos/{review_id}/{timestamp}.{ext}
 
 ## 10. API Route
 
+### 10.0 全APIルート一覧（18エンドポイント）
+
+| # | パス | メソッド | 認証 | レート制限 | 概要 |
+|---|------|---------|:----:|-----------|------|
+| 1 | `/api/notify` | POST | - | 5回/60秒 | Slack通知（Zod discriminatedUnion検証） |
+| 2 | `/api/booking` | POST | 任意 | 3回/5分 | 予約作成（競合チェック・サーバー側価格計算・ポイント原子的消費） |
+| 3 | `/api/booking/[id]/cancel` | POST | 必須 | 10回/60秒 | 予約キャンセル（所有者チェック・メール通知） |
+| 4 | `/api/booking/[id]/change` | POST | 必須 | 10回/60秒 | 予約日時変更（pending/confirmedのみ・競合チェック） |
+| 5 | `/api/booking/complete` | POST | 必須 | 10回/60秒 | 予約完了（admin専用・ポイント付与・来店記録） |
+| 6 | `/api/admin/booking-status` | POST | 必須 | 10回/60秒 | ステータス変更（owner/admin・メール+Push通知） |
+| 7 | `/api/slots` | GET | - | 30回/60秒 | 空き枠取得（RPC `get_available_slots`・duration 15-480） |
+| 8 | `/api/availability` | GET | - | 10回/60秒 | 月間空き状況（○△×カレンダー用） |
+| 9 | `/api/favorites` | POST | 必須 | 10回/60秒 | お気に入りトグル（追加/削除） |
+| 10 | `/api/profile` | PUT | 必須 | 10回/60秒 | プロフィール更新（Zod検証） |
+| 11 | `/api/salons` | GET | - | 20回/60秒 | 施設検索（is_public=true・最大50件） |
+| 12 | `/api/facilities/suggest` | GET | - | 30回/60秒 | オートコンプリート（施設名+エリア、各5件） |
+| 13 | `/api/stations` | GET | - | 30回/60秒 | 駅名検索（1時間キャッシュ） |
+| 14 | `/api/push/subscribe` | POST | 必須 | 10回/60秒 | Web Pushサブスクリプション登録（upsert） |
+| 15 | `/api/cron/booking-reminder` | GET | CRON | - | 予約リマインドメール（毎日9:00 JST・CRON_SECRET認証） |
+| 16 | `/api/og` | GET | - | - | 動的OGP画像生成（1200×630・Edge Runtime） |
+| 17 | `/api/auth/line` | GET | - | - | LINE OAuthリダイレクト（CSRFステートCookie設定） |
+| 18 | `/api/auth/line/callback` | GET | - | - | LINE OAuthコールバック（セッション確立） |
+
 ### 10.1 POST /api/notify
 
 Slack Incoming Webhook を使ったフォーム送信通知。
@@ -1418,7 +1470,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `MultiPhotoUpload` | `MultiPhotoUpload.tsx` | 複数写真選択+プレビュー（10MB制限・MIME検証） |
 | `Spinner` | `Spinner.tsx` | SVGスピナー |
 
-### 11.2 検索コンポーネント（`components/search/` — 8個）
+### 11.2 検索コンポーネント（`components/search/` — 16個）
 
 | コンポーネント | 説明 |
 |---------------|------|
@@ -1426,15 +1478,20 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `SearchFooter` | ダークフッター。業種リンク + Copyright |
 | `SearchBar` | 検索フォーム。keyword(type="search") + 業種select + エリアselect。name属性・aria-label付き |
 | `SearchFilters` | サイドバーフィルター。エリア（地方optgroup）・業種・評価・価格帯・こだわり16条件。aria-label・aria-pressed対応 |
+| `SearchSuggest` | 検索オートコンプリート。300msデバウンス、/api/facilities/suggest連携 |
 | `MobileFilterDrawer` | モバイルフィルタードロワー。`<dialog>`ベース、右スライドイン、背景クリック・Escape閉じ |
+| `MobileBottomNav` | モバイル下部ナビゲーション（検索・お気に入り・マイページ） |
 | `HomeSearchForm` | トップページ検索フォーム。業種ピル+エリア選択+📍GPS「現在地から探す」ボタン |
 | `HomeUserPanel` | ログインユーザーパネル（お気に入り・予約履歴リンク） |
 | `FacilityCard` | 施設カード。画像（blurプレースホルダー）+ 業種バッジ + 星評価 + 所在地。line-clamp |
+| `MapView` | Leaflet地図ビュー。施設マーカー表示+ポップアップ |
+| `ViewToggle` | リスト↔マップ表示切替トグル |
+| `StationSearch` | 駅名検索モーダル。/api/stations連携 |
 | `CompareButton` | 施設比較ボタン（localStorage、最大3件） |
 | `CompareBar` | 施設比較フローティングバー（比較リスト表示） |
 | `Pagination` | ページネーション。省略記号(...) + aria-current="page" + aria-label |
 
-### 11.3 施設詳細コンポーネント（`components/facility/` — 21個）
+### 11.3 施設詳細コンポーネント（`components/facility/` — 27個）
 
 | コンポーネント | 説明 |
 |---------------|------|
@@ -1462,6 +1519,10 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `ViewCount` | 閲覧数カウンター（sessionStorage安全アクセス） |
 | `QASection` | 施設Q&A表示（質問一覧+投稿フォーム） |
 | `RecentlyViewed` | 閲覧履歴（localStorage、最大20件） |
+| `NearbyFacilities` | 近隣施設一覧（同市区町村の施設を表示） |
+| `RemainingSlots` | 本日の残り枠数表示（緊急性シグナル） |
+| `ShareButtons` | SNSシェアボタン（LINE/Twitter/Facebook） |
+| `ViewingNow` | リアルタイム閲覧中人数表示（緊急性シグナル） |
 
 ### 11.4 ConfirmDialog 詳細
 
@@ -1485,6 +1546,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `JapanRegionMap` | `home/JapanRegionMap.tsx` | 日本地図エリアマップ（8地方クリック対応） |
 | `SafeHtmlContent` | `seo/SafeHtmlContent.tsx` | HTMLサニタイザー（許可タグのみ通す） |
 | `RelatedLinks` | `seo/RelatedLinks.tsx` | 関連リンク一覧（エリア・業種） |
+| `PushPermissionBanner` | `push/PushPermissionBanner.tsx` | Web Push通知許可バナー |
 
 ---
 
