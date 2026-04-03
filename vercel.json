@@ -4,5 +4,11 @@
       "path": "/api/cron/booking-reminder",
       "schedule": "0 0 * * *"
     }
+  ],
+  "rewrites": [
+    {
+      "source": "/google7163d69fca9aea21.html",
+      "destination": "/google7163d69fca9aea21.html"
+    }
   ]
 }
