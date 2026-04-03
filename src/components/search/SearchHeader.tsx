@@ -17,7 +17,7 @@ export default function SearchHeader() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden md:flex items-center gap-0.5 ml-4">
+          <nav className="hidden md:flex items-center gap-0.5 ml-4" aria-label="メインナビゲーション">
             {businessTypes.map((type) => (
               <Link
                 key={type}
