@@ -39,6 +39,14 @@ const nextConfig = {
       },
     ];
   },
+  async rewrites() {
+    return {
+      beforeFiles: [
+        // GSC認証ファイルをpublic/から直接配信（[prefectureSlug]キャッチオール回避）
+        { source: '/google7163d69fca9aea21.html', destination: '/google7163d69fca9aea21.html' },
+      ],
+    };
+  },
 };
 
 export default nextConfig;
