@@ -218,7 +218,7 @@ Supabase (PostgreSQL + Storage)
 - **通知は補助機能**: Slack通知失敗でもフォーム送信は成功扱い（DB保存が優先）
 - **LP側は全Static**: ビルド時に静的HTML生成（CDN配信）
 - **ホームページISR**: トップページ（`/`）は `revalidate=3600`（1時間キャッシュ + バックグラウンド再生成）
-- **検索側はSSR/ISR**: search は `force-dynamic`（毎回DB取得）、facility は ISR（1時間キャッシュ）
+- **検索側はSSR/ISR**: search は `force-dynamic`（毎回DB取得）、facility は ISR（1時間キャッシュ）。search/page.tsxでは `import nextDynamic from 'next/dynamic'` にリネーム（`export const dynamic = 'force-dynamic'` との変数名衝突回避）
 - **SEOエリアページ**: `[prefectureSlug]/[secondSlug]/[typeSlug]` の3階層動的ルーティングで283市区町村+2,054ページ自動生成
 - **LayoutSwitch**: `usePathname()` で LP用/検索用/認証用/マイページ用/管理画面用のヘッダー・フッターを自動切替
 - **Supabaseクライアント4種**: 匿名クライアント (`supabase.ts`)、ブラウザCookie対応 (`supabase-browser.ts`)、サーバー匿名 (`supabase-server.ts`)、サーバー認証Cookie対応 (`supabase-server-auth.ts`)
