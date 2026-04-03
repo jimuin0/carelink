@@ -38,7 +38,7 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.json',
   verification: {
-    google: 'PtCCPKIgYg1T2Jj34pbePydyujiWmocyJBjKnABowX0',
+    google: 'X77f8ve6kjvN0CwITUDAabniIrahIrSsOyPgdHOVjuw',
   },
   other: {
     'theme-color': '#0284C7',
