@@ -80,8 +80,22 @@ export default async function BlogDetailPage({ params }: Props) {
   const post = await getBlogPost(facility.id, params.postSlug);
   if (!post) notFound();
 
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: post.title,
+    description: post.content.slice(0, 160),
+    datePublished: post.published_at,
+    dateModified: post.updated_at || post.published_at,
+    author: { '@type': 'Organization', name: facility.name },
+    publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://www.carelink-jp.com' },
+    mainEntityOfPage: `https://www.carelink-jp.com/facility/${params.slug}/blog/${params.postSlug}`,
+    ...(post.thumbnail_url && { image: post.thumbnail_url }),
+  };
+
   return (
     <div className="bg-gray-50 min-h-screen">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c') }} />
       <div className="max-w-4xl mx-auto bg-white shadow-sm">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
           <ol className="flex items-center gap-1.5 text-xs text-gray-400">
