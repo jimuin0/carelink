@@ -171,9 +171,10 @@ const worryNavItems = [
   },
 ];
 
+export const revalidate = 3600; // 1時間ISRキャッシュ
+
 export default async function Home() {
   const { facilities: latestFacilities } = await getLatestFacilities(6);
-  // カウントは静的値を使用（パフォーマンス最適化：count:'exact'はフルスキャンで1-2秒かかる）
   const facilityCount = 3;
   const reviewCount = 10;
 
