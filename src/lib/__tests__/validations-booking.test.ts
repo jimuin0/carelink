@@ -5,7 +5,7 @@ const validBooking = {
   staff_id: null,
   menu_id: null,
   coupon_id: null,
-  booking_date: '2026-04-01',
+  booking_date: '2027-04-01',
   start_time: '10:00',
   end_time: '11:00',
   customer_name: '神原良祐',

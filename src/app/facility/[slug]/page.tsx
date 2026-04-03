@@ -296,6 +296,7 @@ export default async function FacilityPage({ params }: Props) {
               '@type': ['LocalBusiness', ...(['美容クリニック', '鍼灸・整骨'].some(t => facility.business_type?.includes(t)) ? ['MedicalBusiness'] : [])],
               name: facility.name,
               description: facility.catch_copy || facility.description,
+              ...(facility.updated_at && { dateModified: facility.updated_at.split('T')[0] }),
               address: {
                 '@type': 'PostalAddress',
                 addressRegion: facility.prefecture,
