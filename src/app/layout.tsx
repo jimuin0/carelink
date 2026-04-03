@@ -58,6 +58,7 @@ export default function RootLayout({
   return (
     <html lang="ja">
       <head>
+        <link rel="preload" href="/images/hero.webp" as="image" type="image/webp" />
         <link rel="preconnect" href="https://xzafxiupbflvgbarrihe.supabase.co" />
         {gaId && <link rel="dns-prefetch" href="https://www.googletagmanager.com" />}
         {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}

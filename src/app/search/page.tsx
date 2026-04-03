@@ -48,7 +48,7 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
     description,
     alternates: { canonical },
     openGraph: { title, description },
-    ...(shouldNoIndex && { robots: { index: false, follow: true } }),
+    robots: shouldNoIndex ? { index: false, follow: true } : { index: true, follow: true },
   };
 }
 

@@ -337,6 +337,34 @@ export default async function FacilityPage({ params }: Props) {
                     closes: hours!.close,
                   })),
               }),
+              ...(facility.website_url && {
+                sameAs: [facility.website_url],
+              }),
+              ...(menus.length > 0 && {
+                hasMenu: {
+                  '@type': 'Menu',
+                  hasMenuSection: [{
+                    '@type': 'MenuSection',
+                    name: 'メニュー',
+                    hasMenuItem: menus.slice(0, 5).map(m => ({
+                      '@type': 'MenuItem',
+                      name: m.name,
+                      ...(m.price != null && m.price > 0 && {
+                        offers: { '@type': 'Offer', price: m.price, priceCurrency: 'JPY' },
+                      }),
+                    })),
+                  }],
+                },
+              }),
+              ...(reviews.length > 0 && {
+                review: reviews.slice(0, 3).map(r => ({
+                  '@type': 'Review',
+                  author: { '@type': 'Person', name: r.reviewer_name },
+                  reviewRating: { '@type': 'Rating', ratingValue: r.rating, bestRating: 5 },
+                  ...(r.comment && { reviewBody: r.comment }),
+                  datePublished: r.created_at.split('T')[0],
+                })),
+              }),
             }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
           }}
         />
