@@ -201,7 +201,7 @@ export default async function Home() {
             <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight tracking-wide drop-shadow-sm">
               ネットでかんたんサロン予約
             </h1>
-            <p className="text-xs sm:text-sm text-white/90 mt-2 tracking-wider">
+            <p className="text-xs sm:text-sm text-white mt-2 tracking-wider">
               ヘア・ネイル・まつげ・リラク・エステ・美容クリニック
             </p>
 
@@ -216,7 +216,7 @@ export default async function Home() {
                 <Link
                   key={cat.type}
                   href={`/search?type=${encodeURIComponent(cat.type)}`}
-                  className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-2 text-xs font-medium text-white transition-all shadow-sm hover:shadow"
+                  className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-3 text-xs font-medium text-white transition-all shadow-sm hover:shadow min-h-[44px]"
                 >
                   <span className="[&>svg]:w-4 [&>svg]:h-4">{cat.icon}</span>
                   <span>{cat.name}</span>
@@ -230,34 +230,34 @@ export default async function Home() {
                 <>
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
-                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">掲載施設数</p>
+                    <p className="text-tiny sm:text-xs text-white mt-0.5">掲載施設数</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
-                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">口コミ数</p>
+                    <p className="text-tiny sm:text-xs text-white mt-0.5">口コミ数</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">掲載・利用料</p>
+                    <p className="text-tiny sm:text-xs text-white mt-0.5">掲載・利用料</p>
                   </div>
                 </>
               ) : (
                 <>
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">掲載・利用料</p>
+                    <p className="text-tiny sm:text-xs text-white mt-0.5">掲載・利用料</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
-                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">かんたん登録</p>
+                    <p className="text-tiny sm:text-xs text-white mt-0.5">かんたん登録</p>
                   </div>
                   <div className="w-px h-8 bg-white/20" />
                   <div className="text-center">
                     <p className="text-2xl sm:text-3xl font-bold text-white">24h</p>
-                    <p className="text-tiny sm:text-xs text-white/90 mt-0.5">ネット予約対応</p>
+                    <p className="text-tiny sm:text-xs text-white mt-0.5">ネット予約対応</p>
                   </div>
                 </>
               )}
@@ -275,7 +275,7 @@ export default async function Home() {
                 <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h3 className="text-sm font-bold text-gray-800">完全無料</h3>
+                <h2 className="text-sm font-bold text-gray-800">完全無料</h2>
                 <p className="text-xs text-gray-500 mt-0.5">掲載料・予約手数料は一切かかりません</p>
               </div>
             </div>
@@ -284,7 +284,7 @@ export default async function Home() {
                 <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h3 className="text-sm font-bold text-gray-800">認証済み施設</h3>
+                <h2 className="text-sm font-bold text-gray-800">認証済み施設</h2>
                 <p className="text-xs text-gray-500 mt-0.5">運営が確認した施設のみ掲載しています</p>
               </div>
             </div>
@@ -293,7 +293,7 @@ export default async function Home() {
                 <svg className="w-5 h-5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h3 className="text-sm font-bold text-gray-800">24時間ネット予約</h3>
+                <h2 className="text-sm font-bold text-gray-800">24時間ネット予約</h2>
                 <p className="text-xs text-gray-500 mt-0.5">いつでもどこでもかんたん予約</p>
               </div>
             </div>
@@ -320,8 +320,8 @@ export default async function Home() {
                 />
                 <div className={`absolute inset-0 bg-gradient-to-t ${banner.color}`} />
                 <div className="absolute inset-0 flex flex-col justify-end p-4">
-                  <h3 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h3>
-                  <p className="text-white/90 text-tiny mt-1">{banner.subtitle}</p>
+                  <h2 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h2>
+                  <p className="text-white text-tiny mt-1">{banner.subtitle}</p>
                 </div>
               </Link>
             ))}
@@ -523,7 +523,7 @@ export default async function Home() {
         </div>
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6 py-12 text-center">
           <h2 className="text-lg sm:text-xl font-bold text-white">施設を掲載しませんか？</h2>
-          <p className="text-sm text-white/90 mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
+          <p className="text-sm text-white mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
           <Link
             href="/register"
             className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-700 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
