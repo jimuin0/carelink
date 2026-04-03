@@ -533,6 +533,30 @@ export default async function Home() {
         </div>
       </div>
 
+      {/* ===== コラム・ブログ ===== */}
+      <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-12">
+        <h2 className="text-lg sm:text-xl font-bold text-center mb-6">お役立ちコラム</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          {[
+            { title: 'パリジェンヌラッシュリフトとまつげパーマの違い', slug: 'hal-eyelash-toyonaka-honten', postSlug: 'parisienne-vs-matsuge-perm-2026' },
+            { title: '訪問鍼灸の保険適用条件', slug: 'kanbara-shinkyuin-toyonaka', postSlug: 'houmon-shinkyuu-hoken-jouken' },
+            { title: '子連れOKのまつげサロンを選ぶポイント', slug: 'hal-eyelash-toyonaka-imai', postSlug: 'koduretok-matsuge-salon-toyonaka' },
+          ].map((post) => (
+            <Link
+              key={post.postSlug}
+              href={`/facility/${post.slug}/blog/${post.postSlug}`}
+              className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+            >
+              <p className="text-sm font-medium text-gray-800 line-clamp-2">{post.title}</p>
+              <p className="text-xs text-sky-600 mt-2">続きを読む →</p>
+            </Link>
+          ))}
+        </div>
+        <div className="text-center mt-4">
+          <Link href="/blog" className="text-sm text-sky-600 hover:underline">コラム一覧を見る →</Link>
+        </div>
+      </div>
+
     </div>
   );
 }
