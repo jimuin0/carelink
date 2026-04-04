@@ -2048,17 +2048,108 @@ npx tsc --noEmit  # 型チェックのみ
 
 **目標**: 豊中・堺エリアで30-50施設掲載
 
-### 21.3 今後の開発予定
+### 21.3 HPB差別化開発計画（v8.0〜）
+
+HPBにない3機能を開発し、施設獲得の武器とする。実装順序: フェーズ1→2→3。
+
+#### フェーズ1: LINE予約連携（v8.0）
+
+HPBにはないLINE連携。salon-absence-systemの技術を転用。
+
+**DBスキーマ追加:**
+- `line_user_links`: ユーザーのLINE連携（user_id ↔ line_user_id）
+- `facility_line_settings`: 施設別LINE通知設定（予約/キャンセル/リマインド）
+- `line_notification_logs`: 通知ログ
+
+**API追加:**
+- `POST /api/line/webhook` — LINE Webhook受信（署名検証）
+- `POST /api/line/link` — CareLink↔LINEアカウント連携
+- `POST /api/line/notify` — LINE Pushメッセージ送信（内部API）
+
+**UI変更:**
+- マイページに「LINE連携」ボタン（LIFF Login）
+- admin/settingsに「LINE通知設定」セクション
+- 予約完了ページに「LINEでリマインド受け取る」導線
+
+**環境変数:** `LINE_CHANNEL_ACCESS_TOKEN_CARELINK`, `LINE_CHANNEL_SECRET_CARELINK`, `NEXT_PUBLIC_LINE_LIFF_ID`
+
+**新規lib:** `src/lib/line.ts` — Push送信ユーティリティ（salon-absence-systemの`line_utils.py`相当）
+
+**注意:** salon-absence-system用LINEチャネルとは別チャネルを作成（Webhook URLは1チャネル1つのため）
+
+#### フェーズ2: ダッシュボード強化（v8.1）
+
+施設オーナーが「HPBよりCareLink使いたい」と思えるレベルに。
+
+**DBスキーマ追加:**
+- `daily_revenue_summary`: 日次売上集計（Cronバッチ）
+- `customer_segments`: 顧客RFM分析（VIP/常連/離脱リスク/離脱）
+- `facility_notification_settings`: 通知設定（Push/メール）
+
+**API追加:**
+- `POST /api/cron/daily-summary` — 日次集計Cron
+- `POST /api/cron/customer-segment` — 週次RFM分析Cron
+- `GET /api/admin/report` — CSV/PDFエクスポート
+
+**新規コンポーネント:**
+- `RealtimeBookingListener.tsx` — Supabase Realtimeで新規予約をリアルタイム表示
+- `RevenueChart.tsx` — 日別売上折れ線グラフ（recharts）
+- `CustomerSegmentChart.tsx` — 顧客セグメント円グラフ
+- `BookingTrendChart.tsx` — 予約数推移
+- `RepeatRateCard.tsx` — リピート率表示
+
+**既存強化:**
+- admin/bookingsにRealtimeサブスクリプション追加（ページリロードなしで新規予約表示）
+- キャンセル時・口コミ投稿時のPush通知追加
+- admin/settingsに通知設定UI追加
+
+**依存追加:** `recharts`（チャートライブラリ、dynamic import + ssr:false）
+
+#### フェーズ3: 鍼灸院・整骨院特化（v8.2）
+
+HPBが弱い鍼灸院・整骨院向け機能。CareLink独自の差別化。
+
+**DBスキーマ追加:**
+- `symptoms`: 対応症状マスタ（腰痛/肩こり/膝痛等、30-50件）
+- `facility_symptoms`: 施設×症状対応表
+- `facility_certifications`: 資格・認定情報（柔道整復師/はり師/きゅう師等）
+- ALTER `facility_menus`: `insurance_covered BOOLEAN`, `insurance_note TEXT`, `insurance_price INT` 追加
+- ALTER `staff_profiles`: `certifications TEXT[]` 追加
+
+**検索拡張:**
+- `searchFacilities()`に`symptom`/`insurance`パラメータ追加
+- SearchFiltersに「症状から探す」フィルタ（鍼灸院選択時のみ表示）
+- 「保険適用メニューあり」チェックボックス
+
+**新規コンポーネント:**
+- `InsuranceMenuBadge.tsx` — メニュー一覧で「保険適用」バッジ+自己負担額表示
+- `SymptomList.tsx` — 対応症状一覧
+- `CertificationList.tsx` — 資格・認定一覧
+
+**新規ページ:**
+- `src/app/symptom/[slug]/page.tsx` — 症状別LP（SEO用、例: `/symptom/low-back-pain`）
+
+**管理画面拡張:**
+- admin/menusに「保険適用」トグル+自己負担額入力
+- admin/settingsに「対応症状」「資格情報」管理セクション
+
+#### 技術的注意事項
+
+- LINEチャネル分離: salon-absence-system用と別チャネル必須
+- Vercel Cronプラン制限: Hobbyは1日1回、Proなら自由
+- rechartsはdynamic import + ssr:falseでadmin画面のみロード
+- facility_menusへのカラム追加: `DEFAULT false`で既存データ影響なし
+
+### 21.4 その他の開発予定
 
 | 優先度 | 機能 | 説明 |
 |:------:|------|------|
-| ~~高~~ | ~~実データ移行~~ | ✅ 完了（3施設移行済み、下記参照） |
 | 中 | Supabase Auth Site URL | carelink-jp.comに更新（ブラウザで手動） |
 | 中 | 職業紹介事業届出 | 届出取得後にマッチング機能実装 |
 | 低 | PostGIS移行 | GPS検索のDB側距離計算（スケール対策） |
 | 低 | E2Eテスト | Playwright導入 |
 
-### 21.4 実データ移行状況（完了）
+### 21.5 実データ移行状況（完了）
 
 3施設の実データ移行済み:
 
@@ -2068,7 +2159,7 @@ npx tsc --noEmit  # 型チェックのみ
 | ハル イマイビル店（HAL） | 28 | 3 | 10 |
 | 訪問専門 神原鍼灸院 | 2 | 2 | - |
 
-### 21.5 SEOブログ
+### 21.6 SEOブログ
 
 合計20本のSEO記事を投稿済み:
 
