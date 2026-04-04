@@ -93,7 +93,7 @@
 | Vercel | ホスティング・CDN | - |
 | Vercel Analytics | アクセス解析 | 2.0.1 |
 | Vercel Speed Insights | パフォーマンス | 2.0.0 |
-| Noto Sans JP | 日本語フォント | Google Fonts |
+| システムフォント | 日本語フォント | OS標準（Hiragino/Noto Sans JP/Meiryo） |
 | @sentry/nextjs | エラー監視 | - |
 | @upstash/ratelimit | レート制限（Redis） | - |
 | @upstash/redis | Redis クライアント | - |
@@ -377,7 +377,7 @@ Supabase (PostgreSQL + Storage)
 │   │       └── auth/line/               … LINE OAuth
 │   │           ├── route.ts / callback/route.ts
 │   │
-│   ├── components/                      … 64コンポーネント
+│   ├── components/                      … 65コンポーネント
 │   │   ├── Header.tsx / Footer.tsx      … LP用ヘッダー・フッター
 │   │   ├── LayoutSwitch.tsx             … パス別レイアウト自動切替
 │   │   ├── ConfirmDialog.tsx            … 確認ダイアログ（フォーカストラップ）
@@ -420,6 +420,7 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── booking/BookingFlow.tsx      … 予約フロー全体
 │   │   ├── catalog/BeforeAfterSlider.tsx … Before/After比較スライダー
 │   │   ├── home/JapanRegionMap.tsx      … 日本地図エリアマップ
+│   │   │   └── HomeBelowFold.tsx       … Below-fold遅延ロード（ssr:false）
 │   │   └── seo/                         … SEOコンポーネント
 │   │       ├── SafeHtmlContent.tsx      … HTMLサニタイザー
 │   │       └── RelatedLinks.tsx         … 関連リンク
@@ -1123,7 +1124,7 @@ review-photos/{review_id}/{timestamp}.{ext}
 
 | パス | ファイル | レンダリング | 説明 |
 |------|---------|:----------:|------|
-| `/` | `page.tsx` | Static | トップページ |
+| `/` | `page.tsx` | ISR(1h) | トップページ |
 | `/salon` | `salon/page.tsx` | Static | 施設掲載LP（CTA→/register） |
 | `/register` | `register/page.tsx` | Static | 施設掲載登録フォーム |
 | ~~`/jobs`~~ | 削除済み（`/recruit`に統合） | - | - |
@@ -1810,9 +1811,12 @@ Disallow: /auth/
 
 ### 16.4 フォント
 
-- **Noto Sans JP**: Google Fonts
-- Weight: 400 / 500 / 700 / 900
-- `display: "swap"`（FOUT対策）
+- **システムフォント**: `globals.css` bodyに設定
+  - `-apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, "Yu Gothic", sans-serif`
+  - macOS/iOS: Hiragino Sans（最優先）
+  - Android/Linux: Noto Sans JP（OSプリインストール）
+  - Windows: Meiryo / Yu Gothic
+- v7.6で`next/font/google` Noto Sans JP削除（191KBレンダリングブロックCSS除去、PageSpeed +25点）
 
 ### 16.5 レスポンシブブレークポイント
 
