@@ -1,14 +1,13 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import Image from 'next/image';
-import { regionGroups, facilityFeatures } from '@/lib/constants';
-import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import dynamic from 'next/dynamic';
-const HomeUserPanel = dynamic(() => import('@/components/search/HomeUserPanel'), { ssr: false });
-const JapanRegionMap = dynamic(() => import('@/components/home/JapanRegionMap'), { ssr: false, loading: () => <div className="h-64 bg-gray-50 rounded-2xl animate-pulse" /> });
-import FacilityCard from '@/components/search/FacilityCard';
-import { getLatestFacilities } from '@/lib/facilities';
+
+const HomeBelowFold = dynamic(() => import('@/components/home/HomeBelowFold'), {
+  ssr: false,
+  loading: () => <div className="h-96 bg-gray-50" />,
+});
 
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
@@ -21,168 +20,21 @@ export const metadata: Metadata = {
   },
 };
 
-
 const categories = [
-  {
-    name: 'ヘア',
-    type: 'ヘアサロン',
-    icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="6" cy="6" r="3" />
-        <circle cx="6" cy="18" r="3" />
-        <path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12" />
-      </svg>
-    ),
-  },
-  {
-    name: 'ネイル・まつげ',
-    type: 'ネイル・まつげサロン',
-    icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 2l2.09 6.26L20 10l-4.74 3.74L17 20l-5-3.5L7 20l1.74-6.26L4 10l5.91-1.74L12 2z" />
-      </svg>
-    ),
-  },
-  {
-    name: 'リラク',
-    type: 'リラクサロン',
-    icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M7 11c-1.5 0-3-1-3-3s2.5-4 4-2c.5.7.7 1.4.7 2" />
-        <path d="M17 11c1.5 0 3-1 3-3s-2.5-4-4-2c-.5.7-.7 1.4-.7 2" />
-        <path d="M12 11V8c0-1.5-.5-3-2-4" />
-        <path d="M12 8c0-1.5.5-3 2-4" />
-        <path d="M7 11c0 5 2.5 8 5 10c2.5-2 5-5 5-10" />
-      </svg>
-    ),
-  },
-  {
-    name: 'エステ',
-    type: 'エステサロン',
-    icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="12" cy="9" r="5" />
-        <path d="M9.5 7.5c0 0 1-1 2.5-1s2.5 1 2.5 1" />
-        <circle cx="10" cy="9" r=".5" fill="currentColor" />
-        <circle cx="14" cy="9" r=".5" fill="currentColor" />
-        <path d="M10.5 11.5c0 0 .7.5 1.5.5s1.5-.5 1.5-.5" />
-        <path d="M12 14v3" />
-        <path d="M8 22c0-3 2-5 4-5s4 2 4 5" />
-      </svg>
-    ),
-  },
-  {
-    name: '美容クリニック',
-    type: '美容クリニック',
-    icon: (
-      <svg className="w-7 h-7" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 2C8 2 4 6 4 10c0 5 8 12 8 12s8-7 8-12c0-4-4-8-8-8z" />
-        <path d="M12 7v6M9 10h6" />
-      </svg>
-    ),
-  },
+  { name: 'ヘア', type: 'ヘアサロン' },
+  { name: 'ネイル・まつげ', type: 'ネイル・まつげサロン' },
+  { name: 'リラク', type: 'リラクサロン' },
+  { name: 'エステ', type: 'エステサロン' },
+  { name: '美容クリニック', type: '美容クリニック' },
 ];
 
-const featureBanners = [
-  {
-    title: '春のヘアチェンジ特集',
-    subtitle: 'イメチェンするなら今がチャンス',
-    image: '/images/banner-hair.webp',
-    href: '/search?keyword=ヘアカラー カット',
-    color: 'from-transparent via-transparent to-black/60',
-  },
-  {
-    title: '疲れたカラダにご褒美リラク',
-    subtitle: '至福のひとときを見つけよう',
-    image: '/images/banner-relax.webp',
-    href: '/search?type=リラクサロン',
-    color: 'from-transparent via-transparent to-black/60',
-  },
-  {
-    title: '理想の目元をつくる',
-    subtitle: 'まつ毛パーマ・エクステ特集',
-    image: '/images/banner-eyelash.webp',
-    href: '/search?type=ネイル・まつげサロン',
-    color: 'from-transparent via-transparent to-black/60',
-  },
-];
+export const revalidate = 3600;
 
-const worryNavItems = [
-  {
-    label: '髪をイメチェンしたい',
-    href: '/search?keyword=ヘアカラー カット',
-    icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <circle cx="6" cy="6" r="3" /><circle cx="6" cy="18" r="3" />
-        <path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12" />
-      </svg>
-    ),
-  },
-  {
-    label: 'まつ毛をぱっちりしたい',
-    href: '/search?type=ネイル・まつげサロン',
-    icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" />
-      </svg>
-    ),
-  },
-  {
-    label: '肩こり・腰痛がつらい',
-    href: '/search?keyword=肩こり 腰痛 整体',
-    icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M18 20a6 6 0 00-12 0" /><circle cx="12" cy="10" r="4" />
-        <path d="M12 14v2" />
-      </svg>
-    ),
-  },
-  {
-    label: 'お肌をキレイにしたい',
-    href: '/search?type=エステサロン',
-    icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 3c-4.97 0-9 4.03-9 9v1c0 1.1.9 2 2 2h1a2 2 0 002-2v-1a2 2 0 00-2-2" />
-        <path d="M12 3c4.97 0 9 4.03 9 9v1c0 1.1-.9 2-2 2h-1a2 2 0 01-2-2v-1a2 2 0 012-2" />
-        <circle cx="9" cy="10" r="1" fill="currentColor" /><circle cx="15" cy="10" r="1" fill="currentColor" />
-      </svg>
-    ),
-  },
-  {
-    label: 'ネイルをおしゃれに',
-    href: '/search?keyword=ネイル ジェル',
-    icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M12 2l2.09 6.26L20 10l-4.74 3.74L17 20l-5-3.5L7 20l1.74-6.26L4 10l5.91-1.74L12 2z" />
-      </svg>
-    ),
-  },
-  {
-    label: '日頃の疲れを癒したい',
-    href: '/search?type=リラクサロン',
-    icon: (
-      <svg className="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="M7 11c-1.5 0-3-1-3-3s2.5-4 4-2c.5.7.7 1.4.7 2" />
-        <path d="M17 11c1.5 0 3-1 3-3s-2.5-4-4-2c-.5.7-.7 1.4-.7 2" />
-        <path d="M12 11V8c0-1.5-.5-3-2-4" /><path d="M12 8c0-1.5.5-3 2-4" />
-        <path d="M7 11c0 5 2.5 8 5 10c2.5-2 5-5 5-10" />
-      </svg>
-    ),
-  },
-];
-
-export const revalidate = 3600; // 1時間ISRキャッシュ
-
-export default async function Home() {
-  const { facilities: latestFacilities } = await getLatestFacilities(6);
-  const facilityCount = 3;
-  const reviewCount = 10;
-
+export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
       <div className="relative overflow-hidden">
-        {/* Background image */}
         <div className="absolute inset-0">
           <Image
             src="/images/hero.webp"
@@ -219,49 +71,26 @@ export default async function Home() {
                   href={`/search?type=${encodeURIComponent(cat.type)}`}
                   className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-3 text-xs font-medium text-white transition-all shadow-sm hover:shadow min-h-[44px]"
                 >
-                  <span className="[&>svg]:w-4 [&>svg]:h-4">{cat.icon}</span>
                   <span>{cat.name}</span>
                 </Link>
               ))}
             </div>
 
-            {/* 統計カウンター / 価値訴求 */}
             <div className="flex items-center justify-center gap-6 sm:gap-10 mt-6">
-              {(facilityCount ?? 0) >= 50 ? (
-                <>
-                  <div className="text-center">
-                    <p className="text-2xl sm:text-3xl font-bold text-white">{(facilityCount ?? 0).toLocaleString()}</p>
-                    <p className="text-tiny sm:text-xs text-white mt-0.5">掲載施設数</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20" />
-                  <div className="text-center">
-                    <p className="text-2xl sm:text-3xl font-bold text-white">{(reviewCount ?? 0).toLocaleString()}</p>
-                    <p className="text-tiny sm:text-xs text-white mt-0.5">口コミ数</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20" />
-                  <div className="text-center">
-                    <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-tiny sm:text-xs text-white mt-0.5">掲載・利用料</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="text-center">
-                    <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                    <p className="text-tiny sm:text-xs text-white mt-0.5">掲載・利用料</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20" />
-                  <div className="text-center">
-                    <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
-                    <p className="text-tiny sm:text-xs text-white mt-0.5">かんたん登録</p>
-                  </div>
-                  <div className="w-px h-8 bg-white/20" />
-                  <div className="text-center">
-                    <p className="text-2xl sm:text-3xl font-bold text-white">24h</p>
-                    <p className="text-tiny sm:text-xs text-white mt-0.5">ネット予約対応</p>
-                  </div>
-                </>
-              )}
+              <div className="text-center">
+                <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
+                <p className="text-tiny sm:text-xs text-white mt-0.5">掲載・利用料</p>
+              </div>
+              <div className="w-px h-8 bg-white/20" />
+              <div className="text-center">
+                <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
+                <p className="text-tiny sm:text-xs text-white mt-0.5">かんたん登録</p>
+              </div>
+              <div className="w-px h-8 bg-white/20" />
+              <div className="text-center">
+                <p className="text-2xl sm:text-3xl font-bold text-white">24h</p>
+                <p className="text-tiny sm:text-xs text-white mt-0.5">ネット予約対応</p>
+              </div>
             </div>
           </div>
         </div>
@@ -302,262 +131,8 @@ export default async function Home() {
         </div>
       </div>
 
-      {/* ===== 特集バナー ===== */}
-      <div className="bg-gray-50 border-t border-gray-100">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {featureBanners.map((banner) => (
-              <Link
-                key={banner.title}
-                href={banner.href}
-                className="group relative block rounded-xl overflow-hidden aspect-[2/1] sm:aspect-[4/3]"
-              >
-                <Image
-                  src={banner.image}
-                  alt={banner.title}
-                  fill
-                  sizes="(max-width: 640px) 100vw, 33vw"
-                  className="object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-                <div className={`absolute inset-0 bg-gradient-to-t ${banner.color}`} />
-                <div className="absolute inset-0 flex flex-col justify-end p-4">
-                  <h2 className="text-white font-bold text-sm sm:text-base leading-tight">{banner.title}</h2>
-                  <p className="text-white text-tiny mt-1">{banner.subtitle}</p>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ===== 新着サロン ===== */}
-      {latestFacilities.length > 0 && (
-        <div className="border-t border-gray-100">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">新着サロン</h2>
-              <Link href="/search?sort=newest" className="text-xs text-sky-700 hover:underline">もっと見る &rsaquo;</Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {latestFacilities.map((f) => (
-                <FacilityCard key={f.id} facility={f} />
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ===== お悩み別ナビ ===== */}
-      <div className="border-t border-gray-100">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-          <h2 className="text-sm font-bold text-gray-800 mb-5 pl-3 border-l-[3px] border-sky-500">お悩みから探す</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-            {worryNavItems.map((item) => (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="bg-sky-50 rounded-xl p-4 text-center hover:shadow-md transition-shadow group"
-              >
-                <div className="text-sky-400 mx-auto mb-2 [&>svg]:mx-auto transition-transform group-hover:scale-110">
-                  {item.icon}
-                </div>
-                <span className="text-tiny sm:text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ===== エリアマップ + テキストナビ ===== */}
-      <div className="border-t border-gray-100 bg-gray-50">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6">
-          <div className="flex flex-col md:flex-row gap-8 py-8">
-            {/* Left: Map */}
-            <div className="md:w-[400px] flex-shrink-0">
-              <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">エリアから探す</h2>
-              <JapanRegionMap />
-            </div>
-
-            {/* Center: Category x Area + Features */}
-            <div className="flex-1 min-w-0 space-y-8">
-              <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">業種 &times; エリアで探す</h2>
-                {categories.map((cat, idx) => {
-                  const tSlug = getBusinessTypeSlug(cat.type);
-                  return (
-                    <div key={cat.type} className={`py-3 ${idx < categories.length - 1 ? 'border-b border-gray-100' : ''}`}>
-                      <Link
-                        href={`/search?type=${encodeURIComponent(cat.type)}`}
-                        className="text-sky-700 text-[15px] font-medium hover:underline"
-                      >
-                        {cat.type}を探す
-                      </Link>
-                      <div className="flex items-center mt-1.5 whitespace-nowrap">
-                        {regionGroups.map((region, i) => {
-                          const pSlug = getPrefectureSlug(region.prefectures[0]);
-                          const href = pSlug && tSlug
-                            ? `/${pSlug}/${tSlug}`
-                            : `/search?type=${encodeURIComponent(cat.type)}&area=${encodeURIComponent(region.prefectures[0])}`;
-                          return (
-                            <span key={region.name} className="text-xs">
-                              {i > 0 && <span className="text-gray-200 mx-2">|</span>}
-                              <Link
-                                href={href}
-                                className="text-gray-500 hover:text-sky-700 transition-colors"
-                              >
-                                {region.name}
-                              </Link>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">こだわり条件から探す</h2>
-                <div className="flex flex-wrap gap-2">
-                  {facilityFeatures.map((feature) => (
-                    <Link
-                      key={feature}
-                      href={`/search?keyword=${encodeURIComponent(feature)}`}
-                      className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors"
-                    >
-                      {feature}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-
-              {/* 主要都市リンク (SEO: 市区町村レベルの内部リンク) */}
-              <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">主要都市から探す</h2>
-                <div className="flex flex-wrap gap-2">
-                  {[
-                    { pref: 'tokyo', slug: 'shibuya', name: '渋谷区' },
-                    { pref: 'tokyo', slug: 'shinjuku', name: '新宿区' },
-                    { pref: 'tokyo', slug: 'minato', name: '港区' },
-                    { pref: 'tokyo', slug: 'setagaya', name: '世田谷区' },
-                    { pref: 'tokyo', slug: 'meguro', name: '目黒区' },
-                    { pref: 'osaka', slug: 'kita', name: '大阪北区' },
-                    { pref: 'osaka', slug: 'chuo', name: '大阪中央区' },
-                    { pref: 'osaka', slug: 'tennoji', name: '天王寺区' },
-                    { pref: 'kanagawa', slug: 'yokohama-nishi', name: '横浜市西区' },
-                    { pref: 'aichi', slug: 'nagoya-naka', name: '名古屋市中区' },
-                    { pref: 'fukuoka', slug: 'hakata', name: '博多区' },
-                    { pref: 'hokkaido', slug: 'sapporo', name: '札幌市' },
-                    { pref: 'miyagi', slug: 'sendai', name: '仙台市' },
-                    { pref: 'hiroshima', slug: 'hiroshima-naka', name: '広島市中区' },
-                    { pref: 'kyoto', slug: 'shimogyo', name: '京都下京区' },
-                  ].map((c) => (
-                    <Link
-                      key={`${c.pref}-${c.slug}`}
-                      href={`/${c.pref}/${c.slug}`}
-                      className="px-3.5 py-1.5 bg-white border border-gray-200 rounded-full text-xs text-gray-600 hover:bg-sky-50 hover:border-sky-200 hover:text-sky-700 transition-colors"
-                    >
-                      {c.name}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-
-              {/* 全47都道府県リンク (SEO: 内部リンク増加) */}
-              <div>
-                <h2 className="text-sm font-bold text-gray-800 mb-4 pl-3 border-l-[3px] border-sky-500">都道府県から探す</h2>
-                <div className="space-y-3">
-                  {regionGroups.map((region) => (
-                    <div key={region.name}>
-                      <h3 className="text-tiny font-bold text-gray-600 mb-1">{region.name}</h3>
-                      <div className="flex items-center whitespace-nowrap">
-                        {region.prefectures.map((pref, i) => {
-                          const pSlug = getPrefectureSlug(pref);
-                          return (
-                            <span key={pref} className="text-xs">
-                              {i > 0 && <span className="text-gray-200 mx-2">|</span>}
-                              <Link href={pSlug ? `/${pSlug}` : `/search?area=${encodeURIComponent(pref)}`} className="text-gray-600 hover:text-sky-700 transition-colors">{pref}</Link>
-                            </span>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Right: User panel */}
-            <div className="md:w-[200px] flex-shrink-0 space-y-6">
-              <HomeUserPanel />
-              <nav>
-                {[
-                  { href: '/mypage/favorites', label: 'お気に入り一覧' },
-                  { href: '/contact', label: 'お問い合わせ' },
-                ].map((item) => (
-                  <Link
-                    key={`${item.href}-${item.label}`}
-                    href={item.href}
-                    className="flex items-center justify-between py-3 text-xs text-gray-500 hover:text-sky-700 transition-colors border-b border-gray-100"
-                  >
-                    <span>{item.label}</span>
-                    <span className="text-gray-400">&rsaquo;</span>
-                  </Link>
-                ))}
-              </nav>
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* ===== 施設オーナー向けCTA ===== */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0">
-          <Image
-            src="/images/cta.webp"
-            alt="施設掲載のご案内"
-            fill
-            sizes="100vw"
-            className="object-cover"
-            loading="lazy"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-sky-900/85 to-indigo-900/85" />
-        </div>
-        <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6 py-12 text-center">
-          <h2 className="text-lg sm:text-xl font-bold text-white">施設を掲載しませんか？</h2>
-          <p className="text-sm text-white mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
-          <Link
-            href="/register"
-            className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-700 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
-          >
-            無料で掲載する
-          </Link>
-        </div>
-      </div>
-
-      {/* ===== コラム・ブログ ===== */}
-      <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-12">
-        <h2 className="text-lg sm:text-xl font-bold text-center mb-6">お役立ちコラム</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {[
-            { title: 'パリジェンヌラッシュリフトとまつげパーマの違い', slug: 'hal-eyelash-toyonaka-honten', postSlug: 'parisienne-vs-matsuge-perm-2026' },
-            { title: '訪問鍼灸の保険適用条件', slug: 'kanbara-shinkyuin-toyonaka', postSlug: 'houmon-shinkyuu-hoken-jouken' },
-            { title: '子連れOKのまつげサロンを選ぶポイント', slug: 'hal-eyelash-toyonaka-imai', postSlug: 'koduretok-matsuge-salon-toyonaka' },
-          ].map((post) => (
-            <Link
-              key={post.postSlug}
-              href={`/facility/${post.slug}/blog/${post.postSlug}`}
-              className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
-            >
-              <p className="text-sm font-medium text-gray-800 line-clamp-2">{post.title}</p>
-              <p className="text-xs text-sky-600 mt-2">続きを読む →</p>
-            </Link>
-          ))}
-        </div>
-        <div className="text-center mt-4">
-          <Link href="/blog" className="text-sm text-sky-600 hover:underline">コラム一覧を見る →</Link>
-        </div>
-      </div>
-
+      {/* ===== Below-fold content (client-side loaded) ===== */}
+      <HomeBelowFold />
     </div>
   );
 }
