@@ -19,9 +19,12 @@ function CompleteContent() {
           </svg>
         </div>
 
-        <h1 className="text-2xl font-bold mb-4">登録が完了しました</h1>
-        <p className="text-gray-600 mb-8">
-          審査後、<strong>3営業日以内</strong>に担当者よりご連絡いたします。
+        <h1 className="text-2xl font-bold mb-4">登録が完了しました！</h1>
+        <p className="text-gray-600 mb-2">
+          あと少しで掲載開始できます。
+        </p>
+        <p className="text-sm text-gray-500 mb-8">
+          アカウントを作成して、メニュー・スタッフ・写真を登録しましょう。
         </p>
 
         {(name || type || area) && (
@@ -50,12 +53,38 @@ function CompleteContent() {
           </div>
         )}
 
-        <div className="flex flex-col sm:flex-row gap-3 justify-center">
-          <Link href="/" className="btn-primary px-8 py-3">
-            トップページへ
+        {/* セットアップステップ */}
+        <div className="bg-sky-50 rounded-xl p-6 mb-8 text-left">
+          <h2 className="text-sm font-bold text-sky-800 mb-4">掲載までのステップ</h2>
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-green-500 text-white flex items-center justify-center text-xs font-bold shrink-0">✓</div>
+              <span className="text-sm text-gray-600">施設情報を登録</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-sky-500 text-white flex items-center justify-center text-xs font-bold shrink-0">2</div>
+              <span className="text-sm font-medium text-gray-800">アカウント作成・ログイン</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-bold shrink-0">3</div>
+              <span className="text-sm text-gray-500">メニュー・スタッフ・写真を追加</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="w-7 h-7 rounded-full bg-gray-200 text-gray-500 flex items-center justify-center text-xs font-bold shrink-0">4</div>
+              <span className="text-sm text-gray-500">公開して集客スタート！</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex flex-col gap-3">
+          <Link
+            href={`/auth/signup?redirect=/admin/onboarding&facility_name=${encodeURIComponent(name)}&business_type=${encodeURIComponent(type)}`}
+            className="btn-primary px-8 py-4 text-base"
+          >
+            アカウントを作成して始める
           </Link>
-          <Link href="/search" className="btn-outline px-8 py-3">
-            施設を探す
+          <Link href="/auth/login?redirect=/admin/onboarding" className="text-sm text-sky-600 hover:underline">
+            既にアカウントをお持ちの方はログイン
           </Link>
         </div>
       </div>

@@ -40,6 +40,8 @@ export default function AdminSettingsPage() {
   const [creditCard, setCreditCard] = useState(false);
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [regularHoliday, setRegularHoliday] = useState('');
+  const [facilityStatus, setFacilityStatus] = useState<'draft' | 'published' | 'suspended'>('draft');
+  const [publishToggling, setPublishToggling] = useState(false);
 
   // Business hours
   const [hours, setHours] = useState<BusinessHours>(() => {
@@ -78,6 +80,7 @@ export default function AdminSettingsPage() {
         setCreditCard(data.credit_card ?? false);
         setSelectedFeatures(data.features || []);
         setRegularHoliday(data.regular_holiday || '');
+        setFacilityStatus(data.status || 'draft');
         if (data.business_hours) {
           const bh = data.business_hours as BusinessHours;
           const closed: string[] = [];
@@ -186,7 +189,30 @@ export default function AdminSettingsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">施設設定</h1>
+        <div className="flex items-center justify-between mb-2">
+          <h1 className="text-2xl font-bold">施設設定</h1>
+          <div className="flex items-center gap-3">
+            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${facilityStatus === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+              {facilityStatus === 'published' ? '公開中' : '非公開'}
+            </span>
+            <button
+              onClick={async () => {
+                const newStatus = facilityStatus === 'published' ? 'draft' : 'published';
+                if (newStatus === 'draft' && !confirm('施設を非公開にしますか？検索結果から消えます。')) return;
+                setPublishToggling(true);
+                const supabase = createBrowserSupabaseClient();
+                await supabase.from('facility_profiles').update({ status: newStatus }).eq('id', facilityId);
+                setFacilityStatus(newStatus);
+                setPublishToggling(false);
+                setToast({ type: 'success', message: newStatus === 'published' ? '施設を公開しました！' : '施設を非公開にしました' });
+              }}
+              disabled={publishToggling || !facilityId}
+              className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-500 text-white hover:bg-green-600'}`}
+            >
+              {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : '公開する'}
+            </button>
+          </div>
+        </div>
         <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 !py-2.5">
           {saving ? '保存中...' : '保存する'}
         </button>

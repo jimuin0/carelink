@@ -1,0 +1,119 @@
+/**
+ * 施設自動セットアップ API（v8.2）
+ * POST /api/facility/setup
+ * 認証済みユーザーが施設を新規作成し、facility_membersにowner登録
+ */
+
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import * as Sentry from '@sentry/nextjs';
+
+export const dynamic = 'force-dynamic';
+
+const adminSupabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+export async function POST(request: Request) {
+  try {
+    const cookieStore = cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => cookieStore.getAll() } }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    }
+
+    // 既に施設を持っているか確認
+    const { data: existingMember } = await adminSupabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existingMember) {
+      return NextResponse.json({
+        success: true,
+        facilityId: existingMember.facility_id,
+        message: '既に施設が登録されています',
+      });
+    }
+
+    const body = await request.json();
+    const {
+      facility_name,
+      business_type,
+      phone,
+      prefecture,
+      city,
+      address,
+    } = body;
+
+    if (!facility_name || !business_type) {
+      return NextResponse.json({ error: '施設名と業種は必須です' }, { status: 400 });
+    }
+
+    // slug生成（施設名からローマ字変換は複雑なのでランダム）
+    const slug = facility_name
+      .toLowerCase()
+      .replace(/[^a-zA-Z0-9\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '') || `facility-${Date.now()}`;
+
+    const uniqueSlug = `${slug}-${Date.now().toString(36)}`;
+
+    // facility_profiles作成（draft状態）
+    const { data: facility, error: facilityError } = await adminSupabase
+      .from('facility_profiles')
+      .insert({
+        name: facility_name,
+        slug: uniqueSlug,
+        business_type,
+        phone: phone || null,
+        prefecture: prefecture || null,
+        city: city || null,
+        address: address || null,
+        status: 'draft', // 公開前はdraft
+      })
+      .select('id')
+      .single();
+
+    if (facilityError || !facility) {
+      console.error('[facility/setup] Insert error:', facilityError);
+      return NextResponse.json({ error: '施設の作成に失敗しました' }, { status: 500 });
+    }
+
+    // facility_membersにowner登録
+    const { error: memberError } = await adminSupabase
+      .from('facility_members')
+      .insert({
+        facility_id: facility.id,
+        user_id: user.id,
+        role: 'owner',
+      });
+
+    if (memberError) {
+      console.error('[facility/setup] Member error:', memberError);
+      // ロールバック
+      await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
+      return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
+    }
+
+    return NextResponse.json({
+      success: true,
+      facilityId: facility.id,
+      slug: uniqueSlug,
+      message: '施設を作成しました。管理画面からメニューやスタッフを登録してください。',
+    });
+  } catch (e) {
+    Sentry.captureException(e);
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
+}
