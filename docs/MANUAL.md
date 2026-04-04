@@ -1544,7 +1544,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `InquiryForm` | 名前/メール/電話/メッセージ。Supabase INSERT + Slack通知。autocomplete属性 |
 | `StarRating` | 入力/表示兼用。readonly時: role="img" + aria-label。入力時: hover:scale-110 + aria-label="X点を選択" |
 | `StickyBookingBar` | 固定下部バー。電話(tel:リンク) + お問い合わせ(#contact-sectionスクロール) |
-| `BeforeAfterSlider` | Before/After画像比較スライダー。ポインタードラッグ+キーボード矢印対応。role="slider" |
+| `BeforeAfterSlider` | Before/After画像比較スライダー。ポインタードラッグ+キーボード矢印対応。role="slider"。ファイルは`catalog/`配下 |
 | `BusinessStatusBadge` | 営業状態バッジ（営業中/休業日/準備中）。aria-hidden(ドット) + role="status" |
 | `CatalogList` | カタログ一覧表示（blurプレースホルダー付き画像） |
 | `CouponBadge` | クーポンタイプバッジ（新規/リピート/期間限定/全員） |
@@ -2225,7 +2225,8 @@ npx tsc --noEmit  # 型チェックのみ
 | ファイル | スキーマ | 用途 |
 |---------|---------|------|
 | `validations.ts` | `salonSchema`, `jobSeekerSchema`, `contactSchema` | LP登録フォーム |
-| `validations.ts` | `reviewSchema`, `inquirySchema` | 検索サイトフォーム |
+| `ReviewForm.tsx`内インライン | `reviewSchema` | 口コミ投稿フォーム |
+| `InquiryForm.tsx`内インライン | `inquirySchema` | 施設お問い合わせフォーム |
 | `validations-auth.ts` | `loginSchema`, `signupSchema` | 認証フォーム |
 | `validations-booking.ts` | `bookingSchema` | 予約フォーム（UUID/日付/時間検証） |
 | ~~`validations-admin.ts`~~ | 未実装（管理画面はインラインZod検証） | - |
@@ -2256,7 +2257,7 @@ npx tsc --noEmit  # 型チェックのみ
 
 ## エラー監視（Sentry）
 
-- `@sentry/nextjs` 導入、`next.config.mjs` を `withSentryConfig()` でラップ
+- `@sentry/nextjs` 導入、設定ファイル3種（`sentry.client.config.ts`/`sentry.server.config.ts`/`sentry.edge.config.ts`）で構成
 - 3設定ファイル: `sentry.client.config.ts`（**無効化**、100KB JS削減）/ `sentry.server.config.ts` / `sentry.edge.config.ts`（DSN + tracesSampleRate 0.1）
 - `src/app/global-error.tsx`（Root Layout エラーバウンダリ）
 - 全8 APIルートの catch に `Sentry.captureException` 追加
