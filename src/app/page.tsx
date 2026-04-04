@@ -1,6 +1,5 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import Image from 'next/image';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import dynamic from 'next/dynamic';
 
@@ -36,14 +35,14 @@ export default function Home() {
       {/* ===== Hero Section ===== */}
       <div className="relative overflow-hidden">
         <div className="absolute inset-0">
-          <Image
-            src="/images/hero.webp"
-            alt="CareLink - ネットでかんたんサロン予約"
-            fill
-            sizes="100vw"
-            className="object-cover"
-            priority
-            quality={60}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/images/hero-tiny.webp"
+            alt=""
+            fetchPriority="high"
+            decoding="async"
+            aria-hidden="true"
+            className="absolute inset-0 w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-sky-900/80 via-sky-800/70 to-sky-700/80" />
         </div>
