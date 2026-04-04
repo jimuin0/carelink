@@ -5,6 +5,8 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendBookingCancelled } from '@/lib/email';
 import * as Sentry from '@sentry/nextjs';
+import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
+import { createClient } from '@supabase/supabase-js';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -98,6 +100,42 @@ export async function POST(_request: Request, { params }: { params: { id: string
       const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', owner.user_id).single();
       if (ownerProfile?.email) {
         void sendBookingCancelled({ ...emailData, customerEmail: ownerProfile.email });
+      }
+    }
+  } catch {}
+
+  // LINE cancellation notification (non-blocking)
+  try {
+    if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+      const adminSupabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      const { data: lineLink } = await adminSupabase
+        .from('line_user_links')
+        .select('line_user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (lineLink?.line_user_id) {
+        const { data: facilityForLine } = await supabase
+          .from('facility_profiles')
+          .select('name')
+          .eq('id', booking.facility_id)
+          .maybeSingle();
+
+        let cancelMenuName = '';
+        if (booking.menu_id) {
+          const { data: menuForLine } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).maybeSingle();
+          cancelMenuName = menuForLine?.name || '';
+        }
+
+        void sendLineCancellation(lineLink.line_user_id, {
+          facilityName: facilityForLine?.name || '',
+          menuName: cancelMenuName,
+          date: booking.booking_date,
+          time: booking.start_time,
+        });
       }
     }
   } catch {}

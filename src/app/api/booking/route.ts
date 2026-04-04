@@ -7,6 +7,8 @@ import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import * as Sentry from '@sentry/nextjs';
+import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -214,6 +216,44 @@ export async function POST(request: Request) {
     }
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'booking-push-setup' } });
+  }
+
+  // LINE notification (non-blocking)
+  try {
+    if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+      const adminSupabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      const { data: lineLink } = await adminSupabase
+        .from('line_user_links')
+        .select('line_user_id')
+        .eq('user_id', user.id)
+        .maybeSingle();
+
+      if (lineLink?.line_user_id) {
+        const { data: facilityForLine } = await supabase
+          .from('facility_profiles')
+          .select('name')
+          .eq('id', parsed.data.facility_id)
+          .maybeSingle();
+
+        let lineMenuName = '';
+        if (parsed.data.menu_id) {
+          const { data: menuForLine } = await supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).maybeSingle();
+          lineMenuName = menuForLine?.name || '';
+        }
+
+        sendLineBookingConfirm(lineLink.line_user_id, {
+          facilityName: facilityForLine?.name || '',
+          menuName: lineMenuName,
+          date: parsed.data.booking_date,
+          time: parsed.data.start_time,
+        }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-line' } }));
+      }
+    }
+  } catch (e) {
+    Sentry.captureException(e, { tags: { feature: 'booking-line-setup' } });
   }
 
   return NextResponse.json({ success: true, bookingId: newBookingId });
