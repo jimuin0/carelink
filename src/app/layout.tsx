@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { Noto_Sans_JP } from "next/font/google";
 import Script from "next/script";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import dynamic from "next/dynamic";
@@ -10,13 +9,6 @@ const Analytics = dynamic(() => import("@vercel/analytics/react").then(m => ({ d
 const SpeedInsights = dynamic(() => import("@vercel/speed-insights/next").then(m => ({ default: m.SpeedInsights })), { ssr: false });
 const CookieConsent = dynamic(() => import("@/components/CookieConsent"), { ssr: false });
 import "./globals.css";
-
-const notoSansJP = Noto_Sans_JP({
-  subsets: ["latin"],
-  weight: ["400", "700"],
-  display: "swap",
-  preload: false,
-});
 
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
@@ -62,7 +54,7 @@ export default function RootLayout({
         {gaId && <link rel="dns-prefetch" href="https://www.googletagmanager.com" />}
         {clarityId && <link rel="dns-prefetch" href="https://www.clarity.ms" />}
       </head>
-      <body className={`${notoSansJP.className} antialiased min-h-screen flex flex-col`}>
+      <body className="antialiased min-h-screen flex flex-col">
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{

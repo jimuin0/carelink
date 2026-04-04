@@ -17,6 +17,7 @@
 body {
   color: var(--foreground);
   background: var(--background);
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", Meiryo, "Yu Gothic", sans-serif;
 }
 
 @layer components {
