@@ -382,7 +382,7 @@ Supabase (PostgreSQL + Storage)
 │   │       │   ├── route.ts / callback/route.ts
 │   │       └── line/webhook/route.ts   … LINE Messaging Webhook（v8.0）
 │   │
-│   ├── components/                      … 65コンポーネント
+│   ├── components/                      … 64コンポーネント
 │   │   ├── Header.tsx / Footer.tsx      … LP用ヘッダー・フッター
 │   │   ├── LayoutSwitch.tsx             … パス別レイアウト自動切替
 │   │   ├── ConfirmDialog.tsx            … 確認ダイアログ（フォーカストラップ）
@@ -1686,6 +1686,20 @@ Sitemap: {BASE_URL}/sitemap.xml
 | `X-XSS-Protection` | `1; mode=block` | XSSフィルター有効化 |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` | リファラー情報制限 |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=(self)` | 不要なAPI無効化 |
+| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains; preload` | HSTS強制 |
+| `Content-Security-Policy` | 下記参照 | XSS/インジェクション防止 |
+
+**CSPディレクティブ詳細（`next.config.mjs`）:**
+
+| ディレクティブ | 値 | 備考 |
+|--------------|-----|------|
+| `default-src` | `'self'` | |
+| `script-src` | `'self' 'unsafe-inline'` + GTM/GA/Clarity/Vercel | 外部スクリプト許可 |
+| `style-src` | `'self' 'unsafe-inline' fonts.googleapis.com` | ⚠️ fonts.googleapis.comはv7.6でフォント削除後も残置（無害） |
+| `font-src` | `'self' fonts.gstatic.com` | ⚠️ 同上 |
+| `connect-src` | `'self'` + Supabase/GA/Clarity/Vercel/LINE/Upstash/Sentry | LINE: `access.line.me` `api.line.me`（v8.0追加） |
+| `img-src` | `'self' data: https: blob:` | |
+| `object-src` | `'none'` | |
 
 ### 13.2 認証・認可セキュリティ
 
