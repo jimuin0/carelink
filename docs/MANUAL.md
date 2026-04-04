@@ -337,10 +337,12 @@ Supabase (PostgreSQL + Storage)
 │   │   │   │   └── [email]/page.tsx
 │   │   │   ├── staff/                   … スタッフ管理
 │   │   │   │   ├── page.tsx / loading.tsx
-│   │   │   │   └── [id]/edit/page.tsx
+│   │   │   │   ├── [id]/edit/page.tsx
+│   │   │   │   └── [id]/schedule/page.tsx  … スタッフシフト管理
 │   │   │   ├── coupons/                … クーポン管理
 │   │   │   │   ├── page.tsx / loading.tsx
-│   │   │   │   └── new/page.tsx
+│   │   │   │   ├── new/page.tsx
+│   │   │   │   └── [id]/edit/page.tsx
 │   │   │   ├── blog/                    … ブログ管理
 │   │   │   │   ├── page.tsx / loading.tsx
 │   │   │   │   ├── new/page.tsx
@@ -431,8 +433,8 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── supabase-server.ts           … サーバー匿名（公開データ読み取り専用）
 │   │   ├── supabase-server-auth.ts      … サーバー認証Cookie対応
 │   │   ├── facilities.ts               … 施設DBクエリ
-│   │   ├── staff.ts / coupons.ts / bookings.ts / schedules.ts
-│   │   ├── areas.ts / catalogs.ts / blog.ts / rankings.ts / points.ts
+│   │   ├── staff.ts / coupons.ts / schedules.ts
+│   │   ├── areas.ts / catalogs.ts / blog.ts / rankings.ts
 │   │   ├── user.ts / admin.ts / features.ts
 │   │   ├── constants.ts                 … 都道府県・業種・特徴・曜日・regionGroups・SITE_URL
 │   │   ├── seo-constants.ts             … SEO用定数
@@ -441,6 +443,8 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── image-utils.ts              … SHIMMER_BLURプレースホルダー
 │   │   ├── email.ts                     … Resendメール送信
 │   │   ├── csrf.ts                      … CSRF保護
+│   │   ├── push.ts                      … Web Push送信ユーティリティ
+│   │   ├── rate-limit.ts               … レート制限（Upstash Redis/in-memoryフォールバック）
 │   │   ├── validations.ts              … LP用Zodスキーマ
 │   │   ├── validations-auth.ts          … 認証Zodスキーマ
 │   │   └── validations-booking.ts       … 予約Zodスキーマ
@@ -1203,8 +1207,10 @@ review-photos/{review_id}/{timestamp}.{ext}
 | `/admin/bookings/[id]` | `admin/bookings/[id]/page.tsx` | Dynamic | 予約詳細（ステータス変更） |
 | `/admin/staff` | `admin/staff/page.tsx` | Dynamic | スタッフ管理 |
 | `/admin/staff/[id]/edit` | `admin/staff/[id]/edit/page.tsx` | Dynamic | スタッフ編集 |
+| `/admin/staff/[id]/schedule` | `admin/staff/[id]/schedule/page.tsx` | Dynamic | スタッフシフト管理 |
 | `/admin/coupons` | `admin/coupons/page.tsx` | Dynamic | クーポン管理 |
 | `/admin/coupons/new` | `admin/coupons/new/page.tsx` | Dynamic | クーポン作成 |
+| `/admin/coupons/[id]/edit` | `admin/coupons/[id]/edit/page.tsx` | Dynamic | クーポン編集 |
 | `/admin/customers` | `admin/customers/page.tsx` | Dynamic | 顧客一覧 |
 | `/admin/customers/[email]` | `admin/customers/[email]/page.tsx` | Dynamic | 顧客来店履歴 |
 | `/admin/blog` | `admin/blog/page.tsx` | Dynamic | ブログ管理 |
@@ -2123,13 +2129,13 @@ npx tsc --noEmit  # 型チェックのみ
 | `getCouponsByFacility(facilityId)` | UUID | 施設のクーポン一覧 |
 | `getCouponMenus(couponId)` | UUID | クーポン対象メニュー |
 
-**`src/lib/bookings.ts`**
+**予約関連（API Route内に直接実装、`bookings.ts`は存在しない）**
 
-| 関数 | 引数 | 用途 |
-|------|------|------|
-| `createBooking(data)` | BookingFormData | 予約作成（競合チェック付き） |
-| `getBookings(userId)` | UUID | ユーザーの予約一覧 |
-| `cancelBooking(bookingId, userId)` | UUID, UUID | 予約キャンセル |
+| API Route | 用途 |
+|-----------|------|
+| `POST /api/booking` | 予約作成（競合チェック付き） |
+| `POST /api/booking/[id]/cancel` | 予約キャンセル |
+| `POST /api/booking/[id]/change` | 予約日時変更 |
 
 **`src/lib/schedules.ts`**
 
@@ -2154,13 +2160,25 @@ npx tsc --noEmit  # 型チェックのみ
 | `getAreas()` | - | エリア階層取得 |
 | `getAreaBySlug(slug)` | slug | エリア詳細（パンくずリスト付き、ループ上限10） |
 
-**`src/lib/catalogs.ts` / `src/lib/blog.ts` / `src/lib/rankings.ts` / `src/lib/points.ts`**
+**`src/lib/catalogs.ts` / `src/lib/blog.ts` / `src/lib/rankings.ts`**
 
 | 関数 | 用途 |
 |------|------|
 | `getCatalogsByFacility(facilityId)` | ヘアカタログ一覧 |
 | `getBlogPostsByFacility(facilityId)` | ブログ記事一覧 |
 | `getRankingsByArea(area)` | エリアランキング |
+
+**`src/lib/push.ts`**
+
+| 関数 | 用途 |
+|------|------|
+| `sendPushNotification(subscription, payload)` | Web Push通知送信 |
+
+**`src/lib/rate-limit.ts`**
+
+| 関数 | 用途 |
+|------|------|
+| `checkRateLimit(identifier, limiter)` | レート制限チェック（Upstash Redis/in-memoryフォールバック） |
 | `getUserPoints(userId)` | ポイント履歴 |
 
 **`src/lib/admin.ts`**
