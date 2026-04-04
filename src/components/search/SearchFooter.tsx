@@ -15,51 +15,56 @@ const majorCities: { pref: string; cities: { slug: string; name: string }[] }[] 
 export default function SearchFooter() {
   return (
     <footer className="bg-gray-900 text-gray-300">
-      {/* SEO: エリア×業種 内部リンク */}
+      {/* SEO: エリア×業種 内部リンク（details内だがHTML上は存在→Googlebot クロール可能） */}
       <div className="border-b border-gray-800">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
-          <h2 className="text-white font-bold text-sm mb-5">エリアから探す</h2>
-          <div className="space-y-3">
-            {regionGroups.map((region) => (
-              <div key={region.name}>
-                <h3 className="text-gray-400 text-tiny font-bold mb-1">{region.name}</h3>
-                <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  {region.prefectures.map((pref) => {
-                    const slug = getPrefectureSlug(pref);
-                    return (
-                      <Link
-                        key={pref}
-                        href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
-                        className="text-xs text-gray-400 hover:text-white transition-colors"
-                      >
-                        {pref}
-                      </Link>
-                    );
-                  })}
+          <details>
+            <summary className="text-white font-bold text-sm cursor-pointer list-none flex items-center gap-2">
+              エリアから探す
+              <svg className="w-4 h-4 text-gray-400 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+            </summary>
+            <div className="mt-5 space-y-3">
+              {regionGroups.map((region) => (
+                <div key={region.name}>
+                  <h3 className="text-gray-400 text-tiny font-bold mb-1">{region.name}</h3>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                    {region.prefectures.map((pref) => {
+                      const slug = getPrefectureSlug(pref);
+                      return (
+                        <Link
+                          key={pref}
+                          href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
+                          className="text-xs text-gray-400 hover:text-white transition-colors"
+                        >
+                          {pref}
+                        </Link>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
 
-          <h2 className="text-white font-bold text-sm mt-8 mb-5">主要都市から探す</h2>
-          <div className="space-y-3 mb-8">
-            {majorCities.map(({ pref, cities }) => (
-              <div key={pref} className="flex flex-wrap gap-x-3 gap-y-0.5">
-                {cities.map((c) => (
-                  <Link
-                    key={`${pref}-${c.slug}`}
-                    href={`/${pref}/${c.slug}`}
-                    className="text-xs text-gray-400 hover:text-white transition-colors"
-                  >
-                    {c.name}
-                  </Link>
-                ))}
-              </div>
-            ))}
-          </div>
+            <h2 className="text-white font-bold text-sm mt-8 mb-5">主要都市から探す</h2>
+            <div className="space-y-3 mb-8">
+              {majorCities.map(({ pref, cities }) => (
+                <div key={pref} className="flex flex-wrap gap-x-3 gap-y-0.5">
+                  {cities.map((c) => (
+                    <Link
+                      key={`${pref}-${c.slug}`}
+                      href={`/${pref}/${c.slug}`}
+                      className="text-xs text-gray-400 hover:text-white transition-colors"
+                    >
+                      {c.name}
+                    </Link>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </details>
 
           <details className="mt-8">
-            <summary className="text-white font-bold text-sm mb-5 cursor-pointer list-none flex items-center gap-2">
+            <summary className="text-white font-bold text-sm cursor-pointer list-none flex items-center gap-2">
               業種×エリアから探す
               <svg className="w-4 h-4 text-gray-400 transition-transform [[open]>&]:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
             </summary>
