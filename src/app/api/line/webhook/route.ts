@@ -30,16 +30,8 @@ export async function POST(request: Request) {
     const body = await request.text();
     const signature = request.headers.get('x-line-signature');
 
-    // Signature verification (log for debugging)
-    const secret = process.env.LINE_CHANNEL_SECRET_CARELINK;
-    if (!secret) {
-      console.error('[LINE Webhook] LINE_CHANNEL_SECRET_CARELINK not set');
-    }
-    if (signature && secret) {
-      const isValid = verifyLineSignature(body, signature);
-      if (!isValid) {
-        console.error('[LINE Webhook] Signature mismatch', { bodyLen: body.length, signatureLen: signature.length, secretLen: secret.length });
-      }
+    if (signature && !verifyLineSignature(body, signature)) {
+      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
     const parsed = JSON.parse(body);
