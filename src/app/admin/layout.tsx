@@ -3,6 +3,9 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
+import dynamic from 'next/dynamic';
+
+const RealtimeBookingListener = dynamic(() => import('@/components/admin/RealtimeBookingListener'), { ssr: false });
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -92,6 +95,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <main className="flex-1 p-4 lg:p-8 pb-20 lg:pb-8">
           {children}
         </main>
+
+        {/* リアルタイム予約通知 */}
+        <RealtimeBookingListener facilityId={membership.facility_id} />
       </div>
     </div>
   );

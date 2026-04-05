@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
 import Toast from '@/components/Toast';
+import dynamic from 'next/dynamic';
+
+const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 
 interface BusinessHours {
   [key: string]: { open: string; close: string } | null;
@@ -437,6 +440,9 @@ export default function AdminSettingsPage() {
           {saving ? '保存中...' : '施設情報を保存'}
         </button>
       </div>
+
+      {/* 通知設定（v8.1） */}
+      {facilityId && <NotificationSettings facilityId={facilityId} />}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>

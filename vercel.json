@@ -3,6 +3,14 @@
     {
       "path": "/api/cron/booking-reminder",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/cron/daily-summary",
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/customer-segment",
+      "schedule": "0 16 * * 0"
     }
   ],
   "rewrites": [

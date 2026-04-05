@@ -1,6 +1,12 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
+import dynamic from 'next/dynamic';
+
+const RevenueChart = dynamic(() => import('@/components/admin/RevenueChart'), { ssr: false });
+const BookingTrendChart = dynamic(() => import('@/components/admin/BookingTrendChart'), { ssr: false });
+const CustomerSegmentChart = dynamic(() => import('@/components/admin/CustomerSegmentChart'), { ssr: false });
+const RepeatRateCard = dynamic(() => import('@/components/admin/RepeatRateCard'), { ssr: false });
 
 export default async function AdminAnalyticsPage() {
   const supabase = createServerSupabaseAuthClient();
@@ -90,7 +96,19 @@ export default async function AdminAnalyticsPage() {
         </div>
       </div>
 
-      <StaffSalesTab facilityId={facilityId} />
+      {/* recharts チャート（v8.1） */}
+      <div className="grid sm:grid-cols-2 gap-4 mt-6">
+        <RevenueChart facilityId={facilityId} />
+        <BookingTrendChart facilityId={facilityId} />
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4 mt-4">
+        <CustomerSegmentChart facilityId={facilityId} />
+        <RepeatRateCard facilityId={facilityId} />
+      </div>
+
+      <div className="mt-6">
+        <StaffSalesTab facilityId={facilityId} />
+      </div>
     </div>
   );
 }

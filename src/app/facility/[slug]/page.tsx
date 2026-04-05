@@ -18,6 +18,10 @@ import InquiryForm from '@/components/facility/InquiryForm';
 import StickyBookingBar from '@/components/facility/StickyBookingBar';
 import FavoriteButton from '@/components/facility/FavoriteButton';
 import ShareButtons from '@/components/facility/ShareButtons';
+import SymptomList from '@/components/facility/SymptomList';
+import CertificationList from '@/components/facility/CertificationList';
+// InsuranceMenuBadge はMenuListコンポーネント内で使用（menu.insurance_covered時に表示）
+import { createClient } from '@supabase/supabase-js';
 import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
@@ -102,6 +106,22 @@ export default async function FacilityPage({ params }: Props) {
   const coupons: Coupon[] = results[4].status === 'fulfilled' ? results[4].value : [];
   const catalogs: TreatmentCatalog[] = results[5].status === 'fulfilled' ? results[5].value : [];
 
+  // 鍼灸院向けデータ取得（症状・資格）
+  const isAcupuncture = ['鍼灸院・整骨院', '整骨院・接骨院', '整体院'].some(t => facility.business_type?.includes(t));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let facilitySymptoms: any[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let certifications: any[] = [];
+  if (isAcupuncture) {
+    const adminSupa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const [sympRes, certRes] = await Promise.all([
+      adminSupa.from('facility_symptoms').select('symptom_id, description, symptoms(name, slug, category)').eq('facility_id', facility.id),
+      adminSupa.from('facility_certifications').select('*').eq('facility_id', facility.id).order('sort_order'),
+    ]);
+    facilitySymptoms = sympRes.data || [];
+    certifications = certRes.data || [];
+  }
+
   const featuredMenus = menus.filter((m) => m.is_featured).slice(0, 3);
 
   const tabs = [
@@ -140,6 +160,16 @@ export default async function FacilityPage({ params }: Props) {
       label: `口コミ(${reviews.length})`,
       content: <ReviewTab facilityId={facility.id} initialReviews={reviews} />,
     },
+    ...((facilitySymptoms.length > 0 || certifications.length > 0) ? [{
+      key: 'medical',
+      label: '施術情報',
+      content: (
+        <div className="space-y-6 py-4">
+          {facilitySymptoms.length > 0 && <SymptomList symptoms={facilitySymptoms} />}
+          {certifications.length > 0 && <CertificationList certifications={certifications} />}
+        </div>
+      ),
+    }] : []),
     {
       key: 'access',
       label: 'アクセス',
