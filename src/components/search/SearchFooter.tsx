@@ -34,7 +34,7 @@ export default function SearchFooter() {
                         <Link
                           key={pref}
                           href={slug ? `/${slug}` : `/search?area=${encodeURIComponent(pref)}`}
-                          className="text-xs text-gray-400 hover:text-white transition-colors"
+                          className="text-xs text-gray-400 hover:text-white transition-colors py-1 inline-block"
                         >
                           {pref}
                         </Link>
@@ -53,7 +53,7 @@ export default function SearchFooter() {
                     <Link
                       key={`${pref}-${c.slug}`}
                       href={`/${pref}/${c.slug}`}
-                      className="text-xs text-gray-400 hover:text-white transition-colors"
+                      className="text-xs text-gray-400 hover:text-white transition-colors py-1 inline-block"
                     >
                       {c.name}
                     </Link>
@@ -91,7 +91,7 @@ export default function SearchFooter() {
                           <Link
                             key={`${type}-${pref}`}
                             href={href}
-                            className="text-tiny text-gray-400 hover:text-gray-300 transition-colors"
+                            className="text-tiny text-gray-400 hover:text-gray-300 transition-colors py-1 inline-block"
                           >
                             {pref}
                           </Link>
