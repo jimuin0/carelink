@@ -130,6 +130,22 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
         </button>
       )}
 
+      {/* リピート予約（v8.6） */}
+      {booking && ['completed', 'cancelled'].includes(booking.status) && booking.facility_id && (
+        <button
+          type="button"
+          onClick={() => {
+            const params = new URLSearchParams();
+            if (booking.menu_id) params.set('menu', booking.menu_id);
+            if (booking.staff_id) params.set('staff', booking.staff_id);
+            router.push(`/facility/${(booking as unknown as { facility_slug?: string }).facility_slug || booking.facility_id}/booking?${params.toString()}`);
+          }}
+          className="w-full mt-3 py-3 rounded-xl bg-sky-500 text-white font-bold hover:bg-sky-600 transition-colors"
+        >
+          同じ内容で再予約する
+        </button>
+      )}
+
       <button
         type="button"
         onClick={() => router.push('/mypage/bookings')}

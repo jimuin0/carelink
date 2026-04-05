@@ -6,6 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { Resend } from 'resend';
 
 export const dynamic = 'force-dynamic';
 
@@ -97,6 +98,33 @@ export async function GET(request: Request) {
             segment,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'facility_id,customer_email' });
+      }
+
+      // 離脱リスク顧客に自動フォローメール
+      if (process.env.RESEND_API_KEY) {
+        const { data: facilityInfo } = await supabase
+          .from('facility_profiles')
+          .select('name, slug')
+          .eq('id', facility.id)
+          .maybeSingle();
+
+        if (facilityInfo) {
+          const resend = new Resend(process.env.RESEND_API_KEY);
+          for (const [email, data] of entries) {
+            const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+            const segment = classifySegment(data.visits, daysSince);
+
+            if (segment === 'at_risk' && daysSince >= 60 && daysSince <= 65) {
+              // 60-65日の間のみ送信（重複防止）
+              await resend.emails.send({
+                from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+                to: email,
+                subject: `【${facilityInfo.name}】お久しぶりです！`,
+                html: `<p>${data.name || 'お客'}様</p><p>前回のご来店から${daysSince}日が経ちました。</p><p>お体の調子はいかがですか？</p><p><a href="https://www.carelink-jp.com/facility/${facilityInfo.slug}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">ご予約はこちら</a></p>`,
+              }).catch(() => {});
+            }
+          }
+        }
       }
 
       count++;

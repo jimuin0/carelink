@@ -131,15 +131,21 @@ export async function POST(request: Request) {
     }
   }
 
+  // ポイント値引き反映
+  const finalPrice = serverTotalPrice != null && pointsUsed > 0
+    ? Math.max(0, serverTotalPrice - pointsUsed)
+    : serverTotalPrice;
+
   // Strip non-DB fields before insert
   const { points_used: _pointsUsed, total_price: _clientPrice, ...bookingData } = parsed.data;
-  void _pointsUsed; void _clientPrice; // use server-calculated price
+  void _pointsUsed; void _clientPrice;
 
   const { data: inserted, error } = await supabase
     .from('bookings')
     .insert({
       ...bookingData,
-      total_price: serverTotalPrice,
+      total_price: finalPrice,
+      points_used: pointsUsed,
       user_id: user?.id ?? null,
       status: 'pending',
     })

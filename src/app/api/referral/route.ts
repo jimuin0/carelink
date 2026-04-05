@@ -1,0 +1,110 @@
+/**
+ * 紹介プログラム API（v8.6）
+ * GET: 自分の紹介コード取得（なければ自動生成）
+ * POST: 紹介コード使用（新規ユーザーが初回予約完了時に呼ぶ）
+ */
+
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+export const dynamic = 'force-dynamic';
+
+const adminSupabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+function generateCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) code += chars[Math.floor(Math.random() * chars.length)];
+  return code;
+}
+
+export async function GET() {
+  const cookieStore = cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll: () => cookieStore.getAll() } }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  // 既存コード取得
+  const { data: existing } = await adminSupabase
+    .from('referral_codes')
+    .select('code, used_count')
+    .eq('user_id', user.id)
+    .maybeSingle();
+
+  if (existing) return NextResponse.json(existing);
+
+  // 新規生成
+  const code = generateCode();
+  await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
+  return NextResponse.json({ code, used_count: 0 });
+}
+
+export async function POST(request: Request) {
+  const cookieStore = cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { cookies: { getAll: () => cookieStore.getAll() } }
+  );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const { code } = await request.json();
+  if (!code) return NextResponse.json({ error: 'コードが必要です' }, { status: 400 });
+
+  // 紹介コード検証
+  const { data: referralCode } = await adminSupabase
+    .from('referral_codes')
+    .select('user_id')
+    .eq('code', code.toUpperCase())
+    .maybeSingle();
+
+  if (!referralCode) return NextResponse.json({ error: '無効な紹介コードです' }, { status: 404 });
+  if (referralCode.user_id === user.id) return NextResponse.json({ error: '自分のコードは使えません' }, { status: 400 });
+
+  // 既に使用済みか
+  const { data: existingUse } = await adminSupabase
+    .from('referral_uses')
+    .select('id')
+    .eq('referred_user_id', user.id)
+    .maybeSingle();
+
+  if (existingUse) return NextResponse.json({ error: '既に紹介コードを使用済みです' }, { status: 400 });
+
+  // 使用記録
+  await adminSupabase.from('referral_uses').insert({
+    code: code.toUpperCase(),
+    referred_user_id: user.id,
+    referrer_user_id: referralCode.user_id,
+  });
+
+  // 双方にポイント付与（紹介者500pt、被紹介者300pt）
+  await Promise.all([
+    adminSupabase.from('user_points').insert({ user_id: referralCode.user_id, points: 500, reason: '紹介ボーナス' }),
+    adminSupabase.from('user_points').insert({ user_id: user.id, points: 300, reason: '紹介コード利用ボーナス' }),
+  ]);
+
+  // 使用回数更新
+  const { data: currentCode } = await adminSupabase
+    .from('referral_codes')
+    .select('used_count')
+    .eq('code', code.toUpperCase())
+    .maybeSingle();
+  await adminSupabase
+    .from('referral_codes')
+    .update({ used_count: (currentCode?.used_count ?? 0) + 1 })
+    .eq('code', code.toUpperCase());
+
+  return NextResponse.json({ success: true, message: '紹介コードが適用されました！300ポイントを獲得しました。' });
+}
