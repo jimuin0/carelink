@@ -93,7 +93,33 @@ export default function TermsPage() {
           </p>
         </section>
 
-        <p className="text-gray-500 text-sm">制定日：2026年3月19日</p>
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">第10条（施設掲載サービス）</h2>
+          <p className="text-gray-600 mb-3">
+            施設掲載者（以下「掲載者」）は、本サービスを通じて自らが運営する施設の情報を掲載し、予約管理機能を利用することができます。
+          </p>
+          <ul className="list-disc pl-6 text-gray-600 space-y-2 text-sm">
+            <li>掲載料・予約手数料は無料です。将来有料プランを設定する場合は事前に通知します。</li>
+            <li>掲載者は自ら登録した情報の正確性について責任を負うものとします。</li>
+            <li>掲載者はいつでも施設情報の公開・非公開を切り替えることができます。</li>
+            <li>当事業者は、法令違反・公序良俗違反等の掲載を事前の通知なく非公開にできるものとします。</li>
+            <li>掲載者が本サービスを退会した場合、当該施設の情報は速やかに削除されます。</li>
+          </ul>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">第11条（データの取扱い）</h2>
+          <p className="text-gray-600 mb-3">
+            掲載者が本サービスに登録した施設情報・予約データ・顧客データは、掲載者に帰属します。
+          </p>
+          <ul className="list-disc pl-6 text-gray-600 space-y-2 text-sm">
+            <li>当事業者はサービス運営・改善の目的でのみデータを利用します。</li>
+            <li>掲載者は退会時にデータのエクスポートを請求できます。</li>
+            <li>当事業者は、統計的に処理された匿名データを事業改善に利用できるものとします。</li>
+          </ul>
+        </section>
+
+        <p className="text-gray-500 text-sm">制定日：2026年3月19日 ／ 改定日：2026年4月5日</p>
       </div>
     </div>
   );

@@ -7,6 +7,7 @@ const RevenueChart = dynamic(() => import('@/components/admin/RevenueChart'), { 
 const BookingTrendChart = dynamic(() => import('@/components/admin/BookingTrendChart'), { ssr: false });
 const CustomerSegmentChart = dynamic(() => import('@/components/admin/CustomerSegmentChart'), { ssr: false });
 const RepeatRateCard = dynamic(() => import('@/components/admin/RepeatRateCard'), { ssr: false });
+const ViewCountCard = dynamic(() => import('@/components/admin/ViewCountCard'), { ssr: false });
 
 export default async function AdminAnalyticsPage() {
   const supabase = createServerSupabaseAuthClient();
@@ -101,9 +102,10 @@ export default async function AdminAnalyticsPage() {
         <RevenueChart facilityId={facilityId} />
         <BookingTrendChart facilityId={facilityId} />
       </div>
-      <div className="grid sm:grid-cols-2 gap-4 mt-4">
+      <div className="grid sm:grid-cols-3 gap-4 mt-4">
         <CustomerSegmentChart facilityId={facilityId} />
         <RepeatRateCard facilityId={facilityId} />
+        <ViewCountCard facilityId={facilityId} />
       </div>
 
       <div className="mt-6">

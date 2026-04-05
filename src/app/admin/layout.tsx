@@ -42,16 +42,19 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect('/auth/login?redirect=/admin');
   }
 
-  const { data: membership } = await supabase
+  // マルチ施設対応: ユーザーが所属する全施設を取得
+  const { data: memberships } = await supabase
     .from('facility_members')
-    .select('role, facility_id')
+    .select('role, facility_id, facility_profiles(name)')
     .eq('user_id', user.id)
-    .limit(1)
-    .single();
+    .in('role', ['owner', 'admin']);
 
-  if (!membership || !['owner', 'admin'].includes(membership.role)) {
+  if (!memberships || memberships.length === 0) {
     redirect('/mypage');
   }
+
+  // 現在の施設（クエリパラメータ or 最初の施設）
+  const membership = memberships[0];
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -66,6 +69,21 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <aside className="hidden lg:block w-60 bg-white border-r min-h-screen sticky top-0 overflow-y-auto">
           <div className="p-4 border-b">
             <Link href="/admin" className="text-lg font-bold text-primary">CareLink 管理</Link>
+            {memberships.length > 1 && (
+              <div className="mt-2">
+                <select
+                  defaultValue={membership.facility_id}
+                  onChange={(e) => { window.location.href = `/admin?facility=${e.target.value}`; }}
+                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600"
+                >
+                  {memberships.map((m) => (
+                    <option key={m.facility_id} value={m.facility_id}>
+                      {(m.facility_profiles as unknown as { name: string } | null)?.name || m.facility_id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
           <nav className="p-2">
             {navItems.map((item) => (
