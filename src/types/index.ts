@@ -91,6 +91,9 @@ export interface FacilityMenu {
   photo_url: string | null;
   is_featured: boolean;
   sort_order: number;
+  insurance_covered?: boolean;
+  insurance_note?: string | null;
+  insurance_price?: number | null;
 }
 
 export interface FacilityPhoto {

@@ -1,5 +1,6 @@
 import Image from 'next/image';
 import type { FacilityMenu } from '@/types';
+import InsuranceMenuBadge from './InsuranceMenuBadge';
 
 function formatPrice(price: number | null, note: string | null) {
   if (note) return note;
@@ -69,6 +70,9 @@ export default function MenuList({ menus }: { menus: FacilityMenu[] }) {
                       <span className="text-micro font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">
                         おすすめ
                       </span>
+                    )}
+                    {menu.insurance_covered && (
+                      <InsuranceMenuBadge insurancePrice={menu.insurance_price} />
                     )}
                   </div>
                   {menu.description && (
