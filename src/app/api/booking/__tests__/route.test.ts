@@ -15,6 +15,9 @@ jest.mock('@/lib/push', () => ({
   sendPushToUser: jest.fn(),
 }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@/lib/line', () => ({
+  sendBookingConfirmation: jest.fn(() => Promise.resolve(true)),
+}));
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
@@ -23,6 +26,15 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
     auth: { getUser: mockGetUser },
     from: mockFrom,
+  }),
+}));
+jest.mock('@supabase/supabase-js', () => ({
+  createClient: () => ({
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
+    })),
   }),
 }));
 jest.mock('next/headers', () => ({
@@ -66,10 +78,16 @@ function fluent(resolvedValue: unknown) {
   const handler = jest.fn(() => self);
   self.select = handler;
   self.insert = handler;
+  self.update = handler;
   self.eq = handler;
+  self.neq = handler;
   self.not = handler;
   self.lt = handler;
   self.gt = handler;
+  self.gte = handler;
+  self.lte = handler;
+  self.in = handler;
+  self.maybeSingle = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
 }
@@ -77,17 +95,18 @@ function fluent(resolvedValue: unknown) {
 describe('POST /api/booking', () => {
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-    // insert chain
+    // 競合チェック→結果なし、INSERT→成功、その他→null
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     const insertChain = fluent({ data: { id: 'new-booking-1' }, error: null });
-    // facility/menu/staff/owner lookups
     const lookupChain = fluent({ data: null });
-    mockFrom.mockReturnValue(insertChain);
-    // Override for email lookups (Promise.all of 4 queries)
+
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return insertChain;
-      return lookupChain;
+      if (callNum === 1) return conflictChain; // 競合チェック
+      if (callNum === 2) return insertChain;   // INSERT
+      return lookupChain;                       // lookups
     });
 
     const res = await POST(makeRequest(validBooking));
@@ -128,9 +147,19 @@ describe('POST /api/booking', () => {
   test('staff_id指定時の競合→409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const staffId = '223e4567-e89b-12d3-a456-426614174000';
+
+    // conflictQuery chainの最後がawait（Promiseを返す）
+    // .from().select().eq().eq().not().lt().gt().eq() → staff_id追加
+    const conflictResult = Promise.resolve({ data: [{ id: 'existing' }] });
+    const chainEnd: Record<string, unknown> = {};
+    chainEnd.eq = jest.fn(() => conflictResult);
+    chainEnd.then = conflictResult.then.bind(conflictResult);
+
     const conflictChain = fluent(null);
-    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [{ id: 'existing' }] }));
-    mockFrom.mockReturnValue(conflictChain);
+    // gt()の後にeq(staff_id)が呼ばれる
+    conflictChain.gt = jest.fn(() => chainEnd);
+
+    mockFrom.mockImplementation(() => conflictChain);
 
     const res = await POST(makeRequest({ ...validBooking, staff_id: staffId }));
     expect(res.status).toBe(409);
@@ -138,8 +167,16 @@ describe('POST /api/booking', () => {
 
   test('DB挿入失敗→500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     const insertChain = fluent({ data: null, error: { message: 'db error', code: '99999' } });
-    mockFrom.mockReturnValue(insertChain);
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return insertChain;
+    });
 
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(500);
@@ -147,8 +184,16 @@ describe('POST /api/booking', () => {
 
   test('DB制約違反（23505）→409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     const insertChain = fluent({ data: null, error: { message: 'duplicate', code: '23505' } });
-    mockFrom.mockReturnValue(insertChain);
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return insertChain;
+    });
 
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(409);
@@ -156,10 +201,18 @@ describe('POST /api/booking', () => {
 
   test('ポイント残高不足→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    // user_points lookup
+    // 競合チェック→OK、user_points→残高100
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     const pointsChain = fluent(null);
     pointsChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 100 }] }));
-    mockFrom.mockReturnValue(pointsChain);
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return pointsChain;
+    });
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 500 }));
     expect(res.status).toBe(400);
@@ -169,6 +222,9 @@ describe('POST /api/booking', () => {
 
   test('未認証ユーザーがポイント利用→401', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockReturnValue(conflictChain);
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 100 }));
     expect(res.status).toBe(401);
@@ -239,30 +295,36 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) {
+        // 競合チェック → 空（OK）
+        const chain = fluent(null);
+        chain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+        return chain;
+      }
+      if (callNum === 2) {
         // user_points balance check → sufficient (200 points)
         const chain = fluent(null);
         chain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
         return chain;
       }
-      if (callNum === 2) {
+      if (callNum === 3) {
         // insert booking → success
         return fluent({ data: { id: 'booking-race-1' }, error: null });
       }
-      if (callNum === 3) {
+      if (callNum === 4) {
         // insert point deduction
         return { insert: jest.fn(() => Promise.resolve({ error: null })) };
       }
-      if (callNum === 4) {
+      if (callNum === 5) {
         // re-verify balance → negative (race condition detected)
         const chain = fluent(null);
         chain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -50 }] }));
         return chain;
       }
-      if (callNum === 5) {
+      if (callNum === 6) {
         // delete point deduction (rollback)
         return { delete: mockDelete };
       }
-      if (callNum === 6) {
+      if (callNum === 7) {
         // cancel booking (rollback)
         return { update: mockUpdate };
       }
