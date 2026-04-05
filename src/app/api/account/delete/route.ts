@@ -1,3 +1,4 @@
+import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 /**
  * アカウント削除 API（v8.5）
  * POST /api/account/delete
@@ -13,6 +14,10 @@ export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
   try {
+    const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
+    if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
+      return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
+    }
     const cookieStore = cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,

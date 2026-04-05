@@ -1,3 +1,4 @@
+import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 /**
  * 紹介プログラム API（v8.6）
  * GET: 自分の紹介コード取得（なければ自動生成）
@@ -50,6 +51,11 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, 'referral')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
