@@ -2092,7 +2092,7 @@ npx tsc --noEmit  # 型チェックのみ
 | 検索データがダミー | 実際の施設データへの移行が必要 |
 | GPS検索がJS側計算 | PostGIS未使用。haversine距離計算をJS側で実行（500件上限→10km以内フィルタ）。大規模データ時はPostGIS移行推奨 |
 | NEXT_PUBLIC_BASE_URL未設定 | Vercel環境変数未設定だが、`SITE_URL`定数のフォールバックで正常動作中 |
-| Supabase Auth Site URL未更新 | カスタムドメインに合わせて更新が必要 |
+| ~~Supabase Auth Site URL未更新~~ | ✅ 設定済み（`https://www.carelink-jp.com`） |
 
 ### 21.2 施設獲得（営業計画）
 
