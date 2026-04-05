@@ -20,7 +20,16 @@ export default function SignupPage() {
 function SignupContent() {
   const searchParams = useSearchParams();
   const rawRedirect = searchParams.get('redirect') || '/mypage';
-  const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';
+  let redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';
+  // onboarding時はfacility_name/business_typeをredirectに含める
+  const facilityName = searchParams.get('facility_name');
+  const businessType = searchParams.get('business_type');
+  if (redirect.startsWith('/admin/onboarding') && (facilityName || businessType)) {
+    const params = new URLSearchParams();
+    if (facilityName) params.set('facility_name', facilityName);
+    if (businessType) params.set('business_type', businessType);
+    redirect = `/admin/onboarding?${params.toString()}`;
+  }
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({

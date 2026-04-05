@@ -10,10 +10,12 @@ const timeString = z.string()
   }, '有効な時間を入力してください');
 
 function getTodayString() {
+  // JST（UTC+9）で今日の日付を取得（Vercel=UTC環境対応）
   const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, '0');
-  const d = String(now.getDate()).padStart(2, '0');
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(jst.getUTCDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
 

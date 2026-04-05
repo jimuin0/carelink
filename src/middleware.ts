@@ -54,7 +54,8 @@ export async function middleware(request: NextRequest) {
   }
 
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
-  if (user && request.nextUrl.pathname.startsWith('/admin')) {
+  // /admin/onboarding は除外（施設作成前のオーナーがアクセスする）
+  if (user && request.nextUrl.pathname.startsWith('/admin') && request.nextUrl.pathname !== '/admin/onboarding') {
     const { data: membership } = await supabase
       .from('facility_members')
       .select('role')

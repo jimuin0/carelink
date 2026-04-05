@@ -47,7 +47,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const {
+    let {
       facility_name,
       business_type,
       phone,
@@ -55,6 +55,26 @@ export async function POST(request: Request) {
       city,
       address,
     } = body;
+
+    // salonsテーブルから登録済みデータを自動取得（registerフォームで入力済みの場合）
+    if (!facility_name || facility_name === '未設定の施設') {
+      const { data: salonData } = await adminSupabase
+        .from('salons')
+        .select('*')
+        .eq('email', user.email)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (salonData) {
+        facility_name = facility_name || salonData.facility_name;
+        business_type = business_type || salonData.business_type;
+        phone = phone || salonData.phone;
+        prefecture = prefecture || null;
+        city = city || null;
+        address = address || salonData.address;
+      }
+    }
 
     if (!facility_name || !business_type) {
       return NextResponse.json({ error: '施設名と業種は必須です' }, { status: 400 });

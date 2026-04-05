@@ -53,17 +53,22 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
   }
 
-  // 競合チェック
-  if (parsed.data.staff_id) {
-    const { data: conflicts } = await supabase
+  // 競合チェック（指名あり/なし両方対応）
+  {
+    let conflictQuery = supabase
       .from('bookings')
       .select('id')
-      .eq('staff_id', parsed.data.staff_id)
+      .eq('facility_id', parsed.data.facility_id)
       .eq('booking_date', parsed.data.booking_date)
       .not('status', 'in', '("cancelled","no_show")')
       .lt('start_time', parsed.data.end_time)
       .gt('end_time', parsed.data.start_time);
 
+    if (parsed.data.staff_id) {
+      conflictQuery = conflictQuery.eq('staff_id', parsed.data.staff_id);
+    }
+
+    const { data: conflicts } = await conflictQuery;
     if (conflicts && conflicts.length > 0) {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
@@ -93,7 +98,21 @@ export async function POST(request: Request) {
             serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
           } else if (coupon.discount_type === 'fixed') {
             serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
+          } else if (coupon.discount_type === 'special_price') {
+            serverTotalPrice = coupon.discount_value;
           }
+        }
+      }
+      // Add nomination fee if staff is designated
+      if (parsed.data.staff_id) {
+        const { data: staffRow } = await supabase
+          .from('staff_profiles')
+          .select('nomination_fee')
+          .eq('id', parsed.data.staff_id)
+          .eq('facility_id', parsed.data.facility_id)
+          .maybeSingle();
+        if (staffRow?.nomination_fee && serverTotalPrice != null) {
+          serverTotalPrice += staffRow.nomination_fee;
         }
       }
     }
