@@ -119,6 +119,35 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
         )}
       </div>
 
+      {/* カレンダー追加（v8.7） */}
+      {booking && booking.booking_date && booking.start_time && (
+        <div className="flex gap-2 mt-4">
+          <a
+            href={(() => {
+              const date = booking.booking_date.replace(/-/g, '');
+              const start = (booking.start_time || '').replace(/:/g, '').slice(0, 4);
+              const end = (booking.end_time || '').replace(/:/g, '').slice(0, 4);
+              const title = encodeURIComponent('予約 - CareLink');
+              return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date}T${start}00/${date}T${end}00&ctz=Asia/Tokyo`;
+            })()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            📅 Googleカレンダーに追加
+          </a>
+          <a
+            href={`data:text/calendar;charset=utf-8,${encodeURIComponent(
+              `BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART:${booking.booking_date.replace(/-/g, '')}T${(booking.start_time || '').replace(/:/g, '').slice(0, 4)}00\nDTEND:${booking.booking_date.replace(/-/g, '')}T${(booking.end_time || '').replace(/:/g, '').slice(0, 4)}00\nSUMMARY:予約 - CareLink\nEND:VEVENT\nEND:VCALENDAR`
+            )}`}
+            download="booking.ics"
+            className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+          >
+            📥 iCalダウンロード
+          </a>
+        </div>
+      )}
+
       {canCancel && (
         <button
           type="button"

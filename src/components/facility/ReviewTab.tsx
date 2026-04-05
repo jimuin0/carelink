@@ -6,6 +6,7 @@ import type { FacilityReview } from '@/types';
 import ReviewList from './ReviewList';
 import ReviewForm from './ReviewForm';
 import StarRating from './StarRating';
+import ReviewSummary from './ReviewSummary';
 
 interface Props {
   facilityId: string;
@@ -105,6 +106,9 @@ export default function ReviewTab({ facilityId, initialReviews }: Props) {
           )}
         </div>
       )}
+
+      {/* AI Review Summary */}
+      <ReviewSummary reviews={reviews} />
 
       {/* Review list */}
       <ReviewList reviews={reviews} />

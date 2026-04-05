@@ -22,6 +22,23 @@ export default async function AdminCustomersPage() {
     <div>
       <h1 className="text-2xl font-bold mb-6">顧客管理</h1>
 
+      {customers.length > 0 && (
+        <div className="mb-4 flex justify-end">
+          <a
+            href={`data:text/csv;charset=utf-8,${encodeURIComponent(
+              '\uFEFF' + 'お客様名,メール,来店回数,最終来店\n' +
+              customers.map((c: { name: string; email: string; visit_count: number; last_visit: string }) =>
+                `${c.name},${c.email},${c.visit_count},${c.last_visit}`
+              ).join('\n')
+            )}`}
+            download="customers.csv"
+            className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+          >
+            📥 CSVダウンロード
+          </a>
+        </div>
+      )}
+
       {customers.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
           <p className="text-gray-400">顧客データがありません</p>
