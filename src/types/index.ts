@@ -303,6 +303,7 @@ export interface ScheduleOverride {
 export interface AvailableSlot {
   slot_start: string;
   slot_end: string;
+  staff_id?: string;
 }
 
 // Admin（管理）

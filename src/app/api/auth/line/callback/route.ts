@@ -86,12 +86,17 @@ export async function GET(request: Request) {
       }
     }
 
-    if (!email) {
-      email = `line_${lineProfile.userId}@line.carelink.local`;
-    }
-
     // Admin client (service role) for user management
     const adminSupabase = createServiceRoleClient();
+
+    if (!email) {
+      // LINE user_idで既存ユーザーを検索（アカウント重複防止）
+      const { data: existingUsers } = await adminSupabase.auth.admin.listUsers();
+      const existingUser = existingUsers?.users?.find(
+        (u) => u.user_metadata?.line_user_id === lineProfile.userId
+      );
+      email = existingUser?.email || `line_${lineProfile.userId}@line.carelink.local`;
+    }
 
     // Create user if not exists (ignore "already registered" error)
     await adminSupabase.auth.admin.createUser({

@@ -72,8 +72,13 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       ).then((results) => {
         if (controller.signal.aborted) return;
         const merged = new Map<string, AvailableSlot>();
-        results.forEach((r) => {
-          (r.slots ?? []).forEach((slot: AvailableSlot) => merged.set(slot.slot_start, slot));
+        results.forEach((r, i) => {
+          (r.slots ?? []).forEach((slot: AvailableSlot) => {
+            if (!merged.has(slot.slot_start)) {
+              // 最初に見つかったスタッフのスロットを採用（staff_id保持）
+              merged.set(slot.slot_start, { ...slot, staff_id: staff[i]?.id });
+            }
+          });
         });
         setSlots(Array.from(merged.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start)));
       }).catch((err) => { if (err.name !== 'AbortError') setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); })
