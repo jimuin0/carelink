@@ -173,8 +173,24 @@ export default async function SearchPage({ searchParams }: Props) {
             </div>
 
             {/* Cards/Map with view toggle */}
-            <ViewToggle facilities={facilities} bookingCounts={bookingCounts} availableIds={availableIds ? Array.from(availableIds) : undefined} />
-            <Pagination currentPage={params.page} totalPages={totalPages} baseUrl={baseUrl} />
+            {facilities.length > 0 ? (
+              <>
+                <ViewToggle facilities={facilities} bookingCounts={bookingCounts} availableIds={availableIds ? Array.from(availableIds) : undefined} />
+                <Pagination currentPage={params.page} totalPages={totalPages} baseUrl={baseUrl} />
+              </>
+            ) : (
+              <div className="text-center py-16 bg-white rounded-xl">
+                <svg className="w-16 h-16 text-gray-200 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+                <p className="text-gray-600 font-bold mb-2">該当する店舗が見つかりませんでした</p>
+                <p className="text-gray-400 text-sm mb-6">条件を変更して再度検索してみてください</p>
+                <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                  <Link href="/search" className="px-6 py-2 bg-sky-500 text-white rounded-lg text-sm font-bold hover:bg-sky-600">条件をリセット</Link>
+                  <Link href="/register" className="px-6 py-2 border border-sky-500 text-sky-600 rounded-lg text-sm font-bold hover:bg-sky-50">店舗を掲載する（無料）</Link>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

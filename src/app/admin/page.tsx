@@ -19,6 +19,34 @@ export default async function AdminDashboard() {
 
   const today = new Date().toISOString().split('T')[0];
 
+  // オンボーディング進捗チェック
+  const [
+    { count: menuCount },
+    { count: staffCount },
+    { count: photoCount },
+    { count: scheduleCount },
+    { data: facilityData },
+  ] = await Promise.all([
+    supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+    supabase.from('staff_profiles').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+    supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+    supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id',
+      (await supabase.from('staff_profiles').select('id').eq('facility_id', facilityId)).data?.map(s => s.id) || []
+    ),
+    supabase.from('facility_profiles').select('status').eq('id', facilityId).single(),
+  ]);
+
+  const isPublished = facilityData?.status === 'published';
+  const onboardingSteps = [
+    { label: 'メニュー登録', done: (menuCount ?? 0) > 0, href: '/admin/menus' },
+    { label: 'スタッフ登録', done: (staffCount ?? 0) > 0, href: '/admin/staff' },
+    { label: '写真アップロード', done: (photoCount ?? 0) > 0, href: '/admin/photos' },
+    { label: 'スケジュール設定', done: (scheduleCount ?? 0) > 0, href: '/admin/staff' },
+    { label: '店舗を公開', done: isPublished, href: '/admin/settings' },
+  ];
+  const completedSteps = onboardingSteps.filter(s => s.done).length;
+  const showOnboarding = completedSteps < 5;
+
   const [{ count: todayBookings }, { count: pendingBookings }, { count: totalCustomers }] = await Promise.all([
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
@@ -34,6 +62,33 @@ export default async function AdminDashboard() {
   return (
     <div>
       <h1 className="text-2xl font-bold mb-6">ダッシュボード</h1>
+
+      {/* オンボーディング進捗 */}
+      {showOnboarding && (
+        <div className="mb-6 bg-sky-50 border border-sky-200 rounded-xl p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-bold text-sky-800">店舗セットアップ</h2>
+            <span className="text-xs text-sky-600 font-bold">{completedSteps}/5 完了</span>
+          </div>
+          <div className="w-full bg-sky-100 rounded-full h-2 mb-4">
+            <div className="bg-sky-500 h-2 rounded-full transition-all" style={{ width: `${(completedSteps / 5) * 100}%` }} />
+          </div>
+          <div className="space-y-2">
+            {onboardingSteps.map((step) => (
+              <Link
+                key={step.label}
+                href={step.href}
+                className={`flex items-center gap-2 text-sm ${step.done ? 'text-sky-400 line-through' : 'text-sky-800 font-medium hover:underline'}`}
+              >
+                <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${step.done ? 'bg-sky-400 text-white' : 'bg-white border-2 border-sky-300 text-sky-300'}`}>
+                  {step.done ? '✓' : ''}
+                </span>
+                {step.label}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 承認待ちアラート */}
       {(pendingBookings ?? 0) > 0 && (

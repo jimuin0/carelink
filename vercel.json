@@ -11,6 +11,10 @@
     {
       "path": "/api/cron/customer-segment",
       "schedule": "0 16 * * 0"
+    },
+    {
+      "path": "/api/cron/review-request",
+      "schedule": "0 3 * * *"
     }
   ],
   "rewrites": [
