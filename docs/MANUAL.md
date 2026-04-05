@@ -135,7 +135,7 @@
 | Supabase DB（Phase 4: 予約） | ✅ 設定済み | staff_schedules / schedule_overrides / bookings + RPC(get_available_slots) |
 | Supabase DB（Phase 5: 管理） | ✅ 設定済み | facility_members / customer_visits + admin用RLS |
 | Supabase DB（Phase 6: 高度機能） | ✅ 設定済み | treatment_catalogs / blog_posts / review_replies / user_points |
-| Supabase Auth | ✅ 設定済み | メール+LINE認証（PKCE, Cookie対応）、Redirect URL 2件登録済み |
+| Supabase Auth | ✅ 設定済み | メール+LINE+Google認証（PKCE, Cookie対応）、Redirect URL 2件登録済み |
 | Supabase Storage | ✅ 設定済み | carelink-uploads バケット |
 | Vercel デプロイ | ✅ 稼働中 | GitHub連携で自動デプロイ（push→自動ビルド） |
 | Slack Incoming Webhook | ❌ 未設定 | Webhook URL作成 + Vercel環境変数設定が必要 |
@@ -1761,8 +1761,8 @@ Sitemap: {BASE_URL}/sitemap.xml
 |--------------|-----|------|
 | `default-src` | `'self'` | |
 | `script-src` | `'self' 'unsafe-inline'` + GTM/GA/Clarity/Vercel | 外部スクリプト許可 |
-| `style-src` | `'self' 'unsafe-inline' fonts.googleapis.com` | ⚠️ fonts.googleapis.comはv7.6でフォント削除後も残置（無害） |
-| `font-src` | `'self' fonts.gstatic.com` | ⚠️ 同上 |
+| `style-src` | `'self' 'unsafe-inline'` | v8.7でfonts.googleapis.com削除済み |
+| `font-src` | `'self'` | v8.7でfonts.gstatic.com削除済み |
 | `connect-src` | `'self'` + Supabase/GA/Clarity/Vercel/LINE/Upstash/Sentry | LINE: `access.line.me` `api.line.me`（v8.0追加） |
 | `img-src` | `'self' data: https: blob:` | |
 | `object-src` | `'none'` | |
@@ -2145,9 +2145,20 @@ npx tsc --noEmit  # 型チェックのみ
 
 **目標**: 豊中・堺エリアで30-50施設掲載
 
-### 21.3 HPB差別化開発計画（v8.0〜v8.2 ✅ 全完了）
+### 21.3 HPB差別化開発計画（v8.0〜v8.7 ✅ 全Phase完了）
 
-HPBにない3機能を開発し、施設獲得の武器とする。**3フェーズ全て実装完了（2026-04-04）。**
+HPBにない機能を開発し、店舗獲得の武器とする。**全5フェーズ実装完了（2026-04-05）。**
+
+| Phase | バージョン | 内容 | 状態 |
+|-------|----------|------|:----:|
+| v8.0-8.2 | LINE/Dashboard/鍼灸 | LINE連携・recharts分析・症状検索 | ✅ |
+| v8.3 | オンボーディング+LP | セルフ店舗作成・HPB比較LP・営業資料5種 | ✅ |
+| v8.4 | 全統合 | 作ったコンポーネント13箇所を実ページに統合 | ✅ |
+| v8.5 (Phase 1+2) | 動くプロダクト+決済 | 予約競合RPC・レビュー依頼Cron・Stripe・キャンセルポリシー・アカウント削除・医療広告 | ✅ |
+| v8.6 (Phase 3) | 成長エンジン | 紹介プログラム・ポイント値引き・RFM自動メール・リピート予約・ヘルプセンター | ✅ |
+| v8.7 (Phase 4+5) | 差別化+運用品質 | 症状チェッカー・レビュー要約・Googleカレンダー・CSVエクスポート・CSP修正・rate limiting | ✅ |
+
+> 詳細ロードマップ: [TOP-ROADMAP.md](./TOP-ROADMAP.md)（130タスク）
 
 #### フェーズ1: LINE予約連携（v8.0） ✅ 完了
 
