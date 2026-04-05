@@ -276,6 +276,34 @@ export default function ProfileEditPage() {
         )}
       </div>
 
+      {/* アカウント削除（v8.5） */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8 border border-red-100">
+        <h2 className="text-lg font-bold text-red-600 mb-2">アカウント削除</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          アカウントを削除すると、予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
+        </p>
+        <button
+          onClick={async () => {
+            const input = prompt('本当に削除しますか？確認のため「DELETE」と入力してください。');
+            if (input !== 'DELETE') return;
+            const res = await fetch('/api/account/delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ confirmation: 'DELETE' }),
+            });
+            if (res.ok) {
+              alert('アカウントが削除されました。');
+              window.location.href = '/';
+            } else {
+              setToast({ type: 'error', message: 'アカウント削除に失敗しました' });
+            }
+          }}
+          className="text-xs text-red-500 hover:text-red-700 font-bold transition-colors"
+        >
+          アカウントを削除する
+        </button>
+      </div>
+
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );

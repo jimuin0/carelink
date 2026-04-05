@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import dynamic from 'next/dynamic';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
+const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
 
 interface BusinessHours {
   [key: string]: { open: string; close: string } | null;
@@ -440,6 +441,9 @@ export default function AdminSettingsPage() {
           {saving ? '保存中...' : '施設情報を保存'}
         </button>
       </div>
+
+      {/* キャンセルポリシー（v8.5） */}
+      {facilityId && <CancelPolicySettings facilityId={facilityId} />}
 
       {/* 通知設定（v8.1） */}
       {facilityId && <NotificationSettings facilityId={facilityId} />}

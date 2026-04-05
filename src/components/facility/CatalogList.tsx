@@ -70,6 +70,10 @@ export default function CatalogList({ catalogs, staff, menus }: Props) {
           const menuName = getMenuName(catalog.menu_id);
           return (
             <div key={catalog.id} className="bg-gray-50 rounded-xl overflow-hidden">
+              {/* 医療広告ガイドライン注意書き */}
+              {hasBoth && (
+                <p className="text-micro text-gray-400 px-3 pt-2">※ 施術効果には個人差があります。詳しくは店舗にお問い合わせください。</p>
+              )}
               {hasBoth ? (
                 <BeforeAfterSlider
                   beforeUrl={catalog.before_photo_url!}

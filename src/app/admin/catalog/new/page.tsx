@@ -63,6 +63,15 @@ export default function NewCatalogPage() {
           <input id="catalog-tags" value={tags} onChange={(e) => setTags(e.target.value)} className="form-input" placeholder="ショートヘア, ボブ, カラー" />
         </div>
 
+        {/* 医療広告ガイドライン警告（v8.5） */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mt-4">
+          <p className="text-xs font-bold text-amber-800 mb-1">⚠️ 医療広告ガイドラインに関する注意</p>
+          <p className="text-xs text-amber-700">
+            Before/After写真を掲載する場合、施術内容・リスク・費用を明記し、「効果には個人差があります」等の注意書きを添える必要があります。
+            誇大広告や虚偽広告は法律で禁止されています。
+          </p>
+        </div>
+
         <div className="flex gap-3 pt-4">
           <button type="button" onClick={() => router.push('/admin/catalog')} className="text-sm text-gray-500 hover:underline">
             戻る
