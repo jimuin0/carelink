@@ -36,12 +36,12 @@ const navItems = [
 export { navItems };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  let debugInfo = '';
-  try {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  if (authError) { debugInfo = `auth error: ${authError.message}`; throw new Error(debugInfo); }
+  if (authError) {
+    return <div className="p-8"><h1 className="text-red-600 font-bold">Admin Debug</h1><pre className="bg-red-50 p-4 rounded mt-2">auth error: {authError.message}</pre></div>;
+  }
   if (!user) {
     redirect('/auth/login?redirect=/admin');
   }
@@ -53,7 +53,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin']);
 
-  if (memberError) { debugInfo = `member query error: ${memberError.message} (code: ${memberError.code})`; throw new Error(debugInfo); }
+  if (memberError) {
+    return <div className="p-8"><h1 className="text-red-600 font-bold">Admin Debug</h1><pre className="bg-red-50 p-4 rounded mt-2">member query: {memberError.message} (code: {memberError.code})</pre></div>;
+  }
 
   if (!memberships || memberships.length === 0) {
     redirect('/mypage');
@@ -125,8 +127,4 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
     </div>
   );
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return <div className="p-8"><h1 className="text-red-600 font-bold text-xl">Admin Debug Error</h1><pre className="mt-4 bg-red-50 p-4 rounded text-sm whitespace-pre-wrap">{debugInfo || msg}</pre></div>;
-  }
 }
