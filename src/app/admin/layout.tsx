@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
+import FacilitySelector from '@/components/admin/FacilitySelector';
 import dynamic from 'next/dynamic';
 
 const RealtimeBookingListener = dynamic(() => import('@/components/admin/RealtimeBookingListener'), { ssr: false });
@@ -37,25 +38,18 @@ export { navItems };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = createServerSupabaseAuthClient();
-  const { data: { user }, error: authError } = await supabase.auth.getUser();
+  const { data: { user } } = await supabase.auth.getUser();
 
-  if (authError) {
-    return <div className="p-8"><h1 className="text-red-600 font-bold">Admin Debug</h1><pre className="bg-red-50 p-4 rounded mt-2">auth error: {authError.message}</pre></div>;
-  }
   if (!user) {
     redirect('/auth/login?redirect=/admin');
   }
 
   // マルチ施設対応: ユーザーが所属する全施設を取得
-  const { data: memberships, error: memberError } = await supabase
+  const { data: memberships } = await supabase
     .from('facility_members')
     .select('role, facility_id, facility_profiles(name)')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin']);
-
-  if (memberError) {
-    return <div className="p-8"><h1 className="text-red-600 font-bold">Admin Debug</h1><pre className="bg-red-50 p-4 rounded mt-2">member query: {memberError.message} (code: {memberError.code})</pre></div>;
-  }
 
   if (!memberships || memberships.length === 0) {
     redirect('/mypage');
@@ -79,17 +73,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
             <Link href="/admin" className="text-lg font-bold text-primary">CareLink 管理</Link>
             {memberships.length > 1 && (
               <div className="mt-2">
-                <select
-                  defaultValue={membership.facility_id}
-                  onChange={(e) => { window.location.href = `/admin?facility=${e.target.value}`; }}
-                  className="w-full text-xs border border-gray-200 rounded-lg px-2 py-1.5 text-gray-600"
-                >
-                  {memberships.map((m) => (
-                    <option key={m.facility_id} value={m.facility_id}>
-                      {(m.facility_profiles as unknown as { name: string } | null)?.name || m.facility_id}
-                    </option>
-                  ))}
-                </select>
+                <FacilitySelector
+                  memberships={memberships.map((m) => ({
+                    facility_id: m.facility_id,
+                    name: (m.facility_profiles as unknown as { name: string } | null)?.name || m.facility_id,
+                  }))}
+                  currentFacilityId={membership.facility_id}
+                />
               </div>
             )}
           </div>
