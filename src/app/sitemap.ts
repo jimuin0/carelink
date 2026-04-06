@@ -19,6 +19,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/privacy`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/terms`, lastModified: new Date('2026-03-19'), changeFrequency: 'monthly', priority: 0.3 },
     { url: `${SITE_URL}/contact`, lastModified: updated, changeFrequency: 'monthly', priority: 0.5 },
+    { url: `${SITE_URL}/symptom-checker`, lastModified: updated, changeFrequency: 'weekly', priority: 0.7 },
+    { url: `${SITE_URL}/salon/demo`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
   ];
 
   // Prefecture pages (47 pages)
@@ -46,6 +48,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     .from('facility_profiles')
     .select('slug, updated_at')
     .eq('status', 'published');
+
+  // Symptom pages
+  const { data: symptoms } = await supabase.from('symptoms').select('slug');
+  const symptomPages: MetadataRoute.Sitemap = (symptoms || []).map((s) => ({
+    url: `${SITE_URL}/symptom/${s.slug}`,
+    lastModified: updated,
+    changeFrequency: 'weekly' as const,
+    priority: 0.7,
+  }));
 
   const facilityPages: MetadataRoute.Sitemap = (facilities || []).map((f) => ({
     url: `${SITE_URL}/facility/${f.slug}`,
@@ -99,5 +110,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
-  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages];
+  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages];
 }

@@ -39,6 +39,7 @@ export default function PrivacyPage() {
             <li>写真（施設写真、顔写真）</li>
             <li>お問い合わせ内容</li>
             <li>Cookie、アクセスログ等の利用情報</li>
+            <li>外部認証サービス（Google、LINE）から取得するアカウント情報（メールアドレス、表示名、プロフィール画像）</li>
           </ul>
         </section>
 
