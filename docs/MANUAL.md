@@ -386,7 +386,7 @@ Supabase (PostgreSQL + Storage)
 │   │       │   ├── route.ts / callback/route.ts
 │   │       └── line/webhook/route.ts   … LINE Messaging Webhook（v8.0）
 │   │
-│   ├── components/                      … 79コンポーネント
+│   ├── components/                      … 78コンポーネント
 │   │   ├── Header.tsx / Footer.tsx      … LP用ヘッダー・フッター
 │   │   ├── LayoutSwitch.tsx             … パス別レイアウト自動切替
 │   │   ├── ConfirmDialog.tsx            … 確認ダイアログ（フォーカストラップ）
@@ -399,7 +399,7 @@ Supabase (PostgreSQL + Storage)
 │   │   ├── MultiPhotoUpload.tsx         … 写真アップロード（MIME検証）
 │   │   ├── Spinner.tsx                  … ローディングスピナー
 │   │   │
-│   │   ├── search/                      … 検索コンポーネント（18個）
+│   │   ├── search/                      … 検索コンポーネント（17個）
 │   │   │   ├── SearchHeader.tsx / SearchFooter.tsx / SearchBar.tsx
 │   │   │   ├── FacilityCard.tsx / Pagination.tsx
 │   │   │   ├── SearchFilters.tsx        … サイドバーフィルター（地方optgroup・こだわり16条件）
