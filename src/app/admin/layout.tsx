@@ -36,19 +36,24 @@ const navItems = [
 export { navItems };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+  let debugInfo = '';
+  try {
   const supabase = createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
 
+  if (authError) { debugInfo = `auth error: ${authError.message}`; throw new Error(debugInfo); }
   if (!user) {
     redirect('/auth/login?redirect=/admin');
   }
 
   // マルチ施設対応: ユーザーが所属する全施設を取得
-  const { data: memberships } = await supabase
+  const { data: memberships, error: memberError } = await supabase
     .from('facility_members')
     .select('role, facility_id, facility_profiles(name)')
     .eq('user_id', user.id)
     .in('role', ['owner', 'admin']);
+
+  if (memberError) { debugInfo = `member query error: ${memberError.message} (code: ${memberError.code})`; throw new Error(debugInfo); }
 
   if (!memberships || memberships.length === 0) {
     redirect('/mypage');
@@ -120,4 +125,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
     </div>
   );
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return <div className="p-8"><h1 className="text-red-600 font-bold text-xl">Admin Debug Error</h1><pre className="mt-4 bg-red-50 p-4 rounded text-sm whitespace-pre-wrap">{debugInfo || msg}</pre></div>;
+  }
 }
