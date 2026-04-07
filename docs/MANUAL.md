@@ -147,8 +147,8 @@
 | Upstash Redis | ⚠️ Vercel未設定 | `@upstash/ratelimit`コードはあるが`UPSTASH_REDIS_REST_URL/TOKEN`未設定→in-memoryフォールバック動作中 |
 | Web Push | ✅ 設定済み | VAPID鍵生成済み、`push_subscriptions`テーブル作成済み |
 | LINE Messaging Bot | ✅ 設定済み | v8.0: 予約/キャンセルLINE通知、Webhook署名検証、Bot ID: @549rbbyi |
-| Stripe | ⚠️ Vercel未設定 | v8.5実装済みだが、STRIPE_SECRET_KEY/WEBHOOK_SECRET/PUBLIC_KEY未設定。決済機能を使う場合に設定 |
-| LINE OAuthログイン | ⚠️ Vercel未設定 | NEXT_PUBLIC_LINE_CHANNEL_ID/LINE_CHANNEL_SECRET未設定。マイページLINE連携を使う場合に設定 |
+| Stripe | ✅ 設定済み（テストモード） | STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET設定済み（2026-04-07、sk_test_）。Webhook送信先「CareLink本番Webhook」`/api/payment/webhook`、6イベント受信。本番化は審査後 |
+| LINE OAuthログイン | ✅ 設定済み | NEXT_PUBLIC_LINE_CHANNEL_ID=2009692936/LINE_CHANNEL_SECRET設定済み（2026-04-07）。コールバックURL `https://carelink-jp.com/api/auth/callback/line` 登録済み |
 | Resend | ✅ 設定済み | RESEND_API_KEY設定済み（2026-04-07）。EMAIL_FROM=`CareLink <onboarding@resend.dev>`（デフォルト送信元、ドメイン認証は後日） |
 | Jest + CI/CD | ✅ 設定済み | 200テスト（20スイート）、GitHub Actions CI（booking dateテスト修正済み） |
 
@@ -493,8 +493,8 @@ Supabase (PostgreSQL + Storage)
 | `NEXT_PUBLIC_BASE_URL` | 本番URL（`SITE_URL`定数経由で全ファイル参照） | - | クライアント | ✅ Vercel設定済み |
 | `NEXT_PUBLIC_GA_ID` | Google Analytics 4 測定ID | - | クライアント | Vercel のみ |
 | `NEXT_PUBLIC_CLARITY_ID` | Microsoft Clarity プロジェクトID | - | クライアント | Vercel のみ |
-| `NEXT_PUBLIC_LINE_CHANNEL_ID` | LINE OAuth チャネルID（ログイン用） | - | クライアント | ⚠️ Vercel未設定（LINE OAuthログイン未使用） |
-| `LINE_CHANNEL_SECRET` | LINE OAuth チャネルシークレット | - | サーバーのみ | ⚠️ Vercel未設定 |
+| `NEXT_PUBLIC_LINE_CHANNEL_ID` | LINE OAuth チャネルID（ログイン用） | 2009692936 | クライアント | ✅ Vercel設定済み（2026-04-07） |
+| `LINE_CHANNEL_SECRET` | LINE OAuth チャネルシークレット | (Vercel) | サーバーのみ | ✅ Vercel設定済み（2026-04-07） |
 | `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | - | サーバーのみ | ✅ Vercel設定済み（2026-04-07） |
 | `RESEND_API_KEY` | Resend メール送信APIキー | - | サーバーのみ | ✅ Vercel設定済み（2026-04-07） |
 | `EMAIL_FROM` | 送信元メールアドレス | - | サーバーのみ | ✅ `CareLink <onboarding@resend.dev>`（2026-04-07設定） |
@@ -507,9 +507,9 @@ Supabase (PostgreSQL + Storage)
 | `LINE_CHANNEL_ACCESS_TOKEN_CARELINK` | LINE Bot Push送信用トークン | - | サーバーのみ | Vercel |
 | `LINE_CHANNEL_SECRET_CARELINK` | LINE Webhook署名検証用シークレット | - | サーバーのみ | Vercel |
 | `LINE_CHANNEL_ID_CARELINK` | LINE Messaging APIチャネルID | - | サーバーのみ | Vercel |
-| `STRIPE_SECRET_KEY` | Stripe秘密鍵（決済処理） | - | サーバーのみ | ⚠️ Vercel未設定（Stripe決済機能未使用） |
-| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook署名検証シークレット | - | サーバーのみ | ⚠️ Vercel未設定 |
-| `STRIPE_PUBLIC_KEY` | Stripe公開鍵 | - | クライアント | ⚠️ Vercel未設定 |
+| `STRIPE_SECRET_KEY` | Stripe秘密鍵（決済処理） | sk_test_ | サーバーのみ | ✅ Vercel設定済み（2026-04-07・テストモード） |
+| `STRIPE_WEBHOOK_SECRET` | Stripe Webhook署名検証シークレット | whsec_ | サーバーのみ | ✅ Vercel設定済み（2026-04-07） |
+| `STRIPE_PUBLIC_KEY` | Stripe公開鍵 | - | クライアント | コード未使用（不要） |
 
 > **NEXT_PUBLIC_** プレフィックス付き: クライアントJSバンドルに含まれる（公開される）
 > **プレフィックスなし** (`SLACK_WEBHOOK_URL`): サーバー側のAPI Route内でのみアクセス可能
@@ -2248,7 +2248,7 @@ npx tsc --noEmit  # 型チェックのみ
 | ~~スタッフスケジュール未設定2名~~ | ✅ 2026-04-07解消（與那城琴美@イマイビル+藤田裕@鍼灸院、Mon-Sat 10-19/Mon-Sat 09-13/18追加） |
 | ~~Resend APIキー未設定~~ | ✅ 2026-04-07設定済み（onboarding@resend.dev送信、独自ドメイン認証は後日） |
 | ~~Slack Webhook未設定~~ | ✅ 2026-04-07設定済み（アプリ名「carelink」） |
-| Vercel未設定の環境変数 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLIC_KEY`（Stripe決済機能使用時に必要）、`LINE_CHANNEL_SECRET`, `NEXT_PUBLIC_LINE_CHANNEL_ID`（LINE OAuthログイン使用時に必要）。これらが未設定でも基本機能は動作する |
+| Vercel未設定の環境変数 | なし（2026-04-07時点で全主要環境変数設定完了。Stripeはテストモード、本番化はStripe審査後） |
 | ~~recruitページのバグ~~ | ✅ 2026-04-07修正（`facilities`→`salons`、`description`→`pr_text`に変更） |
 | ~~Supabase Auth Site URL未更新~~ | ✅ 設定済み（`https://www.carelink-jp.com`） |
 
