@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 
   if (idemErr) {
     // unique violation = 既処理（PostgREST: 23505）
-    if ((idemErr as any).code === '23505') {
+    if ((idemErr as { code?: string }).code === '23505') {
       return NextResponse.json({ received: true, duplicate: true });
     }
     console.error('[payment/webhook] idempotency insert error:', idemErr);

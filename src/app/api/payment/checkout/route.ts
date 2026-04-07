@@ -59,8 +59,9 @@ export async function POST(request: Request) {
     }
 
     // 金額決定: bookings.total_price を優先、なければ menu.price にフォールバック
-    const menu = Array.isArray((booking as any).menu) ? (booking as any).menu[0] : (booking as any).menu;
-    const facility = Array.isArray((booking as any).facility) ? (booking as any).facility[0] : (booking as any).facility;
+    const bookingRel = booking as unknown as { menu: { price: number; name: string } | { price: number; name: string }[] | null; facility: { name: string } | { name: string }[] | null };
+    const menu = Array.isArray(bookingRel.menu) ? bookingRel.menu[0] : bookingRel.menu;
+    const facility = Array.isArray(bookingRel.facility) ? bookingRel.facility[0] : bookingRel.facility;
     const serverAmount = booking.total_price ?? menu?.price ?? 0;
 
     if (!serverAmount || serverAmount <= 0) {
