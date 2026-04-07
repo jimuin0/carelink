@@ -749,7 +749,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | `facility_cancel_policies` | 店舗別キャンセルポリシー（無料期限/遅延料率/無断料率） | 管理 |
 | `referral_codes` | 紹介コード（ユーザー別、8文字コード、使用回数） | マイページ |
 | `referral_uses` | 紹介コード使用記録（紹介者/被紹介者、ポイント付与済みフラグ） | マイページ |
-| ALTER `bookings` | `payment_status TEXT`, `stripe_payment_intent_id TEXT`, `paid_amount INT` 追加 | 予約 |
+| ALTER `bookings` | `payment_status TEXT`, `stripe_payment_intent_id TEXT`, `paid_amount INT`, `points_used INT DEFAULT 0` 追加（v8.9で実DBに適用） | 予約 |
 
 ### 6.1.1 マイグレーションファイル一覧（24ファイル）
 
@@ -2248,7 +2248,7 @@ npx tsc --noEmit  # 型チェックのみ
 | ~~スタッフスケジュール未設定2名~~ | ✅ 2026-04-07解消（與那城琴美@イマイビル+藤田裕@鍼灸院、Mon-Sat 10-19/Mon-Sat 09-13/18追加） |
 | ~~Resend APIキー未設定~~ | ✅ 2026-04-07設定済み（onboarding@resend.dev送信、独自ドメイン認証は後日） |
 | ~~Slack Webhook未設定~~ | ✅ 2026-04-07設定済み（アプリ名「carelink」） |
-| recruitページのバグ | `src/app/recruit/page.tsx`が存在しない`facilities`テーブルを参照（正しくは`facility_profiles`） |
+| ~~recruitページのバグ~~ | ✅ 2026-04-07修正（`facilities`→`salons`、`description`→`pr_text`に変更） |
 | ~~Supabase Auth Site URL未更新~~ | ✅ 設定済み（`https://www.carelink-jp.com`） |
 
 ### 21.2 施設獲得（営業計画）

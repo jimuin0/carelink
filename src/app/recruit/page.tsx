@@ -60,7 +60,7 @@ export default function RecruitPage() {
   async function onSubmit(data: FormValues) {
     setSubmitting(true);
     try {
-      const { error: fErr } = await supabase.from('facilities').insert({
+      const { error: fErr } = await supabase.from('salons').insert({
         facility_name: data.facility_name,
         business_type: data.business_type,
         representative_name: data.representative_name,
@@ -70,7 +70,7 @@ export default function RecruitPage() {
         postal_code: data.postal_code || null,
         address: data.address || null,
         website: data.website || null,
-        description: data.description || null,
+        pr_text: data.description || null,
       });
       if (fErr) throw fErr;
 
