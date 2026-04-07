@@ -7,6 +7,9 @@ const config: Config = {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        sans: ["var(--font-noto-sans-jp)", "-apple-system", "BlinkMacSystemFont", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Meiryo", "Yu Gothic", "sans-serif"],
+      },
       colors: {
         primary: "var(--primary)",
         "primary-dark": "var(--primary-dark)",

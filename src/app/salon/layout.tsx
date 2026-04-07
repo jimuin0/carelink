@@ -24,8 +24,8 @@ export default function SalonLayout({ children }: { children: React.ReactNode })
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
             itemListElement: [
-              { "@type": "ListItem", position: 1, name: "トップ", item: "https://www.carelink-jp.com" },
-              { "@type": "ListItem", position: 2, name: "施設・サロンの方", item: "https://www.carelink-jp.com/salon" },
+              { "@type": "ListItem", position: 1, name: "トップ", item: "https://carelink-jp.com" },
+              { "@type": "ListItem", position: 2, name: "施設・サロンの方", item: "https://carelink-jp.com/salon" },
             ],
           }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
         }}

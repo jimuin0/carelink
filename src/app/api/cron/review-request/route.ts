@@ -51,7 +51,7 @@ export async function GET(request: Request) {
 
       if (!facility) continue;
 
-      const reviewUrl = `https://www.carelink-jp.com/facility/${facility.slug}#review`;
+      const reviewUrl = `https://carelink-jp.com/facility/${facility.slug}#review`;
 
       // メール送信
       if (booking.email && process.env.RESEND_API_KEY) {

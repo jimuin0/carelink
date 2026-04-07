@@ -22,5 +22,13 @@
       "source": "/google7163d69fca9aea21.html",
       "destination": "/google7163d69fca9aea21.html"
     }
+  ],
+  "redirects": [
+    {
+      "source": "/(.*)",
+      "has": [{ "type": "host", "value": "www.carelink-jp.com" }],
+      "destination": "https://carelink-jp.com/$1",
+      "permanent": true
+    }
   ]
 }

@@ -120,7 +120,7 @@ export async function GET(request: Request) {
                 from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
                 to: email,
                 subject: `【${facilityInfo.name}】お久しぶりです！`,
-                html: `<p>${data.name || 'お客'}様</p><p>前回のご来店から${daysSince}日が経ちました。</p><p>お体の調子はいかがですか？</p><p><a href="https://www.carelink-jp.com/facility/${facilityInfo.slug}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">ご予約はこちら</a></p>`,
+                html: `<p>${data.name || 'お客'}様</p><p>前回のご来店から${daysSince}日が経ちました。</p><p>お体の調子はいかがですか？</p><p><a href="https://carelink-jp.com/facility/${facilityInfo.slug}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">ご予約はこちら</a></p>`,
               }).catch(() => {});
             }
           }

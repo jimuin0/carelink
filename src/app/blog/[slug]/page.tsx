@@ -59,9 +59,9 @@ export default function ArticlePage({ params }: { params: { slug: string } }) {
     description: article.description,
     datePublished: article.publishedAt,
     dateModified: article.publishedAt,
-    author: { '@type': 'Organization', name: 'CareLink', url: 'https://www.carelink-jp.com' },
-    publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://www.carelink-jp.com' },
-    mainEntityOfPage: { '@type': 'WebPage', '@id': `https://www.carelink-jp.com/blog/${article.slug}` },
+    author: { '@type': 'Organization', name: 'CareLink', url: 'https://carelink-jp.com' },
+    publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://carelink-jp.com' },
+    mainEntityOfPage: { '@type': 'WebPage', '@id': `https://carelink-jp.com/blog/${article.slug}` },
     inLanguage: 'ja',
   };
 

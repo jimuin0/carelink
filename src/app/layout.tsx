@@ -1,9 +1,17 @@
 import type { Metadata } from "next";
 import Script from "next/script";
+import { Noto_Sans_JP } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import dynamic from "next/dynamic";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
+
+const notoSansJp = Noto_Sans_JP({
+  subsets: ["latin"],
+  display: "swap",
+  variable: "--font-noto-sans-jp",
+  weight: ["400", "500", "700"],
+});
 
 const Analytics = dynamic(() => import("@vercel/analytics/react").then(m => ({ default: m.Analytics })), { ssr: false });
 const SpeedInsights = dynamic(() => import("@vercel/speed-insights/next").then(m => ({ default: m.SpeedInsights })), { ssr: false });
@@ -55,7 +63,7 @@ export default function RootLayout({
   const clarityId = rawClarityId && /^[a-z0-9]+$/i.test(rawClarityId) ? rawClarityId : undefined;
 
   return (
-    <html lang="ja">
+    <html lang="ja" className={notoSansJp.variable}>
       <head>
         <link rel="preload" href="/images/hero-tiny.webp" as="image" type="image/webp" />
         <link rel="preconnect" href="https://xzafxiupbflvgbarrihe.supabase.co" />
@@ -71,18 +79,18 @@ export default function RootLayout({
                 "@context": "https://schema.org",
                 "@type": "WebSite",
                 name: "CareLink",
-                url: "https://www.carelink-jp.com",
+                url: "https://carelink-jp.com",
                 description: "医療・福祉・美容に特化した集客プラットフォーム",
                 publisher: {
                   "@type": "Organization",
                   name: "CareLink",
-                  url: "https://www.carelink-jp.com",
+                  url: "https://carelink-jp.com",
                 },
                 potentialAction: {
                   "@type": "SearchAction",
                   target: {
                     "@type": "EntryPoint",
-                    urlTemplate: "https://www.carelink-jp.com/search?q={search_term_string}",
+                    urlTemplate: "https://carelink-jp.com/search?q={search_term_string}",
                   },
                   "query-input": "required name=search_term_string",
                 },
@@ -91,8 +99,8 @@ export default function RootLayout({
                 "@context": "https://schema.org",
                 "@type": "Organization",
                 name: "CareLink",
-                url: "https://www.carelink-jp.com",
-                logo: "https://www.carelink-jp.com/favicon.svg",
+                url: "https://carelink-jp.com",
+                logo: "https://carelink-jp.com/favicon.svg",
                 description: "医療・福祉・美容に特化した集客プラットフォーム",
                 founder: {
                   "@type": "Person",

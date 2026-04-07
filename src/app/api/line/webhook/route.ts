@@ -47,7 +47,7 @@ export async function POST(request: Request) {
           if (event.replyToken) {
             await sendLineReply(event.replyToken, [{
               type: 'text',
-              text: 'CareLink をフォローいただきありがとうございます！\n\nサロン・クリニックの検索・予約はこちら👇\nhttps://www.carelink-jp.com',
+              text: 'CareLink をフォローいただきありがとうございます！\n\nサロン・クリニックの検索・予約はこちら👇\nhttps://carelink-jp.com',
             }]);
           }
           break;
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
           if (event.replyToken && event.message?.type === 'text') {
             await sendLineReply(event.replyToken, [{
               type: 'text',
-              text: 'お問い合わせありがとうございます。\n\nサロン検索・予約はこちら👇\nhttps://www.carelink-jp.com/search',
+              text: 'お問い合わせありがとうございます。\n\nサロン検索・予約はこちら👇\nhttps://carelink-jp.com/search',
             }]);
           }
           break;

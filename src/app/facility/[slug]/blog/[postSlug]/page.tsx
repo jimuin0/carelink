@@ -88,8 +88,8 @@ export default async function BlogDetailPage({ params }: Props) {
     datePublished: post.published_at,
     dateModified: post.updated_at || post.published_at,
     author: { '@type': 'Organization', name: facility.name },
-    publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://www.carelink-jp.com' },
-    mainEntityOfPage: `https://www.carelink-jp.com/facility/${params.slug}/blog/${params.postSlug}`,
+    publisher: { '@type': 'Organization', name: 'CareLink', url: 'https://carelink-jp.com' },
+    mainEntityOfPage: `https://carelink-jp.com/facility/${params.slug}/blog/${params.postSlug}`,
     ...(post.thumbnail_url && { image: post.thumbnail_url }),
   };
 

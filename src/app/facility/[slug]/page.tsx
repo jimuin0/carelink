@@ -323,7 +323,17 @@ export default async function FacilityPage({ params }: Props) {
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org',
-              '@type': ['LocalBusiness', ...(['美容クリニック', '鍼灸・整骨'].some(t => facility.business_type?.includes(t)) ? ['MedicalBusiness'] : [])],
+              '@type': (() => {
+                const bt = facility.business_type || '';
+                const types: string[] = ['LocalBusiness'];
+                if (['クリニック', '鍼灸', '整骨', '整体', '訪問看護', 'デイサービス', '介護'].some(t => bt.includes(t))) {
+                  types.push('MedicalBusiness');
+                }
+                if (['美容室', '理容', 'エステ', 'まつエク', 'ネイル', 'サロン'].some(t => bt.includes(t))) {
+                  types.push('BeautySalon');
+                }
+                return types;
+              })(),
               name: facility.name,
               description: facility.catch_copy || facility.description,
               ...(facility.updated_at && { dateModified: facility.updated_at.split('T')[0] }),
