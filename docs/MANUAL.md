@@ -753,7 +753,7 @@ vercel env add NEXT_PUBLIC_CLARITY_ID
 | ALTER `bookings` | `payment_status TEXT`, `stripe_payment_intent_id TEXT`, `paid_amount INT`, `points_used INT DEFAULT 0` 追加。CHECK制約: `unpaid/paid/failed/refunded/partial_refund`（v8.10で`failed`追加） | 予約 |
 | `stripe_events` | Stripe Webhook 冪等性管理（event.id PK・service_role専用RLS・二重処理防止） | 決済 |
 
-### 6.1.1 マイグレーションファイル一覧（25ファイル）
+### 6.1.1 マイグレーションファイル一覧（26ファイル）
 
 | ファイル | 内容 |
 |---------|------|
@@ -1693,7 +1693,7 @@ Slack Incoming Webhook を使ったフォーム送信通知。
 | `MultiPhotoUpload` | `MultiPhotoUpload.tsx` | 複数写真選択+プレビュー（10MB制限・MIME検証） |
 | `Spinner` | `Spinner.tsx` | SVGスピナー |
 
-### 11.2 検索コンポーネント（`components/search/` — 18個）
+### 11.2 検索コンポーネント（`components/search/` — 17個）
 
 | コンポーネント | 説明 |
 |---------------|------|
