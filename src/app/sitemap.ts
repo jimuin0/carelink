@@ -5,6 +5,9 @@ import { getAllCitySlugs } from '@/data/city-slugs';
 import { articles } from '@/data/articles';
 import { SITE_URL } from '@/lib/constants';
 
+// 動的施設・求人を毎時反映 + 環境変数変更時の即時反映
+export const revalidate = 3600;
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const updated = new Date();
 
