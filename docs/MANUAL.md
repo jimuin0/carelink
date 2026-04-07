@@ -138,7 +138,7 @@
 | Supabase Auth | ✅ 設定済み | メール+LINE+Google認証（PKCE, Cookie対応）、Redirect URL 2件登録済み。handle_new_user()はSECURITY DEFINER設定済み（2026-04-06修正） |
 | Supabase Storage | ✅ 設定済み | carelink-uploads バケット |
 | Vercel デプロイ | ✅ 稼働中 | GitHub連携で自動デプロイ（push→自動ビルド） |
-| Slack Incoming Webhook | ❌ 未設定 | Webhook URL作成 + Vercel環境変数設定が必要 |
+| Slack Incoming Webhook | ✅ 設定済み | アプリ名「carelink」（2026-04-07設定）、SLACK_WEBHOOK_URL環境変数設定済み、テスト送信成功 |
 | Google Analytics 4 | ✅ 設定済み | `G-BP8GVKJ3NZ`（Vercel環境変数設定+デプロイ済み） |
 | Google Search Console | ✅ 設定済み | HTMLタグ認証完了（メタタグ埋め込み方式） |
 | Microsoft Clarity | ✅ 設定済み | `w1sqla5alv`（Vercel環境変数設定+デプロイ済み） |
@@ -148,7 +148,7 @@
 | Web Push | ✅ 設定済み | VAPID鍵生成済み、`push_subscriptions`テーブル作成済み |
 | LINE Messaging Bot | ✅ 設定済み | v8.0: 予約/キャンセルLINE通知、Webhook署名検証、Bot ID: @549rbbyi |
 | Stripe | ⚠️ APIキー設定待ち | v8.5: Checkout Session+Webhook、キャンセルポリシー連動 |
-| Resend | ⚠️ APIキー未設定 | Vercel環境変数にRESEND_API_KEY未設定。メール送信は現在動作しない |
+| Resend | ✅ 設定済み | RESEND_API_KEY設定済み（2026-04-07）。EMAIL_FROM=`CareLink <onboarding@resend.dev>`（デフォルト送信元、ドメイン認証は後日） |
 | Jest + CI/CD | ✅ 設定済み | 200テスト（20スイート）、GitHub Actions CI（booking dateテスト修正済み） |
 
 ---
@@ -2243,8 +2243,8 @@ npx tsc --noEmit  # 型チェックのみ
 | GPS検索がJS側計算 | PostGIS未使用。haversine距離計算をJS側で実行（500件上限→10km以内フィルタ）。大規模データ時はPostGIS移行推奨 |
 | NEXT_PUBLIC_BASE_URL未設定 | Vercel環境変数未設定だが、`SITE_URL`定数のフォールバックで正常動作中 |
 | スタッフスケジュール未設定2名 | 與那城琴美@イマイビル店（5758ed9a）、藤田裕@鍼灸院（6b747cab）のスケジュールが未登録→予約スロット非表示 |
-| Resend APIキー未設定 | Vercel環境変数にRESEND_API_KEY未設定。メール通知（予約確認・リマインド・レビュー依頼）が全て停止中 |
-| Slack Webhook未設定 | SLACK_WEBHOOK_URL未設定。フォーム送信通知が届かない |
+| ~~Resend APIキー未設定~~ | ✅ 2026-04-07設定済み（onboarding@resend.dev送信、独自ドメイン認証は後日） |
+| ~~Slack Webhook未設定~~ | ✅ 2026-04-07設定済み（アプリ名「carelink」） |
 | recruitページのバグ | `src/app/recruit/page.tsx`が存在しない`facilities`テーブルを参照（正しくは`facility_profiles`） |
 | ~~Supabase Auth Site URL未更新~~ | ✅ 設定済み（`https://www.carelink-jp.com`） |
 
