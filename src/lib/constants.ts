@@ -44,5 +44,12 @@ export const dayLabels: Record<string, string> = {
 /** UUID v4 validation pattern */
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** サイトURL（環境変数 or デフォルト） */
-export const SITE_URL = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
+/** サイトURL（環境変数 or デフォルト）
+ * 防御層: 末尾空白/改行除去 + www→apex強制 + 末尾スラ除去
+ * （Vercel環境変数に末尾改行が混入してsitemapが壊れた事案への恒久対策）
+ */
+function normalizeSiteUrl(raw: string | undefined): string {
+  const trimmed = (raw || 'https://carelink-jp.com').trim().replace(/\/+$/, '');
+  return trimmed.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
+}
+export const SITE_URL = normalizeSiteUrl(process.env.NEXT_PUBLIC_BASE_URL);
