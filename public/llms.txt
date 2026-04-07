@@ -1,0 +1,32 @@
+# CareLink
+
+> 医療・福祉・美容に特化した集客×採用プラットフォーム。美容サロン、アイラッシュ、鍼灸院、整骨院、介護施設、病院・クリニックの検索・予約・口コミ・求人情報を提供。掲載・利用ともに完全無料。
+
+CareLink (carelink-jp.com) は日本全国の医療・福祉・美容施設を網羅し、ユーザーは地域・業種・症状から施設を検索し、ネット予約や口コミ閲覧が可能。施設側は求人掲載・予約管理・顧客チャットを無料で利用できる。
+
+## 主要URL
+
+- [トップ](https://www.carelink-jp.com/): サービス概要・人気施設・症状別チェッカー
+- [施設検索](https://www.carelink-jp.com/search): キーワード・エリア検索
+- [サロン一覧](https://www.carelink-jp.com/salon): 業種別ディレクトリ
+- [ランキング](https://www.carelink-jp.com/ranking): 地域別人気施設ランキング
+- [症状チェッカー](https://www.carelink-jp.com/symptom-checker): 症状から最適施設を提案
+- [ブログ](https://www.carelink-jp.com/blog): 美容・健康・介護のお役立ち記事
+- [施設掲載（無料）](https://www.carelink-jp.com/recruit): 事業者向け掲載案内
+- [サイトマップ](https://www.carelink-jp.com/sitemap.xml): 全ページ一覧
+
+## データ構造
+
+- 施設詳細: `/facility/{slug}` — 名称・住所・業種・メニュー・料金・スタッフ・口コミ・空き枠
+- 都道府県別: `/{prefectureSlug}` (47都道府県), `/{prefectureSlug}/{businessTypeSlug}` (業種絞り込み)
+- 市区町村別: `/{prefectureSlug}/{citySlug}`, `/{prefectureSlug}/{citySlug}/{businessTypeSlug}`
+- ブログ記事: `/blog/{slug}`
+- 症状詳細: `/symptom/{slug}`
+
+## 業種カテゴリ
+
+美容サロン (hair, nail, eyelash, relax, esthetic), 美容クリニック, 鍼灸院, 整骨院, 介護施設・デイサービス, 病院・クリニック
+
+## ライセンス
+
+引用時は出典「CareLink (https://www.carelink-jp.com)」を明記してください。

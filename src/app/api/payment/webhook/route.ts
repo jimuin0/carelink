@@ -57,55 +57,93 @@ export async function POST(request: Request) {
     return NextResponse.json({ received: true, duplicate: true });
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as Stripe.Checkout.Session;
-    const bookingId = session.metadata?.booking_id;
-    const amountTotal = session.amount_total;
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const session = event.data.object as Stripe.Checkout.Session;
+      const bookingId = session.metadata?.booking_id;
+      const amountTotal = session.amount_total;
 
-    if (bookingId) {
-      await supabase
-        .from('bookings')
-        .update({
-          payment_status: 'paid',
-          stripe_payment_intent_id: session.payment_intent as string,
-          paid_amount: amountTotal || 0,
-        })
-        .eq('id', bookingId);
+      if (bookingId) {
+        await supabase
+          .from('bookings')
+          .update({
+            payment_status: 'paid',
+            stripe_payment_intent_id: session.payment_intent as string,
+            paid_amount: amountTotal || 0,
+          })
+          .eq('id', bookingId);
+      }
+      break;
     }
-  }
 
-  if (event.type === 'payment_intent.payment_failed') {
-    const pi = event.data.object as Stripe.PaymentIntent;
-    const bookingId = pi.metadata?.booking_id;
-    if (bookingId) {
-      await supabase
-        .from('bookings')
-        .update({
-          payment_status: 'failed',
-          stripe_payment_intent_id: pi.id,
-        })
-        .eq('id', bookingId);
-    } else {
-      // metadataにbooking_idがない場合はpayment_intent_idで検索
-      await supabase
-        .from('bookings')
-        .update({ payment_status: 'failed' })
-        .eq('stripe_payment_intent_id', pi.id);
+    case 'payment_intent.payment_failed': {
+      const pi = event.data.object as Stripe.PaymentIntent;
+      const bookingId = pi.metadata?.booking_id;
+      if (bookingId) {
+        await supabase
+          .from('bookings')
+          .update({
+            payment_status: 'failed',
+            stripe_payment_intent_id: pi.id,
+          })
+          .eq('id', bookingId);
+      } else {
+        // metadataにbooking_idがない場合はpayment_intent_idで検索
+        await supabase
+          .from('bookings')
+          .update({ payment_status: 'failed' })
+          .eq('stripe_payment_intent_id', pi.id);
+      }
+      break;
     }
-  }
 
-  if (event.type === 'charge.refunded') {
-    const charge = event.data.object as Stripe.Charge;
-    const paymentIntentId = charge.payment_intent as string;
+    case 'charge.refunded': {
+      const charge = event.data.object as Stripe.Charge;
+      const paymentIntentId = charge.payment_intent as string;
 
-    if (paymentIntentId) {
-      const isFullRefund = charge.amount_refunded >= charge.amount;
-      await supabase
-        .from('bookings')
-        .update({
-          payment_status: isFullRefund ? 'refunded' : 'partial_refund',
-        })
-        .eq('stripe_payment_intent_id', paymentIntentId);
+      if (paymentIntentId) {
+        const isFullRefund = charge.amount_refunded >= charge.amount;
+        await supabase
+          .from('bookings')
+          .update({
+            payment_status: isFullRefund ? 'refunded' : 'partial_refund',
+          })
+          .eq('stripe_payment_intent_id', paymentIntentId);
+      }
+      break;
+    }
+
+    // subscription機能未実装、現状は記録のみ（subscriptionsテーブル未作成のためDB書き込みなし）
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated':
+    case 'customer.subscription.deleted': {
+      const sub = event.data.object as Stripe.Subscription;
+      console.log('[payment/webhook] subscription event received (no-op):', {
+        type: event.type,
+        id: sub.id,
+        customer: sub.customer,
+        status: sub.status,
+      });
+      break;
+    }
+
+    // subscription機能未実装、現状は記録のみ（invoiceハンドリング未実装）
+    case 'invoice.payment_succeeded':
+    case 'invoice.payment_failed': {
+      const invoice = event.data.object as Stripe.Invoice;
+      console.log('[payment/webhook] invoice event received (no-op):', {
+        type: event.type,
+        id: invoice.id,
+        customer: invoice.customer,
+        amount_paid: invoice.amount_paid,
+        amount_due: invoice.amount_due,
+      });
+      break;
+    }
+
+    default: {
+      console.warn('[payment/webhook] unhandled event type:', event.type);
+      break;
     }
   }
 
