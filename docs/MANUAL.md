@@ -236,7 +236,10 @@ Supabase (PostgreSQL + Storage)
 ```
 ~/Projects/carelink/
 ├── docs/
-│   └── MANUAL.md                        … このマニュアル
+│   ├── MANUAL.md                        … このマニュアル
+│   ├── TEST-CHECKLIST.md                … 本番テストチェックリスト（30項目+後片付け、v8.9）
+│   ├── TOP-ROADMAP.md                   … HPB超え機能ロードマップ（130タスク）
+│   └── sales-templates.md               … 営業資料テンプレート5種（メール/DM/チラシ/LINE/電話）
 ├── supabase/
 │   └── migrations/                         … DBマイグレーション（25ファイル）
 ├── .github/
@@ -492,9 +495,9 @@ Supabase (PostgreSQL + Storage)
 | `NEXT_PUBLIC_CLARITY_ID` | Microsoft Clarity プロジェクトID | - | クライアント | Vercel のみ |
 | `NEXT_PUBLIC_LINE_CHANNEL_ID` | LINE OAuth チャネルID | - | クライアント | Vercel + .env.local |
 | `LINE_CHANNEL_SECRET` | LINE OAuth チャネルシークレット | - | サーバーのみ | Vercel + .env.local |
-| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | - | サーバーのみ | Vercel + .env.local |
-| `RESEND_API_KEY` | Resend メール送信APIキー | - | サーバーのみ | Vercel + .env.local |
-| `EMAIL_FROM` | 送信元メールアドレス | - | サーバーのみ | Vercel + .env.local |
+| `SLACK_WEBHOOK_URL` | Slack Incoming Webhook URL | - | サーバーのみ | ✅ Vercel設定済み（2026-04-07） |
+| `RESEND_API_KEY` | Resend メール送信APIキー | - | サーバーのみ | ✅ Vercel設定済み（2026-04-07） |
+| `EMAIL_FROM` | 送信元メールアドレス | - | サーバーのみ | ✅ `CareLink <onboarding@resend.dev>`（2026-04-07設定） |
 | `CRON_SECRET` | Vercel Cron認証シークレット | - | サーバーのみ | Vercel + .env.local |
 | `NEXT_PUBLIC_SENTRY_DSN` | Sentry DSN | - | クライアント | Vercel + .env.local |
 | `UPSTASH_REDIS_REST_URL` | Upstash Redis URL | - | サーバーのみ | Vercel + .env.local |
@@ -2242,7 +2245,7 @@ npx tsc --noEmit  # 型チェックのみ
 | 検索データがダミー | Phase 1シードの10施設はダミー。実データは3施設のみ |
 | GPS検索がJS側計算 | PostGIS未使用。haversine距離計算をJS側で実行（500件上限→10km以内フィルタ）。大規模データ時はPostGIS移行推奨 |
 | NEXT_PUBLIC_BASE_URL未設定 | Vercel環境変数未設定だが、`SITE_URL`定数のフォールバックで正常動作中 |
-| スタッフスケジュール未設定2名 | 與那城琴美@イマイビル店（5758ed9a）、藤田裕@鍼灸院（6b747cab）のスケジュールが未登録→予約スロット非表示 |
+| ~~スタッフスケジュール未設定2名~~ | ✅ 2026-04-07解消（與那城琴美@イマイビル+藤田裕@鍼灸院、Mon-Sat 10-19/Mon-Sat 09-13/18追加） |
 | ~~Resend APIキー未設定~~ | ✅ 2026-04-07設定済み（onboarding@resend.dev送信、独自ドメイン認証は後日） |
 | ~~Slack Webhook未設定~~ | ✅ 2026-04-07設定済み（アプリ名「carelink」） |
 | recruitページのバグ | `src/app/recruit/page.tsx`が存在しない`facilities`テーブルを参照（正しくは`facility_profiles`） |
@@ -2385,15 +2388,15 @@ HPBが弱い鍼灸院・整骨院向け機能。CareLink独自の差別化。
 | 低 | PostGIS移行 | GPS検索のDB側距離計算（スケール対策） |
 | 低 | E2Eテスト | Playwright導入 |
 
-### 21.5 実データ移行状況（2026-04-06時点）
+### 21.5 実データ移行状況（2026-04-07時点）
 
 3施設の実データ移行済み:
 
 | 施設 | facility_id | メニュー | スタッフ | スケジュール | クーポン |
 |------|------------|:-------:|:-------:|:----------:|:-------:|
 | ハル 豊中本店（HAL） | 130830f4 | 28 | 3 | 3名分 ✅ | 10 |
-| ハル イマイビル店（HAL） | 7eab63f1 | 28 | 3 | **2名分のみ**（與那城琴美未設定） | 10 |
-| 訪問専門 神原鍼灸院 | 906ef10d | 2 | 2 | **1名分のみ**（藤田裕未設定） | - |
+| ハル イマイビル店（HAL） | 7eab63f1 | 28 | 3 | 3名分 ✅（v8.9で完了） | 10 |
+| 訪問専門 神原鍼灸院 | 906ef10d | 2 | 2 | 2名分 ✅（v8.9で完了） | - |
 
 **facility_members（管理権限）**: 3施設ともowner権限でuser `d90f83a6`（tokuhal.jimuin0@gmail.com）に紐付け済み（2026-04-06設定）
 
