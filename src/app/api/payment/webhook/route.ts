@@ -38,6 +38,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
+  // 冪等性: 既処理イベントはスキップ
+  const { data: inserted, error: idemErr } = await supabase
+    .from('stripe_events')
+    .insert({ id: event.id, type: event.type })
+    .select('id')
+    .maybeSingle();
+
+  if (idemErr) {
+    // unique violation = 既処理（PostgREST: 23505）
+    if ((idemErr as any).code === '23505') {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    console.error('[payment/webhook] idempotency insert error:', idemErr);
+    return NextResponse.json({ error: 'idempotency error' }, { status: 500 });
+  }
+  if (!inserted) {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
+
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
     const bookingId = session.metadata?.booking_id;
@@ -52,6 +71,26 @@ export async function POST(request: Request) {
           paid_amount: amountTotal || 0,
         })
         .eq('id', bookingId);
+    }
+  }
+
+  if (event.type === 'payment_intent.payment_failed') {
+    const pi = event.data.object as Stripe.PaymentIntent;
+    const bookingId = pi.metadata?.booking_id;
+    if (bookingId) {
+      await supabase
+        .from('bookings')
+        .update({
+          payment_status: 'failed',
+          stripe_payment_intent_id: pi.id,
+        })
+        .eq('id', bookingId);
+    } else {
+      // metadataにbooking_idがない場合はpayment_intent_idで検索
+      await supabase
+        .from('bookings')
+        .update({ payment_status: 'failed' })
+        .eq('stripe_payment_intent_id', pi.id);
     }
   }
 

@@ -18,16 +18,18 @@ export default function LegalPage() {
             <Row label="事業者名" value="神原良祐" />
             <Row label="代表者" value="神原良祐" />
             <Row label="所在地" value="大阪府豊中市（詳細はお問い合わせください）" />
-            <Row label="電話番号" value={<>お問い合わせは<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりお願いいたします</>} />
-            <Row label="メールアドレス" value={<>お問い合わせは<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりお願いいたします</>} />
+            <Row label="電話番号" value={<>請求があった場合には遅滞なく開示いたします。<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりご連絡ください。</>} />
+            <Row label="メールアドレス" value={<>請求があった場合には遅滞なく開示いたします。<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりご連絡ください。</>} />
             <Row label="サービスURL" value="https://www.carelink-jp.com" />
-            <Row label="販売価格" value="各サービスページに表示された金額（税込）" />
-            <Row label="支払方法" value="クレジットカード決済" />
-            <Row label="支払時期" value="予約確定時" />
-            <Row label="サービス提供時期" value="各施設の予約日時に提供" />
+            <Row label="販売価格" value="各サービス・施設ページに表示された金額（消費税込）" />
+            <Row label="商品代金以外の必要料金" value="インターネット接続料金、通信料等はお客様のご負担となります。" />
+            <Row label="支払方法" value="クレジットカード決済（Visa、Mastercard、JCB、American Express、Diners Club）" />
+            <Row label="支払時期" value="予約確定時に即時決済、または各施設が定める時期" />
+            <Row label="サービス提供時期" value="各施設の予約日時に提供いたします。" />
+            <Row label="申込の有効期限" value="予約申込から24時間以内に決済が完了しない場合、申込は無効となります。" />
             <Row
-              label="キャンセル・返金"
-              value="各施設のキャンセルポリシーに準じます。詳細は施設ページをご確認ください。"
+              label="キャンセル・返金（返品特約）"
+              value="役務提供の性質上、原則としてお客様都合による返品・返金には応じられません。キャンセル・変更については各施設の定めるキャンセルポリシーに従い、所定のキャンセル料が発生する場合があります。詳細は各施設ページをご確認ください。なお、当事業者または施設側の責めに帰すべき事由により役務が提供されなかった場合は、全額返金いたします。"
             />
             <Row label="動作環境" value="最新バージョンのChrome、Safari、Edge、Firefox" />
           </tbody>

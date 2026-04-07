@@ -24,6 +24,13 @@ export const metadata: Metadata = {
     siteName: "CareLink",
     images: [{ url: "/og-image.png", width: 1200, height: 630 }],
   },
+  twitter: {
+    card: "summary_large_image",
+    title: "CareLink | 医療・福祉・美容の集客プラットフォーム",
+    description:
+      "医療・福祉・美容に特化した集客プラットフォーム。サロン検索・予約・口コミで施設の集客をサポートします。",
+    images: ["/og-image.png"],
+  },
   icons: {
     icon: "/favicon.svg",
     apple: "/apple-touch-icon.png",

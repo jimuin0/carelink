@@ -7,6 +7,6 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: ['/admin/', '/mypage/', '/auth/'],
     },
-    sitemap: 'https://www.carelink-jp.com/sitemap.xml',
+    sitemap: 'https://carelink-jp.com/sitemap.xml',
   };
 }

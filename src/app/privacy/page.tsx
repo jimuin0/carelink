@@ -58,21 +58,47 @@ export default function PrivacyPage() {
         <section className="mb-8">
           <h2 className="text-xl font-bold mb-4">第4条（第三者提供）</h2>
           <p className="text-gray-600">
-            当事業者は、法令に基づく場合を除き、本人の同意なく個人情報を第三者に提供することはありません。ただし、本サービスにおいて、施設情報を利用者に公開する場合があります。
+            当事業者は、法令に基づく場合を除き、あらかじめ本人の同意を得ることなく個人情報を第三者に提供することはありません。ただし、本サービスにおいて利用者が任意に登録・公開した施設情報・プロフィール情報等は、サービスの性質上、第三者が閲覧可能となります。
           </p>
         </section>
 
         <section className="mb-8">
-          <h2 className="text-xl font-bold mb-4">第5条（個人情報の管理）</h2>
-          <p className="text-gray-600">
-            当事業者は、個人情報の正確性を保ち、不正アクセス・紛失・破損・改ざん・漏洩等を防止するため、SSL暗号化通信およびSupabaseによるセキュアなデータベース管理を実施しています。
+          <h2 className="text-xl font-bold mb-4">第5条（業務委託および外国にある第三者への提供）</h2>
+          <p className="text-gray-600 mb-2">
+            当事業者は、サービス運営に必要な範囲で、以下の外部事業者に個人情報の取扱いを委託しています。これらの事業者には、個人情報保護法に基づく適切な監督を行います。
+          </p>
+          <ul className="list-disc pl-6 text-gray-600 space-y-1">
+            <li>Supabase, Inc.（米国）：データベースおよび認証基盤の提供</li>
+            <li>Vercel Inc.（米国）：Webホスティングの提供</li>
+            <li>Google LLC（米国）：アクセス解析（Google Analytics 4）および認証連携</li>
+            <li>Microsoft Corporation（米国）：ユーザー行動分析（Microsoft Clarity）</li>
+            <li>LINEヤフー株式会社（日本）：認証連携</li>
+          </ul>
+          <p className="text-gray-600 mt-2 text-sm">
+            外国にある第三者への個人データの提供にあたっては、個人情報保護法第28条に基づき、移転先国の個人情報保護制度および当該事業者が講じる安全管理措置を確認のうえ提供しています。各国制度の詳細は、個人情報保護委員会ウェブサイトをご参照ください。
           </p>
         </section>
 
         <section className="mb-8">
-          <h2 className="text-xl font-bold mb-4">第6条（開示・訂正・削除の請求）</h2>
-          <p className="text-gray-600">
-            ご本人から個人情報の開示・訂正・削除等のご請求があった場合は、本人確認の上、速やかに対応いたします。下記のお問い合わせ窓口までご連絡ください。
+          <h2 className="text-xl font-bold mb-4">第6条（安全管理措置）</h2>
+          <p className="text-gray-600 mb-2">
+            当事業者は、取得した個人情報の漏えい・滅失・毀損の防止その他安全管理のため、以下の措置を講じます。
+          </p>
+          <ul className="list-disc pl-6 text-gray-600 space-y-1 text-sm">
+            <li>組織的安全管理措置：個人情報取扱責任者の設置、取扱状況の点検</li>
+            <li>人的安全管理措置：従業者・委託先に対する秘密保持義務の徹底</li>
+            <li>物理的安全管理措置：個人情報を取り扱う端末・記録媒体の管理</li>
+            <li>技術的安全管理措置：SSL/TLSによる通信暗号化、アクセス制御、認証管理、データベースの行レベルセキュリティ（RLS）の適用</li>
+          </ul>
+        </section>
+
+        <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">第7条（保有個人データの開示・訂正・利用停止等の請求）</h2>
+          <p className="text-gray-600 mb-2">
+            ご本人またはその代理人から、個人情報保護法に基づく保有個人データの利用目的の通知、開示、内容の訂正・追加・削除、利用の停止、消去および第三者提供の停止（以下「開示等」）のご請求があった場合は、本人確認のうえ、法令に従い遅滞なく対応いたします。
+          </p>
+          <p className="text-gray-600 text-sm">
+            開示等のご請求は、第10条のお問い合わせ窓口までご連絡ください。手続きの詳細・必要書類についてご案内いたします。なお、法令に定める場合を除き、手数料は無料です。本人確認ができない場合や、法令上の例外に該当する場合は、ご請求にお応えできないことがあります。
           </p>
         </section>
 
@@ -91,18 +117,25 @@ export default function PrivacyPage() {
         </section>
 
         <section className="mb-8">
-          <h2 className="text-xl font-bold mb-4">第8条（プライバシーポリシーの変更）</h2>
+          <h2 className="text-xl font-bold mb-4">第9条（プライバシーポリシーの変更）</h2>
           <p className="text-gray-600">
             当事業者は、必要に応じて本ポリシーを変更することがあります。変更後のポリシーは、本ページに掲載した時点から効力を生じるものとします。
           </p>
         </section>
 
         <section className="mb-8">
-          <h2 className="text-xl font-bold mb-4">第9条（お問い合わせ窓口）</h2>
-          <p className="text-gray-600">
-            個人情報の取扱いに関するお問い合わせは、
+          <h2 className="text-xl font-bold mb-4">第10条（お問い合わせ窓口・苦情の申出先）</h2>
+          <p className="text-gray-600 mb-2">
+            個人情報の取扱いに関するお問い合わせ、開示等のご請求、苦情の申出は、
             <Link href="/contact" className="text-primary hover:underline">お問い合わせページ</Link>
             よりご連絡ください。
+          </p>
+          <ul className="text-gray-600 space-y-1 text-sm">
+            <li>個人情報取扱責任者：神原良祐</li>
+            <li>所在地：大阪府豊中市</li>
+          </ul>
+          <p className="text-gray-600 text-sm mt-2">
+            なお、当事業者の対応にご納得いただけない場合は、個人情報保護委員会（<a href="https://www.ppc.go.jp/" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">https://www.ppc.go.jp/</a>）にご相談いただくこともできます。
           </p>
         </section>
 

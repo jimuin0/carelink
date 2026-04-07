@@ -33,11 +33,42 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
-    const { bookingId, amount, facilityName, menuName } = await request.json();
+    const { bookingId } = await request.json();
 
-    if (!bookingId || !amount || amount <= 0) {
+    if (!bookingId) {
       return NextResponse.json({ error: 'パラメータが不正です' }, { status: 400 });
     }
+
+    // サーバー側で予約を取得し、所有権検証＋金額をDBから決定
+    const { data: booking, error: bookingErr } = await supabase
+      .from('bookings')
+      .select('id, user_id, total_price, menu_id, facility_id, payment_status, facility:facility_profiles(name), menu:facility_menus(name, price)')
+      .eq('id', bookingId)
+      .single();
+
+    if (bookingErr || !booking) {
+      return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+    }
+
+    if (booking.user_id !== user.id) {
+      return NextResponse.json({ error: 'この予約にアクセスする権限がありません' }, { status: 403 });
+    }
+
+    if (booking.payment_status === 'paid') {
+      return NextResponse.json({ error: 'この予約は既に支払い済みです' }, { status: 400 });
+    }
+
+    // 金額決定: bookings.total_price を優先、なければ menu.price にフォールバック
+    const menu = Array.isArray((booking as any).menu) ? (booking as any).menu[0] : (booking as any).menu;
+    const facility = Array.isArray((booking as any).facility) ? (booking as any).facility[0] : (booking as any).facility;
+    const serverAmount = booking.total_price ?? menu?.price ?? 0;
+
+    if (!serverAmount || serverAmount <= 0) {
+      return NextResponse.json({ error: '金額を決定できませんでした' }, { status: 400 });
+    }
+
+    const menuName = menu?.name || '施術予約';
+    const facilityName = facility?.name || 'CareLink予約';
 
     const stripe = new Stripe(stripeKey);
 
@@ -47,10 +78,10 @@ export async function POST(request: Request) {
         price_data: {
           currency: 'jpy',
           product_data: {
-            name: menuName || '施術予約',
-            description: facilityName || 'CareLink予約',
+            name: menuName,
+            description: facilityName,
           },
-          unit_amount: amount,
+          unit_amount: serverAmount,
         },
         quantity: 1,
       }],
