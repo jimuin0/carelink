@@ -113,5 +113,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
-  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages];
+  // Jobs (公開施設に紐づくもののみ)
+  const publishedFacilityIds = new Set((facilities || []).map((f: { slug: string }) => f.slug));
+  const { data: jobs } = await supabase
+    .from('facility_jobs')
+    .select('id, updated_at, facility_profiles!inner(slug, status)')
+    .eq('facility_profiles.status', 'published');
+  const jobPages: MetadataRoute.Sitemap = [
+    { url: `${SITE_URL}/jobs`, lastModified: updated, changeFrequency: 'daily' as const, priority: 0.7 },
+    ...((jobs || []) as Array<{ id: string; updated_at: string | null }>).map((j) => ({
+      url: `${SITE_URL}/jobs/${j.id}`,
+      lastModified: j.updated_at ? new Date(j.updated_at) : updated,
+      changeFrequency: 'weekly' as const,
+      priority: 0.7,
+    })),
+  ];
+  // 抑止: 未使用変数を回避
+  void publishedFacilityIds;
+
+  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
 }
