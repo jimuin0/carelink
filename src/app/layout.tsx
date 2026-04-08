@@ -45,7 +45,14 @@ export const metadata: Metadata = {
   },
   manifest: '/manifest.json',
   verification: {
-    google: 'X77f8ve6kjvN0CwITUDAabniIrahIrSsOyPgdHOVjuw',
+    // 既存wwwプロパティ + apexプロパティ（env経由）両対応
+    // apexプロパティを追加する際は Vercel環境変数 NEXT_PUBLIC_GSC_VERIFICATION_APEX に値を設定するだけ
+    google: [
+      'X77f8ve6kjvN0CwITUDAabniIrahIrSsOyPgdHOVjuw',
+      ...(process.env.NEXT_PUBLIC_GSC_VERIFICATION_APEX
+        ? [process.env.NEXT_PUBLIC_GSC_VERIFICATION_APEX]
+        : []),
+    ],
   },
   other: {
     'theme-color': '#0284C7',

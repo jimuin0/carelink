@@ -10,9 +10,18 @@
 ## Phase A: インフラ・監視（最優先）
 
 ### A1. GSC apex プロパティ追加
-- [ ] Google Search Console で `https://carelink-jp.com/`（**wwwなし**）を新規追加
-- [ ] HTML確認またはDNSで所有権確認
-- [ ] 既存wwwプロパティはそのまま残しておく（参考用）
+1. [ ] https://search.google.com/search-console を開く
+2. [ ] 左上ドロップダウン → 「+ プロパティを追加」
+3. [ ] 「URL プレフィックス」を選択
+4. [ ] URL欄: `https://carelink-jp.com/`（**wwwなし**、httpsで始まる、末尾スラ）
+5. [ ] 「続行」→ 所有権確認 → 「HTMLタグ」方式を選択
+6. [ ] `<meta name="google-site-verification" content="..." />` の **content値だけコピー**
+7. [ ] **Vercel環境変数**: `NEXT_PUBLIC_GSC_VERIFICATION_APEX` にcontent値を貼り付け
+   - 既にコード側で対応済み（layout.tsx でenv経由読み込み）
+   - 既存wwwプロパティのtokenはハードコードされたまま並存
+8. [ ] Vercel Redeploy
+9. [ ] GSC側の「確認」ボタンを押す → 認証成功
+10. [ ] 既存wwwプロパティはそのまま残しておく（参考用）
 
 ### A2. サイトマップ送信
 - [ ] GSC新プロパティ → サイトマップ → `https://carelink-jp.com/sitemap.xml`
