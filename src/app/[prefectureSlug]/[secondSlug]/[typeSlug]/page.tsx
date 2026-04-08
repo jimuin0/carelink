@@ -10,6 +10,7 @@ import {
 import { facilityFeatures, SITE_URL } from '@/lib/constants';
 import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
+import { generateCityTypeContent } from '@/lib/seo-snippets';
 import { isValidCitySlug, getCityName, getCitiesForPrefecture } from '@/data/city-slugs';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
@@ -112,27 +113,61 @@ export default async function CityTypePage({ params, searchParams }: Props) {
           </div>
         )}
 
-        {/* SEOテキスト */}
-        <section className="mb-10 bg-white rounded-2xl p-6 sm:p-8">
-          <h2 className="text-lg font-bold text-gray-900 mb-3">
-            {seoContent?.h2_title || `${cityName}の${typeName}をお探しの方へ`}
-          </h2>
-          <SafeHtmlContent
-            html={seoContent?.body_text || `<p>${prefName}${cityName}で${typeName}をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの${typeName}を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。</p>`}
-            className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
-          />
-          {seoContent && seoContent.faq_items.length > 0 && (
-            <div className="mt-6 space-y-4">
-              <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>
-              {seoContent.faq_items.map((faq, i) => (
-                <div key={i} className="border-b border-gray-100 pb-3">
-                  <p className="text-sm font-medium text-gray-800">Q. {faq.question}</p>
-                  <p className="text-sm text-gray-600 mt-1">A. {faq.answer}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
+        {/* SEOテキスト（生成器ベース、DBはフォールバック） */}
+        {(() => {
+          const generated = generateCityTypeContent(prefectureSlug, cityName, typeSlug);
+          const effectiveFaqs = generated?.faqs && generated.faqs.length > 0
+            ? generated.faqs
+            : (seoContent?.faq_items ?? []);
+          return (
+            <>
+              <section className="mb-10 bg-white rounded-2xl p-6 sm:p-8">
+                <h2 className="text-lg font-bold text-gray-900 mb-3">
+                  {generated?.h2 || seoContent?.h2_title || `${cityName}の${typeName}をお探しの方へ`}
+                </h2>
+                {generated ? (
+                  <div className="text-sm text-gray-600 leading-relaxed space-y-3">
+                    <p>{generated.intro}</p>
+                    {generated.highlights.length > 0 && (
+                      <ul className="list-disc pl-5 space-y-1 text-gray-700">
+                        {generated.highlights.map((h, i) => (
+                          <li key={i}>{h}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <SafeHtmlContent
+                    html={seoContent?.body_text || `<p>${prefName}${cityName}で${typeName}をお探しなら CareLink。</p>`}
+                    className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+                  />
+                )}
+                {effectiveFaqs.length > 0 && (
+                  <div className="mt-6 space-y-4">
+                    <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>
+                    {effectiveFaqs.map((faq, i) => (
+                      <div key={i} className="border-b border-gray-100 pb-3">
+                        <p className="text-sm font-medium text-gray-800">Q. {faq.question}</p>
+                        <p className="text-sm text-gray-600 mt-1">A. {faq.answer}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
+              {effectiveFaqs.length > 0 && (
+                <script type="application/ld+json" dangerouslySetInnerHTML={{
+                  __html: JSON.stringify({
+                    '@context': 'https://schema.org', '@type': 'FAQPage',
+                    mainEntity: effectiveFaqs.map((faq) => ({
+                      '@type': 'Question', name: faq.question,
+                      acceptedAnswer: { '@type': 'Answer', text: faq.answer },
+                    })),
+                  }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+                }} />
+              )}
+            </>
+          );
+        })()}
 
         {/* 同区の他業種 */}
         <section className="bg-white rounded-2xl p-6 sm:p-8 mb-6">

@@ -11,6 +11,7 @@ import {
 import { regionGroups, facilityFeatures, SITE_URL } from '@/lib/constants';
 import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
+import { generatePrefTypeContent, generateCityContent, type GeneratedSeoContent } from '@/lib/seo-snippets';
 import { isValidCitySlug, getCityName, getCitiesForPrefecture, getAllCitySlugs } from '@/data/city-slugs';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
@@ -158,7 +159,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
           </div>
         )}
 
-        <SeoTextSection seoContent={seoContent} fallbackTitle={`${prefName}の${typeName}をお探しの方へ`} fallbackBody={`${prefName}で${typeName}をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの${typeName}を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。`} />
+        <SeoTextSection seoContent={seoContent} generated={generatePrefTypeContent(prefectureSlug, typeSlug)} fallbackTitle={`${prefName}の${typeName}をお探しの方へ`} fallbackBody={`${prefName}で${typeName}をお探しなら CareLink。`} />
         <RelatedLinks currentPrefectureSlug={prefectureSlug} currentTypeSlug={typeSlug} regionGroup={regionGroup} />
       </div>
     </div>
@@ -226,7 +227,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
           </div>
         )}
 
-        <SeoTextSection seoContent={seoContent} fallbackTitle={`${cityName}でサロン・クリニックをお探しの方へ`} fallbackBody={`${prefName}${cityName}の美容サロン・鍼灸院・整骨院をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの施設を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。`} />
+        <SeoTextSection seoContent={seoContent} generated={generateCityContent(prefectureSlug, cityName)} fallbackTitle={`${cityName}でサロン・クリニックをお探しの方へ`} fallbackBody={`${prefName}${cityName}の施設をお探しなら CareLink。`} />
 
         {/* 同県の他市区町村リンク */}
         {siblingCities.length > 0 && (
@@ -251,21 +252,43 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 共通: SEOテキスト + FAQ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-function SeoTextSection({ seoContent, fallbackTitle, fallbackBody }: {
-  seoContent: import('@/lib/area-seo').AreaSeoContent | null; fallbackTitle: string; fallbackBody: string;
+function SeoTextSection({ seoContent, generated, fallbackTitle, fallbackBody }: {
+  seoContent: import('@/lib/area-seo').AreaSeoContent | null;
+  generated: GeneratedSeoContent | null;
+  fallbackTitle: string;
+  fallbackBody: string;
 }) {
+  // 生成済みコンテンツを最優先（DB seedはジェネリック）
+  const h2 = generated?.h2 || seoContent?.h2_title || fallbackTitle;
+  const effectiveFaqs = generated?.faqs && generated.faqs.length > 0
+    ? generated.faqs
+    : (seoContent?.faq_items ?? []);
+
   return (
     <>
       <section className="mb-10 bg-white rounded-2xl p-6 sm:p-8">
-        <h2 className="text-lg font-bold text-gray-900 mb-3">{seoContent?.h2_title || fallbackTitle}</h2>
-        <SafeHtmlContent
-          html={seoContent?.body_text || fallbackBody}
-          className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
-        />
-        {seoContent && seoContent.faq_items.length > 0 && (
+        <h2 className="text-lg font-bold text-gray-900 mb-3">{h2}</h2>
+        {generated ? (
+          <div className="text-sm text-gray-600 leading-relaxed space-y-3">
+            <p>{generated.intro}</p>
+            {generated.highlights.length > 0 && (
+              <ul className="list-disc pl-5 space-y-1 text-gray-700">
+                {generated.highlights.map((h, i) => (
+                  <li key={i}>{h}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : (
+          <SafeHtmlContent
+            html={seoContent?.body_text || fallbackBody}
+            className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+          />
+        )}
+        {effectiveFaqs.length > 0 && (
           <div className="mt-6 space-y-4">
             <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>
-            {seoContent.faq_items.map((faq, i) => (
+            {effectiveFaqs.map((faq, i) => (
               <div key={i} className="border-b border-gray-100 pb-3">
                 <p className="text-sm font-medium text-gray-800">Q. {faq.question}</p>
                 <p className="text-sm text-gray-600 mt-1">A. {faq.answer}</p>
@@ -274,11 +297,11 @@ function SeoTextSection({ seoContent, fallbackTitle, fallbackBody }: {
           </div>
         )}
       </section>
-      {seoContent && seoContent.faq_items.length > 0 && (
+      {effectiveFaqs.length > 0 && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{
           __html: JSON.stringify({
             '@context': 'https://schema.org', '@type': 'FAQPage',
-            mainEntity: seoContent.faq_items.map((faq) => ({
+            mainEntity: effectiveFaqs.map((faq) => ({
               '@type': 'Question', name: faq.question,
               acceptedAnswer: { '@type': 'Answer', text: faq.answer },
             })),
