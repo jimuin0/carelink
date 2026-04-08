@@ -12,6 +12,14 @@ export const revalidate = 0;
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const updated = new Date();
 
+  // 業種別グローバルページ（/type/[typeSlug]）
+  const businessTypeTopPages: MetadataRoute.Sitemap = allBusinessTypeSlugs.map((slug) => ({
+    url: `${SITE_URL}/type/${slug}`,
+    lastModified: updated,
+    changeFrequency: 'weekly' as const,
+    priority: 0.8,
+  }));
+
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [
     { url: SITE_URL, lastModified: updated, changeFrequency: 'weekly', priority: 1 },
@@ -135,5 +143,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // 抑止: 未使用変数を回避
   void publishedFacilityIds;
 
-  return [...staticPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
+  return [...staticPages, ...businessTypeTopPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
 }
