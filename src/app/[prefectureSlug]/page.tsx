@@ -59,10 +59,10 @@ export default async function PrefecturePage({ params }: Props) {
 
   // ハードコード固有データ（DBに詳細なseoContentがない場合のリッチフォールバック）
   const prefSeo = getPrefectureSeo(prefectureSlug);
-  // FAQはDB優先、なければハードコード
-  const effectiveFaqs = (seoContent && seoContent.faq_items.length > 0)
-    ? seoContent.faq_items
-    : (prefSeo?.faqs ?? []);
+  // FAQはハードコード優先（DBはジェネリックseed済みのため）
+  const effectiveFaqs = prefSeo?.faqs && prefSeo.faqs.length > 0
+    ? prefSeo.faqs
+    : (seoContent?.faq_items ?? []);
 
   // 同じ地域グループの他県を取得
   const regionGroup = regionGroups.find((r) => r.prefectures.includes(prefName));
@@ -173,15 +173,10 @@ export default async function PrefecturePage({ params }: Props) {
           <h2 className="text-lg font-bold text-gray-900 mb-3">
             {seoContent?.h2_title || `${prefName}でサロン・クリニックをお探しの方へ`}
           </h2>
-          {seoContent?.body_text ? (
-            <SafeHtmlContent
-              html={seoContent.body_text}
-              className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
-            />
-          ) : (
+          {prefSeo ? (
             <div className="text-sm text-gray-600 leading-relaxed space-y-3">
-              <p>{prefSeo?.intro || `${prefName}の美容サロン・鍼灸院・整骨院・介護施設をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの施設を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。`}</p>
-              {prefSeo && prefSeo.highlights.length > 0 && (
+              <p>{prefSeo.intro}</p>
+              {prefSeo.highlights.length > 0 && (
                 <ul className="list-disc pl-5 space-y-1 text-gray-700">
                   {prefSeo.highlights.map((h, i) => (
                     <li key={i}>{h}</li>
@@ -189,6 +184,15 @@ export default async function PrefecturePage({ params }: Props) {
                 </ul>
               )}
             </div>
+          ) : seoContent?.body_text ? (
+            <SafeHtmlContent
+              html={seoContent.body_text}
+              className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+            />
+          ) : (
+            <p className="text-sm text-gray-600 leading-relaxed">
+              {prefName}の美容サロン・鍼灸院・整骨院・介護施設をお探しなら CareLink。
+            </p>
           )}
           {effectiveFaqs.length > 0 && (
             <div className="mt-6 space-y-4">
