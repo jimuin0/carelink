@@ -12,6 +12,7 @@ import { getCitiesForPrefecture } from '@/data/city-slugs';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
+import { getPrefectureSeo } from '@/data/prefecture-seo';
 import Breadcrumb from '@/components/Breadcrumb';
 import FacilityCard from '@/components/search/FacilityCard';
 import RelatedLinks from '@/components/seo/RelatedLinks';
@@ -55,6 +56,13 @@ export default async function PrefecturePage({ params }: Props) {
     searchFacilities({ prefecture: prefName, sort: 'rating' }),
     getAreaSeoContent(prefectureSlug),
   ]);
+
+  // ハードコード固有データ（DBに詳細なseoContentがない場合のリッチフォールバック）
+  const prefSeo = getPrefectureSeo(prefectureSlug);
+  // FAQはDB優先、なければハードコード
+  const effectiveFaqs = (seoContent && seoContent.faq_items.length > 0)
+    ? seoContent.faq_items
+    : (prefSeo?.faqs ?? []);
 
   // 同じ地域グループの他県を取得
   const regionGroup = regionGroups.find((r) => r.prefectures.includes(prefName));
@@ -165,14 +173,27 @@ export default async function PrefecturePage({ params }: Props) {
           <h2 className="text-lg font-bold text-gray-900 mb-3">
             {seoContent?.h2_title || `${prefName}でサロン・クリニックをお探しの方へ`}
           </h2>
-          <SafeHtmlContent
-            html={seoContent?.body_text || `<p>${prefName}の美容サロン・鍼灸院・整骨院・介護施設をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの施設を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。</p>`}
-            className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
-          />
-          {seoContent && seoContent.faq_items.length > 0 && (
+          {seoContent?.body_text ? (
+            <SafeHtmlContent
+              html={seoContent.body_text}
+              className="text-sm text-gray-600 leading-relaxed [&>p]:mb-3 [&>p:last-child]:mb-0"
+            />
+          ) : (
+            <div className="text-sm text-gray-600 leading-relaxed space-y-3">
+              <p>{prefSeo?.intro || `${prefName}の美容サロン・鍼灸院・整骨院・介護施設をお探しなら CareLink。口コミ・メニュー・写真で比較して、あなたにぴったりの施設を見つけましょう。24時間ネット予約OK、掲載・利用すべて無料です。`}</p>
+              {prefSeo && prefSeo.highlights.length > 0 && (
+                <ul className="list-disc pl-5 space-y-1 text-gray-700">
+                  {prefSeo.highlights.map((h, i) => (
+                    <li key={i}>{h}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+          {effectiveFaqs.length > 0 && (
             <div className="mt-6 space-y-4">
               <h3 className="text-sm font-bold text-gray-800">よくある質問</h3>
-              {seoContent.faq_items.map((faq, i) => (
+              {effectiveFaqs.map((faq, i) => (
                 <div key={i} className="border-b border-gray-100 pb-3">
                   <p className="text-sm font-medium text-gray-800">Q. {faq.question}</p>
                   <p className="text-sm text-gray-600 mt-1">A. {faq.answer}</p>
@@ -181,14 +202,14 @@ export default async function PrefecturePage({ params }: Props) {
             </div>
           )}
         </section>
-        {seoContent && seoContent.faq_items.length > 0 && (
+        {effectiveFaqs.length > 0 && (
           <script
             type="application/ld+json"
             dangerouslySetInnerHTML={{
               __html: JSON.stringify({
                 '@context': 'https://schema.org',
                 '@type': 'FAQPage',
-                mainEntity: seoContent.faq_items.map((faq) => ({
+                mainEntity: effectiveFaqs.map((faq) => ({
                   '@type': 'Question',
                   name: faq.question,
                   acceptedAnswer: { '@type': 'Answer', text: faq.answer },
