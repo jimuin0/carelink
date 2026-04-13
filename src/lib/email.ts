@@ -8,7 +8,7 @@ function getResend(): Resend | null {
   return _resend;
 }
 
-const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink.jp>';
+const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
 import { SITE_URL } from '@/lib/constants';
 
 /** HTML特殊文字エスケープ（XSS防止） */
