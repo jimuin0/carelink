@@ -21,11 +21,11 @@ import "./globals.css";
 export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: {
-    default: "CareLink | 医療・福祉・美容の集客プラットフォーム",
+    default: "CareLink | ヘア・ネイル・エステ・リラク・美容クリニックを予約",
     template: "%s | CareLink",
   },
   description:
-    "医療・福祉・美容に特化した集客プラットフォーム。サロン検索・予約・口コミで施設の集客をサポートします。",
+    "ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約。メニュー・料金・口コミで簡単比較。利用料無料。",
   openGraph: {
     type: "website",
     locale: "ja_JP",
@@ -34,9 +34,9 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: "summary_large_image",
-    title: "CareLink | 医療・福祉・美容の集客プラットフォーム",
+    title: "CareLink | ヘア・ネイル・エステ・リラク・美容クリニックを予約",
     description:
-      "医療・福祉・美容に特化した集客プラットフォーム。サロン検索・予約・口コミで施設の集客をサポートします。",
+      "ヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約。メニュー・料金・口コミで簡単比較。利用料無料。",
     images: ["/og-image.png"],
   },
   icons: {
@@ -87,7 +87,7 @@ export default function RootLayout({
                 "@type": "WebSite",
                 name: "CareLink",
                 url: "https://carelink-jp.com",
-                description: "医療・福祉・美容に特化した集客プラットフォーム",
+                description: "美容サロン・クリニックを検索・予約できるプラットフォーム",
                 publisher: {
                   "@type": "Organization",
                   name: "CareLink",
@@ -108,7 +108,7 @@ export default function RootLayout({
                 name: "CareLink",
                 url: "https://carelink-jp.com",
                 logo: "https://carelink-jp.com/favicon.svg",
-                description: "医療・福祉・美容に特化した集客プラットフォーム",
+                description: "美容サロン・クリニックを検索・予約できるプラットフォーム",
                 founder: {
                   "@type": "Person",
                   name: "神原良祐",
@@ -129,7 +129,7 @@ export default function RootLayout({
                     name: "本当に無料ですか？",
                     acceptedAnswer: {
                       "@type": "Answer",
-                      text: "はい、施設の掲載も検索・予約も完全無料です。初期費用・月額費用は一切かかりません。",
+                      text: "はい、検索・ご予約は完全無料です。初期費用・月額費用は一切かかりません。",
                     },
                   },
                   {

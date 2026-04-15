@@ -133,8 +133,9 @@ export default function ContactPage() {
               </label>
               <select id="contact-inquiry-type" {...register('inquiry_type')} className="form-input" aria-required="true">
                 <option value="">選択してください</option>
-                <option value="掲載について">掲載について</option>
-                <option value="施設検索について">施設検索について</option>
+                <option value="検索・予約について">検索・予約について</option>
+                <option value="アカウントについて">アカウントについて</option>
+                <option value="施設掲載について（オーナー向け）">施設掲載について（オーナー向け）</option>
                 <option value="その他">その他</option>
               </select>
               {errors.inquiry_type && <p className="form-error" role="alert">{errors.inquiry_type.message}</p>}

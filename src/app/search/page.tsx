@@ -187,7 +187,6 @@ export default async function SearchPage({ searchParams }: Props) {
                 <p className="text-gray-400 text-sm mb-6">条件を変更して再度検索してみてください</p>
                 <div className="flex flex-col sm:flex-row gap-3 justify-center">
                   <Link href="/search" className="px-6 py-2 bg-sky-500 text-white rounded-lg text-sm font-bold hover:bg-sky-600">条件をリセット</Link>
-                  <Link href="/register" className="px-6 py-2 border border-sky-500 text-sky-600 rounded-lg text-sm font-bold hover:bg-sky-50">店舗を掲載する（無料）</Link>
                 </div>
               </div>
             )}

@@ -232,28 +232,15 @@ export default function HomeBelowFold() {
         </div>
       </div>
 
-      {/* ===== 施設オーナー向けCTA ===== */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0">
-          <Image
-            src="/images/cta.webp"
-            alt="施設掲載のご案内"
-            fill
-            sizes="100vw"
-            className="object-cover"
-            loading="lazy"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-sky-900/85 to-indigo-900/85" />
-        </div>
-        <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6 py-12 text-center">
-          <h2 className="text-lg sm:text-xl font-bold text-white">施設を掲載しませんか？</h2>
-          <p className="text-sm text-white mt-2">掲載料無料。新規のお客様にあなたの施設を知ってもらいましょう。</p>
-          <Link
-            href="/register"
-            className="inline-flex items-center gap-2 mt-5 px-8 py-3 bg-white text-sky-700 font-bold rounded-lg hover:bg-sky-50 transition-all shadow-lg hover:shadow-xl"
-          >
-            無料で掲載する
-          </Link>
+      {/* ===== 施設オーナー向け小リンク ===== */}
+      <div className="border-t border-gray-100 bg-gray-50">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-4 text-center">
+          <p className="text-xs text-gray-400">
+            施設オーナーの方は
+            <Link href="/salon" className="text-sky-600 hover:underline ml-1">
+              無料掲載のご案内 →
+            </Link>
+          </p>
         </div>
       </div>
 

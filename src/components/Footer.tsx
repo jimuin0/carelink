@@ -112,8 +112,8 @@ export default function Footer() {
               CareLink
             </Link>
             <p className="text-gray-400 text-sm mt-3 leading-relaxed">
-              医療・福祉・美容に特化した<br />
-              集客プラットフォーム
+              美容サロン・クリニックを<br />
+              かんたん検索・予約
             </p>
           </div>
 
@@ -125,7 +125,7 @@ export default function Footer() {
                 サロンを探す
               </Link>
               <Link href="/salon" className="hover:text-white transition-colors">
-                集客したい方
+                施設掲載（オーナー向け）
               </Link>
               <Link href="/contact" className="hover:text-white transition-colors">
                 お問い合わせ
@@ -158,7 +158,7 @@ export default function Footer() {
               <dt>所在地</dt>
               <dd>大阪府堺市</dd>
               <dt>事業内容</dt>
-              <dd>美容・医療・福祉分野の集客支援</dd>
+              <dd>美容・医療・福祉施設の検索・予約サービス</dd>
               <dt>お問い合わせ</dt>
               <dd><Link href="/contact" className="text-gray-300 hover:text-white transition-colors underline">お問い合わせフォーム</Link></dd>
             </dl>

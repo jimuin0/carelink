@@ -24,9 +24,6 @@ export default function NotFound() {
           <Link href="/search" className="btn-outline">
             サロンを探す
           </Link>
-          <Link href="/salon" className="btn-outline">
-            集客したい方
-          </Link>
         </div>
       </div>
     </div>

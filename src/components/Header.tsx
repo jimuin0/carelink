@@ -2,6 +2,9 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import dynamic from 'next/dynamic';
+
+const AuthButton = dynamic(() => import('@/components/auth/AuthButton'), { ssr: false });
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
@@ -15,28 +18,34 @@ export default function Header() {
           </Link>
 
           {/* Desktop nav */}
-          <nav className="hidden sm:flex items-center gap-6" aria-label="メインナビゲーション">
+          <nav className="hidden sm:flex items-center gap-4" aria-label="メインナビゲーション">
             <Link
               href="/search"
               className="text-gray-700 hover:text-primary font-medium transition-colors"
             >
               サロンを探す
             </Link>
-            <Link
-              href="/salon"
-              className="text-gray-700 hover:text-primary font-medium transition-colors"
-            >
-              集客したい方
-            </Link>
             <Link href="/contact" className="text-gray-700 hover:text-primary font-medium transition-colors">
               お問い合わせ
             </Link>
-            <Link href="/salon" className="btn-primary !py-2 !px-5 text-sm">
-              無料で掲載する
+            <Link
+              href="/salon"
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              施設掲載
             </Link>
+            <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
+              <Link href="/auth/signup" className="text-sm text-gray-700 hover:text-primary font-medium transition-colors">
+                会員登録
+              </Link>
+              <AuthButton />
+            </div>
           </nav>
 
-          {/* Mobile hamburger */}
+          {/* Mobile: auth + hamburger */}
+          <div className="sm:hidden flex items-center gap-1">
+            <AuthButton />
+          </div>
           <button
             type="button"
             className="sm:hidden p-2 min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -69,11 +78,11 @@ export default function Header() {
               サロンを探す
             </Link>
             <Link
-              href="/salon"
+              href="/auth/signup"
               className="text-gray-700 font-medium hover:text-primary transition-colors"
               onClick={() => setIsOpen(false)}
             >
-              集客したい方
+              会員登録（無料）
             </Link>
             <Link
               href="/contact"
@@ -84,10 +93,10 @@ export default function Header() {
             </Link>
             <Link
               href="/salon"
-              className="btn-primary !py-2.5 text-center text-sm"
+              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
               onClick={() => setIsOpen(false)}
             >
-              無料で掲載する
+              施設掲載はこちら
             </Link>
           </nav>
         </div>

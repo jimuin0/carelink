@@ -10,7 +10,7 @@ const HomeBelowFold = dynamic(() => import('@/components/home/HomeBelowFold'), {
 
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
-  description: 'CareLink（ケアリンク）はヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約できるプラットフォーム。メニュー・料金・口コミで簡単比較。掲載・利用料無料。',
+  description: 'CareLink（ケアリンク）はヘアサロン・ネイル・まつげ・リラク・エステ・美容クリニック・鍼灸院・整骨院を検索・予約できるプラットフォーム。メニュー・料金・口コミで簡単比較。利用料無料。',
   alternates: { canonical: '/' },
   openGraph: {
     title: 'CareLink | ネットでかんたんサロン予約',
@@ -77,12 +77,12 @@ export default function Home() {
             <div className="flex items-center justify-center gap-6 sm:gap-10 mt-6">
               <div className="text-center">
                 <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                <p className="text-tiny sm:text-xs text-white mt-0.5">掲載・利用料</p>
+                <p className="text-tiny sm:text-xs text-white mt-0.5">予約手数料</p>
               </div>
               <div className="w-px h-8 bg-white/20" />
               <div className="text-center">
                 <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
-                <p className="text-tiny sm:text-xs text-white mt-0.5">かんたん登録</p>
+                <p className="text-tiny sm:text-xs text-white mt-0.5">かんたん予約</p>
               </div>
               <div className="w-px h-8 bg-white/20" />
               <div className="text-center">
@@ -104,7 +104,7 @@ export default function Home() {
               </div>
               <div>
                 <h2 className="text-sm font-bold text-gray-800">完全無料</h2>
-                <p className="text-xs text-gray-500 mt-0.5">掲載料・予約手数料は一切かかりません</p>
+                <p className="text-xs text-gray-500 mt-0.5">ご予約・ご利用は一切無料です</p>
               </div>
             </div>
             <div className="flex items-start gap-3">
