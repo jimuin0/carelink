@@ -14,8 +14,9 @@ const categories = [
   { name: 'ネイル・まつげ', type: 'ネイル・まつげサロン' },
   { name: 'リラク', type: 'リラクサロン' },
   { name: 'エステ', type: 'エステサロン' },
-  { name: 'ピラティス', type: 'ピラティス' },
   { name: '美容クリニック', type: '美容クリニック' },
+  { name: '鍼灸院・整骨院', type: '鍼灸院・整骨院' },
+  { name: 'ピラティス', type: 'ピラティス' },
 ];
 
 const featureBanners = [
