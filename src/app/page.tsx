@@ -58,20 +58,18 @@ export default function Home() {
               ヘア・ネイル・まつげ・リラク・エステ・ピラティス・美容クリニック
             </p>
 
-            <div className="max-w-[520px] mx-auto mt-5 mb-5">
-              <div className="shadow-lg rounded-lg overflow-hidden">
-                <HomeSearchForm />
-              </div>
+            <div className="max-w-[520px] mx-auto mt-5">
+              <HomeSearchForm />
             </div>
 
-            <div className="flex items-center justify-center gap-2 flex-wrap max-w-[620px] mx-auto">
+            <div className="flex overflow-x-auto gap-2 mt-4 mb-1 max-w-[620px] mx-auto pb-1 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
               {categories.map((cat) => (
                 <Link
                   key={cat.type}
                   href={`/search?type=${encodeURIComponent(cat.type)}`}
-                  className="inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-3 text-xs font-medium text-white transition-all shadow-sm hover:shadow min-h-[44px]"
+                  className="flex-shrink-0 inline-flex items-center gap-1.5 bg-white/20 hover:bg-white/30 backdrop-blur-sm rounded-full px-4 py-2.5 text-xs font-medium text-white transition-all shadow-sm hover:shadow whitespace-nowrap min-h-[40px]"
                 >
-                  <span>{cat.name}</span>
+                  {cat.name}
                 </Link>
               ))}
             </div>
