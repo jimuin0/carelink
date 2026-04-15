@@ -20,7 +20,7 @@ export default function TermsPage() {
         <section className="mb-8">
           <h2 className="text-xl font-bold mb-4">第1条（サービス概要）</h2>
           <p className="text-gray-600">
-            本サービスは、医療・福祉・美容業界に特化した集客プラットフォームです。施設・サロンの集客支援を目的として、施設情報の掲載、検索、予約等の機能を提供します。
+            本サービスは、医療・福祉・美容分野の施設を探すユーザーと施設をつなぐプラットフォームです。施設情報の検索・予約・口コミ等の機能を、ユーザーおよび施設の双方に提供します。
           </p>
         </section>
 
