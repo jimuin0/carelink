@@ -4,11 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { regionGroups, facilityFeatures } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
-import FacilityCard from '@/components/search/FacilityCard';
 import dynamic from 'next/dynamic';
-import type { FacilityCardData } from '@/types';
-import { useEffect, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 
 const HomeUserPanel = dynamic(() => import('@/components/search/HomeUserPanel'), { ssr: false });
 const JapanRegionMap = dynamic(() => import('@/components/home/JapanRegionMap'), { ssr: false, loading: () => <div className="h-64 bg-gray-50 rounded-2xl animate-pulse" /> });
@@ -18,6 +14,7 @@ const categories = [
   { name: 'ネイル・まつげ', type: 'ネイル・まつげサロン' },
   { name: 'リラク', type: 'リラクサロン' },
   { name: 'エステ', type: 'エステサロン' },
+  { name: 'ピラティス', type: 'ピラティス' },
   { name: '美容クリニック', type: '美容クリニック' },
 ];
 
@@ -61,20 +58,6 @@ const blogPosts = [
 ];
 
 export default function HomeBelowFold() {
-  const [latestFacilities, setLatestFacilities] = useState<FacilityCardData[]>([]);
-
-  useEffect(() => {
-    supabase
-      .from('facility_profiles')
-      .select('id, name, slug, business_type, prefecture, city, main_photo_url, rating_avg, rating_count, catch_copy')
-      .eq('status', 'published')
-      .order('created_at', { ascending: false })
-      .limit(6)
-      .then(({ data }) => {
-        if (data) setLatestFacilities(data as FacilityCardData[]);
-      });
-  }, []);
-
   return (
     <>
       {/* ===== 特集バナー ===== */}
@@ -105,22 +88,7 @@ export default function HomeBelowFold() {
         </div>
       </div>
 
-      {/* ===== 新着サロン ===== */}
-      {latestFacilities.length > 0 && (
-        <div className="border-t border-gray-100">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">新着サロン</h2>
-              <Link href="/search?sort=newest" className="text-xs text-sky-700 hover:underline">もっと見る &rsaquo;</Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {latestFacilities.map((f) => (
-                <FacilityCard key={f.id} facility={f} />
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {/* 新着サロンセクション削除済み（TOPに店舗情報を載せない方針） */}
 
       {/* ===== お悩み別ナビ ===== */}
       <div className="border-t border-gray-100">
