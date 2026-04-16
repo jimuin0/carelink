@@ -166,8 +166,8 @@ export default function Footer() {
         </div>
 
         <div className="mt-10 pt-8 border-t border-gray-700">
-          <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mb-4 text-xs text-gray-500">
-            <Link href="/salon" className="hover:text-gray-300 transition-colors">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mb-4 text-xs text-gray-400">
+            <Link href="/salon" className="hover:text-white transition-colors">
               施設掲載をご希望のオーナー様はこちら →
             </Link>
           </div>
