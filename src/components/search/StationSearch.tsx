@@ -8,6 +8,7 @@ export default function StationSearch() {
   const [query, setQuery] = useState('');
   const [stations, setStations] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(false);
   const router = useRouter();
 
   const handleClose = useCallback(() => setOpen(false), []);
@@ -15,10 +16,11 @@ export default function StationSearch() {
   useEffect(() => {
     if (!open) return;
     setLoading(true);
+    setFetchError(false);
     fetch('/api/stations', { signal: AbortSignal.timeout(10000) })
       .then((r) => r.json())
       .then((data) => setStations(data.stations || []))
-      .catch(() => {})
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
     window.addEventListener('keydown', onKeyDown);
@@ -67,6 +69,8 @@ export default function StationSearch() {
             <div className="overflow-y-auto flex-1 p-2">
               {loading ? (
                 <p className="text-center text-gray-400 text-sm py-8">読み込み中...</p>
+              ) : fetchError ? (
+                <p className="text-center text-gray-400 text-sm py-8">駅情報の読み込みに失敗しました</p>
               ) : filtered.length === 0 ? (
                 <p className="text-center text-gray-400 text-sm py-8">該当する駅がありません</p>
               ) : (

@@ -1,7 +1,12 @@
 'use client';
 
+import * as Sentry from '@sentry/nextjs';
+import { useEffect } from 'react';
+
 export default function AdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  void error;
+  useEffect(() => {
+    Sentry.captureException(error);
+  }, [error]);
   return (
     <div className="flex flex-col items-center justify-center py-12">
       <p className="text-gray-600 mb-4">管理画面の読み込みに失敗しました</p>
