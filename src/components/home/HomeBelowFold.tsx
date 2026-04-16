@@ -232,18 +232,6 @@ export default function HomeBelowFold() {
         </div>
       </div>
 
-      {/* ===== 施設オーナー向け小リンク ===== */}
-      <div className="border-t border-gray-100 bg-gray-50">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-4 text-center">
-          <p className="text-xs text-gray-400">
-            施設オーナーの方は
-            <Link href="/salon" className="text-sky-600 hover:underline ml-1">
-              無料掲載のご案内 →
-            </Link>
-          </p>
-        </div>
-      </div>
-
       {/* ===== コラム・ブログ ===== */}
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-12">
         <h2 className="text-lg sm:text-xl font-bold text-center mb-6">お役立ちコラム</h2>
