@@ -2,8 +2,6 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import dynamic from 'next/dynamic';
-import { getPopularFacilities } from '@/lib/facilities';
-import FacilityCard from '@/components/search/FacilityCard';
 
 const HomeBelowFold = dynamic(() => import('@/components/home/HomeBelowFold'), {
   ssr: false,
@@ -35,10 +33,7 @@ const categories = [
   { name: 'ピラティス', type: 'ピラティス' },
 ];
 
-export const revalidate = 3600;
-
-export default async function Home() {
-  const { facilities: popularFacilities } = await getPopularFacilities(6);
+export default function Home() {
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
@@ -82,11 +77,6 @@ export default async function Home() {
             </div>
 
             <div className="flex items-center justify-center gap-6 sm:gap-10 mt-6">
-              <div className="text-center">
-                <p className="text-2xl sm:text-3xl font-bold text-white">¥0</p>
-                <p className="text-tiny sm:text-xs text-white mt-0.5">予約手数料</p>
-              </div>
-              <div className="w-px h-8 bg-white/20" />
               <div className="text-center">
                 <p className="text-2xl sm:text-3xl font-bold text-white">5分</p>
                 <p className="text-tiny sm:text-xs text-white mt-0.5">かんたん予約</p>
@@ -140,33 +130,6 @@ export default async function Home() {
           </div>
         </div>
       </div>
-
-      {/* ===== 人気サロン ===== */}
-      {popularFacilities.length > 0 && (
-        <div className="border-t border-gray-100">
-          <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-sm font-bold text-gray-800 pl-3 border-l-[3px] border-sky-500">人気サロン</h2>
-              <Link href="/search?sort=popular" className="text-xs text-sky-600 hover:underline">もっと見る →</Link>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {popularFacilities.map((facility) => (
-                <FacilityCard key={facility.id} facility={facility} showBadges />
-              ))}
-            </div>
-            {/* ★施策5: 人気サロン下CTA */}
-            <div className="mt-6 pt-6 border-t border-gray-100 flex flex-col sm:flex-row items-center justify-between gap-3">
-              <p className="text-sm text-gray-600">気になるサロンを見つけたら、会員登録してお気に入り保存</p>
-              <Link
-                href="/auth/signup"
-                className="shrink-0 inline-flex items-center gap-1.5 px-5 py-2 border border-sky-600 text-sky-600 hover:bg-sky-50 text-sm font-bold rounded-lg transition-colors whitespace-nowrap"
-              >
-                無料会員登録はこちら →
-              </Link>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ===== Below-fold content (client-side loaded) ===== */}
       <HomeBelowFold />

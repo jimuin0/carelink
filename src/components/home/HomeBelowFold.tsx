@@ -100,7 +100,7 @@ export default function HomeBelowFold() {
               <Link
                 key={item.label}
                 href={item.href}
-                className="bg-sky-50 rounded-xl p-4 text-center hover:shadow-md transition-shadow group"
+                className="bg-sky-50 rounded-xl px-2 py-3 h-[52px] flex items-center justify-center text-center hover:shadow-md transition-shadow group"
               >
                 <span className="text-tiny sm:text-xs font-medium text-gray-700 leading-tight block">{item.label}</span>
               </Link>
