@@ -63,7 +63,7 @@ export default function HomeBelowFold() {
     <>
       {/* ===== 特集バナー ===== */}
       <div className="bg-gray-50 border-t border-gray-100">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-6">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {featureBanners.map((banner) => (
               <Link
@@ -93,7 +93,7 @@ export default function HomeBelowFold() {
 
       {/* ===== お悩み別ナビ ===== */}
       <div className="border-t border-gray-100">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
+        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-6">
           <h2 className="text-sm font-bold text-gray-800 mb-5 pl-3 border-l-[3px] border-sky-500">お悩みから探す</h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             {worryNavItems.map((item) => (

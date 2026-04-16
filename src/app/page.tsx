@@ -52,7 +52,7 @@ export default function Home() {
         </div>
 
         <div className="relative max-w-[1040px] mx-auto px-4 sm:px-6">
-          <div className="pt-10 sm:pt-14 pb-9 sm:pb-12 text-center">
+          <div className="pt-10 sm:pt-14 pb-7 sm:pb-10 text-center">
             <h1 className="text-2xl sm:text-3xl font-bold text-white leading-tight tracking-wide drop-shadow-md [text-shadow:0_2px_8px_rgba(0,0,0,0.4)]">
               ネットでかんたんサロン予約
             </h1>
@@ -98,35 +98,6 @@ export default function Home() {
                 無料会員登録でポイントGET
               </Link>
             </div>
-          </div>
-        </div>
-      </div>
-
-      {/* ★施策2: 安心ポイント削除 + CTAバー1本化 */}
-      <div className="border-t border-gray-100 bg-white">
-        <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-4">
-          <div className="flex flex-col sm:flex-row items-center gap-3 sm:gap-6 justify-between">
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-5 gap-y-1.5">
-              <p className="text-sm font-bold text-gray-800 whitespace-nowrap">無料会員登録で</p>
-              <span className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap">
-                <span className="w-4 h-4 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-[10px]">✓</span>
-                予約ごとにポイント還元
-              </span>
-              <span className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap">
-                <span className="w-4 h-4 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-[10px]">✓</span>
-                お気に入りサロンを保存
-              </span>
-              <span className="flex items-center gap-1.5 text-xs text-gray-600 whitespace-nowrap">
-                <span className="w-4 h-4 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center font-bold text-[10px]">✓</span>
-                予約履歴をかんたん管理
-              </span>
-            </div>
-            <Link
-              href="/auth/signup"
-              className="shrink-0 inline-flex items-center gap-1.5 px-5 py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-lg transition-colors shadow-sm whitespace-nowrap"
-            >
-              無料で登録する →
-            </Link>
           </div>
         </div>
       </div>
