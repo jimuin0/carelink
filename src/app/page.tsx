@@ -65,7 +65,7 @@ export default async function Home() {
               <HomeSearchForm />
             </div>
 
-            <div className="flex overflow-x-auto gap-2 mt-4 mb-1 max-w-[620px] mx-auto pb-1 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
+            <div className="flex flex-nowrap overflow-x-auto sm:flex-wrap sm:justify-center gap-2 mt-4 mb-1 max-w-[800px] mx-auto pb-1 [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none' }}>
               {categories.map((cat) => (
                 <Link
                   key={cat.type}
