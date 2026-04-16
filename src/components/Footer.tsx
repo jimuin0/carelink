@@ -165,8 +165,15 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 pt-8 border-t border-gray-700 text-center text-sm text-gray-400">
-          &copy; {new Date().getFullYear()} CareLink All rights reserved.
+        <div className="mt-10 pt-8 border-t border-gray-700">
+          <div className="flex flex-wrap justify-center gap-x-6 gap-y-1 mb-4 text-xs text-gray-500">
+            <Link href="/salon" className="hover:text-gray-300 transition-colors">
+              施設掲載をご希望のオーナー様はこちら →
+            </Link>
+          </div>
+          <div className="text-center text-sm text-gray-400">
+            &copy; {new Date().getFullYear()} CareLink All rights reserved.
+          </div>
         </div>
       </div>
     </footer>
