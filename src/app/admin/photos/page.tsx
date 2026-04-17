@@ -157,6 +157,12 @@ export default function AdminPhotosPage() {
     <div>
       <h1 className="text-2xl font-bold mb-6">写真管理</h1>
 
+      {/* 医療広告ガイドライン注意書き */}
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-800">
+        <p className="font-bold mb-1">⚠️ 医療広告ガイドラインについて</p>
+        <p>施術前後の比較（Before/After）写真は、<strong>医療広告ガイドライン</strong>により表示が制限される場合があります。鍼灸院・整骨院・クリニック等は特定の条件を満たさない限り掲載をお控えください。詳細は<a href="https://www.mhlw.go.jp/stf/seisakunitsuite/bunya/kenkou_iryou/iryou/koukoku/index.html" target="_blank" rel="noopener noreferrer" className="underline">厚生労働省のガイドライン</a>をご確認ください。</p>
+      </div>
+
       {/* アップロード */}
       <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
         <h2 className="font-bold mb-4">写真をアップロード</h2>
