@@ -136,6 +136,14 @@ export async function POST(request: Request) {
     ? Math.max(0, serverTotalPrice - pointsUsed)
     : serverTotalPrice;
 
+  // 施設の即時確定モード取得
+  const { data: facilitySettings } = await supabase
+    .from('facility_profiles')
+    .select('booking_auto_confirm')
+    .eq('id', parsed.data.facility_id)
+    .single();
+  const bookingStatus = facilitySettings?.booking_auto_confirm ? 'confirmed' : 'pending';
+
   // Strip non-DB fields before insert
   const { points_used: _pointsUsed, total_price: _clientPrice, ...bookingData } = parsed.data;
   void _pointsUsed; void _clientPrice;
@@ -147,7 +155,7 @@ export async function POST(request: Request) {
       total_price: finalPrice,
       points_used: pointsUsed,
       user_id: user?.id ?? null,
-      status: 'pending',
+      status: bookingStatus,
     })
     .select('id')
     .single();

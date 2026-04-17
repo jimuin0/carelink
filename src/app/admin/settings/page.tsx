@@ -45,6 +45,7 @@ export default function AdminSettingsPage() {
   const [selectedFeatures, setSelectedFeatures] = useState<string[]>([]);
   const [regularHoliday, setRegularHoliday] = useState('');
   const [facilityStatus, setFacilityStatus] = useState<'draft' | 'published' | 'suspended'>('draft');
+  const [autoConfirm, setAutoConfirm] = useState(false);
   const [publishToggling, setPublishToggling] = useState(false);
 
   // Business hours
@@ -85,6 +86,7 @@ export default function AdminSettingsPage() {
         setSelectedFeatures(data.features || []);
         setRegularHoliday(data.regular_holiday || '');
         setFacilityStatus(data.status || 'draft');
+        setAutoConfirm(data.booking_auto_confirm ?? false);
         if (data.business_hours) {
           const bh = data.business_hours as BusinessHours;
           const closed: string[] = [];
@@ -163,6 +165,7 @@ export default function AdminSettingsPage() {
           features: selectedFeatures,
           regular_holiday: regularHoliday || null,
           business_hours: businessHours,
+          booking_auto_confirm: autoConfirm,
           updated_at: new Date().toISOString(),
         })
         .eq('id', facilityId);
@@ -343,6 +346,25 @@ export default function AdminSettingsPage() {
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
           <input id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} className="form-input" placeholder="例: 第2・4月曜、年末年始" maxLength={100} />
         </div>
+      </section>
+
+      {/* 予約設定 */}
+      <section className="bg-white rounded-xl shadow-sm p-6 mb-6">
+        <h2 className="text-lg font-bold mb-4">予約設定</h2>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={autoConfirm}
+            onChange={(e) => setAutoConfirm(e.target.checked)}
+            className="mt-0.5 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+          />
+          <div>
+            <p className="text-sm font-medium text-gray-800">予約を即時確定する</p>
+            <p className="text-xs text-gray-500 mt-0.5">
+              ONにすると、ユーザーが予約した際に自動で「確定」状態になります。OFFの場合は「承認待ち」として管理画面で手動確定が必要です。
+            </p>
+          </div>
+        </label>
       </section>
 
       {/* 設備・特徴 */}

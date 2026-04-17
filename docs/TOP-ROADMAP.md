@@ -9,9 +9,9 @@
 ## Phase 1: 最低限動くプロダクト（これがないと使い物にならない）
 
 ### 予約システムの致命的欠陥
-- [ ] **スタッフシフト管理UI**（admin/staff/[id]/schedule に曜日×時間グリッドUI）
+- [x] **スタッフシフト管理UI**（admin/staff/[id]/schedule に曜日×時間グリッドUI）
 - [ ] **予約競合のDB制約**（bookings テーブルにUNIQUE制約 or RPC）
-- [ ] **予約即時確定モード**（pending→confirmed 手動承認 OR 自動確定の選択制）
+- [x] **予約即時確定モード**（pending→confirmed 手動承認 OR 自動確定の選択制）
 - [ ] **予約リマインドの動作確認**（Cron実行確認、メール+LINE両方）
 
 ### 口コミ・信頼性
