@@ -75,6 +75,22 @@ export default function DemoPage() {
         </div>
       </section>
 
+      {/* デモ動画 */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+        <h2 className="text-xl font-bold text-center text-gray-800 mb-6">管理画面デモ動画</h2>
+        <div className="relative rounded-2xl overflow-hidden bg-gray-900 shadow-xl" style={{ paddingBottom: '56.25%' }}>
+          {/* YouTube埋め込み — 動画公開後に src の VIDEO_ID を差し替え */}
+          <iframe
+            src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0&modestbranding=1"
+            title="CareLink 管理画面デモ"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="absolute inset-0 w-full h-full"
+          />
+        </div>
+        <p className="text-center text-xs text-gray-400 mt-3">※ 動画は準備中です。公開され次第この場所に掲載します。</p>
+      </section>
+
       {/* Features */}
       <section className="max-w-4xl mx-auto px-4 sm:px-6 py-12">
         <div className="space-y-8">
