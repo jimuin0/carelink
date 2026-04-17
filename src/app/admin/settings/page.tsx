@@ -46,6 +46,7 @@ export default function AdminSettingsPage() {
   const [regularHoliday, setRegularHoliday] = useState('');
   const [facilityStatus, setFacilityStatus] = useState<'draft' | 'published' | 'suspended'>('draft');
   const [autoConfirm, setAutoConfirm] = useState(false);
+  const [bufferMinutes, setBufferMinutes] = useState(0);
   const [publishToggling, setPublishToggling] = useState(false);
 
   // Business hours
@@ -87,6 +88,7 @@ export default function AdminSettingsPage() {
         setRegularHoliday(data.regular_holiday || '');
         setFacilityStatus(data.status || 'draft');
         setAutoConfirm(data.booking_auto_confirm ?? false);
+        setBufferMinutes(data.booking_buffer_minutes ?? 0);
         if (data.business_hours) {
           const bh = data.business_hours as BusinessHours;
           const closed: string[] = [];
@@ -166,6 +168,7 @@ export default function AdminSettingsPage() {
           regular_holiday: regularHoliday || null,
           business_hours: businessHours,
           booking_auto_confirm: autoConfirm,
+          booking_buffer_minutes: bufferMinutes,
           updated_at: new Date().toISOString(),
         })
         .eq('id', facilityId);
@@ -365,6 +368,26 @@ export default function AdminSettingsPage() {
             </p>
           </div>
         </label>
+        <div className="mt-4 border-t pt-4">
+          <label htmlFor="buffer-minutes" className="block text-sm font-medium text-gray-800 mb-1">
+            施術後バッファタイム（準備時間）
+          </label>
+          <p className="text-xs text-gray-500 mb-2">
+            施術終了後に確保するスタッフの準備時間です。この時間は予約枠として表示されません。
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              id="buffer-minutes"
+              value={bufferMinutes}
+              onChange={(e) => setBufferMinutes(parseInt(e.target.value))}
+              className="form-input w-40"
+            >
+              {[0, 5, 10, 15, 20, 30, 45, 60].map((m) => (
+                <option key={m} value={m}>{m === 0 ? 'なし' : `${m}分`}</option>
+              ))}
+            </select>
+          </div>
+        </div>
       </section>
 
       {/* 設備・特徴 */}
