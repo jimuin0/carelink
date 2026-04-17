@@ -1,0 +1,73 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+
+const updateSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  price: z.number().int().min(0).optional(),
+  sessions_per_month: z.number().int().min(1).max(100).optional(),
+  valid_months: z.number().int().min(1).max(24).optional(),
+  notes: z.string().max(500).optional(),
+  is_active: z.boolean().optional(),
+  sort_order: z.number().int().optional(),
+});
+
+async function verifyAdmin(planId: string, userId: string): Promise<string | null> {
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const { data: plan } = await admin.from('subscription_plans').select('facility_id').eq('id', planId).single();
+  if (!plan) return null;
+
+  const supabase = createServerSupabaseAuthClient();
+  const { data: mem } = await supabase
+    .from('facility_members')
+    .select('facility_id')
+    .eq('user_id', userId)
+    .eq('facility_id', plan.facility_id)
+    .in('role', ['owner', 'admin'])
+    .single();
+
+  return mem ? plan.facility_id : null;
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const facilityId = await verifyAdmin(params.id, user.id);
+  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json().catch(() => null);
+  const parsed = updateSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).select().single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ plan: data });
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const facilityId = await verifyAdmin(params.id, user.id);
+  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // 契約中ユーザーがいる場合は無効化のみ
+  const { count } = await admin.from('user_subscriptions').select('id', { count: 'exact', head: true }).eq('plan_id', params.id).eq('status', 'active');
+  if (count && count > 0) {
+    await admin.from('subscription_plans').update({ is_active: false }).eq('id', params.id);
+    return NextResponse.json({ message: '契約中ユーザーがいるため非公開にしました' });
+  }
+
+  const { error } = await admin.from('subscription_plans').delete().eq('id', params.id);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ message: 'deleted' });
+}

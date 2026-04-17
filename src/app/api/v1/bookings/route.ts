@@ -1,0 +1,102 @@
+/**
+ * CareLink 外部API v1 — 予約一覧
+ * GET /api/v1/bookings
+ * Authorization: Bearer {API_KEY}
+ *
+ * クエリパラメータ:
+ *   facility_id (required)
+ *   from, to (ISO date YYYY-MM-DD)
+ *   status (pending|confirmed|completed|cancelled)
+ *   limit (max 100, default 50)
+ *   page
+ *
+ * 用途: POS・会計ソフト・独自アプリとの連携
+ */
+
+import { NextRequest, NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+
+const API_VERSION = '1.0.0';
+
+function unauthorized() {
+  return NextResponse.json(
+    { error: 'Unauthorized', message: 'APIキーが無効です。Authorization: Bearer {KEY} ヘッダーを確認してください。' },
+    { status: 401, headers: { 'WWW-Authenticate': 'Bearer realm="CareLink API"' } }
+  );
+}
+
+async function resolveApiKey(apiKey: string): Promise<{ facility_id: string; scopes: string[] } | null> {
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const { data } = await admin
+    .from('api_keys')
+    .select('facility_id, scopes, is_active, expires_at')
+    .eq('key_hash', apiKey) // In production: store SHA256(key), compare hash
+    .single();
+
+  if (!data || !data.is_active) return null;
+  if (data.expires_at && new Date(data.expires_at) < new Date()) return null;
+  return { facility_id: data.facility_id, scopes: data.scopes ?? [] };
+}
+
+export async function GET(request: NextRequest) {
+  // Validate Authorization header
+  const authHeader = request.headers.get('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) return unauthorized();
+  const apiKey = authHeader.slice(7).trim();
+  if (!apiKey) return unauthorized();
+
+  const principal = await resolveApiKey(apiKey);
+  if (!principal) return unauthorized();
+
+  if (!principal.scopes.includes('bookings:read') && !principal.scopes.includes('*')) {
+    return NextResponse.json({ error: 'Forbidden', message: 'bookings:read スコープが必要です' }, { status: 403 });
+  }
+
+  const sp = request.nextUrl.searchParams;
+  const facilityId = sp.get('facility_id') ?? principal.facility_id;
+
+  // API keyのfacility_idと異なる施設を指定した場合はエラー
+  if (facilityId !== principal.facility_id && !principal.scopes.includes('*')) {
+    return NextResponse.json({ error: 'Forbidden', message: '別施設のデータにはアクセスできません' }, { status: 403 });
+  }
+
+  const from = sp.get('from');
+  const to = sp.get('to');
+  const status = sp.get('status');
+  const limit = Math.min(parseInt(sp.get('limit') ?? '50') || 50, 100);
+  const page = Math.max(parseInt(sp.get('page') ?? '1') || 1, 1);
+  const offset = (page - 1) * limit;
+
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  let query = admin
+    .from('bookings')
+    .select('id, booking_date, start_time, end_time, status, customer_name, customer_phone, total_price, menu_name, staff_name, notes, created_at, updated_at', { count: 'exact' })
+    .eq('facility_id', facilityId)
+    .order('booking_date', { ascending: false })
+    .range(offset, offset + limit - 1);
+
+  if (from) query = query.gte('booking_date', from);
+  if (to) query = query.lte('booking_date', to);
+  if (status) query = query.eq('status', status);
+
+  const { data, error, count } = await query;
+  if (error) return NextResponse.json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
+
+  return NextResponse.json({
+    api_version: API_VERSION,
+    facility_id: facilityId,
+    pagination: {
+      page,
+      limit,
+      total: count ?? 0,
+      total_pages: Math.ceil((count ?? 0) / limit),
+    },
+    data: data ?? [],
+  }, {
+    headers: {
+      'X-API-Version': API_VERSION,
+      'Cache-Control': 'no-store',
+    },
+  });
+}

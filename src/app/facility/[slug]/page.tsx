@@ -69,7 +69,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url,
       siteName: 'CareLink',
       images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.avg_rating ? '&rating=' + facility.avg_rating.toFixed(1) : ''}${facility.review_count ? '&reviews=' + facility.review_count : ''}`,
+        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`,
         width: 1200,
         height: 630,
       }],
@@ -78,7 +78,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       card: 'summary_large_image',
       title,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.avg_rating ? '&rating=' + facility.avg_rating.toFixed(1) : ''}${facility.review_count ? '&reviews=' + facility.review_count : ''}`],
+      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
     },
   };
 }
@@ -349,7 +349,7 @@ export default async function FacilityPage({ params }: Props) {
               ...((() => {
                 const allImages = [
                   facility.main_photo_url,
-                  ...photos.map(p => p.url).filter(Boolean),
+                  ...photos.map(p => p.photo_url).filter(Boolean),
                 ].filter(Boolean) as string[];
                 if (allImages.length === 0) return {};
                 return { image: allImages.length === 1 ? allImages[0] : allImages };

@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { businessTypes } from '@/lib/constants';
 import AuthButton from '@/components/auth/AuthButton';
+import dynamic from 'next/dynamic';
+const LocaleSwitcher = dynamic(() => import('@/components/LocaleSwitcher'), { ssr: false });
 
 export default function SearchHeader() {
   const [isOpen, setIsOpen] = useState(false);
@@ -33,7 +35,8 @@ export default function SearchHeader() {
             >
               エリア
             </Link>
-            <div className="ml-2 pl-2 border-l border-gray-200 shrink-0">
+            <div className="ml-2 pl-2 border-l border-gray-200 shrink-0 flex items-center gap-2">
+              <LocaleSwitcher />
               <AuthButton />
             </div>
           </nav>

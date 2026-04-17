@@ -141,7 +141,7 @@ export async function GET(request: Request) {
                 discount_value: 500,
                 reason: 'at_risk',
                 valid_until: validUntil,
-              }).catch(() => {});
+              }).then(() => null, () => null);
 
               await resend.emails.send({
                 from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',

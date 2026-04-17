@@ -136,7 +136,7 @@ export async function POST(request: Request) {
       facility_id: parsed.data.facility_id,
       points: 50,
       reason: 'review',
-    }).catch(() => {});
+    }).then(() => null, () => null);
   }
 
   return NextResponse.json({ success: true, id: review.id });

@@ -31,10 +31,11 @@ export async function GET(request: Request) {
     // 1. 同一IPから24時間以内に3件以上 → スパム疑い
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const { data: bulkSpam } = await supabase.rpc('find_bulk_review_ips', {
+    const rpcResult = await supabase.rpc('find_bulk_review_ips', {
       p_since: since24h,
       p_threshold: 3,
-    }).catch(() => ({ data: null }));
+    }).then((r) => r, () => ({ data: null }));
+    const bulkSpam = rpcResult?.data ?? null;
 
     if (bulkSpam && Array.isArray(bulkSpam)) {
       for (const row of bulkSpam as { reviewer_ip: string }[]) {
@@ -72,7 +73,7 @@ export async function GET(request: Request) {
         ipFacilityMap.get(key)!.push(r.id);
       }
 
-      for (const [, ids] of ipFacilityMap) {
+      for (const [, ids] of Array.from(ipFacilityMap)) {
         if (ids.length >= 2) {
           await supabase
             .from('facility_reviews')

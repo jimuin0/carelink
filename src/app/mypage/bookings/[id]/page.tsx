@@ -137,29 +137,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
             📅 Googleカレンダーに追加
           </a>
           <a
-            href={(() => {
-              const dateStr = booking.booking_date.replace(/-/g, '');
-              const startStr = `${dateStr}T${(booking.start_time || '').replace(/:/g, '').slice(0, 4)}00`;
-              const endStr = `${dateStr}T${(booking.end_time || '').replace(/:/g, '').slice(0, 4)}00`;
-              const now = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
-              const ical = [
-                'BEGIN:VCALENDAR',
-                'VERSION:2.0',
-                'PRODID:-//CareLink//Booking//JA',
-                'CALSCALE:GREGORIAN',
-                'BEGIN:VEVENT',
-                `UID:booking-${booking.id}@carelink-jp.com`,
-                `DTSTAMP:${now}`,
-                `DTSTART;TZID=Asia/Tokyo:${startStr}`,
-                `DTEND;TZID=Asia/Tokyo:${endStr}`,
-                `SUMMARY:CareLink 予約`,
-                `STATUS:CONFIRMED`,
-                booking.note ? `DESCRIPTION:${booking.note.replace(/\n/g, '\\n')}` : '',
-                'END:VEVENT',
-                'END:VCALENDAR',
-              ].filter(Boolean).join('\r\n');
-              return `data:text/calendar;charset=utf-8,${encodeURIComponent(ical)}`;
-            })()}
+            href={`/api/booking/${booking.id}/ical`}
             download={`carelink-booking-${booking.id.slice(0, 8)}.ics`}
             className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
           >

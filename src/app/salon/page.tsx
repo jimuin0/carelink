@@ -43,6 +43,12 @@ export default function SalonPage() {
             今すぐ無料で掲載する
           </Link>
           <p className="text-sky-200 text-xs mt-3">3分で登録完了 ・ クレジットカード不要</p>
+          <p className="text-sky-300 text-xs mt-2">
+            さらに高度な機能が必要な方は{' '}
+            <Link href="/salon/premium" className="underline hover:text-white transition-colors">
+              プレミアムプランを見る →
+            </Link>
+          </p>
         </div>
       </section>
 

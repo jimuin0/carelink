@@ -1,7 +1,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
-import { SHIMMER_BLUR } from '@/lib/image-utils';
+import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
 import CompareButton from './CompareButton';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
@@ -39,7 +39,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
       <div className="relative aspect-[16/10] bg-gray-100">
         {facility.main_photo_url ? (
           <Image
-            src={facility.main_photo_url}
+            src={cardUrl(facility.main_photo_url)}
             alt={`${facility.name} - ${facility.business_type}`}
             fill
             sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"

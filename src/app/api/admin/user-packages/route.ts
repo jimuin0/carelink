@@ -1,0 +1,160 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createClient } from '@supabase/supabase-js';
+import { z } from 'zod';
+
+const grantSchema = z.object({
+  facility_id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  package_id: z.string().uuid(),
+  notes: z.string().max(200).optional(),
+});
+
+const useSchema = z.object({
+  user_package_id: z.string().uuid(),
+  booking_id: z.string().uuid().optional(),
+  notes: z.string().max(200).optional(),
+});
+
+export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const facilityId = request.nextUrl.searchParams.get('facility_id');
+  const userId = request.nextUrl.searchParams.get('user_id');
+  if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+
+  const { data: membership } = await supabase
+    .from('facility_members')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('facility_id', facilityId)
+    .in('role', ['owner', 'admin'])
+    .single();
+  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  let query = admin
+    .from('user_packages')
+    .select('*, service_packages(name, session_count, bonus_count), profiles(display_name, email)')
+    .eq('facility_id', facilityId)
+    .order('purchased_at', { ascending: false });
+
+  if (userId) query = query.eq('user_id', userId);
+
+  const { data, error } = await query.limit(200);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ user_packages: data });
+}
+
+// 管理者がユーザーに回数券を付与
+export async function POST(request: NextRequest) {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json().catch(() => null);
+  const parsed = grantSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+
+  const { data: membership } = await supabase
+    .from('facility_members')
+    .select('role')
+    .eq('user_id', user.id)
+    .eq('facility_id', parsed.data.facility_id)
+    .in('role', ['owner', 'admin'])
+    .single();
+  if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // パッケージ情報取得
+  const { data: pkg } = await admin
+    .from('service_packages')
+    .select('session_count, bonus_count, valid_days')
+    .eq('id', parsed.data.package_id)
+    .eq('facility_id', parsed.data.facility_id)
+    .single();
+  if (!pkg) return NextResponse.json({ error: 'Package not found' }, { status: 404 });
+
+  const totalSessions = pkg.session_count + pkg.bonus_count;
+  const expiresAt = new Date(Date.now() + pkg.valid_days * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data, error } = await admin.from('user_packages').insert({
+    user_id: parsed.data.user_id,
+    facility_id: parsed.data.facility_id,
+    package_id: parsed.data.package_id,
+    sessions_total: totalSessions,
+    sessions_remaining: totalSessions,
+    expires_at: expiresAt,
+    notes: parsed.data.notes,
+  }).select().single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ user_package: data }, { status: 201 });
+}
+
+// 回数券を1回使用（booking時に呼び出す）
+export async function PATCH(request: NextRequest) {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json().catch(() => null);
+  const parsed = useSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+
+  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+
+  // 回数券の所有権確認
+  const { data: userPkg } = await admin
+    .from('user_packages')
+    .select('*, service_packages(facility_id)')
+    .eq('id', parsed.data.user_package_id)
+    .single();
+
+  if (!userPkg) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  // 施設管理者 or 本人のみ
+  const facilityId = (userPkg.service_packages as { facility_id: string } | null)?.facility_id;
+  const isOwner = userPkg.user_id === user.id;
+  let isAdmin = false;
+  if (facilityId) {
+    const { data: m } = await supabase
+      .from('facility_members')
+      .select('role')
+      .eq('user_id', user.id)
+      .eq('facility_id', facilityId)
+      .in('role', ['owner', 'admin'])
+      .single();
+    isAdmin = !!m;
+  }
+  if (!isOwner && !isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  if (userPkg.sessions_remaining <= 0) {
+    return NextResponse.json({ error: '残り回数がありません' }, { status: 400 });
+  }
+  if (userPkg.expires_at && new Date(userPkg.expires_at) < new Date()) {
+    return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
+  }
+
+  // デクリメント
+  const { data: updated, error } = await admin
+    .from('user_packages')
+    .update({ sessions_remaining: userPkg.sessions_remaining - 1 })
+    .eq('id', parsed.data.user_package_id)
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // ログ記録
+  await admin.from('package_usage_logs').insert({
+    user_package_id: parsed.data.user_package_id,
+    booking_id: parsed.data.booking_id ?? null,
+    notes: parsed.data.notes,
+  });
+
+  return NextResponse.json({ user_package: updated });
+}

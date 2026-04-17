@@ -39,7 +39,7 @@ export default function Toast({ message, type, onClose }: ToastProps) {
     >
       <div className="flex items-center gap-3">
         <span className="text-sm font-medium">{message}</span>
-        <button type="button" onClick={onClose} className="ml-auto text-white/80 hover:text-white" aria-label="閉じる">
+        <button type="button" onClick={onClose} className="ml-auto p-1 text-white/80 hover:text-white min-w-[32px] min-h-[32px] flex items-center justify-center" aria-label="閉じる">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>

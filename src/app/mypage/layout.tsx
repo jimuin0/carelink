@@ -51,6 +51,18 @@ export default async function MyPageLayout({ children }: { children: React.React
             クーポン
           </Link>
           <Link
+            href="/mypage/packages"
+            className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
+          >
+            回数券
+          </Link>
+          <Link
+            href="/mypage/subscriptions"
+            className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
+          >
+            月額プラン
+          </Link>
+          <Link
             href="/mypage/referral"
             className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
           >

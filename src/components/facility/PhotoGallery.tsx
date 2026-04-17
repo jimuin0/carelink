@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useState, useCallback, useEffect } from 'react';
 import type { FacilityPhoto } from '@/types';
-import { SHIMMER_BLUR } from '@/lib/image-utils';
+import { SHIMMER_BLUR, heroUrl, thumbUrl } from '@/lib/image-utils';
 
 export default function PhotoGallery({ photos, facilityName }: { photos: FacilityPhoto[]; facilityName: string }) {
   const [selected, setSelected] = useState(0);
@@ -58,7 +58,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
           </div>
         ) : (
           <Image
-            src={photos[selected].photo_url}
+            src={heroUrl(photos[selected].photo_url)}
             alt={photos[selected].caption || `${facilityName} - 写真${selected + 1}`}
             fill
             sizes="(max-width: 768px) 100vw, 800px"
@@ -92,7 +92,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
               aria-label={`写真${i + 1}を表示`}
             >
               <Image
-                src={photo.photo_url}
+                src={thumbUrl(photo.photo_url)}
                 alt={photo.caption || `${facilityName} - 写真${i + 1}`}
                 fill
                 sizes="80px"

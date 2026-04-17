@@ -24,7 +24,7 @@ export default async function BookingsPage() {
   const bookings = data ?? [];
 
   // 施設スラグを一括取得
-  const facilityIds = [...new Set(bookings.map((b) => b.facility_id).filter(Boolean))];
+  const facilityIds = Array.from(new Set(bookings.map((b) => b.facility_id).filter(Boolean)));
   const slugMap = new Map<string, string>();
   if (facilityIds.length > 0) {
     const { data: facilityData } = await supabase

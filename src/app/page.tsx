@@ -88,8 +88,19 @@ export default function Home() {
               </div>
             </div>
 
+            {/* AI症状チェッカー */}
+            <div className="mt-4">
+              <Link
+                href="/symptoms"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/30 rounded-full text-white text-xs font-medium transition-all"
+              >
+                <span>🔍</span>
+                症状から施設を探す（AI）
+              </Link>
+            </div>
+
             {/* ★施策1: ヒーロー内登録リンク */}
-            <div className="mt-5">
+            <div className="mt-3">
               <Link
                 href="/auth/signup"
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/25 rounded-full text-white text-xs font-medium transition-all"

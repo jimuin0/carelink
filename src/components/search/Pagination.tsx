@@ -27,7 +27,7 @@ export default function Pagination({ currentPage, totalPages, baseUrl }: Props) 
   return (
     <nav className="flex items-center justify-center gap-2 mt-8" aria-label="ページナビゲーション">
       {currentPage > 1 && (
-        <Link href={getUrl(currentPage - 1)} className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" aria-label="前のページ">
+        <Link href={getUrl(currentPage - 1)} className="px-3 py-2.5 min-h-[44px] text-sm rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center" aria-label="前のページ">
           前へ
         </Link>
       )}
@@ -38,7 +38,7 @@ export default function Pagination({ currentPage, totalPages, baseUrl }: Props) 
           <Link
             key={p}
             href={getUrl(p)}
-            className={`px-3 py-2 text-sm rounded-lg ${
+            className={`px-3 min-h-[44px] text-sm rounded-lg flex items-center justify-center ${
               p === currentPage
                 ? 'bg-sky-500 text-white font-bold'
                 : 'border border-gray-300 hover:bg-gray-50'
@@ -51,7 +51,7 @@ export default function Pagination({ currentPage, totalPages, baseUrl }: Props) 
         )
       )}
       {currentPage < totalPages && (
-        <Link href={getUrl(currentPage + 1)} className="px-3 py-2 text-sm rounded-lg border border-gray-300 hover:bg-gray-50" aria-label="次のページ">
+        <Link href={getUrl(currentPage + 1)} className="px-3 py-2.5 min-h-[44px] text-sm rounded-lg border border-gray-300 hover:bg-gray-50 flex items-center" aria-label="次のページ">
           次へ
         </Link>
       )}

@@ -44,7 +44,7 @@ export async function GET(request: Request) {
       userFacilityMap.get(f.user_id)!.push(f.facility_id);
     }
 
-    const allFacilityIds = [...new Set(favUsers.map((f) => f.facility_id))];
+    const allFacilityIds = Array.from(new Set(favUsers.map((f) => f.facility_id)));
 
     // 各施設の新着情報（クーポン）を取得
     const { data: newCoupons } = await supabase
@@ -78,7 +78,7 @@ export async function GET(request: Request) {
     const facilityMap = new Map((facilities || []).map((f) => [f.id, f]));
 
     // ユーザー情報とメール送信
-    const userIds = [...userFacilityMap.keys()];
+    const userIds = Array.from(userFacilityMap.keys());
     const { data: profiles } = await supabase
       .from('profiles')
       .select('id, display_name, email_unsubscribed')
@@ -116,7 +116,7 @@ export async function GET(request: Request) {
       await supabase.from('email_unsubscribe_tokens').insert({
         token,
         user_id: profile.id,
-      }).catch(() => {});
+      }).then(() => null, () => null);
 
       await sendFavoritesDigest({
         userEmail: email,

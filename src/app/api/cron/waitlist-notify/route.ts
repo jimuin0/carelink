@@ -30,7 +30,7 @@ export async function GET(request: Request) {
       .update({ status: 'expired' })
       .eq('status', 'notified')
       .lt('notified_at', new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString())
-      .select('id', { count: 'exact', head: true });
+      .select('id');
 
     // 2. キャンセルが発生したスロットのウェイトリストを検索
     // キャンセルされた予約（過去1時間以内にキャンセル）に対応するウェイトリストを探す

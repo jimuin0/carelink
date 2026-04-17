@@ -23,7 +23,7 @@ const nextConfig = {
               "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://*.upstash.io https://*.ingest.sentry.io https://zipcloud.ibsnet.co.jp",
               "worker-src 'self'",
               "manifest-src 'self'",
-              "frame-src 'self'",
+              "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",

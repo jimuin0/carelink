@@ -9,6 +9,7 @@ import SearchFooter from '@/components/search/SearchFooter';
 import { isValidPrefectureSlug } from '@/lib/seo-constants';
 
 const MobileBottomNav = dynamic(() => import('@/components/search/MobileBottomNav'), { ssr: false });
+const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false });
 
 export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -32,6 +33,7 @@ export default function LayoutSwitch({ children }: { children: React.ReactNode }
         <main id="main-content" className="flex-1 pb-14 lg:pb-0">{children}</main>
         <SearchFooter />
         <MobileBottomNav />
+        <AiChatbot />
       </>
     );
   }
