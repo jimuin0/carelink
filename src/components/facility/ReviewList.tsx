@@ -35,6 +35,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
   const [helpfulMap, setHelpfulMap] = useState<Record<string, number>>({});
   const [myHelpful, setMyHelpful] = useState<Set<string>>(new Set());
   const [helpfulLoading, setHelpfulLoading] = useState<string | null>(null);
+  const [reportedSet, setReportedSet] = useState<Set<string>>(new Set());
+  const [reportingId, setReportingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (reviews.length === 0) return;
@@ -118,6 +120,29 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     setHelpfulLoading(null);
   };
 
+  const handleReport = async (reviewId: string) => {
+    if (reportingId || reportedSet.has(reviewId)) return;
+    if (!window.confirm('この口コミを不正・不適切として通報しますか？')) return;
+    setReportingId(reviewId);
+    try {
+      const res = await fetch('/api/report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'required' },
+        body: JSON.stringify({ target_type: 'review', target_id: reviewId, reason: 'inappropriate' }),
+      });
+      if (res.ok) {
+        setReportedSet((prev) => new Set(prev).add(reviewId));
+        window.alert('通報しました。ご協力ありがとうございます。');
+      } else {
+        const body = await res.json().catch(() => null);
+        window.alert(body?.error || '通報に失敗しました');
+      }
+    } catch {
+      window.alert('通報に失敗しました');
+    }
+    setReportingId(null);
+  };
+
   if (reviews.length === 0) {
     return (
       <p className="text-gray-400 text-center py-8">
@@ -180,8 +205,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
               </div>
             )}
 
-            {/* 役に立った */}
-            <div className="mt-3 flex items-center gap-4">
+            {/* 役に立った + 通報 */}
+            <div className="mt-3 flex items-center gap-3">
               <button
                 type="button"
                 onClick={() => toggleHelpful(review.id)}
@@ -194,6 +219,18 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 10h4.764a2 2 0 011.789 2.894l-3.5 7A2 2 0 0115.263 21h-4.017c-.163 0-.326-.02-.485-.06L7 20m7-10V5a2 2 0 00-2-2h-.095c-.5 0-.905.405-.905.905 0 .714-.211 1.412-.608 2.006L7 11v9m7-10h-2M7 20H5a2 2 0 01-2-2v-6a2 2 0 012-2h2.5" />
                 </svg>
                 役に立った{helpfulCount > 0 ? ` (${helpfulCount})` : ''}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleReport(review.id)}
+                disabled={reportingId === review.id || reportedSet.has(review.id)}
+                className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-red-500 transition-colors ml-auto"
+                aria-label="この口コミを通報する"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" />
+                </svg>
+                {reportedSet.has(review.id) ? '通報済み' : '通報'}
               </button>
             </div>
 
