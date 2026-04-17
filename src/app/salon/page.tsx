@@ -155,6 +155,30 @@ export default function SalonPage() {
         </div>
       </section>
 
+      {/* 導入事例 */}
+      <section className="bg-sky-50">
+        <div className="section-container text-center">
+          <h2 className="section-title">導入事例・お客様の声</h2>
+          <p className="text-gray-500 text-sm mb-6">実際に導入した施設の成果をご覧ください。</p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 text-left">
+            {[
+              { q: '電話予約', v: '68%削減', sub: '豊中の鍼灸院' },
+              { q: 'リピート率', v: '+17%', sub: '吹田の整体院' },
+              { q: '口コミ件数', v: '0→15件', sub: '箕面のエステサロン（2ヶ月）' },
+            ].map((item) => (
+              <div key={item.q} className="bg-white rounded-xl p-5 shadow-sm">
+                <p className="text-xs text-gray-500 mb-1">{item.q}</p>
+                <p className="text-2xl font-bold text-sky-600">{item.v}</p>
+                <p className="text-xs text-gray-400 mt-1">{item.sub}</p>
+              </div>
+            ))}
+          </div>
+          <Link href="/salon/cases" className="inline-flex items-center gap-2 text-sky-600 font-bold hover:underline">
+            詳しい事例を見る →
+          </Link>
+        </div>
+      </section>
+
       {/* FAQ */}
       <section className="bg-white">
         <div className="section-container">
