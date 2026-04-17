@@ -111,7 +111,7 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
       )}
 
       {/* AI Review Summary */}
-      <ReviewSummary reviews={reviews} />
+      <ReviewSummary reviews={reviews} facilityId={facilityId} />
 
       {/* Review list */}
       <ReviewList reviews={reviews} />
