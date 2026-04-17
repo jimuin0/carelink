@@ -58,13 +58,22 @@ export async function getLineWorksToken(): Promise<string | null> {
  * JWT生成 (RS256)
  * NOTE: In production use a proper JWT library (jose/jsonwebtoken)
  */
+/** Base64URL encoding (JWT requires URL-safe Base64 without padding) */
+function base64url(str: string): string {
+  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+function base64urlUint8(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
 async function buildJwt(clientId: string, serviceAccount: string): Promise<string> {
   const privateKeyPem = process.env.LINE_WORKS_PRIVATE_KEY;
   if (!privateKeyPem) throw new Error('LINE_WORKS_PRIVATE_KEY not set');
 
-  const header = btoa(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
+  const header = base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const now = Math.floor(Date.now() / 1000);
-  const payload = btoa(JSON.stringify({
+  const payload = base64url(JSON.stringify({
     iss: clientId,
     sub: serviceAccount,
     iat: now,
@@ -88,9 +97,9 @@ async function buildJwt(clientId: string, serviceAccount: string): Promise<strin
 
   const data = new TextEncoder().encode(`${header}.${payload}`);
   const signature = await crypto.subtle.sign('RSASSA-PKCS1-v1_5', cryptoKey, data);
-  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  const sigB64url = base64urlUint8(new Uint8Array(signature));
 
-  return `${header}.${payload}.${sigB64}`;
+  return `${header}.${payload}.${sigB64url}`;
 }
 
 type LineWorksMessage = {
