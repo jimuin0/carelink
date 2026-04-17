@@ -9,6 +9,7 @@ import {
 } from '@/lib/seo-constants';
 import { facilityFeatures, SITE_URL } from '@/lib/constants';
 import { searchFacilities } from '@/lib/facilities';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import { generateCityTypeContent } from '@/lib/seo-snippets';
 import { isValidCitySlug, getCityName, getCitiesForPrefecture } from '@/data/city-slugs';
@@ -34,11 +35,20 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
   const title = `${cityName}の${typeName}`;
   const description = `${prefName}${cityName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。`;
+  const supabase = createServerSupabaseClient();
+  const { count } = await supabase
+    .from('facility_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'published')
+    .eq('prefecture', prefName)
+    .eq('city', cityName)
+    .eq('business_type', typeName);
   return {
     title,
     description,
     openGraph: { title: `${title} | CareLink`, description },
     alternates: { canonical: `/${prefectureSlug}/${secondSlug}/${typeSlug}` },
+    ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 

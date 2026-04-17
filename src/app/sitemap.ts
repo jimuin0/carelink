@@ -1,6 +1,6 @@
 import type { MetadataRoute } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
-import { allPrefectureSlugs, allBusinessTypeSlugs } from '@/lib/seo-constants';
+import { allPrefectureSlugs, allBusinessTypeSlugs, getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { getAllCitySlugs } from '@/data/city-slugs';
 import { articles } from '@/data/articles';
 import { SITE_URL } from '@/lib/constants';
@@ -46,23 +46,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
-  // Prefecture x BusinessType pages (47 x 8 = 376 pages)
+  // Prefecture x BusinessType pages — 施設が1件以上あるページのみ掲載（薄いコンテンツ除外）
   const crossPages: MetadataRoute.Sitemap = allPrefectureSlugs.flatMap((ps) =>
-    allBusinessTypeSlugs.map((ts) => ({
-      url: `${SITE_URL}/${ps}/${ts}`,
-      lastModified: updated,
-      changeFrequency: 'daily' as const,
-      priority: 0.7,
-    }))
+    allBusinessTypeSlugs
+      .filter((ts) => occupiedPrefType.has(`${ps}/${ts}`))
+      .map((ts) => ({
+        url: `${SITE_URL}/${ps}/${ts}`,
+        lastModified: updated,
+        changeFrequency: 'daily' as const,
+        priority: 0.7,
+      }))
   );
 
   const supabase = createServerSupabaseClient();
 
-  // Dynamic facility pages
+  // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
   const { data: facilities } = await supabase
     .from('facility_profiles')
-    .select('slug, updated_at')
+    .select('slug, updated_at, prefecture, business_type, city')
     .eq('status', 'published');
+
+  // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
+  const occupiedPrefType = new Set<string>();
+  const occupiedCityType = new Set<string>();
+  for (const f of facilities || []) {
+    const ps = getPrefectureSlug(f.prefecture);
+    const ts = getBusinessTypeSlug(f.business_type);
+    if (ps && ts) {
+      occupiedPrefType.add(`${ps}/${ts}`);
+      if (f.city) occupiedCityType.add(`${ps}/${f.city}/${ts}`);
+    }
+  }
 
   // Symptom pages
   const { data: symptoms } = await supabase.from('symptoms').select('slug');
@@ -126,7 +140,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }));
 
   // Jobs (公開施設に紐づくもののみ)
-  const publishedFacilityIds = new Set((facilities || []).map((f: { slug: string }) => f.slug));
   const { data: jobs } = await supabase
     .from('facility_jobs')
     .select('id, updated_at, facility_profiles!inner(slug, status)')
@@ -140,8 +153,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
     })),
   ];
-  // 抑止: 未使用変数を回避
-  void publishedFacilityIds;
-
   return [...staticPages, ...businessTypeTopPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
 }

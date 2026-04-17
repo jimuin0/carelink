@@ -10,6 +10,7 @@ import {
 } from '@/lib/seo-constants';
 import { regionGroups, facilityFeatures, SITE_URL } from '@/lib/constants';
 import { searchFacilities } from '@/lib/facilities';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import { generatePrefTypeContent, generateCityContent, type GeneratedSeoContent } from '@/lib/seo-snippets';
 import { isValidCitySlug, getCityName, getCitiesForPrefecture, getAllCitySlugs } from '@/data/city-slugs';
@@ -52,16 +53,25 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) return {};
 
+  const supabase = createServerSupabaseClient();
+
   // 業種ページ
   if (isValidBusinessTypeSlug(secondSlug)) {
     const typeName = getBusinessTypeName(secondSlug)!;
     const title = `${prefName}の${typeName}`;
     const description = `${prefName}の${typeName}を口コミ・メニュー・写真で比較。ネット予約24時間OK。CareLink で${prefName}の${typeName}を探そう。`;
+    const { count } = await supabase
+      .from('facility_profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'published')
+      .eq('prefecture', prefName)
+      .eq('business_type', typeName);
     return {
       title,
       description,
       openGraph: { title: `${title} | CareLink`, description },
       alternates: { canonical: `/${prefectureSlug}/${secondSlug}` },
+      ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
     };
   }
 
@@ -70,11 +80,18 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (cityName) {
     const title = `${prefName}${cityName}のサロン・クリニック一覧`;
     const description = `${prefName}${cityName}の美容サロン・鍼灸院・整骨院を口コミ・メニュー・写真で比較。ネット予約24時間OK。`;
+    const { count } = await supabase
+      .from('facility_profiles')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'published')
+      .eq('prefecture', prefName)
+      .eq('city', cityName);
     return {
       title,
       description,
       openGraph: { title: `${title} | CareLink`, description },
       alternates: { canonical: `/${prefectureSlug}/${secondSlug}` },
+      ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
     };
   }
 
