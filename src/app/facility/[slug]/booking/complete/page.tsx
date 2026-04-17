@@ -3,7 +3,7 @@ import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 
 interface Props {
   params: { slug: string };
-  searchParams: { id?: string; date?: string; time?: string; end_time?: string; facility?: string };
+  searchParams: { id?: string; date?: string; time?: string; end_time?: string; facility?: string; has_intake?: string };
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -64,6 +64,7 @@ function buildIcsContent(date?: string, time?: string, endTime?: string, facilit
 
 export default function BookingCompletePage({ params, searchParams }: Props) {
   const bookingId = searchParams.id;
+  const hasIntakeForm = searchParams.has_intake === '1';
   const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
   const icsDataUri = icsContent ? `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}` : null;
 
@@ -85,6 +86,15 @@ export default function BookingCompletePage({ params, searchParams }: Props) {
             施設からの確認をお待ちください。
           </p>
           <div className="space-y-3">
+            {/* 問診票バナー */}
+            {hasIntakeForm && (
+              <Link
+                href={`/intake/${params.slug}${bookingId ? `?booking_id=${bookingId}` : ''}`}
+                className="block w-full text-center text-sm py-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 font-bold hover:bg-amber-100 transition-colors"
+              >
+                📋 来院前に問診票を記入する（推奨）
+              </Link>
+            )}
             <Link href={`/facility/${params.slug}`} className="btn-primary block w-full !py-3">
               施設ページに戻る
             </Link>
