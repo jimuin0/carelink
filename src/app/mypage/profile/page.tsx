@@ -24,6 +24,8 @@ export default function ProfileEditPage() {
   const [lineLinked, setLineLinked] = useState(false);
   const [lineDisplayName, setLineDisplayName] = useState<string | null>(null);
   const [lineUnlinking, setLineUnlinking] = useState(false);
+  const [emailUnsubscribed, setEmailUnsubscribed] = useState(false);
+  const [unsubscribeToggling, setUnsubscribeToggling] = useState(false);
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<ProfileForm>();
 
@@ -49,6 +51,7 @@ export default function ProfileEditPage() {
           gender: data.gender || '',
         });
         setAvatarUrl(data.avatar_url || null);
+        setEmailUnsubscribed(data.email_unsubscribed ?? false);
       }
 
       // LINE連携状態チェック
@@ -274,6 +277,39 @@ export default function ProfileEditPage() {
             <p className="text-xs text-gray-400 mt-2">友だち追加後、CareLink上でアカウントが自動連携されます。</p>
           </div>
         )}
+      </div>
+
+      {/* メール配信設定（v8.17） */}
+      <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8">
+        <h2 className="text-lg font-bold text-gray-800 mb-4">メール配信設定</h2>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!emailUnsubscribed}
+            disabled={unsubscribeToggling}
+            onChange={async (e) => {
+              const newValue = !e.target.checked; // unsubscribed = !受け取る
+              setUnsubscribeToggling(true);
+              try {
+                const supabase = createBrowserSupabaseClient();
+                const { data: { user } } = await supabase.auth.getUser();
+                if (!user) return;
+                await supabase.from('profiles').update({ email_unsubscribed: newValue }).eq('id', user.id);
+                setEmailUnsubscribed(newValue);
+                setToast({ type: 'success', message: newValue ? 'メール配信を停止しました' : 'メール配信を再開しました' });
+              } catch {
+                setToast({ type: 'error', message: '設定の変更に失敗しました' });
+              } finally {
+                setUnsubscribeToggling(false);
+              }
+            }}
+            className="mt-0.5 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
+          />
+          <div>
+            <p className="text-sm font-medium text-gray-800">予約確認・リマインドメールを受け取る</p>
+            <p className="text-xs text-gray-500 mt-0.5">OFFにするとCareLink からのメール配信が停止されます。</p>
+          </div>
+        </label>
       </div>
 
       {/* アカウント削除（v8.5） */}

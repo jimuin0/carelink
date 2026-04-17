@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import * as Sentry from '@sentry/nextjs';
+import crypto from 'crypto';
 
 let _resend: Resend | null = null;
 function getResend(): Resend | null {
@@ -58,12 +59,21 @@ function bookingDetailHtml(data: BookingEmailData): string {
   `;
 }
 
-function wrapHtml(body: string): string {
+/** 配信停止トークン生成（32バイト hex） */
+export function generateUnsubscribeToken(): string {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function wrapHtml(body: string, unsubscribeToken?: string): string {
+  const unsubLink = unsubscribeToken
+    ? `<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px;"><a href="${SITE_URL}/unsubscribe?token=${unsubscribeToken}" style="color:#94a3b8;">メールの受信を停止する</a></p>`
+    : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:20px;">
     <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0ea5e9;font-size:20px;">CareLink</strong></div>
     ${body}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;" />
     <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
+    ${unsubLink}
   </body></html>`;
 }
 
