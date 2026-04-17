@@ -166,13 +166,23 @@ export default function ReviewForm({ facilityId, onReviewSubmitted }: Props) {
       });
       if (error) throw error;
 
+      // ログイン済みユーザーに口コミ投稿ポイント（50pt）を付与
+      if (user) {
+        sb.from('user_points').insert({
+          user_id: user.id,
+          facility_id: facilityId,
+          points: 50,
+          reason: 'review',
+        }); // fire-and-forget: ポイント付与失敗は口コミ投稿成功に影響させない
+      }
+
       setSubmitted(true);
       setPhotos([]);
       photoPreviews.forEach((url) => URL.revokeObjectURL(url));
       setPhotoPreviews([]);
       reset();
       onReviewSubmitted();
-      setToast({ type: 'success', message: '口コミを投稿しました' });
+      setToast({ type: 'success', message: user ? '口コミを投稿しました（+50pt獲得！）' : '口コミを投稿しました' });
     } catch {
       setToast({ type: 'error', message: '送信に失敗しました。もう一度お試しください。' });
     }
