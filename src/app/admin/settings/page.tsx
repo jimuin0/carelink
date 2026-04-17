@@ -448,6 +448,26 @@ export default function AdminSettingsPage() {
       {/* 通知設定（v8.1） */}
       {facilityId && <NotificationSettings facilityId={facilityId} />}
 
+      {/* GBP連携（Googleビジネスプロフィール） */}
+      <section className="bg-white rounded-xl shadow-sm p-6 mt-6">
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-bold">GBP連携（Googleビジネスプロフィール）</h2>
+          <a href="/admin/gbp" className="text-sm text-sky-500 underline">GBP管理画面へ →</a>
+        </div>
+        <p className="text-sm text-gray-500 mb-4">
+          Google Place ID を登録すると、Googleマップの診断スコア・クチコミ・投稿管理が使えます。
+        </p>
+        <div className="bg-sky-50 rounded-lg p-3 text-xs text-sky-700 mb-4">
+          Place ID は{' '}
+          <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder"
+             target="_blank" rel="noopener noreferrer" className="underline">Place ID Finder</a>
+          {' '}で自店舗を検索して取得できます（「ChIJ...」から始まる文字列）
+        </div>
+        <a href="/admin/gbp" className="inline-block bg-sky-500 text-white text-sm px-5 py-2 rounded-lg hover:bg-sky-600 transition-colors">
+          GBP設定・診断を開く
+        </a>
+      </section>
+
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );
