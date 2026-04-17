@@ -513,6 +513,27 @@ export default function AdminSettingsPage() {
         </a>
       </section>
 
+      {/* LINE Works連携 */}
+      <section className="bg-white rounded-xl shadow-sm p-6 mt-6">
+        <h2 className="text-lg font-bold mb-1">LINE Works連携</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          新規予約・キャンセルをLINE Worksのスタッフグループに通知できます。
+        </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
+          <strong>設定方法</strong>
+          <ol className="list-decimal pl-4 mt-2 space-y-1">
+            <li>LINE Works管理画面でBotを作成し、スタッフ用チャンネルに招待</li>
+            <li>以下の環境変数をVercelに設定:
+              <code className="block bg-white/50 px-2 py-1 rounded mt-1 text-xs font-mono">
+                LINE_WORKS_CLIENT_ID, LINE_WORKS_CLIENT_SECRET,<br />
+                LINE_WORKS_SERVICE_ACCOUNT, LINE_WORKS_BOT_ID
+              </code>
+            </li>
+            <li>予約確定・キャンセル時に自動でLINE Works通知が送信されます</li>
+          </ol>
+        </div>
+      </section>
+
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );

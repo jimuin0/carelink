@@ -9,6 +9,7 @@ import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import * as Sentry from '@sentry/nextjs';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createClient } from '@supabase/supabase-js';
+import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 
 export const dynamic = 'force-dynamic';
 
@@ -287,6 +288,55 @@ export async function POST(request: Request) {
     }
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'booking-line-setup' } });
+  }
+
+  // LINE Works staff notification (non-blocking)
+  if (isLineWorksConfigured()) {
+    try {
+      const adminSupabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      // Fetch staff with LINE Works channel IDs: assigned staff + all-notify staff
+      const { data: staffList } = await adminSupabase
+        .from('staff_profiles')
+        .select('line_works_channel_id, line_works_notify_all, id')
+        .eq('facility_id', parsed.data.facility_id)
+        .not('line_works_channel_id', 'is', null);
+
+      if (staffList && staffList.length > 0) {
+        const [menuRow, staffRow, facilityRow] = await Promise.all([
+          parsed.data.menu_id
+            ? adminSupabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+          parsed.data.staff_id
+            ? adminSupabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).maybeSingle()
+            : Promise.resolve({ data: null }),
+          adminSupabase.from('facility_profiles').select('name').eq('id', parsed.data.facility_id).maybeSingle(),
+        ]);
+
+        const bookingInfo = {
+          customerName: parsed.data.customer_name,
+          menuName: menuRow.data?.name || '',
+          bookingDate: parsed.data.booking_date,
+          startTime: parsed.data.start_time,
+          staffName: staffRow.data?.name,
+        };
+
+        for (const staff of staffList) {
+          if (!staff.line_works_channel_id) continue;
+          const isAssigned = staff.id === parsed.data.staff_id;
+          if (isAssigned || staff.line_works_notify_all) {
+            notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo).catch((e) =>
+              Sentry.captureException(e, { tags: { feature: 'booking-lineworks' } })
+            );
+          }
+        }
+        void facilityRow;
+      }
+    } catch (e) {
+      Sentry.captureException(e, { tags: { feature: 'booking-lineworks-setup' } });
+    }
   }
 
   return NextResponse.json({ success: true, bookingId: newBookingId });

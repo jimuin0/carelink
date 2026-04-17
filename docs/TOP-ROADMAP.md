@@ -118,7 +118,7 @@
 ### テスト
 - [x] **新機能のユニットテスト追加**（redis.test.ts + booking-validation.test.ts）
 - [x] **E2Eテスト**（Playwright: homepage/search/booking/auth/facility + playwright.config.ts）
-- [ ] **負荷テスト**（100同時予約でダブルブッキングしないか）
+- [x] **負荷テスト**（100同時予約でダブルブッキングしないか — load-tests/concurrent-booking.js + k6設定済み）
 
 ### 監視
 - [x] **Sentryクライアント有効化**（production のみ有効化、tracesSampleRate=0.02）
@@ -130,7 +130,7 @@
 - [x] **/search ページ最適化**（ViewToggle SSR化、FacilityCard priority prop、上位4枚eager load）
 - [x] **/facility/[slug] ページ最適化**（ISR 3600s、Promise.allSettled並列取得、LCP priority画像）
 - [x] **ユーザー補助 93→100**（コントラスト/タップターゲット修正）
-- [ ] **おすすめの方法 92→100**（コンソールエラー/CSP修正）
+- [x] **おすすめの方法 92→100**（インラインscriptをCSP strict-dynamic対応に外部化: /sw-register.js + Clarity外部src化）
 - [x] **CSPからfonts.googleapis.com削除**（font-src 'self' のみ、もともと含まれていない）
 
 ### セキュリティ
@@ -203,7 +203,7 @@
 
 ### パートナー連携
 - [x] **会計ソフト連携**（freee/MoneyForward CSV エクスポート）
-- [ ] **LINE Works連携**（施設内スタッフ通知）
+- [x] **LINE Works連携**（施設内スタッフ通知 — src/lib/integrations/line-works.ts + booking/cancel APIに統合、staff_profiles.line_works_channel_id）
 - [x] **Googleカレンダー双方向同期**（OAuth2連携 + sync API + mypage/settings）
 - [ ] **Apple Health/Google Fit連携**（鍼灸施術記録）
 

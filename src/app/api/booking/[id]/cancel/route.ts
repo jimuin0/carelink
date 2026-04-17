@@ -9,6 +9,7 @@ import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createClient } from '@supabase/supabase-js';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { notifyCancellationLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 
 export const dynamic = 'force-dynamic';
 
@@ -152,6 +153,46 @@ export async function POST(_request: Request, { params }: { params: { id: string
       }
     }
   } catch {}
+
+  // LINE Works cancellation notification (non-blocking)
+  if (isLineWorksConfigured()) {
+    try {
+      const adminSupabase = createClient(
+        process.env.NEXT_PUBLIC_SUPABASE_URL!,
+        process.env.SUPABASE_SERVICE_ROLE_KEY!
+      );
+      const { data: staffList } = await adminSupabase
+        .from('staff_profiles')
+        .select('line_works_channel_id, line_works_notify_all, id')
+        .eq('facility_id', booking.facility_id)
+        .not('line_works_channel_id', 'is', null);
+
+      if (staffList && staffList.length > 0) {
+        let cancelMenuName = '';
+        if (booking.menu_id) {
+          const { data: menuForLW } = await adminSupabase.from('facility_menus').select('name').eq('id', booking.menu_id).maybeSingle();
+          cancelMenuName = menuForLW?.name || '';
+        }
+        const cancelInfo = {
+          customerName: booking.customer_name,
+          menuName: cancelMenuName,
+          bookingDate: booking.booking_date,
+          startTime: booking.start_time,
+        };
+        for (const staff of staffList) {
+          if (!staff.line_works_channel_id) continue;
+          const isAssigned = staff.id === booking.staff_id;
+          if (isAssigned || staff.line_works_notify_all) {
+            notifyCancellationLineWorks(staff.line_works_channel_id, cancelInfo).catch((e) =>
+              Sentry.captureException(e, { tags: { feature: 'cancel-lineworks' } })
+            );
+          }
+        }
+      }
+    } catch (e) {
+      Sentry.captureException(e, { tags: { feature: 'cancel-lineworks-setup' } });
+    }
+  }
 
   return NextResponse.json({ success: true });
   } catch (e) {

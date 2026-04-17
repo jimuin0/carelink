@@ -163,15 +163,15 @@ export default function RootLayout({
         />
         <LayoutSwitch>{children}</LayoutSwitch>
         <CookieConsent />
-        <Script id="sw-register" strategy="lazyOnload">
-          {`if('serviceWorker' in navigator){navigator.serviceWorker.register('/sw.js').catch(()=>{})}`}
-        </Script>
+        {/* External scripts: no inline body → compatible with CSP strict-dynamic */}
+        <Script src="/sw-register.js" strategy="lazyOnload" />
         <Analytics />
         <SpeedInsights />
         {clarityId && (
-          <Script id="clarity" strategy="lazyOnload">
-            {`(function(c,l,a,r,i,t,y){c[a]=c[a]||function(){(c[a].q=c[a].q||[]).push(arguments)};t=l.createElement(r);t.async=1;t.src="https://www.clarity.ms/tag/"+i;y=l.getElementsByTagName(r)[0];y.parentNode.insertBefore(t,y);})(window,document,"clarity","script","${clarityId}");`}
-          </Script>
+          <Script
+            src={`https://www.clarity.ms/tag/${clarityId}`}
+            strategy="lazyOnload"
+          />
         )}
       </body>
       {gaId && <GoogleAnalytics gaId={gaId} />}
