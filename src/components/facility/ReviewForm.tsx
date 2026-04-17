@@ -11,8 +11,55 @@ import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 const MAX_PHOTOS = 3;
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (before compression)
+const MAX_OUTPUT_SIZE = 2 * 1024 * 1024; // 2MB after compression
+const MAX_DIMENSION = 1920; // px
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+/** 画像をリサイズ・圧縮してFileとして返す */
+async function compressImage(file: File): Promise<File> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
+        if (width > height) {
+          height = Math.round((height * MAX_DIMENSION) / width);
+          width = MAX_DIMENSION;
+        } else {
+          width = Math.round((width * MAX_DIMENSION) / height);
+          height = MAX_DIMENSION;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { resolve(file); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      // Try quality levels until under MAX_OUTPUT_SIZE
+      const tryCompress = (quality: number) => {
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) { resolve(file); return; }
+            if (blob.size <= MAX_OUTPUT_SIZE || quality <= 0.4) {
+              resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
+            } else {
+              tryCompress(quality - 0.1);
+            }
+          },
+          'image/jpeg',
+          quality
+        );
+      };
+      tryCompress(0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像読み込みエラー')); };
+    img.src = url;
+  });
+}
 
 const ratingAxis = z.number().min(1, '評価を選択してください').max(5);
 
@@ -78,21 +125,34 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
     return () => { photoPreviewsRef.current.forEach((url) => URL.revokeObjectURL(url)); };
   }, []);
 
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const [compressing, setCompressing] = useState(false);
+
+  const handlePhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    e.target.value = '';
+
     let hasTypeError = false;
     let hasSizeError = false;
-    const valid = files.filter((f) => {
+    const typeValid = files.filter((f) => {
       if (!ALLOWED_TYPES.includes(f.type)) { hasTypeError = true; return false; }
       if (f.size > MAX_FILE_SIZE) { hasSizeError = true; return false; }
       return true;
     });
-    if (hasTypeError) setToast({ type: 'error', message: 'JPEG/PNG/WebPのみ対応です' });
-    else if (hasSizeError) setToast({ type: 'error', message: '5MB以下の画像を選択してください' });
-    const combined = [...photos, ...valid].slice(0, MAX_PHOTOS);
-    setPhotos(combined);
-    setPhotoPreviews(combined.map((f) => URL.createObjectURL(f)));
-    e.target.value = '';
+    if (hasTypeError) { setToast({ type: 'error', message: 'JPEG/PNG/WebPのみ対応です' }); }
+    if (hasSizeError) { setToast({ type: 'error', message: '10MB以下の画像を選択してください' }); }
+    if (typeValid.length === 0) return;
+
+    setCompressing(true);
+    try {
+      const compressed = await Promise.all(typeValid.map((f) => compressImage(f)));
+      const combined = [...photos, ...compressed].slice(0, MAX_PHOTOS);
+      setPhotos(combined);
+      setPhotoPreviews(combined.map((f) => URL.createObjectURL(f)));
+    } catch {
+      setToast({ type: 'error', message: '画像の処理に失敗しました' });
+    } finally {
+      setCompressing(false);
+    }
   };
 
   const removePhoto = (index: number) => {
@@ -290,16 +350,19 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
               </div>
             ))}
             {photos.length < MAX_PHOTOS && (
-              <label className="w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center cursor-pointer hover:border-sky-400 transition-colors" aria-label="写真を追加">
-                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} className="hidden" aria-label="口コミ写真を選択" />
+              <label className={`w-20 h-20 rounded-lg border-2 border-dashed border-gray-300 flex items-center justify-center transition-colors ${compressing ? 'opacity-50 cursor-wait' : 'cursor-pointer hover:border-sky-400'}`} aria-label="写真を追加">
+                {compressing
+                  ? <svg className="w-5 h-5 text-gray-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                  : <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
+                }
+                <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handlePhotoChange} disabled={compressing} className="hidden" aria-label="口コミ写真を選択" />
               </label>
             )}
           </div>
-          <p className="text-xs text-gray-400 mt-1">JPEG/PNG/WebP・5MB以下</p>
+          <p className="text-xs text-gray-400 mt-1">JPEG/PNG/WebP・最大10MB（自動圧縮されます）</p>
         </div>
 
-        <button type="submit" disabled={isSubmitting} className="btn-primary w-full !py-3 text-sm">
+        <button type="submit" disabled={isSubmitting || compressing} className="btn-primary w-full !py-3 text-sm">
           {isSubmitting ? '送信中...' : '口コミを投稿する'}
         </button>
       </form>
