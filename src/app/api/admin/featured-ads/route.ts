@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-service';
+import Stripe from 'stripe';
+import { SITE_URL } from '@/lib/constants';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -76,7 +78,35 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // TODO: Create Stripe Checkout session for payment
-  // For now, return slot directly (activate immediately in demo mode)
-  return NextResponse.json({ slot }, { status: 201 });
+  // Create Stripe Checkout session for payment
+  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeKey) {
+    // No Stripe configured: activate immediately (development/demo mode)
+    await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
+    return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
+  }
+
+  const stripe = new Stripe(stripeKey, { apiVersion: '2024-09-30.acacia' as Parameters<typeof Stripe>[1]['apiVersion'] });
+  const planLabels: Record<string, string> = {
+    search_top: '検索結果トップ表示（月額）',
+    area_banner: 'エリアページバナー（月額）',
+    category_top: 'カテゴリトップ表示（月額）',
+  };
+
+  const session = await stripe.checkout.sessions.create({
+    mode: 'payment',
+    line_items: [{
+      quantity: 1,
+      price_data: {
+        currency: 'jpy',
+        unit_amount: PLAN_PRICES[slot_type],
+        product_data: { name: planLabels[slot_type] || '広告プラン' },
+      },
+    }],
+    success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
+    cancel_url: `${SITE_URL}/admin/featured-ads?payment=cancel`,
+    metadata: { slot_id: slot.id, facility_id: facilityId },
+  });
+
+  return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
 }

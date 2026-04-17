@@ -86,6 +86,13 @@ async function handleEvent(event: Stripe.Event, admin: any) {
           .eq('id', meta.booking_id)
           .eq('status', 'pending');
       }
+
+      // Activate featured slot if ad payment completed
+      if (meta.slot_id) {
+        await admin.from('featured_slots')
+          .update({ is_active: true })
+          .eq('id', meta.slot_id);
+      }
       break;
     }
 

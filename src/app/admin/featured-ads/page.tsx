@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 type FeaturedSlot = {
   id: string;
@@ -33,13 +34,17 @@ export default function FeaturedAdsPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>('search_top');
   const [form, setForm] = useState({ area: '', business_type: '', starts_at: '', ends_at: '' });
+  const searchParams = useSearchParams();
+  const paymentStatus = searchParams.get('payment');
 
-  useEffect(() => {
+  const loadSlots = useCallback(() => {
     fetch('/api/admin/featured-ads')
       .then((r) => r.json())
       .then((d) => { setSlots(d.slots || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => { loadSlots(); }, [loadSlots]);
 
   const ctr = (slot: FeaturedSlot) =>
     slot.impressions > 0 ? ((slot.clicks / slot.impressions) * 100).toFixed(1) : '0.0';
@@ -48,6 +53,16 @@ export default function FeaturedAdsPage() {
 
   return (
     <div className="max-w-4xl space-y-6">
+      {paymentStatus === 'success' && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 font-medium">
+          決済が完了しました。広告枠が有効化されました。
+        </div>
+      )}
+      {paymentStatus === 'cancel' && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 text-sm text-yellow-800">
+          決済がキャンセルされました。再度お試しください。
+        </div>
+      )}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">広告・上位表示</h1>
@@ -148,8 +163,8 @@ export default function FeaturedAdsPage() {
                 });
                 if (res.ok) {
                   const data = await res.json();
-                  if (data.checkoutUrl) {
-                    window.location.href = data.checkoutUrl;
+                  if (data.checkout_url) {
+                    window.location.href = data.checkout_url;
                   } else {
                     setSlots((prev) => [data.slot, ...prev]);
                     setShowCreate(false);
