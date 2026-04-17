@@ -10,6 +10,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as Sentry from '@sentry/nextjs';
+import { sendWelcomeEmail } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -129,6 +130,14 @@ export async function POST(request: Request) {
       // ロールバック
       await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
       return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
+    }
+
+    // ウェルカムメール（fire-and-forget）
+    if (user.email) {
+      sendWelcomeEmail({
+        ownerEmail: user.email,
+        facilityName: facility_name,
+      }).catch((e) => Sentry.captureException(e, { tags: { feature: 'welcome-email' } }));
     }
 
     return NextResponse.json({

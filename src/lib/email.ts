@@ -181,6 +181,53 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
 }
 
 /** 予約ステータス変更通知（顧客向け） */
+/** 施設オーナー向けウェルカムメール（登録直後） */
+export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }) {
+  const resend = getResend();
+  if (!resend) return;
+  const name = esc(data.ownerName || 'オーナー');
+  const facility = esc(data.facilityName);
+  await safeSend(resend, {
+    from: FROM,
+    to: data.ownerEmail,
+    subject: `【CareLink】${data.facilityName}の登録ありがとうございます`,
+    html: wrapHtml(`
+      <p>${name} 様</p>
+      <p>この度はCareLinksに施設を登録いただき、ありがとうございます！</p>
+      <p>以下の3ステップを完了すると、お客様があなたの施設を見つけやすくなります。</p>
+      <table style="width:100%;border-collapse:collapse;margin:20px 0;">
+        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;width:40px;text-align:center;">1</td><td style="padding:12px;border:1px solid #e2e8f0;">メニュー・料金を登録する</td></tr>
+        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:center;">2</td><td style="padding:12px;border:1px solid #e2e8f0;">スタッフを登録してスケジュールを設定する</td></tr>
+        <tr><td style="padding:12px;border:1px solid #e2e8f0;background:#f8fafc;font-weight:600;text-align:center;">3</td><td style="padding:12px;border:1px solid #e2e8f0;">施設写真をアップロードして「公開」にする</td></tr>
+      </table>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">${facility}の管理画面へ</a></p>
+    `),
+  }, 'welcome');
+}
+
+/** 施設オーナー向け3日後フォローメール（未完了項目のリマインド） */
+export async function sendOnboardingFollowEmail(data: {
+  ownerEmail: string;
+  facilityName: string;
+  missingSteps: string[];
+}) {
+  const resend = getResend();
+  if (!resend) return;
+  const facility = esc(data.facilityName);
+  const missing = data.missingSteps.map(s => `<li>${esc(s)}</li>`).join('');
+  await safeSend(resend, {
+    from: FROM,
+    to: data.ownerEmail,
+    subject: `【CareLink】${data.facilityName}の設定があと少しです`,
+    html: wrapHtml(`
+      <p>${facility}のご登録から数日が経ちました。</p>
+      <p>以下の項目が未設定です。設定を完了するとお客様が予約しやすくなります！</p>
+      <ul style="background:#fef9c3;border:1px solid #fde047;border-radius:8px;padding:16px 16px 16px 32px;margin:16px 0;">${missing}</ul>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で設定を完了する</a></p>
+    `),
+  }, 'onboarding_follow');
+}
+
 export async function sendBookingStatusUpdate(data: BookingEmailData & { newStatus: string; reason?: string }) {
   const resend = getResend();
   if (!resend) return;

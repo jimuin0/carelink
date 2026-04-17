@@ -19,6 +19,10 @@
     {
       "path": "/api/cron/sync-google-ratings",
       "schedule": "0 18 * * 0"
+    },
+    {
+      "path": "/api/cron/onboarding-followup",
+      "schedule": "0 1 * * *"
     }
   ],
   "rewrites": [
