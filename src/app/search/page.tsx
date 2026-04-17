@@ -179,14 +179,72 @@ export default async function SearchPage({ searchParams }: Props) {
                 <Pagination currentPage={params.page} totalPages={totalPages} baseUrl={baseUrl} />
               </>
             ) : (
-              <div className="text-center py-16 bg-white rounded-xl">
-                <svg className="w-16 h-16 text-gray-200 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-                <p className="text-gray-600 font-bold mb-2">該当する店舗が見つかりませんでした</p>
-                <p className="text-gray-400 text-sm mb-6">条件を変更して再度検索してみてください</p>
-                <div className="flex flex-col sm:flex-row gap-3 justify-center">
-                  <Link href="/search" className="px-6 py-2 bg-sky-500 text-white rounded-lg text-sm font-bold hover:bg-sky-600">条件をリセット</Link>
+              <div className="space-y-6">
+                {/* 0件メッセージ */}
+                <div className="text-center py-12 bg-white rounded-xl">
+                  <svg className="w-14 h-14 text-gray-200 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  <p className="text-gray-700 font-bold mb-1">該当する施設が見つかりませんでした</p>
+                  <p className="text-gray-400 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
+                    <Link href="/search" className="px-5 py-2.5 bg-sky-500 text-white rounded-lg text-sm font-bold hover:bg-sky-600 transition-colors">すべての施設を見る</Link>
+                    {searchParams.type && (
+                      <Link
+                        href={`/search?${searchParams.area ? `area=${encodeURIComponent(searchParams.area)}` : ''}`}
+                        className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                      >
+                        業種を外して検索
+                      </Link>
+                    )}
+                    {searchParams.area && (
+                      <Link
+                        href={`/search?${searchParams.type ? `type=${encodeURIComponent(searchParams.type)}` : ''}`}
+                        className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+                      >
+                        エリアを外して検索
+                      </Link>
+                    )}
+                  </div>
+                </div>
+
+                {/* 人気エリア・業種 */}
+                <div className="bg-white rounded-xl p-6">
+                  <h3 className="text-sm font-bold text-gray-700 mb-4">人気の検索</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {['大阪府', '東京都', '愛知県', '福岡県', '神奈川県'].map((area) => (
+                      <Link
+                        key={area}
+                        href={`/search?area=${encodeURIComponent(area)}`}
+                        className="px-3 py-1.5 bg-sky-50 text-sky-700 text-xs font-medium rounded-full hover:bg-sky-100 transition-colors"
+                      >
+                        {area}
+                      </Link>
+                    ))}
+                    {['まつげ', '鍼灸院', '整骨院', 'ネイル', 'エステ'].map((type) => (
+                      <Link
+                        key={type}
+                        href={`/search?type=${encodeURIComponent(type)}`}
+                        className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full hover:bg-gray-200 transition-colors"
+                      >
+                        {type}
+                      </Link>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 施設掲載CTA */}
+                <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap">
+                  <div>
+                    <p className="font-bold text-gray-800">お探しの施設が見つかりませんでしたか？</p>
+                    <p className="text-sm text-gray-500 mt-0.5">CareLink は施設の無料掲載を受け付けています。オーナー様はぜひご登録を。</p>
+                  </div>
+                  <Link
+                    href="/salon"
+                    className="shrink-0 px-5 py-2.5 bg-sky-500 text-white text-sm font-bold rounded-lg hover:bg-sky-600 transition-colors"
+                  >
+                    無料で施設を掲載する
+                  </Link>
                 </div>
               </div>
             )}
