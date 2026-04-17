@@ -265,3 +265,53 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
     `),
   }, 'booking_status_update');
 }
+
+/** お気に入り施設ダイジェスト通知 */
+export async function sendFavoritesDigest(data: {
+  userEmail: string;
+  userName?: string;
+  facilities: { name: string; slug: string; newCoupons: number; hasNewMenus: boolean }[];
+  unsubscribeToken?: string;
+}) {
+  const resend = getResend();
+  if (!resend) return;
+
+  const name = esc(data.userName || 'お客様');
+  const facilityRows = data.facilities.map((f) => {
+    const updates: string[] = [];
+    if (f.newCoupons > 0) updates.push(`新着クーポン ${f.newCoupons}件`);
+    if (f.hasNewMenus) updates.push('新メニュー追加');
+    return `
+      <tr>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">
+          <a href="${SITE_URL}/facility/${esc(f.slug)}" style="color:#0ea5e9;font-weight:600;text-decoration:none;">${esc(f.name)}</a>
+        </td>
+        <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;">${updates.join('、')}</td>
+      </tr>
+    `;
+  }).join('');
+
+  await safeSend(resend, {
+    from: FROM,
+    to: data.userEmail,
+    subject: `【CareLink】お気に入り施設の新着情報があります`,
+    html: wrapHtml(`
+      <p>${name} 様</p>
+      <p>お気に入り施設に新着情報があります。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <thead>
+          <tr style="background:#f8fafc;">
+            <th style="padding:8px 12px;border-bottom:2px solid #e2e8f0;text-align:left;font-size:13px;">施設名</th>
+            <th style="padding:8px 12px;border-bottom:2px solid #e2e8f0;text-align:left;font-size:13px;">新着情報</th>
+          </tr>
+        </thead>
+        <tbody>${facilityRows}</tbody>
+      </table>
+      <p style="text-align:center;margin-top:24px;">
+        <a href="${SITE_URL}/mypage/favorites" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">
+          お気に入りを見る
+        </a>
+      </p>
+    `, data.unsubscribeToken),
+  }, 'favorites_digest');
+}
