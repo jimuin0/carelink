@@ -13,6 +13,8 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
   const [specialties, setSpecialties] = useState('');
   const [yearsExperience, setYearsExperience] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
+  const [lineWorksChannelId, setLineWorksChannelId] = useState('');
+  const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -34,6 +36,8 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
         setSpecialties((data.specialties || []).join(', '));
         setYearsExperience(data.years_experience?.toString() || '');
         setInstagramUrl(data.instagram_url || '');
+        setLineWorksChannelId(data.line_works_channel_id || '');
+        setLineWorksNotifyAll(data.line_works_notify_all || false);
       }
       setLoading(false);
     };
@@ -55,6 +59,8 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
           specialties: specialties ? specialties.split(',').map((s) => s.trim()) : [],
           years_experience: yearsExperience ? parseInt(yearsExperience) : null,
           instagram_url: instagramUrl || null,
+          line_works_channel_id: lineWorksChannelId || null,
+          line_works_notify_all: lineWorksNotifyAll,
           updated_at: new Date().toISOString(),
         })
         .eq('id', params.id)
@@ -105,6 +111,32 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
           <div>
             <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
             <input id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" />
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="font-semibold text-sm text-gray-700 mb-3">LINE Works 通知設定</h3>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="staff-lw-channel" className="form-label">LINE Works チャンネルID</label>
+              <input
+                id="staff-lw-channel"
+                value={lineWorksChannelId}
+                onChange={(e) => setLineWorksChannelId(e.target.value)}
+                className="form-input"
+                placeholder="例: 12345678901234567"
+              />
+              <p className="text-xs text-gray-400 mt-1">LINE Works 管理コンソールのBot設定から確認できます</p>
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lineWorksNotifyAll}
+                onChange={(e) => setLineWorksNotifyAll(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">担当外の予約（全件）も通知を受け取る</span>
+            </label>
           </div>
         </div>
 

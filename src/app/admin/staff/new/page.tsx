@@ -14,6 +14,8 @@ export default function NewStaffPage() {
   const [yearsExperience, setYearsExperience] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
   const [nominationFee, setNominationFee] = useState('');
+  const [lineWorksChannelId, setLineWorksChannelId] = useState('');
+  const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -40,6 +42,8 @@ export default function NewStaffPage() {
         years_experience: yearsExperience ? parseInt(yearsExperience) : null,
         instagram_url: instagramUrl.trim() || null,
         nomination_fee: nominationFee ? parseInt(nominationFee) : 0,
+        line_works_channel_id: lineWorksChannelId.trim() || null,
+        line_works_notify_all: lineWorksNotifyAll,
         is_active: true,
       });
 
@@ -89,6 +93,31 @@ export default function NewStaffPage() {
         <div>
           <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
           <input id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" />
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="font-semibold text-sm text-gray-700 mb-3">LINE Works 通知設定</h3>
+          <div className="space-y-3">
+            <div>
+              <label htmlFor="staff-lw-channel" className="form-label">LINE Works チャンネルID</label>
+              <input
+                id="staff-lw-channel"
+                value={lineWorksChannelId}
+                onChange={(e) => setLineWorksChannelId(e.target.value)}
+                className="form-input"
+                placeholder="例: 12345678901234567"
+              />
+            </div>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={lineWorksNotifyAll}
+                onChange={(e) => setLineWorksNotifyAll(e.target.checked)}
+                className="rounded border-gray-300"
+              />
+              <span className="text-sm text-gray-700">担当外の予約（全件）も通知を受け取る</span>
+            </label>
+          </div>
         </div>
 
         <div className="flex gap-3 pt-4">
