@@ -32,14 +32,20 @@ export async function GET(req: NextRequest) {
   // スコア計算
   const audit = calculateGbpScore(placeData, facility);
 
-  // キャッシュ保存
+  // キャッシュ保存 + google_rating/google_review_count を facility_profiles に反映
   if (placeData) {
-    await supabase.from('gbp_audit_cache').upsert({
-      facility_id: membership.facility_id,
-      score: audit.score,
-      details: { audit, placeData },
-      fetched_at: new Date().toISOString(),
-    });
+    await Promise.all([
+      supabase.from('gbp_audit_cache').upsert({
+        facility_id: membership.facility_id,
+        score: audit.score,
+        details: { audit, placeData },
+        fetched_at: new Date().toISOString(),
+      }),
+      supabase.from('facility_profiles').update({
+        google_rating: placeData.rating ?? null,
+        google_review_count: placeData.user_ratings_total ?? 0,
+      }).eq('id', membership.facility_id),
+    ]);
   }
 
   return NextResponse.json({ placeData, audit, facilityId: membership.facility_id });

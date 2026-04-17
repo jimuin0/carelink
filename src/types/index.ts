@@ -65,6 +65,8 @@ export interface Facility {
   nearest_station: string | null;
   rating_avg: number;
   rating_count: number;
+  google_rating: number | null;
+  google_review_count: number;
   main_photo_url: string | null;
   view_count: number;
   status: 'draft' | 'published' | 'suspended';
@@ -116,6 +118,8 @@ export interface FacilityCardData {
   access_info: string | null;
   rating_avg: number;
   rating_count: number;
+  google_rating: number | null;
+  google_review_count: number;
   main_photo_url: string | null;
   min_price: number | null;
   max_price: number | null;
