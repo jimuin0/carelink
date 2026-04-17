@@ -69,7 +69,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       url,
       siteName: 'CareLink',
       images: [{
-        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}`,
+        url: `${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.avg_rating ? '&rating=' + facility.avg_rating.toFixed(1) : ''}${facility.review_count ? '&reviews=' + facility.review_count : ''}`,
         width: 1200,
         height: 630,
       }],
@@ -78,7 +78,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       card: 'summary_large_image',
       title,
       description,
-      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}`],
+      images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.avg_rating ? '&rating=' + facility.avg_rating.toFixed(1) : ''}${facility.review_count ? '&reviews=' + facility.review_count : ''}`],
     },
   };
 }
