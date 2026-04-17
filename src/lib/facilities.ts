@@ -1,6 +1,7 @@
 import { cache } from 'react';
 import { createServerSupabaseClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
+import { cachedFetch } from './redis';
 
 const PER_PAGE = 20;
 
@@ -77,14 +78,34 @@ export async function searchFacilities(params: SearchParams) {
 }
 
 export async function getPopularFacilities(limit = 6) {
-  const supabase = createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from(CARD_VIEW)
-    .select(CARD_COLS)
-    .eq('status', 'published')
-    .order('rating_count', { ascending: false })
-    .limit(limit);
-  return { facilities: (data || []) as FacilityCardData[], error };
+  const cacheKey = `popular_facilities:${limit}`;
+  try {
+    const cached = await cachedFetch<FacilityCardData[]>(
+      cacheKey,
+      async () => {
+        const supabase = createServerSupabaseClient();
+        const { data } = await supabase
+          .from(CARD_VIEW)
+          .select(CARD_COLS)
+          .eq('status', 'published')
+          .order('rating_count', { ascending: false })
+          .limit(limit);
+        return (data || []) as FacilityCardData[];
+      },
+      600 // 10 min cache
+    );
+    return { facilities: cached, error: null };
+  } catch {
+    // Fallback without cache
+    const supabase = createServerSupabaseClient();
+    const { data, error } = await supabase
+      .from(CARD_VIEW)
+      .select(CARD_COLS)
+      .eq('status', 'published')
+      .order('rating_count', { ascending: false })
+      .limit(limit);
+    return { facilities: (data || []) as FacilityCardData[], error };
+  }
 }
 
 // 広告枠: アクティブな上位表示施設を返す（検索1ページ目に差し込む用）

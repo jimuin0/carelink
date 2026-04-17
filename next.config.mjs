@@ -16,7 +16,10 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com",
+              // strict-dynamic: modern browsers ignore unsafe-inline when strict-dynamic is present.
+              // Legacy browsers fall back to unsafe-inline + allowlisted domains.
+              // Next step: migrate to nonce-based CSP when ready to remove unsafe-inline entirely.
+              "script-src 'self' 'unsafe-inline' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self'",
               "img-src 'self' data: https: blob:",

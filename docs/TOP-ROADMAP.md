@@ -97,7 +97,7 @@
 - [x] **PostGIS移行**（GPS検索をDB側で — ST_DWithin RPC + geography column + 空間インデックス）
 - [x] **facility_card_viewのマテリアライズドビュー化**（CONCURRENT REFRESH + トリガー）
 - [x] **middleware DB問い合わせキャッシュ**（cookie-based 5min TTL、middleware.tsで実装済み）
-- [ ] **Redis本格導入**（セッション/キャッシュ/キュー）
+- [x] **Redis本格導入**（src/lib/redis.ts — cacheGet/Set/Del/cachedFetch/queue/session + getPopularFacilities キャッシュ化）
 - [x] **画像CDN最適化**（Supabase Storage Transform URL + FacilityCard/PhotoGallery適用済み）
 
 ### マルチ対応
@@ -116,7 +116,7 @@
 ## Phase 5: 運用・品質（常時）
 
 ### テスト
-- [ ] **新機能のユニットテスト追加**（LINE/onboarding/booking修正）
+- [x] **新機能のユニットテスト追加**（redis.test.ts + booking-validation.test.ts）
 - [x] **E2Eテスト**（Playwright: homepage/search/booking/auth/facility + playwright.config.ts）
 - [ ] **負荷テスト**（100同時予約でダブルブッキングしないか）
 
@@ -134,8 +134,8 @@
 - [x] **CSPからfonts.googleapis.com削除**（font-src 'self' のみ、もともと含まれていない）
 
 ### セキュリティ
-- [ ] **定期依存パッケージ更新**
-- [ ] **CSP strict-dynamic検討**
+- [x] **定期依存パッケージ更新**（.github/workflows/dependency-update.yml — 毎週月曜 npm audit）
+- [x] **CSP strict-dynamic検討**（strict-dynamic追加 + unsafe-inline legacy fallback、nonce移行は将来対応）
 - [x] **rate limiting全新規APIに適用**
 
 ---
@@ -162,7 +162,7 @@
 - [x] **問い合わせフォーム→チケット管理**（ステータス/優先度/内部メモ/メール返信）
 - [x] **管理画面内チャットサポート**（AIサポートウィジェット）
 - [x] **施設オーナー向けビデオチュートリアル**（admin/tutorials ページ、YouTube埋め込み）
-- [ ] **操作マニュアルPDF**
+- [x] **操作マニュアルPDF**（admin/manual ページ + ブラウザ印刷/PDF保存対応）
 
 ### 施設の信頼性
 - [x] **施設認証バッジ**（phone/identity/site_visit の3種類、FacilityHeader に緑バッジ表示）
