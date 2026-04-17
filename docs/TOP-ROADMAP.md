@@ -136,7 +136,7 @@
 ### セキュリティ
 - [ ] **定期依存パッケージ更新**
 - [ ] **CSP strict-dynamic検討**
-- [ ] **rate limiting全新規APIに適用**
+- [x] **rate limiting全新規APIに適用**
 
 ---
 
