@@ -116,11 +116,50 @@ export async function GET(request: Request) {
 
             if (segment === 'at_risk' && daysSince >= 60 && daysSince <= 65) {
               // 60-65日の間のみ送信（重複防止）
+              // 個別クーポンコードを生成（500円引き、30日有効）
+              const couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+              const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+              // 重複送信チェック（既存クーポンがあればスキップ）
+              const { data: existingCoupon } = await supabase
+                .from('user_coupon_codes')
+                .select('id')
+                .eq('facility_id', facility.id)
+                .eq('email', email)
+                .eq('reason', 'at_risk')
+                .gte('created_at', new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString())
+                .maybeSingle();
+
+              if (existingCoupon) continue;
+
+              await supabase.from('user_coupon_codes').insert({
+                facility_id: facility.id,
+                email,
+                code: couponCode,
+                discount_type: 'fixed',
+                discount_value: 500,
+                reason: 'at_risk',
+                valid_until: validUntil,
+              }).catch(() => {});
+
               await resend.emails.send({
                 from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
                 to: email,
-                subject: `【${facilityInfo.name}】お久しぶりです！`,
-                html: `<p>${data.name || 'お客'}様</p><p>前回のご来店から${daysSince}日が経ちました。</p><p>お体の調子はいかがですか？</p><p><a href="https://carelink-jp.com/facility/${facilityInfo.slug}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">ご予約はこちら</a></p>`,
+                subject: `【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`,
+                html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+                  <p>${data.name || 'お客'}様</p>
+                  <p>前回のご来店から${daysSince}日が経ちました。お体の調子はいかがですか？</p>
+                  <p>${facilityInfo.name}からお帰りいただきたく、<strong>特別割引クーポン</strong>をご用意いたしました。</p>
+                  <div style="background:#f0f9ff;border:2px solid #0ea5e9;border-radius:12px;padding:20px;text-align:center;margin:20px 0;">
+                    <p style="font-size:12px;color:#64748b;margin:0 0 8px;">クーポンコード</p>
+                    <p style="font-size:28px;font-weight:700;letter-spacing:0.1em;color:#0284c7;margin:0;">${couponCode}</p>
+                    <p style="font-size:14px;color:#475569;margin:8px 0 0;">500円引き｜有効期限: ${validUntil}</p>
+                  </div>
+                  <p style="text-align:center;">
+                    <a href="https://carelink-jp.com/facility/${facilityInfo.slug}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">ご予約・クーポン利用はこちら</a>
+                  </p>
+                  <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
+                </div>`,
               }).catch(() => {});
             }
           }
