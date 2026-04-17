@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import FAQ from '@/components/FAQ';
+import HpbSimulator from '@/components/salon/HpbSimulator';
 
 export const metadata: Metadata = {
   title: '施設を掲載しませんか？ | CareLink',
@@ -159,6 +160,14 @@ export default function SalonPage() {
         <div className="section-container">
           <h2 className="section-title">よくある質問</h2>
           <FAQ items={faqItems} />
+        </div>
+      </section>
+
+      {/* HPBシミュレーター */}
+      <section className="bg-gray-50">
+        <div className="section-container">
+          <h2 className="section-title">今すぐいくら節約できるか試してみる</h2>
+          <HpbSimulator />
         </div>
       </section>
 
