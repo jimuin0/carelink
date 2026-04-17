@@ -10,6 +10,8 @@ import ReviewSummary from './ReviewSummary';
 
 interface Props {
   facilityId: string;
+  facilitySlug?: string;
+  facilityName?: string;
   initialReviews: FacilityReview[];
   googlePlaceId?: string | null;
 }
@@ -27,7 +29,7 @@ function axisAvg(reviews: FacilityReview[], key: keyof FacilityReview): number {
   return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
 }
 
-export default function ReviewTab({ facilityId, initialReviews, googlePlaceId }: Props) {
+export default function ReviewTab({ facilityId, facilitySlug, facilityName, initialReviews, googlePlaceId }: Props) {
   const [reviews, setReviews] = useState(initialReviews);
 
   const refreshReviews = async () => {
@@ -145,7 +147,7 @@ export default function ReviewTab({ facilityId, initialReviews, googlePlaceId }:
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             口コミを投稿する
           </h3>
-          <ReviewForm facilityId={facilityId} onReviewSubmitted={refreshReviews} />
+          <ReviewForm facilityId={facilityId} facilitySlug={facilitySlug} facilityName={facilityName} onReviewSubmitted={refreshReviews} />
         </div>
       </div>
     </div>

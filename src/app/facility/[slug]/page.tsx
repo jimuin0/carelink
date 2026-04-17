@@ -158,7 +158,7 @@ export default async function FacilityPage({ params }: Props) {
     {
       key: 'review',
       label: `口コミ(${reviews.length})`,
-      content: <ReviewTab facilityId={facility.id} initialReviews={reviews} googlePlaceId={facility.gbp_place_id} />,
+      content: <ReviewTab facilityId={facility.id} facilitySlug={facility.slug} facilityName={facility.name} initialReviews={reviews} googlePlaceId={facility.gbp_place_id} />,
     },
     ...((facilitySymptoms.length > 0 || certifications.length > 0) ? [{
       key: 'medical',
