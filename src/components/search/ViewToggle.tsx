@@ -11,10 +11,25 @@ interface Props {
   facilities: FacilityCardData[];
   bookingCounts?: Record<string, number>;
   availableIds?: string[];
+  sponsored?: boolean;
 }
 
-export default function ViewToggle({ facilities, bookingCounts, availableIds }: Props) {
+export default function ViewToggle({ facilities, bookingCounts, availableIds, sponsored }: Props) {
   const [view, setView] = useState<'list' | 'map'>('list');
+
+  // Sponsored mode: just show list cards without view toggle
+  if (sponsored) {
+    return (
+      <div className="grid sm:grid-cols-2 gap-4">
+        {facilities.map((f) => (
+          <div key={f.id} className="relative">
+            <FacilityCard facility={f} />
+            <span className="absolute top-2 right-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">PR</span>
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -46,7 +61,7 @@ export default function ViewToggle({ facilities, bookingCounts, availableIds }: 
       ) : (
         facilities.length > 0 ? (
           <div className="grid sm:grid-cols-2 gap-6">
-            {facilities.map((f) => (<FacilityCard key={f.id} facility={f} monthlyBookings={bookingCounts?.[f.id]} isAvailable={availableIds ? availableIds.includes(f.id) : undefined} />))}
+            {facilities.map((f, i) => (<FacilityCard key={f.id} facility={f} monthlyBookings={bookingCounts?.[f.id]} isAvailable={availableIds ? availableIds.includes(f.id) : undefined} priority={i < 4} />))}
           </div>
         ) : (
           <div className="text-center py-16 bg-white rounded-2xl shadow-sm">

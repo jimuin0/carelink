@@ -1,13 +1,14 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds } from '@/lib/facilities';
+import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds, getFeaturedFacilities } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
 import nextDynamic from 'next/dynamic';
 import Pagination from '@/components/search/Pagination';
 const SearchFilters = nextDynamic(() => import('@/components/search/SearchFilters'));
 const MobileFilterButton = nextDynamic(() => import('@/components/search/MobileFilterButton'), { ssr: false });
-const ViewToggle = nextDynamic(() => import('@/components/search/ViewToggle'), { ssr: false });
+// ViewToggle has SSR: true now — the list grid renders server-side; map toggle hydrates on client
+const ViewToggle = nextDynamic(() => import('@/components/search/ViewToggle'), { ssr: true });
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +78,11 @@ export default async function SearchPage({ searchParams }: Props) {
 
   const { facilities, total, perPage } = await searchFacilities(params);
   const totalPages = Math.ceil(total / perPage);
+
+  // 広告枠: 1ページ目のみ上位表示施設を取得
+  const featuredFacilities = (params.page || 1) === 1
+    ? await getFeaturedFacilities(searchParams.type, searchParams.area)
+    : [];
 
   // 緊急性シグナル: 当月予約件数 + 空き検索
   const facilityIds = facilities.map((f) => f.id);
@@ -171,6 +177,22 @@ export default async function SearchPage({ searchParams }: Props) {
                 <SortLink current={sort} value="popular" label="人気順" searchParams={searchParams} />
               </div>
             </div>
+
+            {/* 広告枠: スポンサー施設 */}
+            {featuredFacilities.length > 0 && (
+              <div className="mb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
+                </div>
+                <ViewToggle
+                  facilities={featuredFacilities}
+                  bookingCounts={{}}
+                  availableIds={undefined}
+                  sponsored
+                />
+                <div className="mt-3 border-t border-dashed border-gray-200" />
+              </div>
+            )}
 
             {/* Cards/Map with view toggle */}
             {facilities.length > 0 ? (

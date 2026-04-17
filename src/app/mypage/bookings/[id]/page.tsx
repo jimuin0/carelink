@@ -19,6 +19,8 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
   const [cancelling, setCancelling] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [gcalConnected, setGcalConnected] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
@@ -35,6 +37,11 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
         .single();
       setBooking(data as Booking | null);
       setLoading(false);
+      // Check Google Calendar connection
+      fetch('/api/google-calendar')
+        .then((r) => r.json())
+        .then((d) => setGcalConnected(d.connected && !d.isExpired))
+        .catch(() => {});
     };
     load().catch(() => setLoading(false));
   }, [params.id]);
@@ -119,23 +126,52 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
         )}
       </div>
 
-      {/* カレンダー追加（v8.7） */}
+      {/* カレンダー追加 */}
       {booking && booking.booking_date && booking.start_time && (
         <div className="flex gap-2 mt-4">
-          <a
-            href={(() => {
-              const date = booking.booking_date.replace(/-/g, '');
-              const start = (booking.start_time || '').replace(/:/g, '').slice(0, 4);
-              const end = (booking.end_time || '').replace(/:/g, '').slice(0, 4);
-              const title = encodeURIComponent('予約 - CareLink');
-              return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date}T${start}00/${date}T${end}00&ctz=Asia/Tokyo`;
-            })()}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
-          >
-            📅 Googleカレンダーに追加
-          </a>
+          {gcalConnected ? (
+            <button
+              type="button"
+              disabled={syncing}
+              onClick={async () => {
+                setSyncing(true);
+                try {
+                  const res = await fetch('/api/google-calendar/sync', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bookingId: booking.id }),
+                  });
+                  if (res.ok) {
+                    setToast({ type: 'success', message: 'Googleカレンダーに同期しました' });
+                  } else {
+                    setToast({ type: 'error', message: '同期に失敗しました' });
+                  }
+                } catch {
+                  setToast({ type: 'error', message: '同期に失敗しました' });
+                } finally {
+                  setSyncing(false);
+                }
+              }}
+              className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              {syncing ? '同期中...' : '📅 カレンダーに同期'}
+            </button>
+          ) : (
+            <a
+              href={(() => {
+                const date = booking.booking_date.replace(/-/g, '');
+                const start = (booking.start_time || '').replace(/:/g, '').slice(0, 4);
+                const end = (booking.end_time || '').replace(/:/g, '').slice(0, 4);
+                const title = encodeURIComponent('予約 - CareLink');
+                return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${date}T${start}00/${date}T${end}00&ctz=Asia/Tokyo`;
+              })()}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 py-2.5 text-center rounded-xl border border-gray-200 text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              📅 Googleカレンダーに追加
+            </a>
+          )}
           <a
             href={`/api/booking/${booking.id}/ical`}
             download={`carelink-booking-${booking.id.slice(0, 8)}.ics`}

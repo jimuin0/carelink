@@ -90,26 +90,26 @@
 - [x] **AIレビュー要約**（口コミ10件→「この施設は腰痛に定評があり...」）
 - [x] **LINEリッチメニュー**（予約確認/変更/キャンセルをLINE内で完結）
 - [ ] **LINE Mini App**
-- [ ] **Googleカレンダー同期**（予約→自動でカレンダーに追加）
+- [x] **Googleカレンダー同期**（OAuth2 + booking_calendar_events + /api/google-calendar/sync）
 - [x] **iCal出力強化**（予約詳細ページからダウンロード）
 
 ### スケーリング
-- [ ] **PostGIS移行**（GPS検索をDB側で）
+- [x] **PostGIS移行**（GPS検索をDB側で — ST_DWithin RPC + geography column + 空間インデックス）
 - [x] **facility_card_viewのマテリアライズドビュー化**（CONCURRENT REFRESH + トリガー）
-- [ ] **middleware DB問い合わせキャッシュ**（JWT claimsに施設ID埋め込み）
+- [x] **middleware DB問い合わせキャッシュ**（cookie-based 5min TTL、middleware.tsで実装済み）
 - [ ] **Redis本格導入**（セッション/キャッシュ/キュー）
-- [ ] **画像CDN最適化**（Cloudflare Images or imgproxy）
+- [x] **画像CDN最適化**（Supabase Storage Transform URL + FacilityCard/PhotoGallery適用済み）
 
 ### マルチ対応
 - [x] **多言語対応**（英語/中国語/韓国語 — インバウンド観光客向け）
 - [x] **チェーン店一括管理**（複数施設の統合レポート/一括設定）
-- [ ] **ホワイトラベル**（施設独自ドメインで予約ページ提供）
+- [x] **ホワイトラベル**（white_label_domains + DNS TXT認証 + admin/white-label UI）
 - [x] **外部API公開**（POS/会計ソフト連携用）
 
 ### 収益化
 - [x] **プレミアムプラン設計**（高度分析/優先表示/カスタムドメイン）
-- [ ] **広告枠**（検索結果上位表示の有料オプション — 慎重に）
-- [ ] **人材紹介連動**（求職者→施設マッチング手数料）
+- [x] **広告枠**（featured_slots テーブル + admin/featured-ads UI + 検索結果スポンサー表示）
+- [x] **人材紹介連動**（job_applications テーブル + admin/jobs/applications UI + 採用手数料管理）
 
 ---
 
@@ -117,7 +117,7 @@
 
 ### テスト
 - [ ] **新機能のユニットテスト追加**（LINE/onboarding/booking修正）
-- [ ] **E2Eテスト**（Playwright: 登録→オンボーディング→予約→レビュー）
+- [x] **E2Eテスト**（Playwright: homepage/search/booking/auth/facility + playwright.config.ts）
 - [ ] **負荷テスト**（100同時予約でダブルブッキングしないか）
 
 ### 監視
@@ -127,8 +127,8 @@
 - [x] **エラー率アラート**（Sentry → Slack通知）
 
 ### PageSpeed（他ページ）
-- [ ] **/search ページ最適化**
-- [ ] **/facility/[slug] ページ最適化**
+- [x] **/search ページ最適化**（ViewToggle SSR化、FacilityCard priority prop、上位4枚eager load）
+- [x] **/facility/[slug] ページ最適化**（ISR 3600s、Promise.allSettled並列取得、LCP priority画像）
 - [x] **ユーザー補助 93→100**（コントラスト/タップターゲット修正）
 - [ ] **おすすめの方法 92→100**（コンソールエラー/CSP修正）
 - [x] **CSPからfonts.googleapis.com削除**（font-src 'self' のみ、もともと含まれていない）
@@ -161,7 +161,7 @@
 ### カスタマーサポート
 - [x] **問い合わせフォーム→チケット管理**（ステータス/優先度/内部メモ/メール返信）
 - [x] **管理画面内チャットサポート**（AIサポートウィジェット）
-- [ ] **施設オーナー向けビデオチュートリアル**（YouTube）
+- [x] **施設オーナー向けビデオチュートリアル**（admin/tutorials ページ、YouTube埋め込み）
 - [ ] **操作マニュアルPDF**
 
 ### 施設の信頼性
@@ -198,13 +198,13 @@
 - [ ] **Instagram公式アカウント運用**
 - [ ] **X（Twitter）公式アカウント運用**
 - [ ] **プレスリリース**（PR TIMES等）
-- [ ] **施設オーナー向けニュースレター**（月次）
-- [ ] **ユーザー向けメルマガ**（おすすめ施設/新着クーポン）
+- [x] **施設オーナー向けニュースレター**（月次 — newsletter_campaigns + cron/newsletter-digest + admin/newsletters UI）
+- [x] **ユーザー向けメルマガ**（おすすめ施設/新着クーポン — newsletter_subscriptions + user_digest キャンペーン対応）
 
 ### パートナー連携
 - [x] **会計ソフト連携**（freee/MoneyForward CSV エクスポート）
 - [ ] **LINE Works連携**（施設内スタッフ通知）
-- [ ] **Googleカレンダー双方向同期**
+- [x] **Googleカレンダー双方向同期**（OAuth2連携 + sync API + mypage/settings）
 - [ ] **Apple Health/Google Fit連携**（鍼灸施術記録）
 
 ### データ・分析
@@ -218,7 +218,7 @@
 - [x] **テレヘルス/オンライン相談**
 - [x] **AIチャットボット**（ユーザーサポート自動化）
 - [x] **パーソナライズ推薦**（閲覧/予約履歴ベース「あなたへのおすすめ」）
-- [ ] **ユーザーコミュニティ**（施設オーナー同士の交流場）
+- [x] **ユーザーコミュニティ**（community_posts/replies/likes テーブル + admin/community UI）
 - [ ] **投資家向けピッチデック**
 
 ---

@@ -46,19 +46,18 @@ export async function searchFacilities(params: SearchParams) {
   }
 
   if (isGeoSearch) {
-    query = query.limit(500);
-    const { data, error } = await query;
-    const all = (data || []) as unknown as FacilityCardData[];
-    const userLat = params.lat!;
-    const userLng = params.lng!;
-    const withDist = all
-      .filter((f) => f.latitude != null && f.longitude != null)
-      .map((f) => ({ ...f, distance: haversineDistance(userLat, userLng, f.latitude!, f.longitude!) }))
-      .filter((f) => f.distance <= 10)
-      .sort((a, b) => a.distance - b.distance);
+    // Use PostGIS ST_DWithin via RPC for server-side GPS search
+    const { data, error } = await supabase.rpc('search_facilities_nearby', {
+      user_lat: params.lat,
+      user_lng: params.lng,
+      radius_km: 10,
+      type_filter: params.type || null,
+      limit_count: 500,
+    });
+    const all = (data || []) as unknown as (FacilityCardData & { distance_km: number })[];
     const page = params.page || 1;
     const from = (page - 1) * PER_PAGE;
-    return { facilities: withDist.slice(from, from + PER_PAGE) as FacilityCardData[], total: withDist.length, perPage: PER_PAGE, error };
+    return { facilities: all.slice(from, from + PER_PAGE) as FacilityCardData[], total: all.length, perPage: PER_PAGE, error };
   }
 
   if (params.sort === 'rating') {
@@ -86,6 +85,29 @@ export async function getPopularFacilities(limit = 6) {
     .order('rating_count', { ascending: false })
     .limit(limit);
   return { facilities: (data || []) as FacilityCardData[], error };
+}
+
+// 広告枠: アクティブな上位表示施設を返す（検索1ページ目に差し込む用）
+export async function getFeaturedFacilities(businessType?: string, area?: string): Promise<FacilityCardData[]> {
+  const supabase = createServerSupabaseClient();
+  const now = new Date().toISOString();
+
+  let query = supabase
+    .from('featured_slots')
+    .select(`facility_id, slot_type, ${CARD_VIEW}(${CARD_COLS})`)
+    .eq('is_active', true)
+    .eq('slot_type', 'search_top')
+    .lte('starts_at', now)
+    .gte('ends_at', now)
+    .limit(3);
+
+  if (businessType) query = query.or(`business_type.eq.${businessType},business_type.is.null`);
+  if (area) query = query.or(`area.eq.${area},area.is.null`);
+
+  const { data } = await query;
+  return (data || [])
+    .map((row: { [key: string]: unknown }) => row[CARD_VIEW])
+    .filter(Boolean) as FacilityCardData[];
 }
 
 export const getFacilityBySlug = cache(async (slug: string) => {

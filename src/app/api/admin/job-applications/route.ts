@@ -1,0 +1,84 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-service';
+
+async function getFacilityId(userId: string) {
+  const admin = createServiceRoleClient();
+  const { data } = await admin
+    .from('facility_members')
+    .select('facility_id')
+    .eq('user_id', userId)
+    .in('role', ['owner', 'admin'])
+    .limit(1)
+    .single();
+  return data?.facility_id;
+}
+
+export async function GET() {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const facilityId = await getFacilityId(user.id);
+  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+
+  const admin = createServiceRoleClient();
+  const { data: applications } = await admin
+    .from('job_applications')
+    .select('*, job_postings(title)')
+    .eq('facility_id', facilityId)
+    .order('created_at', { ascending: false });
+
+  return NextResponse.json({ applications: applications || [] });
+}
+
+// Public POST: submit application
+export async function POST(req: NextRequest) {
+  const body = await req.json();
+  const { job_posting_id, facility_id, applicant_name, applicant_email, applicant_phone, cover_letter } = body;
+
+  if (!facility_id || !applicant_name || !applicant_email) {
+    return NextResponse.json({ error: 'facility_id, applicant_name, applicant_email required' }, { status: 400 });
+  }
+
+  // Basic email validation
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant_email)) {
+    return NextResponse.json({ error: 'Invalid email' }, { status: 400 });
+  }
+
+  const admin = createServiceRoleClient();
+
+  // Check if already applied
+  const { data: existing } = await admin
+    .from('job_applications')
+    .select('id')
+    .eq('facility_id', facility_id)
+    .eq('applicant_email', applicant_email)
+    .eq('job_posting_id', job_posting_id || null)
+    .limit(1);
+
+  if (existing && existing.length > 0) {
+    return NextResponse.json({ error: 'Already applied' }, { status: 409 });
+  }
+
+  // Check if user is logged in
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const { data: application, error } = await admin
+    .from('job_applications')
+    .insert({
+      job_posting_id: job_posting_id || null,
+      facility_id,
+      applicant_user_id: user?.id || null,
+      applicant_name: applicant_name.slice(0, 100),
+      applicant_email,
+      applicant_phone: applicant_phone?.slice(0, 20) || null,
+      cover_letter: cover_letter?.slice(0, 2000) || null,
+    })
+    .select()
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ application }, { status: 201 });
+}

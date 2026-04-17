@@ -28,9 +28,10 @@ interface Props {
   showBadges?: boolean;
   monthlyBookings?: number;
   isAvailable?: boolean;
+  priority?: boolean;
 }
 
-export default function FacilityCard({ facility, showBadges = true, monthlyBookings, isAvailable }: Props) {
+export default function FacilityCard({ facility, showBadges = true, monthlyBookings, isAvailable, priority = false }: Props) {
   const todayHours = getTodayHours(facility.business_hours);
   const hasCoupons = (facility.coupon_count ?? 0) > 0;
 
@@ -46,6 +47,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
             className="object-cover"
             placeholder="blur"
             blurDataURL={SHIMMER_BLUR}
+            priority={priority}
           />
         ) : (
           <div className="flex flex-col items-center justify-center h-full bg-gradient-to-br from-sky-50 via-sky-100 to-indigo-50">
