@@ -72,6 +72,9 @@ export interface Facility {
   main_photo_url: string | null;
   view_count: number;
   status: 'draft' | 'published' | 'suspended';
+  is_verified: boolean;
+  verified_type: 'phone' | 'identity' | 'site_visit' | null;
+  verified_at: string | null;
 }
 
 export interface FacilitySuggestion {

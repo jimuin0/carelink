@@ -6,6 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { logCronRun } from '@/lib/cron-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,6 +22,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   try {
     // 前日の日付（JST）
     const yesterday = new Date();
@@ -91,9 +93,11 @@ export async function GET(request: Request) {
       count++;
     }
 
+    await logCronRun('daily-summary', 'success', startedAt, { processed: count, meta: { date: dateStr } });
     return NextResponse.json({ status: 'ok', date: dateStr, facilities: count });
   } catch (e) {
     console.error('[daily-summary] Error:', e);
+    await logCronRun('daily-summary', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { logCronRun } from '@/lib/cron-logger';
 /**
  * 不正レビュー検知 Cron（v8.22）
  * GET /api/cron/flag-reviews

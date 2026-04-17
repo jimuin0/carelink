@@ -1,3 +1,4 @@
+import { logCronRun } from '@/lib/cron-logger';
 /**
  * オンボーディング3日後フォローメール Cron（v8.14）
  * GET /api/cron/onboarding-followup

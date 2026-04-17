@@ -1,3 +1,4 @@
+import { logCronRun } from '@/lib/cron-logger';
 /**
  * お気に入り施設ダイジェスト Cron（v8.24）
  * GET /api/cron/favorites-digest

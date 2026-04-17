@@ -1,3 +1,4 @@
+import { logCronRun } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { fetchPlaceDetails } from '@/lib/gbp';

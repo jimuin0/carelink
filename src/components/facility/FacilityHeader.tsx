@@ -1,11 +1,28 @@
 import type { Facility } from '@/types';
 import ViewingNow from './ViewingNow';
 
+const VERIFIED_LABELS: Record<string, string> = {
+  phone:      '電話確認済み',
+  identity:   '本人確認済み',
+  site_visit: '現地確認済み',
+};
+
 export default function FacilityHeader({ facility }: { facility: Facility }) {
   return (
     <div className="px-4 sm:px-6 py-5">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <span className="badge badge-primary">{facility.business_type}</span>
+        {facility.is_verified && (
+          <span
+            className="inline-flex items-center gap-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold px-2 py-0.5 rounded-full"
+            title={facility.verified_type ? VERIFIED_LABELS[facility.verified_type] : '認証済み施設'}
+          >
+            <svg className="w-3.5 h-3.5 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
+              <path fillRule="evenodd" d="M6.267 3.455a3.066 3.066 0 001.745-.723 3.066 3.066 0 013.976 0 3.066 3.066 0 001.745.723 3.066 3.066 0 012.812 2.812c.051.643.304 1.254.723 1.745a3.066 3.066 0 010 3.976 3.066 3.066 0 00-.723 1.745 3.066 3.066 0 01-2.812 2.812 3.066 3.066 0 00-1.745.723 3.066 3.066 0 01-3.976 0 3.066 3.066 0 00-1.745-.723 3.066 3.066 0 01-2.812-2.812 3.066 3.066 0 00-.723-1.745 3.066 3.066 0 010-3.976 3.066 3.066 0 00.723-1.745 3.066 3.066 0 012.812-2.812zm7.44 5.252a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+            </svg>
+            {facility.verified_type ? VERIFIED_LABELS[facility.verified_type] : '認証済み'}
+          </span>
+        )}
         {facility.rating_count > 0 && (
           <div className="flex items-center gap-1">
             <span className="text-amber-400" aria-hidden="true">★</span>

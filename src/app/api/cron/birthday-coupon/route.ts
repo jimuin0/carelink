@@ -1,3 +1,4 @@
+import { logCronRun } from '@/lib/cron-logger';
 /**
  * 誕生日クーポン自動送信 Cron（v8.14）
  * GET /api/cron/birthday-coupon

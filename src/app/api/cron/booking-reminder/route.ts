@@ -1,6 +1,7 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
+import { logCronRun } from '@/lib/cron-logger';
 
 // Vercel Cron: runs daily at 9:00 JST (0:00 UTC)
 export const dynamic = 'force-dynamic';
@@ -12,6 +13,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   try {
     // Use service role client to bypass RLS (cron has no auth context)
     const supabase = createServiceRoleClient();
@@ -31,6 +33,7 @@ export async function GET(request: Request) {
       .limit(200);
 
     if (!bookings || bookings.length === 0) {
+      await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ sent: 0 });
     }
 
@@ -65,9 +68,17 @@ export async function GET(request: Request) {
       }
     }
 
+    await logCronRun('booking-reminder', 'success', startedAt, {
+      processed: sent,
+      skipped: bookings.length - sent,
+      meta: { total_bookings: bookings.length },
+    });
     return NextResponse.json({ sent, total: bookings.length });
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'booking-reminder-cron' } });
+    await logCronRun('booking-reminder', 'error', startedAt, {
+      error_msg: e instanceof Error ? e.message : String(e),
+    });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

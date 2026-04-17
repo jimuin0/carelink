@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
+import { logCronRun } from '@/lib/cron-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   try {
     // 24-48時間前に完了した予約を取得（重複送信防止のため48h上限）
     const now = new Date();
@@ -83,9 +85,11 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    await logCronRun('review-request', 'success', startedAt, { processed: sent });
     return NextResponse.json({ status: 'ok', sent });
   } catch (e) {
     console.error('[review-request] Error:', e);
+    await logCronRun('review-request', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

@@ -1,3 +1,4 @@
+import { logCronRun } from '@/lib/cron-logger';
 /**
  * 顧客セグメント分析 Cron（v8.1）
  * GET /api/cron/customer-segment
