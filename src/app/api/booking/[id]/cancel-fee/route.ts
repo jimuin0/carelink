@@ -16,6 +16,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://carelink-jp.com';
 
 export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
+  try {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -115,4 +116,7 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     fee_amount: feeAmount,
     fee_percent: feePercent,
   });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+  }
 }

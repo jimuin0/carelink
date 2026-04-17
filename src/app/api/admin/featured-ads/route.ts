@@ -41,6 +41,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -109,4 +110,7 @@ export async function POST(req: NextRequest) {
   });
 
   return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+  }
 }
