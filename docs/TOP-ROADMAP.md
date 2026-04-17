@@ -95,7 +95,7 @@
 
 ### スケーリング
 - [ ] **PostGIS移行**（GPS検索をDB側で）
-- [ ] **facility_card_viewのマテリアライズドビュー化**
+- [x] **facility_card_viewのマテリアライズドビュー化**
 - [ ] **middleware DB問い合わせキャッシュ**（JWT claimsに施設ID埋め込み）
 - [ ] **Redis本格導入**（セッション/キャッシュ/キュー）
 - [ ] **画像CDN最適化**（Cloudflare Images or imgproxy）
