@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServiceRoleClient } from '@/lib/supabase-service';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { Resend } from 'resend';
 
 // Monthly newsletter cron — runs on 1st of each month
