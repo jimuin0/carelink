@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,6 +18,7 @@ const ratingAxis = z.number().int().min(1).max(5);
 
 const reviewSchema = z.object({
   facility_id: z.string().uuid(),
+  recaptcha_token: z.string().optional(),
   reviewer_name: z.string().min(1).max(50),
   rating_skill: ratingAxis,
   rating_service: ratingAxis,
@@ -40,6 +42,14 @@ export async function POST(request: Request) {
   const parsed = reviewSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
+  }
+
+  // reCAPTCHA v3 検証（キー設定時のみ）
+  if (parsed.data.recaptcha_token && process.env.RECAPTCHA_SECRET_KEY) {
+    const captcha = await verifyRecaptcha(parsed.data.recaptcha_token, 'review', 0.4);
+    if (!captcha.success) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
   }
 
   const cookieStore = cookies();
