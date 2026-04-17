@@ -164,42 +164,11 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
   const onSubmit = async (data: ReviewFormData) => {
     const sb = createBrowserSupabaseClient();
 
-    // Rate limit: 1 review per facility per 24h
-    const { data: { user } } = await sb.auth.getUser();
-    if (user) {
-      const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      const { data: recent } = await sb
-        .from('facility_reviews')
-        .select('id')
-        .eq('facility_id', facilityId)
-        .eq('user_id', user.id)
-        .gte('created_at', since)
-        .limit(1);
-      if (recent && recent.length > 0) {
-        setToast({ type: 'error', message: '同じ施設への口コミは24時間に1回までです' });
-        return;
-      }
-    }
-
-    const avg = Math.round(
-      (data.rating_skill + data.rating_service + data.rating_atmosphere + data.rating_cleanliness + data.rating_explanation) / 5
-    );
-
     try {
-      // Check verified visit
-      let isVerifiedVisit = false;
-      if (user) {
-        const { data: completedBooking } = await sb
-          .from('bookings')
-          .select('id')
-          .eq('facility_id', facilityId)
-          .eq('user_id', user.id)
-          .eq('status', 'completed')
-          .limit(1);
-        isVerifiedVisit = (completedBooking?.length ?? 0) > 0;
-      }
+      // ログイン状態取得
+      const { data: { user } } = await sb.auth.getUser();
 
-      // Upload photos
+      // Upload photos via Supabase Storage
       const photo_urls: string[] = [];
       if (photos.length > 0) {
         for (const file of photos) {
@@ -213,29 +182,27 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
         }
       }
 
-      const { error } = await sb.from('facility_reviews').insert({
-        facility_id: facilityId,
-        reviewer_name: data.reviewer_name,
-        rating: avg,
-        rating_skill: data.rating_skill,
-        rating_service: data.rating_service,
-        rating_atmosphere: data.rating_atmosphere,
-        rating_cleanliness: data.rating_cleanliness,
-        rating_explanation: data.rating_explanation,
-        comment: data.comment || null,
-        photo_urls: photo_urls.length > 0 ? photo_urls : null,
-        ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
-      });
-      if (error) throw error;
-
-      // ログイン済みユーザーに口コミ投稿ポイント（50pt）を付与
-      if (user) {
-        sb.from('user_points').insert({
-          user_id: user.id,
+      // レビュー投稿はサーバーサイドAPIを経由（IP記録のため）
+      const res = await fetch('/api/review', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': 'required' },
+        body: JSON.stringify({
           facility_id: facilityId,
-          points: 50,
-          reason: 'review',
-        }); // fire-and-forget: ポイント付与失敗は口コミ投稿成功に影響させない
+          reviewer_name: data.reviewer_name,
+          rating_skill: data.rating_skill,
+          rating_service: data.rating_service,
+          rating_atmosphere: data.rating_atmosphere,
+          rating_cleanliness: data.rating_cleanliness,
+          rating_explanation: data.rating_explanation,
+          comment: data.comment || null,
+          photo_urls: photo_urls.length > 0 ? photo_urls : null,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        setToast({ type: 'error', message: body?.error || '送信に失敗しました' });
+        return;
       }
 
       setSubmitted(true);
