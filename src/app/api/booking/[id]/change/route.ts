@@ -6,6 +6,8 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
+import { sendLineWorksMessage, getLineWorksToken, isLineWorksConfigured } from '@/lib/integrations/line-works';
+import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,6 +105,62 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
     if (error) {
       return NextResponse.json({ error: '変更に失敗しました' }, { status: 500 });
+    }
+
+    // LINE Works change notification (non-blocking)
+    if (isLineWorksConfigured()) {
+      try {
+        const adminSupabase = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!
+        );
+        const { data: staffList } = await adminSupabase
+          .from('staff_profiles')
+          .select('line_works_channel_id, line_works_notify_all, id')
+          .eq('facility_id', booking.facility_id)
+          .not('line_works_channel_id', 'is', null);
+
+        if (staffList && staffList.length > 0) {
+          const { data: customerBooking } = await adminSupabase
+            .from('bookings')
+            .select('customer_name, menu_id')
+            .eq('id', params.id)
+            .maybeSingle();
+
+          let menuName = '';
+          if (customerBooking?.menu_id) {
+            const { data: menu } = await adminSupabase.from('facility_menus').select('name').eq('id', customerBooking.menu_id).maybeSingle();
+            menuName = menu?.name || '';
+          }
+
+          const token = await getLineWorksToken();
+          if (token) {
+            const botId = process.env.LINE_WORKS_BOT_ID!;
+            const text = [
+              '🔄 予約変更',
+              '',
+              `お客様: ${customerBooking?.customer_name || '不明'}`,
+              menuName ? `メニュー: ${menuName}` : '',
+              `変更後日時: ${parsed.data.booking_date} ${parsed.data.start_time}`,
+            ].filter(Boolean).join('\n');
+
+            for (const staff of staffList) {
+              if (!staff.line_works_channel_id) continue;
+              if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
+              fetch(
+                `https://www.worksapis.com/v1.0/bots/${botId}/channels/${staff.line_works_channel_id}/messages`,
+                {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ content: { type: 'text', text } }),
+                }
+              ).catch((e) => Sentry.captureException(e, { tags: { feature: 'change-lineworks' } }));
+            }
+          }
+        }
+      } catch (e) {
+        Sentry.captureException(e, { tags: { feature: 'change-lineworks-setup' } });
+      }
     }
 
     return NextResponse.json({ success: true });
