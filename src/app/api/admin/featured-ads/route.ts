@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: '2024-09-30.acacia' as Parameters<typeof Stripe>[1]['apiVersion'] });
+  const stripe = new Stripe(stripeKey, { apiVersion: '2025-04-30.basil' as Parameters<typeof Stripe>[1]['apiVersion'] });
   const planLabels: Record<string, string> = {
     search_top: '検索結果トップ表示（月額）',
     area_banner: 'エリアページバナー（月額）',
