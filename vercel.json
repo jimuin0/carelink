@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/onboarding-followup",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/birthday-coupon",
+      "schedule": "0 23 * * *"
     }
   ],
   "rewrites": [
