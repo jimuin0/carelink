@@ -8,6 +8,7 @@ import * as Sentry from '@sentry/nextjs';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createClient } from '@supabase/supabase-js';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,18 @@ export async function POST(_request: Request, { params }: { params: { id: string
   if (error) {
     return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
   }
+
+  // 監査ログ（非ブロッキング）
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: booking.facility_id,
+    action: 'cancel',
+    tableName: 'bookings',
+    recordId: booking.id,
+    oldValues: { status: booking.status },
+    newValues: { status: 'cancelled' },
+    ipAddress: _request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
+  });
 
   // Send cancellation email (non-blocking)
   try {
