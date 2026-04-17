@@ -67,6 +67,8 @@ export interface Facility {
   rating_count: number;
   google_rating: number | null;
   google_review_count: number;
+  gbp_place_id: string | null;
+  gbp_cid: string | null;
   main_photo_url: string | null;
   view_count: number;
   status: 'draft' | 'published' | 'suspended';

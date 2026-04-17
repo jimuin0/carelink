@@ -4,7 +4,6 @@ ALTER TABLE facility_profiles
   ADD COLUMN IF NOT EXISTS google_review_count INTEGER DEFAULT 0;
 
 -- facility_card_view を再作成して google_rating/google_review_count を含める
--- (ビュー定義が存在する場合は再作成)
 CREATE OR REPLACE VIEW facility_card_view AS
 SELECT
   fp.id,
@@ -12,6 +11,7 @@ SELECT
   fp.name,
   fp.business_type,
   fp.catch_copy,
+  fp.description,
   fp.prefecture,
   fp.city,
   fp.access_info,
@@ -22,32 +22,34 @@ SELECT
   fp.main_photo_url,
   fp.business_hours,
   fp.seat_count,
+  fp.status,
   fp.latitude,
   fp.longitude,
-  fp.status,
-  COALESCE(m.min_price, 0) AS min_price,
-  COALESCE(m.max_price, 0) AS max_price,
-  COALESCE(m.menu_count, 0) AS menu_count,
-  COALESCE(c.coupon_count, 0) AS coupon_count,
-  COALESCE(ph.photo_count, 0) AS photo_count
+  fp.features,
+  fp.created_at,
+  COALESCE(menu_agg.min_price, NULL) AS min_price,
+  COALESCE(menu_agg.max_price, NULL) AS max_price,
+  COALESCE(menu_agg.menu_count, 0) AS menu_count,
+  COALESCE(coupon_agg.coupon_count, 0) AS coupon_count,
+  COALESCE(photo_agg.photo_count, 0) AS photo_count
 FROM facility_profiles fp
-LEFT JOIN (
-  SELECT facility_id,
-         MIN(price) AS min_price,
-         MAX(price) AS max_price,
-         COUNT(*) AS menu_count
+LEFT JOIN LATERAL (
+  SELECT
+    MIN(price) AS min_price,
+    MAX(price) AS max_price,
+    COUNT(*)::INT AS menu_count
   FROM facility_menus
-  WHERE price IS NOT NULL
-  GROUP BY facility_id
-) m ON m.facility_id = fp.id
-LEFT JOIN (
-  SELECT facility_id, COUNT(*) AS coupon_count
-  FROM facility_coupons
-  WHERE is_active = true AND (expires_at IS NULL OR expires_at > NOW())
-  GROUP BY facility_id
-) c ON c.facility_id = fp.id
-LEFT JOIN (
-  SELECT facility_id, COUNT(*) AS photo_count
+  WHERE facility_id = fp.id AND price IS NOT NULL
+) menu_agg ON true
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::INT AS coupon_count
+  FROM coupons
+  WHERE facility_id = fp.id AND is_active = true
+) coupon_agg ON true
+LEFT JOIN LATERAL (
+  SELECT COUNT(*)::INT AS photo_count
   FROM facility_photos
-  GROUP BY facility_id
-) ph ON ph.facility_id = fp.id;
+  WHERE facility_id = fp.id
+) photo_agg ON true;
+
+GRANT SELECT ON facility_card_view TO anon, authenticated;
