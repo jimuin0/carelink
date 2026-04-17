@@ -6,7 +6,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
-import { sendLineWorksMessage, getLineWorksToken, isLineWorksConfigured } from '@/lib/integrations/line-works';
+import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
@@ -133,29 +133,19 @@ export async function POST(request: Request, { params }: { params: { id: string 
             menuName = menu?.name || '';
           }
 
-          const token = await getLineWorksToken();
-          if (token) {
-            const botId = process.env.LINE_WORKS_BOT_ID!;
-            const text = [
-              '🔄 予約変更',
-              '',
-              `お客様: ${customerBooking?.customer_name || '不明'}`,
-              menuName ? `メニュー: ${menuName}` : '',
-              `変更後日時: ${parsed.data.booking_date} ${parsed.data.start_time}`,
-            ].filter(Boolean).join('\n');
+          const text = [
+            '🔄 予約変更',
+            '',
+            `お客様: ${customerBooking?.customer_name || '不明'}`,
+            menuName ? `メニュー: ${menuName}` : '',
+            `変更後日時: ${parsed.data.booking_date} ${parsed.data.start_time}`,
+          ].filter(Boolean).join('\n');
 
-            for (const staff of staffList) {
-              if (!staff.line_works_channel_id) continue;
-              if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
-              fetch(
-                `https://www.worksapis.com/v1.0/bots/${botId}/channels/${staff.line_works_channel_id}/messages`,
-                {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ content: { type: 'text', text } }),
-                }
-              ).catch((e) => Sentry.captureException(e, { tags: { feature: 'change-lineworks' } }));
-            }
+          for (const staff of staffList) {
+            if (!staff.line_works_channel_id) continue;
+            if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
+            sendLineWorksMessage(staff.line_works_channel_id, { content: { type: 'text', text } })
+              .catch((e) => Sentry.captureException(e, { tags: { feature: 'change-lineworks' } }));
           }
         }
       } catch (e) {
