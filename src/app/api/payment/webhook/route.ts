@@ -113,38 +113,16 @@ export async function POST(request: Request) {
       break;
     }
 
-    // subscription機能未実装、現状は記録のみ（subscriptionsテーブル未作成のためDB書き込みなし）
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
-    case 'customer.subscription.deleted': {
-      const sub = event.data.object as Stripe.Subscription;
-      console.log('[payment/webhook] subscription event received (no-op):', {
-        type: event.type,
-        id: sub.id,
-        customer: sub.customer,
-        status: sub.status,
-      });
-      break;
-    }
-
-    // subscription機能未実装、現状は記録のみ（invoiceハンドリング未実装）
+    case 'customer.subscription.deleted':
     case 'invoice.payment_succeeded':
-    case 'invoice.payment_failed': {
-      const invoice = event.data.object as Stripe.Invoice;
-      console.log('[payment/webhook] invoice event received (no-op):', {
-        type: event.type,
-        id: invoice.id,
-        customer: invoice.customer,
-        amount_paid: invoice.amount_paid,
-        amount_due: invoice.amount_due,
-      });
+    case 'invoice.payment_failed':
+      // subscription機能は将来実装予定。stripe_eventsテーブルで記録済み。
       break;
-    }
 
-    default: {
-      console.warn('[payment/webhook] unhandled event type:', event.type);
+    default:
       break;
-    }
   }
 
   return NextResponse.json({ received: true });

@@ -14,7 +14,8 @@ export default async function UptimePage() {
   // Fetch health status from our own health endpoint
   let healthData: { status: string; db: string; elapsed_ms: number; timestamp: string; version?: string } | null = null;
   try {
-    const res = await fetch('http://localhost:3000/api/health', {
+    const base = process.env.NEXT_PUBLIC_APP_URL ?? 'https://carelink-jp.com';
+    const res = await fetch(`${base}/api/health`, {
       cache: 'no-store',
       signal: AbortSignal.timeout(3000),
     });

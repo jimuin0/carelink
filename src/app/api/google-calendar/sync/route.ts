@@ -23,6 +23,7 @@ async function refreshAccessToken(refreshToken: string) {
 // POST /api/google-calendar/sync
 // Syncs a booking to Google Calendar
 export async function POST(req: NextRequest) {
+  try {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -136,49 +137,56 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ ok: true, googleEventId });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+  }
 }
 
 // DELETE /api/google-calendar/sync?bookingId=xxx — remove event
 export async function DELETE(req: NextRequest) {
-  const supabase = createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    const supabase = createServerSupabaseAuthClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const bookingId = req.nextUrl.searchParams.get('bookingId');
-  if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
+    const bookingId = req.nextUrl.searchParams.get('bookingId');
+    if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
 
-  const admin = createServiceRoleClient();
+    const admin = createServiceRoleClient();
 
-  const { data: calEvent } = await admin
-    .from('booking_calendar_events')
-    .select('google_event_id')
-    .eq('booking_id', bookingId)
-    .eq('user_id', user.id)
-    .single();
+    const { data: calEvent } = await admin
+      .from('booking_calendar_events')
+      .select('google_event_id')
+      .eq('booking_id', bookingId)
+      .eq('user_id', user.id)
+      .single();
 
-  if (!calEvent) return NextResponse.json({ ok: true });
+    if (!calEvent) return NextResponse.json({ ok: true });
 
-  const { data: tokenRow } = await admin
-    .from('google_calendar_tokens')
-    .select('access_token, refresh_token, expires_at')
-    .eq('user_id', user.id)
-    .single();
+    const { data: tokenRow } = await admin
+      .from('google_calendar_tokens')
+      .select('access_token, refresh_token, expires_at')
+      .eq('user_id', user.id)
+      .single();
 
-  if (tokenRow) {
-    let accessToken = tokenRow.access_token;
-    if (new Date(tokenRow.expires_at) < new Date() && tokenRow.refresh_token) {
-      const refreshed = await refreshAccessToken(tokenRow.refresh_token);
-      accessToken = refreshed.access_token;
+    if (tokenRow) {
+      let accessToken = tokenRow.access_token;
+      if (new Date(tokenRow.expires_at) < new Date() && tokenRow.refresh_token) {
+        const refreshed = await refreshAccessToken(tokenRow.refresh_token);
+        accessToken = refreshed.access_token;
+      }
+
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${calEvent.google_event_id}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+      );
     }
 
-    await fetch(
-      `https://www.googleapis.com/calendar/v3/calendars/primary/events/${calEvent.google_event_id}`,
-      { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
-    );
+    await admin.from('booking_calendar_events').delete()
+      .eq('booking_id', bookingId).eq('user_id', user.id);
+
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
   }
-
-  await admin.from('booking_calendar_events').delete()
-    .eq('booking_id', bookingId).eq('user_id', user.id);
-
-  return NextResponse.json({ ok: true });
 }

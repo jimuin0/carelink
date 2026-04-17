@@ -3,52 +3,51 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
 
 export async function GET(req: NextRequest) {
-  const supabase = createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  try {
+    const supabase = createServerSupabaseAuthClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .limit(1)
-    .single();
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    const { data: membership } = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single();
+    if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // 施設プロフィール取得
-  const { data: facility } = await supabase
-    .from('facility_profiles')
-    .select('gbp_place_id, name, description, phone, website_url, business_hours, main_photo_url')
-    .eq('id', membership.facility_id)
-    .single();
+    const { data: facility } = await supabase
+      .from('facility_profiles')
+      .select('gbp_place_id, name, description, phone, website_url, business_hours, main_photo_url')
+      .eq('id', membership.facility_id)
+      .single();
 
-  if (!facility) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    if (!facility) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const placeId = req.nextUrl.searchParams.get('placeId') || facility.gbp_place_id;
+    const placeId = req.nextUrl.searchParams.get('placeId') || facility.gbp_place_id;
 
-  // Places API からデータ取得
-  const placeData = placeId ? await fetchPlaceDetails(placeId) : null;
+    const placeData = placeId ? await fetchPlaceDetails(placeId) : null;
+    const audit = calculateGbpScore(placeData, facility);
 
-  // スコア計算
-  const audit = calculateGbpScore(placeData, facility);
+    if (placeData) {
+      await Promise.all([
+        supabase.from('gbp_audit_cache').upsert({
+          facility_id: membership.facility_id,
+          score: audit.score,
+          details: { audit, placeData },
+          fetched_at: new Date().toISOString(),
+        }),
+        supabase.from('facility_profiles').update({
+          google_rating: placeData.rating ?? null,
+          google_review_count: placeData.user_ratings_total ?? 0,
+        }).eq('id', membership.facility_id),
+      ]);
+    }
 
-  // キャッシュ保存 + google_rating/google_review_count を facility_profiles に反映
-  if (placeData) {
-    await Promise.all([
-      supabase.from('gbp_audit_cache').upsert({
-        facility_id: membership.facility_id,
-        score: audit.score,
-        details: { audit, placeData },
-        fetched_at: new Date().toISOString(),
-      }),
-      supabase.from('facility_profiles').update({
-        google_rating: placeData.rating ?? null,
-        google_review_count: placeData.user_ratings_total ?? 0,
-      }).eq('id', membership.facility_id),
-    ]);
+    return NextResponse.json({ placeData, audit, facilityId: membership.facility_id });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
   }
-
-  return NextResponse.json({ placeData, audit, facilityId: membership.facility_id });
 }
 
 export async function POST(req: NextRequest) {

@@ -34,24 +34,17 @@ export default async function FunnelPage() {
   // ファネル各ステップのデータ
   const [
     { count: pageViews },
-    { count: searchClicks },
-    { count: facilityViews },
     { count: bookingStarts },
     { count: bookingCompleted },
     { count: reviewPosted },
   ] = await Promise.all([
-    // ページビュー（view_count_logs があれば使う、なければ仮数値）
+    // 施設ページビュー
     admin.from('facility_view_logs').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('viewed_at', since),
-    // 施設ページへのクリック（view_logsが施設ページ閲覧を示す）
-    admin.from('facility_view_logs').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).gte('viewed_at', since),
-    admin.from('facility_view_logs').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).gte('viewed_at', since),
-    // 予約開始（status=pending or confirmed で作成された予約）
+    // 予約開始（全ステータス）
     admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since),
-    // 予約完了（confirmed + completed）
+    // 予約確定（confirmed + completed）
     admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since)
       .in('status', ['confirmed', 'completed']),
@@ -60,7 +53,6 @@ export default async function FunnelPage() {
       .eq('facility_id', facilityId).gte('created_at', since),
   ]);
 
-  // 実際のデータを基に計算可能なファネルを構築
   const totalViews = pageViews ?? 0;
   const totalBookings = bookingStarts ?? 0;
   const confirmedBookings = bookingCompleted ?? 0;
