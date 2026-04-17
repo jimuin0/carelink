@@ -521,15 +521,21 @@ export default function AdminSettingsPage() {
         </p>
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-sm text-amber-800">
           <strong>設定方法</strong>
-          <ol className="list-decimal pl-4 mt-2 space-y-1">
-            <li>LINE Works管理画面でBotを作成し、スタッフ用チャンネルに招待</li>
+          <ol className="list-decimal pl-4 mt-2 space-y-2">
+            <li>LINE Works管理コンソールでBotを作成し、各スタッフのDM or グループチャンネルに招待</li>
             <li>以下の環境変数をVercelに設定:
               <code className="block bg-white/50 px-2 py-1 rounded mt-1 text-xs font-mono">
                 LINE_WORKS_CLIENT_ID, LINE_WORKS_CLIENT_SECRET,<br />
-                LINE_WORKS_SERVICE_ACCOUNT, LINE_WORKS_BOT_ID
+                LINE_WORKS_SERVICE_ACCOUNT, LINE_WORKS_PRIVATE_KEY, LINE_WORKS_BOT_ID
               </code>
             </li>
-            <li>予約確定・キャンセル時に自動でLINE Works通知が送信されます</li>
+            <li>
+              各スタッフの編集画面（スタッフ管理 → 編集）で
+              <strong>「LINE Works チャンネルID」</strong>を設定
+              <br />
+              <span className="text-xs text-amber-700">チャンネルIDはLINE Works Bot設定のChannel IDで確認できます</span>
+            </li>
+            <li>設定後、新規予約・キャンセル・予約変更時に自動通知が送信されます</li>
           </ol>
         </div>
       </section>
