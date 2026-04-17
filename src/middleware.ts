@@ -3,6 +3,16 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 const PROTECTED_PATHS = ['/mypage', '/admin'];
 
+// 管理者メンバーシップのクッキーキャッシュ
+// キー: _cm_mbr_{userId_first8chars}
+// 値: "1" (有効) または "0" (無効)
+// TTL: 5分（頻繁なDB問い合わせを防ぐ）
+const MEMBERSHIP_CACHE_TTL_SECONDS = 300;
+
+function getMembershipCacheKey(userId: string): string {
+  return `_cm_mbr_${userId.slice(0, 8)}`;
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
@@ -56,13 +66,35 @@ export async function middleware(request: NextRequest) {
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
   // /admin/onboarding は除外（施設作成前のオーナーがアクセスする）
   if (user && request.nextUrl.pathname.startsWith('/admin') && request.nextUrl.pathname !== '/admin/onboarding') {
-    const { data: membership } = await supabase
-      .from('facility_members')
-      .select('role')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-    if (!membership || !['owner', 'admin'].includes(membership.role)) {
+    const cacheKey = getMembershipCacheKey(user.id);
+    const cached = request.cookies.get(cacheKey)?.value;
+
+    let hasAccess: boolean;
+
+    if (cached !== undefined) {
+      // キャッシュヒット: DB問い合わせをスキップ
+      hasAccess = cached === '1';
+    } else {
+      // キャッシュミス: DBで確認してクッキーにキャッシュ
+      const { data: membership } = await supabase
+        .from('facility_members')
+        .select('role')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+      hasAccess = !!(membership && ['owner', 'admin'].includes(membership.role));
+
+      // キャッシュを設定（5分TTL、HttpOnly・SameSite=Strict）
+      supabaseResponse.cookies.set(cacheKey, hasAccess ? '1' : '0', {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax',
+        maxAge: MEMBERSHIP_CACHE_TTL_SECONDS,
+        path: '/admin',
+      });
+    }
+
+    if (!hasAccess) {
       const url = request.nextUrl.clone();
       url.pathname = '/mypage';
       return NextResponse.redirect(url);
