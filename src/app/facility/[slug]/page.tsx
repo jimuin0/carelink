@@ -346,7 +346,23 @@ export default async function FacilityPage({ params }: Props) {
               },
               telephone: facility.phone,
               url: facility.website_url,
-              ...(facility.main_photo_url && { image: facility.main_photo_url }),
+              ...((() => {
+                const allImages = [
+                  facility.main_photo_url,
+                  ...photos.map(p => p.url).filter(Boolean),
+                ].filter(Boolean) as string[];
+                if (allImages.length === 0) return {};
+                return { image: allImages.length === 1 ? allImages[0] : allImages };
+              })()),
+              currenciesAccepted: 'JPY',
+              paymentAccepted: ['現金', ...(facility.credit_card ? ['クレジットカード'] : [])].join(', '),
+              ...(facility.features && facility.features.length > 0 && {
+                amenityFeature: facility.features.map((f: string) => ({
+                  '@type': 'LocationFeatureSpecification',
+                  name: f,
+                  value: true,
+                })),
+              }),
               ...(facility.rating_count > 0 && {
                 aggregateRating: {
                   '@type': 'AggregateRating',
