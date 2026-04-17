@@ -578,7 +578,22 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
         <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
           <div className="flex">
             <span className="text-gray-500 w-20 shrink-0">住所</span>
-            <span>{facility.prefecture}{facility.city}{facility.address}</span>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span>{facility.prefecture}{facility.city}{facility.address}</span>
+              <a
+                href={facility.gbp_place_id
+                  ? `https://www.google.com/maps/place/?q=place_id:${facility.gbp_place_id}`
+                  : `https://www.google.com/maps/search/${encodeURIComponent(`${facility.prefecture}${facility.city}${facility.address}`)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline shrink-0"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                地図を見る
+              </a>
+            </div>
           </div>
           {facility.phone && (
             <div className="flex">
