@@ -41,11 +41,28 @@ export async function POST(request: NextRequest) {
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
-    // 関連データ削除（CASCADE設定されていないテーブル）
+    // 関連データ削除（CASCADE設定されていないテーブル + SET NULL で残存するPIIテーブル）
     await Promise.all([
+      // CASCADE なし → 明示削除必須
       adminSupabase.from('line_user_links').delete().eq('user_id', user.id),
       adminSupabase.from('favorites').delete().eq('user_id', user.id),
       adminSupabase.from('user_points').delete().eq('user_id', user.id),
+      adminSupabase.from('push_subscriptions').delete().eq('user_id', user.id),
+      adminSupabase.from('referral_codes').delete().eq('user_id', user.id),
+      adminSupabase.from('review_helpful').delete().eq('user_id', user.id),
+      adminSupabase.from('user_preferred_staff').delete().eq('user_id', user.id),
+      adminSupabase.from('community_likes').delete().eq('user_id', user.id),
+      adminSupabase.from('google_calendar_tokens').delete().eq('user_id', user.id),
+      adminSupabase.from('user_packages').delete().eq('user_id', user.id),
+      adminSupabase.from('user_subscriptions').delete().eq('user_id', user.id),
+      // SET NULL テーブル → user_id を NULL に更新してPII分離
+      adminSupabase.from('intake_form_responses').update({ user_id: null }).eq('user_id', user.id),
+      adminSupabase.from('nps_surveys').update({ user_id: null }).eq('user_id', user.id),
+      adminSupabase.from('booking_waitlist').update({ user_id: null }).eq('user_id', user.id),
+      adminSupabase.from('treatment_records').update({ user_id: null }).eq('user_id', user.id),
+      adminSupabase.from('treatment_plans').update({ user_id: null }).eq('user_id', user.id),
+      adminSupabase.from('bookings').update({ user_id: null }).eq('user_id', user.id),
+      // profiles は最後に削除
       adminSupabase.from('profiles').delete().eq('id', user.id),
     ]);
 

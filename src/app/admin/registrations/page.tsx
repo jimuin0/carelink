@@ -34,23 +34,27 @@ export default function AdminRegistrationsPage() {
 
   useEffect(() => { loadSalons(); }, [loadSalons]);
 
-  const handleApprove = async (salon: Salon) => {
+  const updateStatus = async (salon: Salon, status: 'approved' | 'rejected') => {
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('salons')
-        .update({ status: 'approved' })
-        .eq('id', salon.id);
-      if (error) {
-        setToast({ type: 'error', message: '承認に失敗しました' });
+      const res = await fetch(`/api/admin/registrations/${salon.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) {
+        const label = status === 'approved' ? '承認' : '却下';
+        setToast({ type: 'error', message: `${label}に失敗しました` });
         return;
       }
-      setToast({ type: 'success', message: `${salon.name}を承認しました` });
+      const label = status === 'approved' ? '承認' : '却下';
+      setToast({ type: 'success', message: `${salon.name}を${label}しました` });
       loadSalons();
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     }
   };
+
+  const handleApprove = (salon: Salon) => updateStatus(salon, 'approved');
 
   const handleReject = (salon: Salon) => {
     setConfirmRejectSalon(salon);
@@ -62,21 +66,7 @@ export default function AdminRegistrationsPage() {
     setConfirmReject(false);
     const salon = confirmRejectSalon;
     setConfirmRejectSalon(null);
-    try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('salons')
-        .update({ status: 'rejected' })
-        .eq('id', salon.id);
-      if (error) {
-        setToast({ type: 'error', message: '却下に失敗しました' });
-        return;
-      }
-      setToast({ type: 'success', message: `${salon.name}を却下しました` });
-      loadSalons();
-    } catch {
-      setToast({ type: 'error', message: '通信エラーが発生しました' });
-    }
+    await updateStatus(salon, 'rejected');
   };
 
   const statusLabel = (s: string) => {

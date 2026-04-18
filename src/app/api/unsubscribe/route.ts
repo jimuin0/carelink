@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
 
-  // トークン検索
+  // トークン検索（未使用のもののみ）
   const { data: tokenRow, error: tokenErr } = await supabase
     .from('email_unsubscribe_tokens')
     .select('user_id, used_at')
@@ -43,7 +43,13 @@ export async function POST(request: Request) {
     .single();
 
   if (tokenErr || !tokenRow) {
-    return NextResponse.json({ error: 'トークンが無効です' }, { status: 404 });
+    // トークン不明 → 成功扱い（列挙攻撃防止）
+    return NextResponse.json({ success: true, already: true });
+  }
+
+  // 使用済みトークンの再利用を拒否（idempotent: already=true で返す）
+  if (tokenRow.used_at !== null) {
+    return NextResponse.json({ success: true, already: true });
   }
 
   // profiles のフラグを確認（既に停止済みか）
@@ -54,6 +60,11 @@ export async function POST(request: Request) {
     .single();
 
   if (profile?.email_unsubscribed) {
+    // プロフィールが既に停止済み → トークンも使用済みにマーク
+    await supabase
+      .from('email_unsubscribe_tokens')
+      .update({ used_at: new Date().toISOString() })
+      .eq('token', parsed.data.token);
     return NextResponse.json({ success: true, already: true });
   }
 

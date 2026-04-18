@@ -70,6 +70,22 @@ export async function POST(request: Request) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
+  // booking_id が指定された場合、その予約が認証ユーザー本人のものであることを確認（IDOR防止）
+  if (body.booking_id) {
+    if (!user) {
+      return NextResponse.json({ error: '予約IDを指定する場合は認証が必要です' }, { status: 401 });
+    }
+    const { data: booking } = await supabase
+      .from('bookings')
+      .select('id')
+      .eq('id', body.booking_id)
+      .eq('user_id', user.id)
+      .maybeSingle();
+    if (!booking) {
+      return NextResponse.json({ error: '予約が見つかりません' }, { status: 403 });
+    }
+  }
+
   const { data: response, error } = await supabase
     .from('intake_form_responses')
     .insert({

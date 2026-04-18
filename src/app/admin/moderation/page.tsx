@@ -56,30 +56,15 @@ export default function ModerationPage() {
   useEffect(() => { load(); }, [load]);
 
   const handleDecision = async (id: string, decision: 'approved' | 'rejected' | 'escalated') => {
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase
-      .from('moderation_queue')
-      .update({
-        status: decision,
-        reviewed_at: new Date().toISOString(),
-        review_note: reviewNote || null,
-      })
-      .eq('id', id);
+    const res = await fetch(`/api/admin/moderation/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ decision, review_note: reviewNote || null }),
+    });
 
-    if (error) {
+    if (!res.ok) {
       setToast({ type: 'error', message: '更新に失敗しました' });
       return;
-    }
-
-    // レビューを却下した場合は facility_reviews の is_flagged を更新
-    if (decision === 'rejected') {
-      const item = items.find(i => i.id === id);
-      if (item?.content_type === 'review') {
-        await supabase
-          .from('facility_reviews')
-          .update({ status: 'hidden', is_flagged: true, flag_reason: reviewNote || '管理者による非承認' })
-          .eq('id', item.content_id);
-      }
     }
 
     const labels = { approved: '承認', rejected: '却下', escalated: 'エスカレーション' };

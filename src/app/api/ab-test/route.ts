@@ -8,7 +8,7 @@ const schema = z.object({
   experiment_key: z.string().min(1).max(100),
   variant: z.enum(['control', 'treatment']),
   event_type: z.enum(['impression', 'conversion', 'click', 'booking']),
-  user_id: z.string().uuid().optional(),
+  // user_id は受け付けない — セッションから取得してIDOR/なりすましを防止
   session_id: z.string().max(100).optional(),
   page_path: z.string().max(500).optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
@@ -24,6 +24,10 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ ok: true }); // サイレント無視
 
+  // user_id はセッションから取得（リクエストボディの値は使わない）
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+
   const admin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
@@ -33,7 +37,7 @@ export async function POST(request: NextRequest) {
     experiment_key: parsed.data.experiment_key,
     variant: parsed.data.variant,
     event_type: parsed.data.event_type,
-    user_id: parsed.data.user_id ?? null,
+    user_id: user?.id ?? null,
     session_id: parsed.data.session_id ?? null,
     page_path: parsed.data.page_path ?? null,
     metadata: parsed.data.metadata ?? {},
