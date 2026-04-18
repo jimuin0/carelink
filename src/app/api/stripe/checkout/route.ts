@@ -19,6 +19,7 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://carelink-jp.com';
 
 export async function POST(request: NextRequest) {
+  try {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -95,7 +96,6 @@ export async function POST(request: NextRequest) {
   } : undefined;
 
   // Create Stripe Checkout session
-  try {
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
@@ -137,7 +137,8 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ url: session.url, session_id: session.id });
-  } catch {
-    return NextResponse.json({ error: '決済セッションの作成に失敗しました' }, { status: 500 });
+  } catch (e) {
+    console.error('[stripe/checkout] unexpected error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

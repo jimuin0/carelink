@@ -8,6 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
+  try {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 30, 60_000, 'liff-points')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
@@ -52,4 +53,8 @@ export async function GET(req: NextRequest) {
   const total = (logs ?? []).reduce((sum, log) => sum + (log.points ?? 0), 0);
 
   return NextResponse.json({ logs: logs ?? [], total });
+  } catch (e) {
+    console.error('[liff/points] unexpected error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }

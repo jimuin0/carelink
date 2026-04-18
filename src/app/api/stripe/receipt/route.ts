@@ -13,6 +13,7 @@ function esc(s: string | null | undefined): string {
 }
 
 export async function GET(request: NextRequest) {
+  try {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -131,4 +132,8 @@ export async function GET(request: NextRequest) {
       'Cache-Control': 'private, no-store',
     },
   });
+  } catch (e) {
+    console.error('[stripe/receipt] unexpected error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }

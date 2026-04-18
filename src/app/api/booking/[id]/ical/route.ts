@@ -22,6 +22,7 @@ function toIcalDate(isoString: string): string {
 }
 
 export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const supabase = createServerSupabaseAuthClient();
@@ -84,4 +85,8 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       'Content-Disposition': `attachment; filename="carelink-booking-${booking.id.slice(0, 8)}.ics"`,
     },
   });
+  } catch (e) {
+    console.error('[booking/ical] unexpected error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }
