@@ -1,8 +1,8 @@
 import { logCronRun } from '@/lib/cron-logger';
 /**
- * オンボーディング3日後フォローメール Cron（v8.14）
+ * オンボーディング3日後フォローメール Cron（v8.15）
  * GET /api/cron/onboarding-followup
- * 登録から3〜4日経ったが未完了の施設オーナーへリマインドメール
+ * 登録から3〜4日経ったが未完了の施設オーナーへリマインドメール（1施設1回のみ）
  */
 
 import { NextResponse } from 'next/server';
@@ -33,7 +33,8 @@ export async function GET(request: Request) {
       .select('id, name, status')
       .gte('created_at', d4ago)
       .lte('created_at', d3ago)
-      .neq('status', 'published') // 公開済みは対象外
+      .neq('status', 'published')       // 公開済みは対象外
+      .is('onboarding_email_sent_at', null) // 未送信のみ
       .limit(100);
 
     if (!facilities || facilities.length === 0) {
@@ -43,6 +44,16 @@ export async function GET(request: Request) {
 
     let sent = 0;
     for (const facility of facilities) {
+      // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
+      const { data: claimed } = await supabase
+        .from('facility_profiles')
+        .update({ onboarding_email_sent_at: new Date().toISOString() })
+        .eq('id', facility.id)
+        .is('onboarding_email_sent_at', null)
+        .select('id');
+
+      if (!claimed || claimed.length === 0) continue;
+
       // 未完了ステップを特定
       const [
         { count: menuCount },

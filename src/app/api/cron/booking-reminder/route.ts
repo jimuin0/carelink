@@ -48,8 +48,41 @@ export async function GET(request: Request) {
     const { sendBookingReminder } = await import('@/lib/email');
 
     let sent = 0;
+    let skipped = 0;
     for (const booking of bookings) {
-      if (!booking.email) continue;
+      if (!booking.email) { skipped++; continue; }
+
+      // Idempotency: claim this (booking_id, reminder_date) slot atomically.
+      // If another cron invocation already inserted this row, ignoreDuplicates
+      // returns no error but also inserts nothing — we detect that via re-read.
+      const { error: claimError } = await supabase
+        .from('sent_reminders')
+        .upsert({ booking_id: booking.id, reminder_date: tomorrowStr }, {
+          onConflict: 'booking_id,reminder_date',
+          ignoreDuplicates: true,
+        });
+
+      if (claimError) {
+        // Unexpected DB error — skip rather than risk duplicate send
+        Sentry.captureException(claimError, { tags: { feature: 'booking-reminder', bookingId: booking.id } });
+        skipped++;
+        continue;
+      }
+
+      // Verify we won the upsert race (ignoreDuplicates means no error on conflict)
+      const { data: claimed } = await supabase
+        .from('sent_reminders')
+        .select('sent_at')
+        .eq('booking_id', booking.id)
+        .eq('reminder_date', tomorrowStr)
+        .single();
+
+      // If row was inserted more than 30 seconds ago it belongs to another invocation
+      if (!claimed || new Date(claimed.sent_at).getTime() < Date.now() - 30_000) {
+        skipped++;
+        continue;
+      }
+
       try {
         await sendBookingReminder({
           customerName: booking.customer_name,
@@ -64,15 +97,16 @@ export async function GET(request: Request) {
         sent++;
       } catch (e) {
         Sentry.captureException(e, { tags: { feature: 'booking-reminder', bookingId: booking.id } });
+        skipped++;
       }
     }
 
     await logCronRun('booking-reminder', 'success', startedAt, {
       processed: sent,
-      skipped: bookings.length - sent,
+      skipped,
       meta: { total_bookings: bookings.length },
     });
-    return NextResponse.json({ sent, total: bookings.length });
+    return NextResponse.json({ sent, skipped, total: bookings.length });
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'booking-reminder-cron' } });
     await logCronRun('booking-reminder', 'error', startedAt, {

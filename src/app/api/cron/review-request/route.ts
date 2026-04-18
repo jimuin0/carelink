@@ -1,5 +1,5 @@
 /**
- * 来店後レビュー依頼 Cron（v8.5）
+ * 来店後レビュー依頼 Cron（v8.6）
  * GET /api/cron/review-request
  * 完了予約の24時間後にメール+LINEでレビュー依頼を送信
  */
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
-    // 24-48時間前に完了した予約を取得（重複送信防止のため48h上限）
+    // 24-48時間前に完了した予約を取得（重複送信防止のため review_request_sent_at IS NULL でフィルタ）
     const now = new Date();
     const h48ago = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
     const h24ago = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
@@ -36,6 +36,7 @@ export async function GET(request: Request) {
       .eq('status', 'completed')
       .gte('updated_at', h48ago)
       .lte('updated_at', h24ago)
+      .is('review_request_sent_at', null)
       .limit(500);
 
     if (!bookings || bookings.length === 0) {
@@ -45,6 +46,18 @@ export async function GET(request: Request) {
     let sent = 0;
 
     for (const booking of bookings) {
+      // Claim this booking before sending — prevents duplicate send on double-fire.
+      // The .is('review_request_sent_at', null) condition acts as a CAS guard:
+      // only one concurrent invocation can update a given row.
+      const { data: claimed } = await supabase
+        .from('bookings')
+        .update({ review_request_sent_at: new Date().toISOString() })
+        .eq('id', booking.id)
+        .is('review_request_sent_at', null)
+        .select('id');
+
+      if (!claimed || claimed.length === 0) continue; // Another invocation already claimed this booking
+
       // 施設名取得
       const { data: facility } = await supabase
         .from('facility_profiles')

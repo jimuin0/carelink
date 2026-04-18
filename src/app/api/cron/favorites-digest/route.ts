@@ -1,8 +1,8 @@
 import { logCronRun } from '@/lib/cron-logger';
 /**
- * お気に入り施設ダイジェスト Cron（v8.24）
+ * お気に入り施設ダイジェスト Cron（v8.25）
  * GET /api/cron/favorites-digest
- * 毎週月曜 9:00 JST: お気に入り施設の新着情報をメール通知
+ * 毎週月曜 9:00 JST: お気に入り施設の新着情報をメール通知（週1回のみ）
  */
 
 import { NextResponse } from 'next/server';
@@ -17,13 +17,24 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+/** Returns the ISO week string "YYYY-WNN" for a given date. */
+function isoWeek(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7;
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const week = Math.ceil((((d.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${d.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
 
   let sent = 0;
   const startedAt = new Date();
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(); // 1週間前
+  const thisWeek = isoWeek(startedAt);
+  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   try {
     // お気に入りを持つユーザー一覧取得
@@ -80,7 +91,7 @@ export async function GET(request: Request) {
     const userIds = Array.from(userFacilityMap.keys());
     const { data: profiles } = await supabase
       .from('profiles')
-      .select('id, display_name, email_unsubscribed')
+      .select('id, display_name, email_unsubscribed, favorites_digest_sent_week')
       .in('id', userIds);
 
     const { data: authUsers } = await supabase.auth.admin.listUsers({ perPage: 1000 });
@@ -88,6 +99,9 @@ export async function GET(request: Request) {
 
     for (const profile of profiles || []) {
       if (profile.email_unsubscribed) continue;
+      // Skip if already sent this week (idempotency for double-fire)
+      if (profile.favorites_digest_sent_week === thisWeek) continue;
+
       const email = emailMap.get(profile.id);
       if (!email) continue;
 
@@ -109,6 +123,16 @@ export async function GET(request: Request) {
         .filter(Boolean) as { name: string; slug: string; newCoupons: number; hasNewMenus: boolean }[];
 
       if (updatedFacilities.length === 0) continue;
+
+      // Claim this week's slot before sending (CAS guard)
+      const { data: claimed } = await supabase
+        .from('profiles')
+        .update({ favorites_digest_sent_week: thisWeek })
+        .eq('id', profile.id)
+        .neq('favorites_digest_sent_week', thisWeek)
+        .select('id');
+
+      if (!claimed || claimed.length === 0) continue; // Another invocation claimed it
 
       // 配信停止トークン生成・保存
       const token = generateUnsubscribeToken();
