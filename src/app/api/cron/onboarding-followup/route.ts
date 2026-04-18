@@ -22,6 +22,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   try {
     const now = new Date();
     // 3〜4日前に作成された施設（日本時間考慮）
@@ -36,6 +37,7 @@ export async function GET(request: Request) {
       .neq('status', 'published'); // 公開済みは対象外
 
     if (!facilities || facilities.length === 0) {
+      await logCronRun('onboarding-followup', 'skipped', startedAt, { processed: 0 });
       return NextResponse.json({ status: 'ok', sent: 0 });
     }
 
@@ -87,9 +89,11 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent });
     return NextResponse.json({ status: 'ok', sent });
   } catch (e) {
     console.error('[onboarding-followup] Error:', e);
+    await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

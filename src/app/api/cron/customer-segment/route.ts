@@ -30,6 +30,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   try {
     const { data: facilities } = await supabase
       .from('facility_profiles')
@@ -170,9 +171,11 @@ export async function GET(request: Request) {
       count++;
     }
 
+    await logCronRun('customer-segment', 'success', startedAt, { processed: count });
     return NextResponse.json({ status: 'ok', facilities: count });
   } catch (e) {
     console.error('[customer-segment] Error:', e);
+    await logCronRun('customer-segment', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

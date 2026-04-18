@@ -7,8 +7,7 @@ import { logCronRun } from '@/lib/cron-logger';
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendFavoritesDigest } from '@/lib/email';
-import { generateUnsubscribeToken } from '@/lib/email';
+import { sendFavoritesDigest, generateUnsubscribeToken } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +23,7 @@ export async function GET(request: Request) {
   }
 
   let sent = 0;
+  const startedAt = new Date();
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(); // 1週間前
 
   try {
@@ -128,9 +128,11 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    await logCronRun('favorites-digest', 'success', startedAt, { processed: sent });
     return NextResponse.json({ success: true, sent });
   } catch (e) {
     console.error('favorites-digest error', e);
+    await logCronRun('favorites-digest', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'error', sent }, { status: 500 });
   }
 }

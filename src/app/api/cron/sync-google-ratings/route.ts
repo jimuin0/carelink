@@ -13,6 +13,7 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServiceRoleClient();
+  const startedAt = new Date();
 
   // gbp_place_id が設定された公開施設を全件取得
   const { data: facilities, error } = await supabase
@@ -22,6 +23,7 @@ export async function GET(request: Request) {
     .not('gbp_place_id', 'is', null);
 
   if (error) {
+    await logCronRun('sync-google-ratings', 'error', startedAt, { error_msg: error.message });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
@@ -55,5 +57,10 @@ export async function GET(request: Request) {
     await new Promise((r) => setTimeout(r, 1100));
   }
 
+  await logCronRun('sync-google-ratings', 'success', startedAt, {
+    processed: results.updated,
+    skipped: results.skipped,
+    meta: { errors: results.errors },
+  });
   return NextResponse.json({ ok: true, ...results });
 }

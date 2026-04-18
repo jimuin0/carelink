@@ -25,6 +25,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   let flagged = 0;
 
   try {
@@ -84,9 +85,11 @@ export async function GET(request: Request) {
       }
     }
 
+    await logCronRun('flag-reviews', 'success', startedAt, { processed: flagged });
     return NextResponse.json({ success: true, flagged });
   } catch (e) {
     console.error('flag-reviews error', e);
+    await logCronRun('flag-reviews', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'error', flagged }, { status: 500 });
   }
 }

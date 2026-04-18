@@ -27,6 +27,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  const startedAt = new Date();
   try {
     // 今日の日付（月・日のみ）
     const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
@@ -43,6 +44,7 @@ export async function GET(request: Request) {
       .filter('birth_date', 'like', `%-${todayMD}`);
 
     if (!profiles || profiles.length === 0) {
+      await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0 });
       return NextResponse.json({ status: 'ok', sent: 0 });
     }
 
@@ -114,9 +116,11 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent });
     return NextResponse.json({ status: 'ok', sent, total: profiles.length });
   } catch (e) {
     console.error('[birthday-coupon] Error:', e);
+    await logCronRun('birthday-coupon', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
     return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }
