@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -24,7 +25,7 @@ const couponSchema = z.object({
   { message: 'percentage discount_value must be 0-100', path: ['discount_value'] },
 );
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -40,18 +41,18 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 export async function GET(request: NextRequest) {
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin
     .from('coupons')
     .select('*')
-    .eq('facility_id', facilityId)
+    .eq('facility_id', auth.facilityId)
     .order('created_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
@@ -65,8 +66,8 @@ export async function POST(request: NextRequest) {
   }
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = couponSchema.safeParse(body);
@@ -74,11 +75,24 @@ export async function POST(request: NextRequest) {
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('coupons').insert({
-    facility_id: facilityId,
+    facility_id: auth.facilityId,
     ...parsed.data,
     is_active: parsed.data.is_active ?? true,
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'create',
+    tableName: 'coupons',
+    recordId: data.id,
+    newValues: { name: parsed.data.name, discount_type: parsed.data.discount_type, discount_value: parsed.data.discount_value },
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ coupon: data }, { status: 201 });
 }
