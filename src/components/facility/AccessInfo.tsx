@@ -140,10 +140,12 @@ function InfoRow({ label, value, isPhone }: { label: string; value: React.ReactN
     <tr className="border-b border-gray-100">
       <td className="py-2.5 pr-4 text-gray-500 w-28 align-top font-medium">{label}</td>
       <td className="py-2.5">
-        {isPhone ? (
+        {isPhone && typeof value === 'string' && /^[0-9+\-()# ]{7,20}$/.test(value) ? (
           <a href={`tel:${value}`} className="text-sky-600 hover:underline">
             {value}
           </a>
+        ) : isPhone ? (
+          <span>{value}</span>
         ) : (
           value
         )}

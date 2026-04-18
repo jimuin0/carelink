@@ -3,13 +3,20 @@ const ALLOWED_TAGS = new Set(['p', 'br', 'strong', 'em', 'b', 'i', 'ul', 'ol', '
 const SAFE_URL_PATTERN = /^(?:https?:\/\/|mailto:|tel:|\/[^/])/i;
 
 function decodeHtmlEntities(str: string): string {
-  return str
-    .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
-    .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"');
+  // Run multiple passes to handle double-encoded payloads (e.g. &#x26;#x6a; → &#x6a; → j)
+  let prev = '';
+  let cur = str;
+  for (let i = 0; i < 5 && cur !== prev; i++) {
+    prev = cur;
+    cur = cur
+      .replace(/&#x([0-9a-f]+);/gi, (_, hex) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_, dec) => String.fromCodePoint(parseInt(dec, 10)))
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"');
+  }
+  return cur;
 }
 
 function isHrefSafe(raw: string): boolean {

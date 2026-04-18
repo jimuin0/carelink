@@ -23,6 +23,8 @@ export const bookingSchema = z.object({
   facility_id: z.string().uuid(),
   staff_id: z.string().uuid().nullable(),
   menu_id: z.string().uuid().nullable(),
+  // menu_ids: multi-select list; server re-validates all against DB
+  menu_ids: z.array(z.string().uuid()).max(20).optional(),
   coupon_id: z.string().uuid().nullable(),
   booking_date: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, '正しい日付形式で入力してください')

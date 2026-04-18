@@ -10,7 +10,10 @@ const telehealthSchema = z.object({
   user_id: z.string().uuid().optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)),
   duration_minutes: z.number().int().min(5).max(480),
-  meeting_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
+  meeting_url: z.string().url().max(500).refine(
+    (u) => /^https?:\/\//i.test(u),
+    { message: 'meeting_url must be http(s)' }
+  ).optional().nullable().or(z.literal('')),
   platform: z.string().max(50).optional(),
   patient_notes: z.string().max(2000).optional().nullable(),
   fee: z.number().int().min(0).max(9999999).optional(),

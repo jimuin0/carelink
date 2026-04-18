@@ -173,7 +173,7 @@ export default function FeaturedAdsPage() {
                   const data = await res.json().catch(() => ({}));
                   if (!res.ok) {
                     alert(data.error || '申込みに失敗しました');
-                  } else if (data.checkout_url) {
+                  } else if (data.checkout_url && /^https:\/\/checkout\.stripe\.com\//.test(data.checkout_url)) {
                     window.location.href = data.checkout_url;
                   } else {
                     setSlots((prev) => [data.slot, ...prev]);

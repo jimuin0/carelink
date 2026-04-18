@@ -487,7 +487,7 @@ export default function AdminGbpPage() {
                             <span className="text-xs text-gray-400">{review.relative_time_description}</span>
                           </div>
                         </div>
-                        <a href={place.url || gbpManageUrl} target="_blank" rel="noopener noreferrer"
+                        <a href={/^https?:\/\//i.test(place.url || '') ? place.url! : gbpManageUrl} target="_blank" rel="noopener noreferrer"
                            className="text-xs text-sky-500 underline shrink-0">GBPで返信 ↗</a>
                       </div>
                       {review.text && (

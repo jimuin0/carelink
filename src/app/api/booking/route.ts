@@ -76,14 +76,29 @@ export async function POST(request: Request) {
   }
 
   // Server-side price calculation (do not trust client total_price)
+  // Use menu_ids for multi-menu total; fall back to menu_id for single-menu.
   let serverTotalPrice: number | null = null;
-  if (parsed.data.menu_id) {
-    const { data: menuRow } = await supabase
+  const menuIdsToPrice = parsed.data.menu_ids && parsed.data.menu_ids.length > 0
+    ? parsed.data.menu_ids
+    : parsed.data.menu_id ? [parsed.data.menu_id] : [];
+
+  if (menuIdsToPrice.length > 0) {
+    const { data: menuRows } = await supabase
       .from('facility_menus')
-      .select('price')
-      .eq('id', parsed.data.menu_id)
-      .eq('facility_id', parsed.data.facility_id)
-      .single();
+      .select('id, price')
+      .in('id', menuIdsToPrice)
+      .eq('facility_id', parsed.data.facility_id);
+
+    // Only count menus that actually belong to this facility (prevent foreign-facility injection)
+    const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
+    const allValid = menuIdsToPrice.every((id) => validIds.has(id));
+    if (!allValid) {
+      return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
+    }
+
+    const menuTotal = (menuRows ?? []).reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
+    // Use a dummy menuRow shape for the rest of the pricing logic
+    const menuRow = { price: menuTotal };
     if (menuRow) {
       serverTotalPrice = menuRow.price;
       // Apply coupon discount if provided
@@ -156,8 +171,8 @@ export async function POST(request: Request) {
   const bookingStatus = facilitySettings?.booking_auto_confirm ? 'confirmed' : 'pending';
 
   // Strip non-DB fields before insert
-  const { points_used: _pointsUsed, total_price: _clientPrice, ...bookingData } = parsed.data;
-  void _pointsUsed; void _clientPrice;
+  const { points_used: _pointsUsed, total_price: _clientPrice, menu_ids: _menuIds, ...bookingData } = parsed.data;
+  void _pointsUsed; void _clientPrice; void _menuIds;
 
   // Use atomic RPC that does FOR UPDATE locking + INSERT in one transaction,
   // preventing double-booking race conditions at the DB level.
