@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 
 interface FeatureFlag {
@@ -20,12 +19,13 @@ export default function FeatureFlagsPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
-      .from('feature_flags')
-      .select('id, key, enabled, rollout_pct, description, updated_at')
-      .order('key');
-    if (data) setFlags(data);
+    try {
+      const res = await fetch('/api/admin/feature-flags');
+      const json = res.ok ? await res.json() : { flags: [] };
+      if (json.flags) setFlags(json.flags);
+    } catch {
+      // silent
+    }
     setLoading(false);
   }, []);
 

@@ -19,13 +19,13 @@ export default async function PlatformBlogPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .limit(1)
+  // プラットフォームブログはプラットフォーム管理者専用
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
     .single();
-  if (!membership) notFound();
+  if (!profile?.is_platform_admin) notFound();
 
   const { data } = await supabase
     .from('platform_blog_posts')

@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -22,13 +21,17 @@ export default function AdminRegistrationsPage() {
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
 
   const loadSalons = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
-      .from('salons')
-      .select('id, name, email, phone, status, created_at')
-      .order('created_at', { ascending: false })
-      .limit(100);
-    if (data) setSalons(data);
+    try {
+      const res = await fetch('/api/admin/registrations');
+      if (!res.ok) {
+        setLoading(false);
+        return;
+      }
+      const json = await res.json();
+      if (json.salons) setSalons(json.salons);
+    } catch {
+      // silent
+    }
     setLoading(false);
   }, []);
 

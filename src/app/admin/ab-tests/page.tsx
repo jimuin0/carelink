@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Link from 'next/link';
 
 interface Flag {
@@ -24,21 +23,16 @@ export default function AbTestsPage() {
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
-    const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
-      .from('feature_flags')
-      .select('key, enabled, rollout_pct, description')
-      .gt('rollout_pct', 0)
-      .lt('rollout_pct', 100)
-      .eq('enabled', true)
-      .order('key');
+    const res = await fetch('/api/admin/feature-flags?ab=1');
+    const json = res.ok ? await res.json() : { flags: [] };
 
-    setFlags(data ?? []);
+    const loadedFlags: Flag[] = json.flags ?? [];
+    setFlags(loadedFlags);
 
     // 各フラグのA/B結果を並行取得
     const resultMap: Record<string, AbResult> = {};
     await Promise.all(
-      (data ?? []).map(async (f) => {
+      loadedFlags.map(async (f) => {
         const res = await fetch(`/api/ab-test?key=${encodeURIComponent(f.key)}`);
         if (res.ok) {
           const r = await res.json();
