@@ -57,7 +57,11 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
   if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
-  if (booking.status === 'cancelled') return NextResponse.json({ error: '既にキャンセル済みです' }, { status: 400 });
+  // キャンセル済み・キャンセル料支払い済み・完了済みは操作不可
+  const nonCancellableStatuses = ['cancelled', 'cancel_fee_paid', 'completed', 'no_show'];
+  if (nonCancellableStatuses.includes(booking.status)) {
+    return NextResponse.json({ error: 'この予約はキャンセルできません' }, { status: 400 });
+  }
 
   const { error } = await supabase
     .from('bookings')

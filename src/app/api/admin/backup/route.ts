@@ -8,11 +8,23 @@
  */
 
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+
+async function requirePlatformAdmin() {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
+    .single();
+  if (!profile?.is_platform_admin) return null;
+  return user;
+}
 
 export const dynamic = 'force-dynamic';
 
@@ -24,16 +36,8 @@ async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient
 
 export async function GET(request: Request) {
   // 管理者権限チェック
-  const cookieStore = cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
+  const user = await requirePlatformAdmin();
+  if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const serviceSupabase = createServiceRoleClient();
 
@@ -66,16 +70,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   // 管理者権限チェック
-  const cookieStore = cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
+  const user = await requirePlatformAdmin();
+  if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
 
   const body = await request.json().catch(() => ({}));
   const table = body.table as string;

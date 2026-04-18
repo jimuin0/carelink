@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
     .eq('code', code.toUpperCase())
     .maybeSingle();
 
-  if (!referralCode) return NextResponse.json({ error: '無効な紹介コードです' }, { status: 404 });
+  if (!referralCode) return NextResponse.json({ error: '無効な紹介コードです' }, { status: 400 });
   if (referralCode.user_id === user.id) return NextResponse.json({ error: '自分のコードは使えません' }, { status: 400 });
 
   // 既に使用済みか

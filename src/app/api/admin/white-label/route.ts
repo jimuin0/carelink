@@ -49,9 +49,11 @@ export async function POST(req: NextRequest) {
   if (!domain || typeof domain !== 'string') return NextResponse.json({ error: 'domain required' }, { status: 400 });
   if (domain.length > 253) return NextResponse.json({ error: 'domain too long' }, { status: 400 });
 
-  // Validate domain format (basic)
-  const domainRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
-  if (!domainRegex.test(domain)) {
+  // Validate domain format — split by label to avoid nested-quantifier ReDoS
+  const labelRegex = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/i;
+  const labels = domain.split('.');
+  const domainValid = labels.length >= 2 && labels.every((label) => label.length >= 1 && label.length <= 63 && labelRegex.test(label));
+  if (!domainValid) {
     return NextResponse.json({ error: 'Invalid domain format' }, { status: 400 });
   }
 

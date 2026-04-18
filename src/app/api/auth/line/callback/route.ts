@@ -73,16 +73,35 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}/auth/login?error=line_profile_failed`);
     }
 
-    // Extract email from id_token (base64 decode payload)
+    // Extract email from id_token with HMAC-SHA256 signature verification (LINE OIDC HS256)
     let email: string | null = null;
     if (tokens.id_token) {
       try {
-        const payload = JSON.parse(
-          Buffer.from(tokens.id_token.split('.')[1], 'base64').toString()
-        );
-        email = payload.email || null;
+        const parts = tokens.id_token.split('.');
+        if (parts.length === 3) {
+          // Verify HS256 signature using LINE_CHANNEL_SECRET
+          const secret = process.env.LINE_CHANNEL_SECRET!;
+          const data = `${parts[0]}.${parts[1]}`;
+          const key = await crypto.subtle.importKey(
+            'raw',
+            new TextEncoder().encode(secret),
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+          );
+          const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
+          const expected = Buffer.from(sig).toString('base64url');
+          if (expected !== parts[2]) {
+            // Signature mismatch — reject the id_token entirely
+            return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
+          }
+          const payload = JSON.parse(
+            Buffer.from(parts[1], 'base64url').toString()
+          );
+          email = payload.email || null;
+        }
       } catch {
-        // id_token decode failed — use fallback email
+        // id_token verification failed — use fallback email
       }
     }
 

@@ -42,7 +42,7 @@ export async function GET(request: Request) {
         .select('id')
         .eq('facility_id', facilityId)
         .eq('is_active', true)
-        .limit(50);
+        .limit(10);
       staffIds = (staffList || []).map((s: { id: string }) => s.id);
     }
 

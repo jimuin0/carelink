@@ -132,10 +132,12 @@ export async function POST(request: Request) {
   if (pointsUsed > 0 && !user) {
     return NextResponse.json({ error: 'ポイント利用には認証が必要です' }, { status: 401 });
   }
+  // Snapshot current balance for CAS (compare-and-swap) check later
+  let pointsBalanceSnapshot = 0;
   if (pointsUsed > 0 && user) {
     const { data: pointRows } = await supabase.from('user_points').select('points').eq('user_id', user.id);
-    const balance = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
-    if (balance < pointsUsed) {
+    pointsBalanceSnapshot = (pointRows ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
+    if (pointsBalanceSnapshot < pointsUsed) {
       return NextResponse.json({ error: 'ポイント残高が不足しています' }, { status: 400 });
     }
   }
@@ -157,43 +159,61 @@ export async function POST(request: Request) {
   const { points_used: _pointsUsed, total_price: _clientPrice, ...bookingData } = parsed.data;
   void _pointsUsed; void _clientPrice;
 
-  const { data: inserted, error } = await supabase
-    .from('bookings')
-    .insert({
-      ...bookingData,
-      total_price: finalPrice,
-      points_used: pointsUsed,
-      user_id: user?.id ?? null,
-      status: bookingStatus,
-    })
-    .select('id')
-    .single();
+  // Use atomic RPC that does FOR UPDATE locking + INSERT in one transaction,
+  // preventing double-booking race conditions at the DB level.
+  const { data: rpcResult, error } = await supabase.rpc('create_booking_atomic', {
+    p_facility_id: parsed.data.facility_id,
+    p_staff_id: parsed.data.staff_id ?? null,
+    p_user_id: user?.id ?? null,
+    p_menu_id: parsed.data.menu_id ?? null,
+    p_coupon_id: parsed.data.coupon_id ?? null,
+    p_booking_date: parsed.data.booking_date,
+    p_start_time: parsed.data.start_time,
+    p_end_time: parsed.data.end_time,
+    p_customer_name: parsed.data.customer_name,
+    p_email: parsed.data.email ?? null,
+    p_phone: parsed.data.phone ?? null,
+    p_note: parsed.data.note ?? null,
+    p_total_price: finalPrice ?? null,
+    p_points_used: pointsUsed,
+    p_status: bookingStatus,
+  });
+  void bookingData;
 
   if (error) {
-    // DB制約違反（二重予約）の場合
-    if (error.code === '23505') {
+    // BOOKING_CONFLICT raised by the RPC
+    if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
 
-  const newBookingId = inserted?.id || '';
+  const newBookingId: string = rpcResult || '';
 
-  // Deduct points atomically: insert then verify balance didn't go negative
+  // Points deduction with CAS (compare-and-swap) to prevent race conditions:
+  // Insert the deduction row, then verify the running balance is still non-negative.
+  // If another concurrent request already deducted points (balance changed since snapshot),
+  // roll back and cancel the booking.
   if (pointsUsed > 0 && user && newBookingId) {
-    await supabase.from('user_points').insert({
-      user_id: user.id,
-      points: -pointsUsed,
-      reason: `予約利用 (${newBookingId.slice(0, 8)})`,
-    });
-    // Re-verify balance to detect race condition
+    const { data: deductionRow } = await supabase
+      .from('user_points')
+      .insert({
+        user_id: user.id,
+        points: -pointsUsed,
+        reason: `予約利用 (${newBookingId.slice(0, 8)})`,
+      })
+      .select('id')
+      .single();
+
+    // Re-verify balance to detect concurrent deductions since our snapshot
     const { data: recheck } = await supabase.from('user_points').select('points').eq('user_id', user.id);
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (newBalance < 0) {
-      // Rollback: delete the deduction record
-      await supabase.from('user_points').delete()
-        .eq('user_id', user.id)
-        .eq('reason', `予約利用 (${newBookingId.slice(0, 8)})`);
+      // CAS failed: another concurrent request deducted points between our read and write.
+      // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
+      if (deductionRow?.id) {
+        await supabase.from('user_points').delete().eq('id', deductionRow.id);
+      }
       // Cancel the booking
       await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
       return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });

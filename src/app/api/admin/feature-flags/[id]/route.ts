@@ -11,21 +11,19 @@ const flagUpdateSchema = z.object({
   rollout_pct: z.number().int().min(0).max(100).optional(),
 });
 
-async function getAdminUser(request: NextRequest): Promise<string | null> {
+async function getAdminUser(): Promise<string | null> {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  // Feature flags are platform-wide — require facility admin
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
+  // Feature flags are platform-wide — require platform admin only
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
     .single();
 
-  return data ? user.id : null;
+  return profile?.is_platform_admin ? user.id : null;
 }
 
 export async function PATCH(
@@ -42,8 +40,8 @@ export async function PATCH(
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const userId = await getAdminUser(request);
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = await getAdminUser();
+  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await request.json().catch(() => null);
   const parsed = flagUpdateSchema.safeParse(body);

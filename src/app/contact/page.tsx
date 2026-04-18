@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { supabase } from '@/lib/supabase';
 import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -44,28 +43,19 @@ export default function ContactPage() {
   const onSubmit = async (data: ContactForm) => {
     setSubmitting(true);
     try {
-      const { error } = await supabase.from('contacts').insert(data);
-      if (error) throw error;
-
-      fetch('/api/notify', {
+      const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        signal: AbortSignal.timeout(10000),
-        body: JSON.stringify({
-          type: 'contact',
-          data: {
-            name: data.name,
-            inquiry_type: data.inquiry_type,
-            email: data.email,
-            message: data.message,
-          },
-        }),
-      }).catch(() => {});
-
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || '送信に失敗しました');
+      }
       reset();
       setSubmitted(true);
-    } catch {
-      setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
+    } catch (e) {
+      setToast({ message: e instanceof Error ? e.message : '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
     } finally {
       setSubmitting(false);
     }

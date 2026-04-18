@@ -31,6 +31,19 @@ export async function GET(request: NextRequest) {
   if (!dateRegex.test(from) || !dateRegex.test(to)) {
     return NextResponse.json({ error: 'from, to must be YYYY-MM-DD' }, { status: 400 });
   }
+  // 最大366日の範囲制限（DoS防止）
+  const fromDate = new Date(from);
+  const toDate = new Date(to);
+  if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
+    return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+  }
+  if (toDate < fromDate) {
+    return NextResponse.json({ error: 'to must be >= from' }, { status: 400 });
+  }
+  const diffDays = (toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24);
+  if (diffDays > 366) {
+    return NextResponse.json({ error: '期間は最大366日までです' }, { status: 400 });
+  }
 
   const cookieStore = cookies();
   const supabase = createServerClient(
