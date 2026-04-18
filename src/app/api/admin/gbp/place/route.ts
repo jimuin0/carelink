@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
 import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
   try {
@@ -53,6 +54,10 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'gbp-place')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   // place_id を facility_profiles に保存

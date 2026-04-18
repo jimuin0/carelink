@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const grantSchema = z.object({
@@ -65,6 +66,10 @@ export async function GET(request: NextRequest) {
 
 // 管理者がユーザーにサブスクを付与
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'user-subscriptions-post')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
@@ -100,7 +105,7 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
-  const { ip, ua } = getRequestContext(request);
+  const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
     userId: user.id,
     facilityId: parsed.data.facility_id,
@@ -108,7 +113,7 @@ export async function POST(request: NextRequest) {
     tableName: 'user_subscriptions',
     recordId: data.id,
     newValues: { target_user_id: parsed.data.user_id, plan_id: parsed.data.plan_id, notes: parsed.data.notes },
-    ipAddress: ip,
+    ipAddress: auditIp,
     userAgent: ua,
   });
 
@@ -117,6 +122,10 @@ export async function POST(request: NextRequest) {
 
 // 1回セッション使用
 export async function PATCH(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'user-subscriptions-patch')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
