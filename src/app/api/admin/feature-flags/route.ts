@@ -10,6 +10,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -100,6 +101,17 @@ export async function POST(request: NextRequest) {
     }
     return NextResponse.json({ error: '作成に失敗しました' }, { status: 500 });
   }
+
+  const { ip: auditIp, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId,
+    action: 'create',
+    tableName: 'feature_flags',
+    recordId: data.id,
+    newValues: { key: parsed.data.key, enabled: parsed.data.enabled ?? false, rollout_pct: parsed.data.rollout_pct ?? 0 },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
 
   return NextResponse.json({ flag: data }, { status: 201 });
 }

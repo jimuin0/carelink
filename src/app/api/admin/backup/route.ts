@@ -12,6 +12,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 async function requirePlatformAdmin() {
   const supabase = await createServerSupabaseAuthClient();
@@ -111,6 +112,16 @@ export async function POST(request: NextRequest) {
       }).join(',')
     ),
   ].join('\n');
+
+  const { ip: auditIp, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: user.id,
+    action: 'export',
+    tableName: table,
+    newValues: { row_count: data.length },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
 
   return new Response(csvRows, {
     headers: {

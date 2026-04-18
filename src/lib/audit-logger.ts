@@ -17,7 +17,8 @@ export type AuditAction =
   | 'approve'
   | 'reject'
   | 'cancel'
-  | 'confirm';
+  | 'confirm'
+  | 'export';
 
 export interface AuditLogEntry {
   userId?: string | null;

@@ -5,13 +5,14 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const paymentsSettingsSchema = z.object({
   deposit_type: z.enum(['none', 'fixed', 'percent']),
   deposit_amount: z.number().int().min(0).max(9999999),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -27,7 +28,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 export async function PATCH(request: NextRequest) {
@@ -39,18 +40,16 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = paymentsSettingsSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  // Additional validation: percent must be 1-100
   if (parsed.data.deposit_type === 'percent' && (parsed.data.deposit_amount < 1 || parsed.data.deposit_amount > 100)) {
     return NextResponse.json({ error: 'デポジット率は1〜100%で指定してください' }, { status: 400 });
   }
-  // Fixed must be at least 100 yen
   if (parsed.data.deposit_type === 'fixed' && parsed.data.deposit_amount < 100) {
     return NextResponse.json({ error: 'デポジット金額は100円以上で指定してください' }, { status: 400 });
   }
@@ -63,8 +62,21 @@ export async function PATCH(request: NextRequest) {
       deposit_type: parsed.data.deposit_type,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', facilityId);
+    .eq('id', auth.facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'facility_profiles',
+    recordId: auth.facilityId,
+    newValues: { deposit_type: parsed.data.deposit_type, deposit_amount: parsed.data.deposit_amount },
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ ok: true });
 }
