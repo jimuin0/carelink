@@ -5,16 +5,11 @@
  */
 
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 export async function GET(request: Request) {
   // CRON_SECRET認証（timing-safe）
@@ -22,6 +17,7 @@ export async function GET(request: Request) {
   if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
+  const supabase = createServiceRoleClient();
   try {
     // 前日の日付（JST）
     const yesterday = new Date();

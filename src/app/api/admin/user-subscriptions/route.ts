@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const grantSchema = z.object({
   facility_id: z.string().uuid(),
@@ -98,6 +99,19 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ip, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: parsed.data.facility_id,
+    action: 'create',
+    tableName: 'user_subscriptions',
+    recordId: data.id,
+    newValues: { target_user_id: parsed.data.user_id, plan_id: parsed.data.plan_id, notes: parsed.data.notes },
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ subscription: data }, { status: 201 });
 }
 
@@ -126,6 +140,19 @@ export async function PATCH(request: NextRequest) {
       .eq('id', statusParsed.data.subscription_id)
       .select().single();
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+    const { ip: sip, ua: sua } = getRequestContext(request);
+    void writeAuditLog({
+      userId: user.id,
+      facilityId: sub.facility_id,
+      action: 'update',
+      tableName: 'user_subscriptions',
+      recordId: statusParsed.data.subscription_id,
+      newValues: { status: statusParsed.data.status },
+      ipAddress: sip,
+      userAgent: sua,
+    });
+
     return NextResponse.json({ subscription: data });
   }
 

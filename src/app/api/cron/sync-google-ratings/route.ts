@@ -14,12 +14,13 @@ export async function GET(request: Request) {
   const supabase = createServiceRoleClient();
   const startedAt = new Date();
 
-  // gbp_place_id が設定された公開施設を全件取得
+  // gbp_place_id が設定された公開施設を取得（最大200件/実行）
   const { data: facilities, error } = await supabase
     .from('facility_profiles')
     .select('id, gbp_place_id')
     .eq('status', 'published')
-    .not('gbp_place_id', 'is', null);
+    .not('gbp_place_id', 'is', null)
+    .limit(200);
 
   if (error) {
     await logCronRun('sync-google-ratings', 'error', startedAt, { error_msg: error.message });

@@ -9,6 +9,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createHash, randomBytes } from 'crypto';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
 
@@ -60,6 +61,18 @@ export async function POST(request: NextRequest) {
   }).select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').single();
 
   if (error || !newKey) return NextResponse.json({ error: 'APIキーの作成に失敗しました' }, { status: 500 });
+
+  const { ip, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: facility_id,
+    action: 'create',
+    tableName: 'api_keys',
+    recordId: newKey.id,
+    newValues: { name: name.trim(), scopes, key_prefix: prefix },
+    ipAddress: ip,
+    userAgent: ua,
+  });
 
   // Return the raw key ONCE — it won't be retrievable after this
   return NextResponse.json({ raw_key: raw, key: newKey }, { status: 201 });

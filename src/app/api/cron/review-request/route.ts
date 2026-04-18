@@ -35,7 +35,8 @@ export async function GET(request: Request) {
       .select('id, email, customer_name, user_id, facility_id, updated_at')
       .eq('status', 'completed')
       .gte('updated_at', h48ago)
-      .lte('updated_at', h24ago);
+      .lte('updated_at', h24ago)
+      .limit(500);
 
     if (!bookings || bookings.length === 0) {
       return NextResponse.json({ status: 'ok', sent: 0 });

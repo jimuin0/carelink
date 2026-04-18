@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const flagUpdateSchema = z.object({
   enabled: z.boolean().optional(),
@@ -54,5 +55,17 @@ export async function PATCH(
     .eq('id', params.id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId,
+    action: 'update',
+    tableName: 'feature_flags',
+    recordId: params.id,
+    newValues: parsed.data,
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ ok: true });
 }

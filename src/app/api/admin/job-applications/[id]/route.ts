@@ -18,23 +18,23 @@ export async function PATCH(
 
   const admin = createServiceRoleClient();
 
-  // Verify ownership
+  // Verify ownership — both "not found" and "wrong owner" return 404 to prevent ID enumeration
   const { data: existing } = await admin
     .from('job_applications')
     .select('facility_id, status')
     .eq('id', params.id)
     .single();
 
-  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const { data: membership } = existing
+    ? await admin
+        .from('facility_members')
+        .select('role')
+        .eq('facility_id', existing.facility_id)
+        .eq('user_id', user.id)
+        .single()
+    : { data: null };
 
-  const { data: membership } = await admin
-    .from('facility_members')
-    .select('role')
-    .eq('facility_id', existing.facility_id)
-    .eq('user_id', user.id)
-    .single();
-
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (!existing || !membership) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { status, referral_fee_yen, notes } = await req.json().catch(() => ({}));
 

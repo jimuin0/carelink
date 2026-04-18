@@ -33,7 +33,8 @@ export async function GET(request: Request) {
       .select('id, name, status')
       .gte('created_at', d4ago)
       .lte('created_at', d3ago)
-      .neq('status', 'published'); // 公開済みは対象外
+      .neq('status', 'published') // 公開済みは対象外
+      .limit(100);
 
     if (!facilities || facilities.length === 0) {
       await logCronRun('onboarding-followup', 'skipped', startedAt, { processed: 0 });

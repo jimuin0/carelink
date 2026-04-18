@@ -7,6 +7,7 @@ import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } f
 import { sendPushToUser } from '@/lib/push';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,20 +75,21 @@ export async function POST(request: Request) {
       .eq('id', bookingId)
       .single();
 
-    if (!booking) {
-      return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
-    }
-
     // Permission check: must be owner/admin of this booking's facility
-    const { data: membership } = await supabase
-      .from('facility_members')
-      .select('facility_id, role')
-      .eq('user_id', user.id)
-      .eq('facility_id', booking.facility_id)
-      .in('role', ['owner', 'admin'])
-      .maybeSingle();
-    if (!membership) {
-      return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+    // Both "not found" and "wrong owner" return 404 to prevent booking ID enumeration
+    const membership = booking
+      ? await supabase
+          .from('facility_members')
+          .select('facility_id, role')
+          .eq('user_id', user.id)
+          .eq('facility_id', booking.facility_id)
+          .in('role', ['owner', 'admin'])
+          .maybeSingle()
+          .then((r) => r.data)
+      : null;
+
+    if (!booking || !membership) {
+      return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     }
 
     if (booking.status === status) {
@@ -113,6 +115,18 @@ export async function POST(request: Request) {
     if (error) {
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
     }
+
+    void writeAuditLog({
+      userId: user.id,
+      facilityId: booking.facility_id,
+      action: 'update',
+      tableName: 'bookings',
+      recordId: bookingId,
+      oldValues: { status: booking.status },
+      newValues: { status, reason: reason ?? null },
+      ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
+      userAgent: request.headers.get('user-agent') ?? null,
+    });
 
     // Fetch facility name and menu/staff names for email
     const { data: facility } = await supabase

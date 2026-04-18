@@ -40,7 +40,8 @@ export async function GET(request: Request) {
       .from('profiles')
       .select('id, email, display_name')
       .not('birth_date', 'is', null)
-      .filter('birth_date', 'like', `%-${todayMD}`);
+      .filter('birth_date', 'like', `%-${todayMD}`)
+      .limit(500);
 
     if (!profiles || profiles.length === 0) {
       await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0 });

@@ -10,6 +10,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkCsrf } from '@/lib/csrf';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -93,6 +94,17 @@ export async function POST(request: NextRequest) {
 
     // auth.usersから削除
     await adminSupabase.auth.admin.deleteUser(user.id);
+
+    const { ua } = getRequestContext(request);
+    void writeAuditLog({
+      userId: user.id,
+      action: 'delete',
+      tableName: 'profiles',
+      recordId: user.id,
+      newValues: { reason: 'self_account_deletion' },
+      ipAddress: ip,
+      userAgent: ua,
+    });
 
     return NextResponse.json({ success: true });
   } catch (e) {

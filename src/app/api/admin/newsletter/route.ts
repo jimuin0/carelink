@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 async function requirePlatformAdmin() {
   const supabase = createServerSupabaseAuthClient();
@@ -76,5 +77,17 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(req);
+  void writeAuditLog({
+    userId: user.id,
+    action: 'create',
+    tableName: 'newsletter_campaigns',
+    recordId: campaign.id,
+    newValues: { campaign_type, subject, scheduled_at: scheduled_at || null },
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ campaign }, { status: 201 });
 }

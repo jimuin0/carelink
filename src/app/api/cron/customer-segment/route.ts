@@ -35,7 +35,8 @@ export async function GET(request: Request) {
     const { data: facilities } = await supabase
       .from('facility_profiles')
       .select('id')
-      .eq('status', 'published');
+      .eq('status', 'published')
+      .limit(200);
 
     if (!facilities) return NextResponse.json({ status: 'ok', count: 0 });
 
@@ -43,12 +44,15 @@ export async function GET(request: Request) {
     let count = 0;
 
     for (const facility of facilities) {
-      // 完了済み予約からメール別に集計
+      // 完了済み予約からメール別に集計（直近2年分、最大2000件）
+      const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const { data: bookings } = await supabase
         .from('bookings')
         .select('email, customer_name, booking_date, total_price, status')
         .eq('facility_id', facility.id)
-        .in('status', ['completed', 'confirmed']);
+        .in('status', ['completed', 'confirmed'])
+        .gte('booking_date', twoYearsAgo)
+        .limit(2000);
 
       if (!bookings || bookings.length === 0) continue;
 

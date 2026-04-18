@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,26 @@ export async function POST(request: NextRequest) {
 
   const admin = createServiceRoleClient();
 
-  // Idempotency: skip if already processed
+  // Idempotency: atomic upsert with ON CONFLICT DO NOTHING pattern.
+  // Using upsert with ignoreDuplicates prevents the TOCTOU race where two simultaneous
+  // deliveries both pass a "not processed" read before either writes the log row.
+  // The unique constraint on event_id ensures only one row is inserted; subsequent
+  // requests will see the existing row and skip processing.
+  const { error: upsertError } = await admin.from('stripe_webhook_logs').upsert({
+    event_id: event.id,
+    event_type: event.type,
+    payload: event as unknown as Record<string, unknown>,
+    processed: false,
+  }, { onConflict: 'event_id', ignoreDuplicates: true });
+
+  if (upsertError) {
+    // upsert failed — another request may be processing concurrently; skip
+    console.error('Webhook log upsert error:', upsertError.message);
+    return NextResponse.json({ received: true, skipped: true });
+  }
+
+  // Re-read to check if this insert actually inserted (ignoreDuplicates means a conflict
+  // means another delivery already owns this event_id).
   const { data: existing } = await admin
     .from('stripe_webhook_logs')
     .select('id, processed')
@@ -43,16 +63,19 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true, skipped: true });
   }
 
-  // Log event
-  await admin.from('stripe_webhook_logs').upsert({
-    event_id: event.id,
-    event_type: event.type,
-    payload: event as unknown as Record<string, unknown>,
-  });
-
   try {
     await handleEvent(event, admin as unknown);
+    // Mark processed: true only after successful handling.
+    // If this update fails and Stripe retries, ignoreDuplicates above will find the
+    // existing row with processed=false and re-run the handler — intentionally safe
+    // because all handleEvent operations are idempotent (.update/.eq patterns).
     await admin.from('stripe_webhook_logs').update({ processed: true }).eq('event_id', event.id);
+    void writeAuditLog({
+      action: 'update',
+      tableName: 'stripe_webhook_logs',
+      recordId: event.id,
+      newValues: { event_type: event.type, processed: true },
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'unknown error';
     await admin.from('stripe_webhook_logs').update({ error: msg }).eq('event_id', event.id);

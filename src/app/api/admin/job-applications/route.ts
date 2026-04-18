@@ -26,7 +26,8 @@ export async function GET() {
     .from('job_applications')
     .select('*, job_postings(title)')
     .in('facility_id', facilityIds)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: false })
+    .limit(200);
 
   return NextResponse.json({ applications: applications || [] });
 }
