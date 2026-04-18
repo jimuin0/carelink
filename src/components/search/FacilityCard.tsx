@@ -54,7 +54,7 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
             <div className="w-12 h-12 rounded-full bg-sky-200/50 flex items-center justify-center mb-1.5">
               <span className="text-xl font-bold text-sky-400">{facility.name.charAt(0)}</span>
             </div>
-            <p className="text-sky-300 text-micro">写真は近日公開予定</p>
+            <p className="text-sky-300 text-micro">写真未登録</p>
           </div>
         )}
         <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">

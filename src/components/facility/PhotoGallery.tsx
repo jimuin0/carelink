@@ -44,7 +44,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
           <span className="text-3xl font-bold text-sky-400">{facilityName.charAt(0)}</span>
         </div>
         <p className="text-sky-500 text-sm font-medium">{facilityName}</p>
-        <p className="text-sky-300 text-xs mt-1">写真は近日公開予定です</p>
+        <p className="text-sky-300 text-xs mt-1">写真は登録されていません</p>
       </div>
     );
   }

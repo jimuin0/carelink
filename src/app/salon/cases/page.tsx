@@ -136,7 +136,7 @@ export default function CasesPage() {
             <Link href="/salon/demo" className="bg-white text-sky-600 font-bold px-8 py-3 rounded-full hover:bg-gray-50 transition-colors">
               管理画面を見てみる
             </Link>
-            <Link href="/auth/register?role=owner" className="border-2 border-white text-white font-bold px-8 py-3 rounded-full hover:bg-white/10 transition-colors">
+            <Link href="/auth/signup?role=owner" className="border-2 border-white text-white font-bold px-8 py-3 rounded-full hover:bg-white/10 transition-colors">
               無料で施設登録
             </Link>
           </div>

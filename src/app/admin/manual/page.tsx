@@ -164,7 +164,7 @@ export default function ManualPage() {
           問い合わせフォームからご連絡ください。
         </p>
         <div className="mt-3 flex gap-3">
-          <Link href="/admin/inquiries/new" className="text-sm text-sky-600 hover:underline">
+          <Link href="/admin/inquiries" className="text-sm text-sky-600 hover:underline">
             問い合わせフォーム →
           </Link>
           <Link href="/admin/tutorials" className="text-sm text-sky-600 hover:underline">
