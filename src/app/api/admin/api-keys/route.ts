@@ -9,6 +9,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createHash, randomBytes } from 'crypto';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
@@ -21,6 +22,10 @@ function generateApiKey(): { raw: string; hash: string; prefix: string } {
 }
 
 export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'api-keys-create')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
@@ -62,7 +67,7 @@ export async function POST(request: NextRequest) {
 
   if (error || !newKey) return NextResponse.json({ error: 'APIキーの作成に失敗しました' }, { status: 500 });
 
-  const { ip, ua } = getRequestContext(request);
+  const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
     userId: user.id,
     facilityId: facility_id,
@@ -70,7 +75,7 @@ export async function POST(request: NextRequest) {
     tableName: 'api_keys',
     recordId: newKey.id,
     newValues: { name: name.trim(), scopes, key_prefix: prefix },
-    ipAddress: ip,
+    ipAddress: auditIp,
     userAgent: ua,
   });
 

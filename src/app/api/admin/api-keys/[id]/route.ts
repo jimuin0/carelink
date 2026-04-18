@@ -8,10 +8,15 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'api-keys-delete')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
@@ -33,7 +38,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   await admin.from('api_keys').update({ is_active: false }).eq('id', params.id);
 
-  const { ip, ua } = getRequestContext(request);
+  const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({
     userId: user.id,
     facilityId: key.facility_id,
@@ -41,7 +46,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     tableName: 'api_keys',
     recordId: params.id,
     newValues: { is_active: false },
-    ipAddress: ip,
+    ipAddress: auditIp,
     userAgent: ua,
   });
 

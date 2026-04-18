@@ -35,6 +35,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const admin = createServiceRoleClient();
 
+  const { data: post } = await admin
+    .from('community_posts')
+    .select('id, is_locked')
+    .eq('id', params.id)
+    .single();
+  if (!post) return NextResponse.json({ error: 'Post not found' }, { status: 404 });
+  if (post.is_locked) return NextResponse.json({ error: 'Post is locked' }, { status: 403 });
+
   const { error } = await admin.from('community_likes').insert({
     post_id: params.id,
     user_id: user.id,
@@ -47,13 +55,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 
-  const { data: post } = await admin
+  const { data: likeCount } = await admin
     .from('community_posts')
     .select('like_count')
     .eq('id', params.id)
     .single();
 
-  return NextResponse.json({ like_count: post?.like_count ?? 0 }, { status: 201 });
+  return NextResponse.json({ like_count: (likeCount as { like_count?: number } | null)?.like_count ?? 0 }, { status: 201 });
 }
 
 export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {

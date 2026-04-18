@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { UUID_REGEX } from '@/lib/constants';
 
 async function getFacilityIds(userId: string): Promise<string[]> {
   const admin = createServiceRoleClient();
@@ -44,6 +45,8 @@ export async function POST(req: NextRequest) {
   if (!facility_id || !applicant_name || !applicant_email) {
     return NextResponse.json({ error: 'facility_id, applicant_name, applicant_email required' }, { status: 400 });
   }
+  if (!UUID_REGEX.test(facility_id)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
+  if (job_posting_id && !UUID_REGEX.test(job_posting_id)) return NextResponse.json({ error: 'Invalid job_posting_id' }, { status: 400 });
 
   // Basic email validation
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(applicant_email)) {
