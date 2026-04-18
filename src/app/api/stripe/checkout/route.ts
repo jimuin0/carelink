@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       price_data: {
         currency: 'jpy',
         product_data: {
-          name: `${facility.name} ${payment_type === 'deposit' ? 'デポジット' : '予約料金'}`,
+          name: `${facility.name.slice(0, 190)} ${payment_type === 'deposit' ? 'デポジット' : '予約料金'}`,
           description: booking_id ? `予約ID: ${booking_id.slice(0, 8)}` : undefined,
         },
         unit_amount: amount,

@@ -16,20 +16,26 @@ const featureArticleSchema = z.object({
 
 const featureUpdateSchema = featureArticleSchema.partial();
 
+/**
+ * feature_articles はサイト全体の特集記事（facility_id を持たない）。
+ * 書き込み操作は SUPER_ADMIN_USER_IDS に列挙されたユーザーのみに限定する。
+ * 環境変数未設定時はすべての書き込みを拒否する（フェイルセーフ）。
+ */
+function getSuperAdminIds(): Set<string> {
+  const raw = process.env.SUPER_ADMIN_USER_IDS ?? '';
+  return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
+}
+
 async function getAdminUser(request: NextRequest): Promise<string | null> {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
+  // feature_articles はサイトワイドコンテンツ — スーパーアドミンのみ編集可
+  const superAdminIds = getSuperAdminIds();
+  if (!superAdminIds.has(user.id)) return null;
 
-  return data ? user.id : null;
+  return user.id;
 }
 
 export async function POST(request: NextRequest) {

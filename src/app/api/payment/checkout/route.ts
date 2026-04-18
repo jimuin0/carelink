@@ -71,8 +71,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '金額を決定できませんでした' }, { status: 400 });
     }
 
-    const menuName = menu?.name || '施術予約';
-    const facilityName = facility?.name || 'CareLink予約';
+    // Stripe product name は最大 5000 文字だが、UI 表示を考慮して 200 文字に制限
+    const menuName = (menu?.name || '施術予約').slice(0, 200);
+    const facilityName = (facility?.name || 'CareLink予約').slice(0, 200);
 
     const stripe = new Stripe(stripeKey);
 
