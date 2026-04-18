@@ -25,6 +25,7 @@ function getSuperAdminIds(): Set<string> {
   return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getAdminUser(request: NextRequest): Promise<string | null> {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();

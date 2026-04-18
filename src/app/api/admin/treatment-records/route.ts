@@ -18,9 +18,6 @@ const treatmentRecordSchema = z.object({
   next_visit_note: z.string().max(500).optional().nullable(),
 });
 
-const recordUpdateSchema = treatmentRecordSchema.partial().extend({
-  treated_at: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/)).optional(),
-});
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
   const supabase = createServerSupabaseAuthClient();

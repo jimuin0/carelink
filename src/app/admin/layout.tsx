@@ -4,10 +4,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
 import FacilitySelector from '@/components/admin/FacilitySelector';
-import dynamic from 'next/dynamic';
-
-const RealtimeBookingListener = dynamic(() => import('@/components/admin/RealtimeBookingListener'), { ssr: false });
-const AiSupportWidget = dynamic(() => import('@/components/admin/AiSupportWidget'), { ssr: false });
+import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },

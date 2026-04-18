@@ -2,9 +2,9 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { Noto_Sans_JP } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
-import dynamic from "next/dynamic";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
+import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
 
 const notoSansJp = Noto_Sans_JP({
   subsets: ["latin"],
@@ -12,10 +12,6 @@ const notoSansJp = Noto_Sans_JP({
   variable: "--font-noto-sans-jp",
   weight: ["400", "500", "700"],
 });
-
-const Analytics = dynamic(() => import("@vercel/analytics/react").then(m => ({ default: m.Analytics })), { ssr: false });
-const SpeedInsights = dynamic(() => import("@vercel/speed-insights/next").then(m => ({ default: m.SpeedInsights })), { ssr: false });
-const CookieConsent = dynamic(() => import("@/components/CookieConsent"), { ssr: false });
 import "./globals.css";
 
 export const metadata: Metadata = {

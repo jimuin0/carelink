@@ -3,12 +3,10 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds, getFeaturedFacilities } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
-import nextDynamic from 'next/dynamic';
 import Pagination from '@/components/search/Pagination';
-const SearchFilters = nextDynamic(() => import('@/components/search/SearchFilters'));
-const MobileFilterButton = nextDynamic(() => import('@/components/search/MobileFilterButton'), { ssr: false });
-// ViewToggle has SSR: true now — the list grid renders server-side; map toggle hydrates on client
-const ViewToggle = nextDynamic(() => import('@/components/search/ViewToggle'), { ssr: true });
+import SearchFilters from '@/components/search/SearchFilters';
+import MobileFilterButton from '@/components/search/MobileFilterButton';
+import ViewToggle from '@/components/search/ViewToggle';
 
 export const dynamic = 'force-dynamic';
 
@@ -280,7 +278,7 @@ export default async function SearchPage(props: Props) {
 }
 
 function SortLink({ current, value, label, searchParams }: {
-  current: string; value: string; label: string; searchParams: Props['searchParams'];
+  current: string; value: string; label: string; searchParams: Awaited<Props['searchParams']>;
 }) {
   const params = new URLSearchParams();
   if (searchParams.keyword) params.set('keyword', searchParams.keyword);

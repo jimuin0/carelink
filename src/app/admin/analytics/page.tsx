@@ -1,13 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
-import dynamic from 'next/dynamic';
-
-const RevenueChart = dynamic(() => import('@/components/admin/RevenueChart'), { ssr: false });
-const BookingTrendChart = dynamic(() => import('@/components/admin/BookingTrendChart'), { ssr: false });
-const CustomerSegmentChart = dynamic(() => import('@/components/admin/CustomerSegmentChart'), { ssr: false });
-const RepeatRateCard = dynamic(() => import('@/components/admin/RepeatRateCard'), { ssr: false });
-const ViewCountCard = dynamic(() => import('@/components/admin/ViewCountCard'), { ssr: false });
+import { RevenueChart, BookingTrendChart, CustomerSegmentChart, RepeatRateCard, ViewCountCard } from '@/components/admin/DynamicAnalyticsCharts';
 
 export default async function AdminAnalyticsPage() {
   const supabase = createServerSupabaseAuthClient();

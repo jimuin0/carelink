@@ -34,7 +34,8 @@ async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient
   return count ?? 0;
 }
 
-export async function GET(request: Request) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export async function GET(_request: Request) {
   // 管理者権限チェック
   const user = await requirePlatformAdmin();
   if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });

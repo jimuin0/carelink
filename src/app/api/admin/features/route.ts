@@ -14,7 +14,6 @@ const featureArticleSchema = z.object({
   sort_order: z.number().int().min(0).max(9999).optional(),
 });
 
-const featureUpdateSchema = featureArticleSchema.partial();
 
 /**
  * feature_articles はサイト全体の特集記事（facility_id を持たない）。
@@ -26,7 +25,8 @@ function getSuperAdminIds(): Set<string> {
   return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
 }
 
-async function getAdminUser(request: NextRequest): Promise<string | null> {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function getAdminUser(_request: NextRequest): Promise<string | null> {
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;

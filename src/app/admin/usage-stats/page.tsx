@@ -39,7 +39,6 @@ export default async function UsageStatsPage() {
 
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const yesterday = daysAgo(1);
   const weekAgo = daysAgo(7);
   const monthAgo = monthsAgo(1);
   const prevMonthAgo = monthsAgo(2);

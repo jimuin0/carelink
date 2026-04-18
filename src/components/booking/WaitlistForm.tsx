@@ -20,7 +20,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function WaitlistForm({
-  facilityId, facilityName, date, startTime, endTime,
+  facilityId, facilityName, date, startTime, endTime, // eslint-disable-line @typescript-eslint/no-unused-vars
   menuId, staffId, onSuccess, onClose,
 }: Props) {
   const [name, setName] = useState('');

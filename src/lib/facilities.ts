@@ -5,6 +5,7 @@ import { cachedFetch } from './redis';
 
 const PER_PAGE = 20;
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;

@@ -166,8 +166,6 @@ export default async function JobDetailPage(props: Props) {
     ],
   };
 
-  const escape = (s: string) => s.replace(/</g, '\\u003c').replace(/>/g, '\\u003e');
-
   return (
     <div className="bg-gray-50 min-h-screen pb-20">
       <div className="max-w-4xl mx-auto bg-white shadow-sm">

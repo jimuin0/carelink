@@ -204,6 +204,7 @@ export default function CommunityPage() {
     ));
   }, []);
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleReply = useCallback((postId: string, _reply: Reply) => {
     setPosts((prev) => prev.map((p) =>
       p.id === postId ? { ...p, reply_count: p.reply_count + 1 } : p

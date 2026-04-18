@@ -50,7 +50,7 @@ export default function AdminGbpPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Setup
-  const [facilityId, setFacilityId] = useState<string | null>(null);
+  const [, setFacilityId] = useState<string | null>(null);
   const [placeId, setPlaceId] = useState('');
   const [gbpCid, setGbpCid] = useState('');
   const [savingSetup, setSavingSetup] = useState(false);

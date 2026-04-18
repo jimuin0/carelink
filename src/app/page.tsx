@@ -1,16 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
-import dynamic from 'next/dynamic';
-
-const HomeBelowFold = dynamic(() => import('@/components/home/HomeBelowFold'), {
-  ssr: false,
-  loading: () => <div className="h-96 bg-gray-50" />,
-});
-
-const StickySignupCta = dynamic(() => import('@/components/home/StickySignupCta'), {
-  ssr: false,
-});
+import { HomeBelowFold, StickySignupCta } from '@/components/home/DynamicHomeSections';
 
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',

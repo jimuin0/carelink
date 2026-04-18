@@ -6,7 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import crypto from 'crypto';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+// GOOGLE_CLIENT_SECRET is used in the callback route, not here
 const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
 
 const SCOPES = [

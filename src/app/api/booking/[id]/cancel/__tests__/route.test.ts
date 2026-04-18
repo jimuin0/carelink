@@ -80,7 +80,7 @@ describe('POST /api/booking/[id]/cancel', () => {
       };
     });
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     const json = await res.json();
     expect(json.success).toBe(true);
   });
@@ -88,7 +88,7 @@ describe('POST /api/booking/[id]/cancel', () => {
   test('認証なし→401', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(401);
   });
 
@@ -96,7 +96,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     mockFrom.mockReturnValue(fluent({ data: null }));
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(404);
   });
 
@@ -106,7 +106,7 @@ describe('POST /api/booking/[id]/cancel', () => {
       data: { id: validId, user_id: 'other-user', status: 'pending' },
     }));
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(403);
   });
 
@@ -116,12 +116,12 @@ describe('POST /api/booking/[id]/cancel', () => {
       data: { id: validId, user_id: 'user-1', status: 'cancelled' },
     }));
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(400);
   });
 
   test('不正なID→400', async () => {
-    const res = await POST(makeRequest(), { params: { id: 'invalid' } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: 'invalid' }) });
     expect(res.status).toBe(400);
   });
 
@@ -129,14 +129,14 @@ describe('POST /api/booking/[id]/cancel', () => {
     const { NextResponse } = jest.requireActual('next/server') as { NextResponse: typeof import('next/server').NextResponse };
     (checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({ error: 'CSRF' }, { status: 403 }));
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(403);
   });
 
   test('レートリミット→429', async () => {
     (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
-    const res = await POST(makeRequest(), { params: { id: validId } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(429);
   });
 });

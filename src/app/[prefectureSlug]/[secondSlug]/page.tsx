@@ -100,7 +100,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function SecondSlugPage(props: Props) {
   const searchParams = await props.searchParams;
-  const { prefectureSlug, secondSlug } = await params;
+  const { prefectureSlug, secondSlug } = await props.params;
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) notFound();
 
@@ -122,10 +122,10 @@ export default async function SecondSlugPage(props: Props) {
 // 業種ページ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
-  prefectureSlug: string; prefName: string; typeSlug: string; searchParams: Promise<{ page?: string }>;
+  prefectureSlug: string; prefName: string; typeSlug: string; searchParams: { page?: string };
 }) {
   const typeName = getBusinessTypeName(typeSlug)!;
-  const { page: pageStr } = await searchParams;
+  const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
@@ -188,9 +188,9 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
 // 市区町村ページ
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchParams }: {
-  prefectureSlug: string; prefName: string; citySlug: string; cityName: string; searchParams: Promise<{ page?: string }>;
+  prefectureSlug: string; prefName: string; citySlug: string; cityName: string; searchParams: { page?: string };
 }) {
-  const { page: pageStr } = await searchParams;
+  const { page: pageStr } = searchParams;
   const page = Math.max(1, parseInt(pageStr || '1', 10) || 1);
 
   const [{ facilities, total, perPage }, seoContent] = await Promise.all([
