@@ -44,7 +44,7 @@ export default function NewslettersPage() {
 
   useEffect(() => {
     fetch('/api/admin/newsletter')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setCampaigns(d.campaigns || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
@@ -81,6 +81,9 @@ export default function NewslettersPage() {
     if (res.ok) {
       const data = await res.json();
       setCampaigns((prev) => prev.map((c) => c.id === id ? data.campaign : c));
+    } else {
+      const data = await res.json().catch(() => ({}));
+      setResult({ ok: false, message: data.error || '操作に失敗しました' });
     }
   };
 
@@ -98,6 +101,7 @@ export default function NewslettersPage() {
           <p className="text-sm text-gray-500 mt-1">施設オーナー向け月次メール・ユーザー向けメルマガを管理</p>
         </div>
         <button
+          type="button"
           onClick={() => setShowCreate(true)}
           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors"
         >
@@ -108,7 +112,7 @@ export default function NewslettersPage() {
       {result && (
         <div className={`p-4 rounded-lg text-sm ${result.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
           {result.message}
-          <button onClick={() => setResult(null)} className="ml-2 underline">閉じる</button>
+          <button type="button" onClick={() => setResult(null)} className="ml-2 underline">閉じる</button>
         </div>
       )}
 
@@ -161,6 +165,7 @@ export default function NewslettersPage() {
               value={form.subject}
               onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
               placeholder="例: 【CareLink】4月の施設オーナー様向けニュースレター"
+              maxLength={200}
               className="w-full border rounded-lg px-3 py-2 text-sm"
             />
           </div>
@@ -171,6 +176,7 @@ export default function NewslettersPage() {
               onChange={(e) => setForm((f) => ({ ...f, html_content: e.target.value }))}
               placeholder="<p>こんにちは...</p>"
               rows={8}
+              maxLength={5000}
               className="w-full border rounded-lg px-3 py-2 text-sm font-mono"
             />
           </div>
@@ -181,11 +187,13 @@ export default function NewslettersPage() {
               onChange={(e) => setForm((f) => ({ ...f, text_content: e.target.value }))}
               placeholder="メールをテキストで読む方向け"
               rows={4}
+              maxLength={5000}
               className="w-full border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={handleCreate}
               disabled={creating || !form.subject || !form.html_content}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors"
@@ -193,6 +201,7 @@ export default function NewslettersPage() {
               {creating ? '作成中...' : '作成する'}
             </button>
             <button
+              type="button"
               onClick={() => setShowCreate(false)}
               className="px-4 py-2 rounded-lg text-sm border hover:bg-gray-50 transition-colors"
             >
@@ -244,6 +253,7 @@ export default function NewslettersPage() {
                     {c.status === 'draft' && (
                       <>
                         <button
+                          type="button"
                           onClick={() => handleAction(c.id, 'send')}
                           className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 transition-colors"
                         >
@@ -251,6 +261,7 @@ export default function NewslettersPage() {
                         </button>
                         {c.scheduled_at && (
                           <button
+                            type="button"
                             onClick={() => handleAction(c.id, 'schedule')}
                             className="text-xs bg-blue-500 text-white px-3 py-1 rounded-lg hover:bg-blue-600 transition-colors"
                           >
@@ -261,6 +272,7 @@ export default function NewslettersPage() {
                     )}
                     {c.status === 'scheduled' && (
                       <button
+                        type="button"
                         onClick={() => handleAction(c.id, 'cancel')}
                         className="text-xs bg-red-500 text-white px-3 py-1 rounded-lg hover:bg-red-600 transition-colors"
                       >

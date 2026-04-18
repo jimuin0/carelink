@@ -47,6 +47,7 @@ export interface GbpAuditResult {
 export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails | null> {
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) return null;
+  if (!/^[A-Za-z0-9_\-:]+$/.test(placeId) || placeId.length > 300) return null;
 
   const fields = [
     'name', 'rating', 'user_ratings_total', 'formatted_address',

@@ -9,14 +9,14 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { logCronRun } from '@/lib/cron-logger';
 import { Resend } from 'resend';
+import { checkCronAuth } from '@/lib/cron-auth';
+import { escSubject } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
   const supabase = createServiceRoleClient();
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
             await resend.emails.send({
               from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
               to: waiter.email,
-              subject: `【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`,
+              subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
               html: `<p>${waiter.customer_name}様</p>
 <p>キャンセル待ちしていた<strong>${facility.name}</strong>の<strong>${waiter.date} ${waiter.start_time}〜</strong>に空きが出ました！</p>
 <p>お早めにご予約ください。（この通知から48時間以内に予約されない場合、次の方へ順番が移ります）</p>

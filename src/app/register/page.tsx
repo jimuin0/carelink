@@ -203,7 +203,7 @@ export default function RegisterPage() {
             <div className="space-y-5">
               <div>
                 <label htmlFor="reg-facility-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
-                <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="例：リラクゼーションサロン ABC" aria-required="true" />
+                <input {...register('facility_name')} id="reg-facility-name" className="form-input" placeholder="例：リラクゼーションサロン ABC" aria-required="true" maxLength={100} />
                 {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
@@ -231,17 +231,17 @@ export default function RegisterPage() {
               </div>
               <div>
                 <label htmlFor="reg-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
-                <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" />
+                <input {...register('phone')} id="reg-phone" onChange={handlePhoneChange('phone')} autoComplete="tel" className="form-input" placeholder="090-1234-5678" aria-required="true" maxLength={20} />
                 {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
               <div>
                 <label className="form-label">担当者直通電話 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('contact_phone')} onChange={handlePhoneChange('contact_phone')} className="form-input" placeholder="090-1234-5678" />
+                <input {...register('contact_phone')} onChange={handlePhoneChange('contact_phone')} maxLength={20} className="form-input" placeholder="090-1234-5678" />
                 {errors.contact_phone && <p className="form-error" role="alert">{errors.contact_phone.message}</p>}
               </div>
               <div>
                 <label className="form-label">WebサイトURL <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('website')} type="url" className="form-input" placeholder="https://example.com" />
+                <input {...register('website')} type="url" className="form-input" placeholder="https://example.com" maxLength={200} />
                 {errors.website && <p className="form-error" role="alert">{errors.website.message}</p>}
               </div>
               <button type="button" onClick={nextStep} className="btn-primary w-full !py-3">次へ</button>
@@ -258,23 +258,23 @@ export default function RegisterPage() {
               </div>
               <div>
                 <label className="form-label">住所</label>
-                <input {...register('address')} autoComplete="street-address" className="form-input" placeholder="例：大阪府堺市堺区..." />
+                <input {...register('address')} autoComplete="street-address" className="form-input" placeholder="例：大阪府堺市堺区..." maxLength={200} />
               </div>
               <div>
                 <label className="form-label">建物名・部屋番号 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('building_name')} className="form-input" placeholder="例：○○ビル 3F" />
+                <input {...register('building_name')} className="form-input" placeholder="例：○○ビル 3F" maxLength={100} />
               </div>
               <div>
                 <label className="form-label">最寄り駅 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('nearest_station')} className="form-input" placeholder="例：堺東駅 徒歩5分" />
+                <input {...register('nearest_station')} className="form-input" placeholder="例：堺東駅 徒歩5分" maxLength={100} />
               </div>
               <div>
                 <label className="form-label">営業時間</label>
-                <input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" />
+                <input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" maxLength={200} />
               </div>
               <div>
                 <label className="form-label">定休日</label>
-                <input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" />
+                <input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" maxLength={100} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>

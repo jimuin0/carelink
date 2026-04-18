@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const { bookingId } = body;
 
     if (!bookingId || !uuidRegex.test(bookingId)) {
@@ -49,27 +49,28 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
-    // Permission check (owner or admin)
-    const { data: membership } = await supabase
-      .from('facility_members')
-      .select('facility_id, role')
-      .eq('user_id', user.id)
-      .single();
-
-    if (!membership || !['owner', 'admin'].includes(membership.role)) {
-      return NextResponse.json({ error: '権限がありません' }, { status: 403 });
-    }
-
-    // Fetch booking with facility ownership check
+    // Fetch booking first to know which facility to authorize against
     const { data: booking } = await supabase
       .from('bookings')
       .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, status')
       .eq('id', bookingId)
-      .eq('facility_id', membership.facility_id)
       .single();
 
     if (!booking) {
       return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+    }
+
+    // Permission check: must be owner/admin of this booking's facility
+    const { data: membership } = await supabase
+      .from('facility_members')
+      .select('facility_id, role')
+      .eq('user_id', user.id)
+      .eq('facility_id', booking.facility_id)
+      .in('role', ['owner', 'admin'])
+      .maybeSingle();
+
+    if (!membership) {
+      return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     }
 
     if (booking.status !== 'confirmed') {

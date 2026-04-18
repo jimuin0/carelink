@@ -85,6 +85,7 @@ export default function CronMonitorPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Cron実行監視</h1>
         <button
+          type="button"
           onClick={load}
           className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200 transition-colors"
         >

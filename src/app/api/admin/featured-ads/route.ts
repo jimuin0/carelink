@@ -3,6 +3,8 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import Stripe from 'stripe';
 import { SITE_URL } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -42,6 +44,12 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'featured-ads')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -49,7 +57,7 @@ export async function POST(req: NextRequest) {
   const facilityId = await getFacilityId(user.id);
   if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const { slot_type, area, business_type, starts_at, ends_at } = body;
 
   if (!slot_type || !starts_at || !ends_at) {
@@ -59,6 +67,21 @@ export async function POST(req: NextRequest) {
   const VALID_TYPES = ['search_top', 'area_banner', 'category_top'];
   if (!VALID_TYPES.includes(slot_type)) {
     return NextResponse.json({ error: 'Invalid slot_type' }, { status: 400 });
+  }
+
+  // Validate dates: must be parseable, ends_at > starts_at, and not more than 2 years out
+  const startsDate = new Date(starts_at);
+  const endsDate = new Date(ends_at);
+  const maxAllowed = new Date();
+  maxAllowed.setFullYear(maxAllowed.getFullYear() + 2);
+  if (isNaN(startsDate.getTime()) || isNaN(endsDate.getTime())) {
+    return NextResponse.json({ error: 'Invalid date format' }, { status: 400 });
+  }
+  if (endsDate <= startsDate) {
+    return NextResponse.json({ error: 'ends_at must be after starts_at' }, { status: 400 });
+  }
+  if (endsDate > maxAllowed) {
+    return NextResponse.json({ error: 'ends_at is too far in the future' }, { status: 400 });
   }
 
   const admin = createServiceRoleClient();
@@ -77,7 +100,7 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   // Create Stripe Checkout session for payment
   const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -111,6 +134,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ slot, checkout_url: session.url }, { status: 201 });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+    console.error('[featured-ads] POST error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

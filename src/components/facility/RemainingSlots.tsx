@@ -12,7 +12,7 @@ export default function RemainingSlots({ facilityId }: { facilityId: string }) {
     const today = `${year}-${String(month).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 
     fetch(`/api/availability?facilityId=${facilityId}&year=${year}&month=${month}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data) => {
         const todayData = data?.dates?.[today];
         if (todayData?.slots != null) {

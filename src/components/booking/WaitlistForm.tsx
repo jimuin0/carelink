@@ -76,7 +76,7 @@ export default function WaitlistForm({
         <p className="text-sm text-emerald-700">
           {formatDate(date)} {startTime}〜のキャンセルが出た場合、{email} にご連絡します。
         </p>
-        <button onClick={onClose} className="mt-2 text-sm text-emerald-600 underline hover:text-emerald-700">
+        <button type="button" onClick={onClose} className="mt-2 text-sm text-emerald-600 underline hover:text-emerald-700">
           閉じる
         </button>
       </div>
@@ -108,6 +108,7 @@ export default function WaitlistForm({
             onChange={(e) => setName(e.target.value)}
             placeholder="山田 花子"
             required
+            maxLength={50}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
           />
         </div>
@@ -119,12 +120,13 @@ export default function WaitlistForm({
             onChange={(e) => setEmail(e.target.value)}
             placeholder="example@email.com"
             required
+            maxLength={254}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
           />
           <p className="text-xs text-gray-400 mt-1">空きが出た際にご連絡します（通知から48時間有効）</p>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 
         <div className="flex gap-2">
           <button

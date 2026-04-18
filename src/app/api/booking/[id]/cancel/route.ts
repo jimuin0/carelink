@@ -116,7 +116,9 @@ export async function POST(_request: Request, { params }: { params: { id: string
         void sendBookingCancelled({ ...emailData, customerEmail: ownerProfile.email });
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error('[cancel] email notification failed:', err);
+  }
 
   // LINE cancellation notification (non-blocking)
   try {
@@ -152,7 +154,9 @@ export async function POST(_request: Request, { params }: { params: { id: string
         });
       }
     }
-  } catch {}
+  } catch (err) {
+    console.error('[cancel] LINE notification failed:', err);
+  }
 
   // LINE Works cancellation notification (non-blocking)
   if (isLineWorksConfigured()) {

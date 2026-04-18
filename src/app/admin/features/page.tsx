@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface FeatureArticle {
   id: string;
@@ -38,6 +39,7 @@ export default function AdminFeaturesPage() {
   const [editForm, setEditForm] = useState<FeatureForm | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const loadFeatures = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -69,7 +71,6 @@ export default function AdminFeaturesPage() {
     }
     setSaving(true);
     try {
-      const supabase = createBrowserSupabaseClient();
       const payload = {
         title: editForm.title.trim(),
         subtitle: editForm.subtitle.trim() || null,
@@ -77,16 +78,23 @@ export default function AdminFeaturesPage() {
         href: editForm.href.trim() || null,
         is_active: editForm.is_active,
         sort_order: editForm.sort_order ? parseInt(editForm.sort_order) : 0,
-        updated_at: new Date().toISOString(),
       };
 
+      let res: Response;
       if (editForm.id) {
-        const { error } = await supabase.from('feature_articles').update(payload).eq('id', editForm.id);
-        if (error) throw error;
+        res = await fetch(`/api/admin/features/${editForm.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
       } else {
-        const { error } = await supabase.from('feature_articles').insert(payload);
-        if (error) throw error;
+        res = await fetch('/api/admin/features', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
       }
+      if (!res.ok) throw new Error();
       setToast({ type: 'success', message: editForm.id ? '更新しました' : '追加しました' });
       setEditForm(null);
       await loadFeatures();
@@ -99,12 +107,17 @@ export default function AdminFeaturesPage() {
 
   const handleDelete = async (id: string) => {
     if (deleting) return;
-    if (!window.confirm('この特集を削除しますか？')) return;
+    setConfirmDeleteId(id);
+  };
+
+  const executeDelete = async () => {
+    const id = confirmDeleteId;
+    if (!id) return;
+    setConfirmDeleteId(null);
     setDeleting(id);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.from('feature_articles').delete().eq('id', id);
-      if (error) throw error;
+      const res = await fetch(`/api/admin/features/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error();
       setToast({ type: 'success', message: '削除しました' });
       await loadFeatures();
     } catch {
@@ -116,12 +129,12 @@ export default function AdminFeaturesPage() {
 
   const toggleActive = async (feature: FeatureArticle) => {
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('feature_articles')
-        .update({ is_active: !feature.is_active, updated_at: new Date().toISOString() })
-        .eq('id', feature.id);
-      if (error) throw error;
+      const res = await fetch(`/api/admin/features/${feature.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !feature.is_active }),
+      });
+      if (!res.ok) throw new Error();
       setToast({ type: 'success', message: feature.is_active ? '非公開にしました' : '公開にしました' });
       await loadFeatures();
     } catch {
@@ -260,6 +273,15 @@ export default function AdminFeaturesPage() {
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="特集を削除"
+        message="この特集を削除しますか？削除すると元に戻せません。"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

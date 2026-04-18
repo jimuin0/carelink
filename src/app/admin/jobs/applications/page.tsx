@@ -35,7 +35,7 @@ export default function JobApplicationsPage() {
 
   useEffect(() => {
     fetch('/api/admin/job-applications')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setApplications(d.applications || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);

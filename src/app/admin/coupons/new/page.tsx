@@ -24,39 +24,64 @@ export default function NewCouponPage() {
       setToast({ type: 'error', message: 'クーポン名を入力してください' });
       return;
     }
-    setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
-
-    const { data: membership } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .limit(1)
-      .single();
-
-    if (!membership) { setSaving(false); return; }
-
-    const { error } = await supabase.from('coupons').insert({
-      facility_id: membership.facility_id,
-      name,
-      description: description || null,
-      coupon_type: couponType,
-      discount_type: discountType,
-      discount_value: discountValue ? parseInt(discountValue) : null,
-      special_price: specialPrice ? parseInt(specialPrice) : null,
-      valid_from: validFrom || null,
-      valid_until: validUntil || null,
-    });
-
-    if (error) {
-      setToast({ type: 'error', message: '作成に失敗しました' });
-    } else {
-      router.push('/admin/coupons');
+    // Client-side pre-validation
+    const dv = discountValue ? parseInt(discountValue) : null;
+    const sp = specialPrice ? parseInt(specialPrice) : null;
+    if (dv !== null && dv < 0) {
+      setToast({ type: 'error', message: '割引額は0以上で入力してください' });
+      return;
     }
-    setSaving(false);
+    if (discountType === 'percentage' && dv !== null && dv > 100) {
+      setToast({ type: 'error', message: '割合割引は0〜100%で入力してください' });
+      return;
+    }
+    if (sp !== null && sp < 0) {
+      setToast({ type: 'error', message: '特別価格は0以上で入力してください' });
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const supabase = createBrowserSupabaseClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setSaving(false); return; }
+
+      const { data: membership } = await supabase
+        .from('facility_members')
+        .select('facility_id')
+        .eq('user_id', user.id)
+        .limit(1)
+        .single();
+
+      if (!membership) { setSaving(false); return; }
+
+      const res = await fetch(`/api/admin/coupons?facility_id=${membership.facility_id}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || null,
+          coupon_type: couponType,
+          discount_type: discountType,
+          discount_value: discountType !== 'special_price' ? dv : null,
+          special_price: discountType === 'special_price' ? sp : null,
+          valid_from: validFrom || null,
+          valid_until: validUntil || null,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: err.error ?? '作成に失敗しました' });
+      } else {
+        router.push('/admin/coupons');
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -66,11 +91,11 @@ export default function NewCouponPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
-          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" placeholder="新規限定20%OFF" />
+          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" placeholder="新規限定20%OFF" maxLength={100} />
         </div>
         <div>
           <label htmlFor="coupon-desc" className="form-label">説明</label>
-          <textarea id="coupon-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={2} />
+          <textarea id="coupon-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={2} maxLength={500} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -93,13 +118,30 @@ export default function NewCouponPage() {
         </div>
         {discountType !== 'special_price' ? (
           <div>
-            <label htmlFor="coupon-value" className="form-label">割引額{discountType === 'percentage' ? '(%)' : '(円)'}</label>
-            <input id="coupon-value" type="number" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="form-input" />
+            <label htmlFor="coupon-value" className="form-label">
+              割引額{discountType === 'percentage' ? '(%) ※0〜100' : '(円)'}
+            </label>
+            <input
+              id="coupon-value"
+              type="number"
+              min={0}
+              max={discountType === 'percentage' ? 100 : 100000}
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              className="form-input"
+            />
           </div>
         ) : (
           <div>
             <label htmlFor="coupon-special" className="form-label">特別価格(円)</label>
-            <input id="coupon-special" type="number" value={specialPrice} onChange={(e) => setSpecialPrice(e.target.value)} className="form-input" />
+            <input
+              id="coupon-special"
+              type="number"
+              min={0}
+              value={specialPrice}
+              onChange={(e) => setSpecialPrice(e.target.value)}
+              className="form-input"
+            />
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">

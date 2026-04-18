@@ -28,7 +28,7 @@ export default function WhiteLabelPage() {
 
   useEffect(() => {
     fetch('/api/admin/white-label')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => {
         if (d.config) {
           setConfig(d.config);
@@ -68,6 +68,7 @@ export default function WhiteLabelPage() {
   const handleVerify = async () => {
     if (!config) return;
     const res = await fetch(`/api/admin/white-label/verify`, { method: 'POST' });
+    if (!res.ok) { setMessage({ ok: false, text: 'サーバーエラーが発生しました' }); return; }
     const data = await res.json();
     if (data.verified) {
       setConfig((prev) => prev ? { ...prev, is_verified: true, verified_at: new Date().toISOString() } : null);
@@ -85,9 +86,9 @@ export default function WhiteLabelPage() {
       </div>
 
       {message && (
-        <div className={`p-4 rounded-lg text-sm ${message.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+        <div role={message.ok ? undefined : 'alert'} className={`p-4 rounded-lg text-sm ${message.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
           {message.text}
-          <button onClick={() => setMessage(null)} className="ml-2 underline">閉じる</button>
+          <button type="button" onClick={() => setMessage(null)} className="ml-2 underline">閉じる</button>
         </div>
       )}
 
@@ -115,6 +116,7 @@ export default function WhiteLabelPage() {
             value={form.domain}
             onChange={(e) => setForm((f) => ({ ...f, domain: e.target.value }))}
             placeholder="booking.yoursite.com"
+            maxLength={253}
             disabled={loading}
             className="w-full border rounded-lg px-3 py-2 text-sm font-mono"
           />
@@ -128,6 +130,7 @@ export default function WhiteLabelPage() {
             value={form.brand_name}
             onChange={(e) => setForm((f) => ({ ...f, brand_name: e.target.value }))}
             placeholder="あなたのサロン名"
+            maxLength={100}
             className="w-full border rounded-lg px-3 py-2 text-sm"
           />
         </div>
@@ -146,6 +149,7 @@ export default function WhiteLabelPage() {
                 type="text"
                 value={form.primary_color}
                 onChange={(e) => setForm((f) => ({ ...f, primary_color: e.target.value }))}
+                maxLength={7}
                 className="flex-1 border rounded-lg px-3 py-2 text-sm font-mono"
               />
             </div>
@@ -157,12 +161,14 @@ export default function WhiteLabelPage() {
               value={form.logo_url}
               onChange={(e) => setForm((f) => ({ ...f, logo_url: e.target.value }))}
               placeholder="https://..."
+              maxLength={500}
               className="w-full border rounded-lg px-3 py-2 text-sm"
             />
           </div>
         </div>
 
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving || !form.domain}
           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors"
@@ -193,6 +199,7 @@ export default function WhiteLabelPage() {
           <p className="text-xs text-gray-500">DNSの反映には最大48時間かかる場合があります</p>
 
           <button
+            type="button"
             onClick={handleVerify}
             className="bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 transition-colors"
           >

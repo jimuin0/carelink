@@ -91,11 +91,8 @@ export default function AdminChatPage() {
     setMessages((data || []) as ChatMessage[]);
 
     if (userId) {
-      await supabase
-        .from('chat_messages')
-        .update({ is_read: true })
-        .eq('room_id', roomId)
-        .neq('sender_id', userId);
+      // Mark messages as read via API
+      fetch(`/api/admin/chat/${roomId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => undefined);
     }
     setRooms((prev) => prev.map((r) => r.id === roomId ? { ...r, unread_count: 0 } : r));
   }, [userId]);
@@ -126,18 +123,17 @@ export default function AdminChatPage() {
 
   const sendMessage = async () => {
     if (!input.trim() || !selectedRoom || !userId) return;
-    const supabase = supabaseRef.current;
-    const { error } = await supabase.from('chat_messages').insert({
-      room_id: selectedRoom,
-      sender_id: userId,
-      content: input.trim(),
-    });
-    if (error) {
-      setToast({ type: 'error', message: '送信に失敗しました' });
-      return;
-    }
+    const content = input.trim();
     setInput('');
-    await supabase.from('chat_rooms').update({ last_message_at: new Date().toISOString() }).eq('id', selectedRoom);
+    const res = await fetch(`/api/admin/chat/${selectedRoom}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content }),
+    });
+    if (!res.ok) {
+      setToast({ type: 'error', message: '送信に失敗しました' });
+      setInput(content);
+    }
   };
 
   if (loading) {

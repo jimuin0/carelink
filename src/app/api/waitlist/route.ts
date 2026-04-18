@@ -6,7 +6,7 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { z } from 'zod';
@@ -42,7 +42,7 @@ export async function POST(request: Request) {
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
 
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const parsed = WaitlistSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
@@ -101,10 +101,14 @@ export async function POST(request: Request) {
   });
 }
 
-export async function DELETE(request: Request) {
+export async function DELETE(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id が必要です' }, { status: 400 });
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!UUID_RE.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const cookieStore = cookies();
   const supabase = createServerClient(

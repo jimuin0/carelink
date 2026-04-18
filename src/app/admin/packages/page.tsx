@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ServicePackage {
   id: string;
@@ -38,6 +39,8 @@ export default function PackagesPage() {
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDeletePkg, setConfirmDeletePkg] = useState<ServicePackage | null>(null);
 
   const [form, setForm] = useState({
     name: '',
@@ -123,16 +126,29 @@ export default function PackagesPage() {
     });
     if (res.ok) {
       setPackages((prev) => prev.map((p) => p.id === pkg.id ? { ...p, is_active: !p.is_active } : p));
+    } else {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '更新に失敗しました' });
     }
   };
 
-  const handleDelete = async (pkg: ServicePackage) => {
-    if (!confirm(`「${pkg.name}」を削除しますか？`)) return;
-    if (!facilityId) return;
+  const handleDelete = (pkg: ServicePackage) => {
+    setConfirmDeletePkg(pkg);
+    setConfirmDelete(true);
+  };
+
+  const doDelete = async () => {
+    if (!confirmDeletePkg || !facilityId) return;
+    setConfirmDelete(false);
+    const pkg = confirmDeletePkg;
+    setConfirmDeletePkg(null);
     const res = await fetch(`/api/admin/packages/${pkg.id}?facility_id=${facilityId}`, { method: 'DELETE' });
     if (res.ok) {
       setToast({ type: 'success', message: '削除しました' });
       loadPackages(facilityId);
+    } else {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '削除に失敗しました' });
     }
   };
 
@@ -146,7 +162,7 @@ export default function PackagesPage() {
 
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">回数券・パッケージ管理</h1>
-        <button onClick={() => setShowForm(true)} className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium">
+        <button type="button" onClick={() => setShowForm(true)} className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium">
           + 新規作成
         </button>
       </div>
@@ -156,6 +172,7 @@ export default function PackagesPage() {
         {(['packages', 'users'] as const).map((t) => (
           <button
             key={t}
+            type="button"
             onClick={() => setTab(t)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
               tab === t ? 'border-sky-500 text-sky-600' : 'border-transparent text-gray-500 hover:text-gray-700'
@@ -174,7 +191,7 @@ export default function PackagesPage() {
             <div>
               <label className="text-xs text-gray-500 block mb-1">名前 <span className="text-red-500">*</span></label>
               <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5回券（お得パック）" />
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5回券（お得パック）" maxLength={100} />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">対象メニュー</label>
@@ -188,7 +205,7 @@ export default function PackagesPage() {
           <div>
             <label className="text-xs text-gray-500 block mb-1">説明</label>
             <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5回ご利用で1回分無料のお得なパッケージ" />
+              rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5回ご利用で1回分無料のお得なパッケージ" maxLength={500} />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
@@ -213,8 +230,8 @@ export default function PackagesPage() {
             </div>
           </div>
           <div className="flex gap-3 pt-2">
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
-            <button onClick={handleCreate} disabled={saving || !form.name}
+            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
+            <button type="button" onClick={handleCreate} disabled={saving || !form.name}
               className="px-6 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 font-medium">
               {saving ? '保存中...' : '作成'}
             </button>
@@ -251,11 +268,11 @@ export default function PackagesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => handleToggleActive(pkg)}
+                    <button type="button" onClick={() => handleToggleActive(pkg)}
                       className={`text-xs px-2 py-1 rounded-full font-medium ${pkg.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
                       {pkg.is_active ? '公開中' : '非公開'}
                     </button>
-                    <button onClick={() => handleDelete(pkg)} className="text-xs text-red-500 hover:underline">削除</button>
+                    <button type="button" onClick={() => handleDelete(pkg)} className="text-xs text-red-500 hover:underline">削除</button>
                   </div>
                 </div>
               ))}
@@ -306,6 +323,14 @@ export default function PackagesPage() {
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        title="パッケージを削除"
+        message={`「${confirmDeletePkg?.name}」を削除しますか？`}
+        confirmLabel="削除する"
+        onConfirm={doDelete}
+        onCancel={() => { setConfirmDelete(false); setConfirmDeletePkg(null); }}
+      />
     </div>
   );
 }

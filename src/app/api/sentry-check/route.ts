@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
+import { timingSafeEqual } from 'crypto';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 10;
@@ -21,7 +22,10 @@ export async function GET(request: Request) {
 
   if (fire === '1') {
     const expected = process.env.SENTRY_TEST_TOKEN;
-    if (!expected || token !== expected) {
+    const tokenMatch = expected && token
+      ? (() => { try { return timingSafeEqual(Buffer.from(token), Buffer.from(expected)); } catch { return false; } })()
+      : false;
+    if (!tokenMatch) {
       return NextResponse.json(
         { ok: false, message: 'invalid token' },
         { status: 401 }

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -15,7 +17,7 @@ const updateSchema = z.object({
 });
 
 async function verifyAdmin(planId: string, userId: string): Promise<string | null> {
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { data: plan } = await admin.from('subscription_plans').select('facility_id').eq('id', planId).single();
   if (!plan) return null;
 
@@ -32,6 +34,9 @@ async function verifyAdmin(planId: string, userId: string): Promise<string | nul
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -41,16 +46,19 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ plan: data });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -58,7 +66,7 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   const facilityId = await verifyAdmin(params.id, user.id);
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // 契約中ユーザーがいる場合は無効化のみ
   const { count } = await admin.from('user_subscriptions').select('id', { count: 'exact', head: true }).eq('plan_id', params.id).eq('status', 'active');
@@ -68,6 +76,6 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   }
 
   const { error } = await admin.from('subscription_plans').delete().eq('id', params.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ message: 'deleted' });
 }

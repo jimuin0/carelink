@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { checkCsrf } from '@/lib/csrf';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -32,6 +33,8 @@ export async function GET() {
 
 // POST /api/google-calendar — generate OAuth URL
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -40,7 +43,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Google Calendar integration not configured' }, { status: 503 });
   }
 
-  const { action } = await req.json();
+  const { action } = await req.json().catch(() => ({}));
 
   if (action === 'disconnect') {
     const admin = createServiceRoleClient();

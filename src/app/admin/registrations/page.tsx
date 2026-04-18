@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface Salon {
   id: string;
@@ -17,6 +18,8 @@ export default function AdminRegistrationsPage() {
   const [salons, setSalons] = useState<Salon[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmReject, setConfirmReject] = useState(false);
+  const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
 
   const loadSalons = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -49,8 +52,16 @@ export default function AdminRegistrationsPage() {
     }
   };
 
-  const handleReject = async (salon: Salon) => {
-    if (!confirm(`${salon.name}を却下しますか？`)) return;
+  const handleReject = (salon: Salon) => {
+    setConfirmRejectSalon(salon);
+    setConfirmReject(true);
+  };
+
+  const doReject = async () => {
+    if (!confirmRejectSalon) return;
+    setConfirmReject(false);
+    const salon = confirmRejectSalon;
+    setConfirmRejectSalon(null);
     try {
       const supabase = createBrowserSupabaseClient();
       const { error } = await supabase
@@ -120,6 +131,15 @@ export default function AdminRegistrationsPage() {
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+
+      <ConfirmDialog
+        open={confirmReject}
+        title="施設を却下"
+        message={`${confirmRejectSalon?.name}を却下しますか？`}
+        confirmLabel="却下する"
+        onConfirm={doReject}
+        onCancel={() => { setConfirmReject(false); setConfirmRejectSalon(null); }}
+      />
     </div>
   );
 }

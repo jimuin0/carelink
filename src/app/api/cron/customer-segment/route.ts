@@ -8,6 +8,8 @@ import { logCronRun } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
+import { checkCronAuth } from '@/lib/cron-auth';
+import { escSubject } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,10 +27,8 @@ function classifySegment(totalVisits: number, daysSinceLastVisit: number): strin
 }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
   try {
@@ -147,7 +147,7 @@ export async function GET(request: Request) {
               await resend.emails.send({
                 from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
                 to: email,
-                subject: `【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`,
+                subject: escSubject(`【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`),
                 html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
                   <p>${data.name || 'お客'}様</p>
                   <p>前回のご来店から${daysSince}日が経ちました。お体の調子はいかがですか？</p>

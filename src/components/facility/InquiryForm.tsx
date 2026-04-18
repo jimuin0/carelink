@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { supabase } from '@/lib/supabase';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 
@@ -34,7 +34,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
 
   const onSubmit = async (data: InquiryFormData) => {
     try {
-      const { error } = await supabase.from('facility_inquiries').insert({
+      const { error } = await createBrowserSupabaseClient().from('facility_inquiries').insert({
         facility_id: facilityId,
         facility_name: facilityName,
         name: data.name,
@@ -104,7 +104,7 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
 
         <div>
           <label htmlFor="inquiry_message" className="form-label">お問い合わせ内容 <span className="text-red-500">*</span></label>
-          <textarea {...register('message')} id="inquiry_message" className="form-input" rows={4} placeholder="ご予約・ご質問などお気軽にお書きください（1000文字以内）" aria-required="true" />
+          <textarea {...register('message')} id="inquiry_message" className="form-input" rows={4} maxLength={1000} placeholder="ご予約・ご質問などお気軽にお書きください（1000文字以内）" aria-required="true" />
           {errors.message && <p className="form-error" role="alert">{errors.message.message}</p>}
         </div>
 

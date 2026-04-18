@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -24,12 +27,19 @@ async function refreshAccessToken(refreshToken: string) {
 // Syncs a booking to Google Calendar
 export async function POST(req: NextRequest) {
   try {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'gcal-sync')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { bookingId } = await req.json();
+  const { bookingId } = await req.json().catch(() => ({}));
   if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
+  if (!UUID_REGEX.test(bookingId)) return NextResponse.json({ error: 'Invalid bookingId' }, { status: 400 });
 
   const admin = createServiceRoleClient();
 
@@ -138,19 +148,23 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, googleEventId });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+    console.error('[google-calendar/sync] POST error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
 // DELETE /api/google-calendar/sync?bookingId=xxx — remove event
 export async function DELETE(req: NextRequest) {
   try {
+    const csrfError = checkCsrf(req);
+    if (csrfError) return csrfError;
     const supabase = createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const bookingId = req.nextUrl.searchParams.get('bookingId');
     if (!bookingId) return NextResponse.json({ error: 'bookingId required' }, { status: 400 });
+    if (!UUID_REGEX.test(bookingId)) return NextResponse.json({ error: 'Invalid bookingId' }, { status: 400 });
 
     const admin = createServiceRoleClient();
 
@@ -187,6 +201,7 @@ export async function DELETE(req: NextRequest) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+    console.error('[google-calendar/sync] DELETE error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

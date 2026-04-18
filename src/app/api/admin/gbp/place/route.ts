@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
+import { checkCsrf } from '@/lib/csrf';
 
 export async function GET(req: NextRequest) {
   try {
@@ -46,11 +47,14 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({ placeData, audit, facilityId: membership.facility_id });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+    console.error('[gbp/place] GET error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   // place_id を facility_profiles に保存
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -64,7 +68,7 @@ export async function POST(req: NextRequest) {
     .single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const { gbp_place_id, gbp_cid } = body;
 
   const { error } = await supabase
@@ -76,6 +80,6 @@ export async function POST(req: NextRequest) {
     })
     .eq('id', membership.facility_id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

@@ -84,19 +84,22 @@ export default function TelehealthPage() {
   const handleCreate = async () => {
     if (!facilityId || saving) return;
     setSaving(true);
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('telehealth_sessions').insert({
-      facility_id: facilityId,
-      user_id: form.user_id || null,
-      scheduled_at: form.scheduled_at,
-      duration_minutes: form.duration_minutes,
-      meeting_url: form.meeting_url || null,
-      platform: form.platform,
-      patient_notes: form.patient_notes || null,
-      fee: form.fee,
+    const res = await fetch(`/api/admin/telehealth?facility_id=${facilityId}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        user_id: form.user_id || null,
+        scheduled_at: form.scheduled_at,
+        duration_minutes: form.duration_minutes,
+        meeting_url: form.meeting_url || null,
+        platform: form.platform,
+        patient_notes: form.patient_notes || null,
+        fee: form.fee,
+      }),
     });
-    if (error) {
-      setToast({ type: 'error', message: '作成に失敗しました' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
     } else {
       setToast({ type: 'success', message: 'オンライン相談を作成しました' });
       setShowForm(false);
@@ -107,9 +110,16 @@ export default function TelehealthPage() {
   };
 
   const updateStatus = async (id: string, status: string) => {
-    const supabase = createBrowserSupabaseClient();
-    await supabase.from('telehealth_sessions').update({ status }).eq('id', id);
-    load();
+    const res = await fetch(`/api/admin/telehealth/${id}?facility_id=${facilityId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status }),
+    });
+    if (res.ok) {
+      load();
+    } else {
+      setToast({ type: 'error', message: 'ステータスの更新に失敗しました' });
+    }
   };
 
   const filtered = sessions.filter((s) => {
@@ -128,7 +138,7 @@ export default function TelehealthPage() {
           <h1 className="text-xl font-bold">テレヘルス・オンライン相談</h1>
           <p className="text-xs text-gray-400 mt-0.5">ビデオ通話による遠隔相談・診療の管理</p>
         </div>
-        <button onClick={() => setShowForm(true)}
+        <button type="button" onClick={() => setShowForm(true)}
           className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium">
           + 相談を作成
         </button>
@@ -149,6 +159,7 @@ export default function TelehealthPage() {
                   const match = customers.find((c) => c.display_name === val || c.email === val);
                   if (match) setForm((prev) => ({ ...prev, user_id: match.id }));
                 }}
+                maxLength={100}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="名前またはメール" />
               <datalist id="customers-tele">
                 {customers.map((c) => <option key={c.id} value={c.display_name}>{c.email}</option>)}
@@ -175,17 +186,17 @@ export default function TelehealthPage() {
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">会議URL（Zoom / Google Meet）</label>
               <input value={form.meeting_url} onChange={(e) => setForm({ ...form, meeting_url: e.target.value })}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="https://zoom.us/j/..." />
+                maxLength={500} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="https://zoom.us/j/..." />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">事前問診内容</label>
               <textarea value={form.patient_notes} onChange={(e) => setForm({ ...form, patient_notes: e.target.value })}
-                rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="相談したい内容・症状..." />
+                rows={2} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="相談したい内容・症状..." />
             </div>
           </div>
           <div className="flex gap-3">
-            <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
-            <button onClick={handleCreate} disabled={saving || !form.scheduled_at}
+            <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
+            <button type="button" onClick={handleCreate} disabled={saving || !form.scheduled_at}
               className="px-6 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 font-medium">
               {saving ? '保存中...' : '作成'}
             </button>
@@ -196,7 +207,7 @@ export default function TelehealthPage() {
       {/* フィルター */}
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         {(['upcoming', 'all'] as const).map((t) => (
-          <button key={t} onClick={() => setFilter(t)}
+          <button type="button" key={t} onClick={() => setFilter(t)}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${filter === t ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
             {t === 'upcoming' ? '予定・進行中' : '全件'}
           </button>
@@ -235,14 +246,14 @@ export default function TelehealthPage() {
                 </div>
                 {s.status === 'scheduled' && (
                   <div className="flex gap-2 shrink-0">
-                    <button onClick={() => updateStatus(s.id, 'in_progress')}
+                    <button type="button" onClick={() => updateStatus(s.id, 'in_progress')}
                       className="text-xs bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600">開始</button>
-                    <button onClick={() => updateStatus(s.id, 'cancelled')}
+                    <button type="button" onClick={() => updateStatus(s.id, 'cancelled')}
                       className="text-xs text-red-500 border border-red-200 px-3 py-1 rounded hover:bg-red-50">キャンセル</button>
                   </div>
                 )}
                 {s.status === 'in_progress' && (
-                  <button onClick={() => updateStatus(s.id, 'completed')}
+                  <button type="button" onClick={() => updateStatus(s.id, 'completed')}
                     className="text-xs bg-sky-500 text-white px-3 py-1 rounded hover:bg-sky-600 shrink-0">完了</button>
                 )}
               </div>

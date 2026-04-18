@@ -8,7 +8,7 @@ import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import * as Sentry from '@sentry/nextjs';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 
 export const dynamic = 'force-dynamic';
@@ -23,10 +23,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
   }
 
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const parsed = bookingSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+    return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
   }
 
   const cookieStore = cookies();
@@ -88,13 +88,19 @@ export async function POST(request: Request) {
       serverTotalPrice = menuRow.price;
       // Apply coupon discount if provided
       if (parsed.data.coupon_id) {
+        const nowIso = new Date().toISOString();
         const { data: coupon } = await supabase
           .from('coupons')
-          .select('discount_type, discount_value')
+          .select('discount_type, discount_value, is_active, valid_from, valid_until')
           .eq('id', parsed.data.coupon_id)
           .eq('facility_id', parsed.data.facility_id)
           .single();
-        if (coupon && serverTotalPrice != null) {
+        // Validate coupon is active and within its validity window server-side
+        const couponValid = coupon &&
+          coupon.is_active === true &&
+          (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
+          (coupon.valid_until == null || coupon.valid_until >= nowIso);
+        if (couponValid && serverTotalPrice != null) {
           if (coupon.discount_type === 'percentage') {
             serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
           } else if (coupon.discount_type === 'fixed') {
@@ -102,6 +108,8 @@ export async function POST(request: Request) {
           } else if (coupon.discount_type === 'special_price') {
             serverTotalPrice = coupon.discount_value;
           }
+        } else if (parsed.data.coupon_id && !couponValid) {
+          return NextResponse.json({ error: 'クーポンが無効または期限切れです' }, { status: 400 });
         }
       }
       // Add nomination fee if staff is designated
@@ -214,7 +222,7 @@ export async function POST(request: Request) {
       endTime: parsed.data.end_time,
       menuName: menuResult.data?.name,
       staffName: staffResult.data?.name,
-      totalPrice: parsed.data.total_price ?? undefined,
+      totalPrice: finalPrice ?? undefined,
       bookingId: newBookingId,
     };
 
@@ -255,10 +263,7 @@ export async function POST(request: Request) {
   // LINE notification (non-blocking)
   try {
     if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
-      const adminSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
+      const adminSupabase = createServiceRoleClient();
       const { data: lineLink } = await adminSupabase
         .from('line_user_links')
         .select('line_user_id')
@@ -293,10 +298,7 @@ export async function POST(request: Request) {
   // LINE Works staff notification (non-blocking)
   if (isLineWorksConfigured()) {
     try {
-      const adminSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
+      const adminSupabase = createServiceRoleClient();
       // Fetch staff with LINE Works channel IDs: assigned staff + all-notify staff
       const { data: staffList } = await adminSupabase
         .from('staff_profiles')

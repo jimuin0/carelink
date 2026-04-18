@@ -55,7 +55,7 @@ export default function ReferralPage() {
           <h1 className="text-xl font-bold">紹介状（診療情報提供書）</h1>
           <p className="text-xs text-gray-400 mt-0.5">医療機関への患者紹介状を作成・印刷</p>
         </div>
-        <button onClick={() => window.print()}
+        <button type="button" onClick={() => window.print()}
           className="print:hidden flex items-center gap-2 px-4 py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -70,7 +70,7 @@ export default function ReferralPage() {
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-gray-700">緊急度:</span>
           {['通常', '準緊急', '緊急'].map((u) => (
-            <button key={u} onClick={() => setForm({ ...form, urgency: u })}
+            <button type="button" key={u} onClick={() => setForm({ ...form, urgency: u })}
               className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
                 form.urgency === u
                   ? u === '緊急' ? 'bg-red-500 text-white border-red-500'
@@ -91,11 +91,11 @@ export default function ReferralPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">氏名 <span className="text-red-500">*</span></label>
-              <input value={form.patient_name} onChange={f('patient_name')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="山田 太郎" />
+              <input value={form.patient_name} onChange={f('patient_name')} maxLength={50} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="山田 太郎" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">フリガナ</label>
-              <input value={form.patient_kana} onChange={f('patient_kana')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.patient_kana} onChange={f('patient_kana')} maxLength={50} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">生年月日</label>
@@ -109,7 +109,7 @@ export default function ReferralPage() {
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">住所</label>
-              <input value={form.patient_address} onChange={f('patient_address')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.patient_address} onChange={f('patient_address')} maxLength={200} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
         </section>
@@ -120,15 +120,15 @@ export default function ReferralPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">医療機関名</label>
-              <input value={form.to_facility} onChange={f('to_facility')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="○○病院" />
+              <input value={form.to_facility} onChange={f('to_facility')} maxLength={100} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="○○病院" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">診療科</label>
-              <input value={form.to_department} onChange={f('to_department')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="整形外科" />
+              <input value={form.to_department} onChange={f('to_department')} maxLength={50} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="整形外科" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">担当医（任意）</label>
-              <input value={form.to_doctor} onChange={f('to_doctor')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="先生" />
+              <input value={form.to_doctor} onChange={f('to_doctor')} maxLength={50} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="先生" />
             </div>
           </div>
         </section>
@@ -139,29 +139,29 @@ export default function ReferralPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">主訴</label>
-              <input value={form.chief_complaint} onChange={f('chief_complaint')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰痛・下肢しびれ" />
+              <input value={form.chief_complaint} onChange={f('chief_complaint')} maxLength={200} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰痛・下肢しびれ" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">傷病名・病名</label>
-              <input value={form.diagnosis} onChange={f('diagnosis')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰椎椎間板ヘルニア疑い" />
+              <input value={form.diagnosis} onChange={f('diagnosis')} maxLength={200} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰椎椎間板ヘルニア疑い" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">紹介理由</label>
-              <textarea value={form.referral_reason} onChange={f('referral_reason')} rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              <textarea value={form.referral_reason} onChange={f('referral_reason')} rows={3} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 placeholder="MRI検査およびより専門的な治療をお願いしたく、ご紹介申し上げます。" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">これまでの経過・施術内容</label>
-              <textarea value={form.treatment_summary} onChange={f('treatment_summary')} rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
+              <textarea value={form.treatment_summary} onChange={f('treatment_summary')} rows={3} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm"
                 placeholder="3ヶ月前より腰痛訴え。鍼灸治療週2回施行するも改善乏しい。" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">検査所見・画像所見</label>
-              <textarea value={form.exam_results} onChange={f('exam_results')} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <textarea value={form.exam_results} onChange={f('exam_results')} rows={2} maxLength={1000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">投薬・処置</label>
-              <textarea value={form.medications} onChange={f('medications')} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="なし" />
+              <textarea value={form.medications} onChange={f('medications')} rows={2} maxLength={500} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="なし" />
             </div>
           </div>
         </section>
@@ -172,30 +172,30 @@ export default function ReferralPage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">施術所名</label>
-              <input value={form.from_facility} onChange={f('from_facility')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.from_facility} onChange={f('from_facility')} maxLength={100} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">施術者名</label>
-              <input value={form.from_doctor} onChange={f('from_doctor')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.from_doctor} onChange={f('from_doctor')} maxLength={50} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">住所</label>
-              <input value={form.from_address} onChange={f('from_address')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.from_address} onChange={f('from_address')} maxLength={200} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">電話番号</label>
-              <input value={form.from_phone} onChange={f('from_phone')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.from_phone} onChange={f('from_phone')} maxLength={20} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">登録番号</label>
-              <input value={form.from_registration} onChange={f('from_registration')} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input value={form.from_registration} onChange={f('from_registration')} maxLength={20} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
         </section>
 
         <div>
           <label className="text-xs text-gray-500 block mb-1">備考</label>
-          <textarea value={form.notes} onChange={f('notes')} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <textarea value={form.notes} onChange={f('notes')} rows={2} maxLength={1000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 

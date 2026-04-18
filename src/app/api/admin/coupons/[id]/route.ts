@@ -1,0 +1,82 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { z } from 'zod';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
+
+const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
+const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
+
+const updateSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional().nullable(),
+  coupon_type: z.enum(VALID_COUPON_TYPES).optional(),
+  discount_type: z.enum(VALID_DISCOUNT_TYPES).optional(),
+  discount_value: z.number().int().min(0).max(100000).optional().nullable(),
+  special_price: z.number().int().min(0).max(9999999).optional().nullable(),
+  valid_from: z.string().nullable().optional(),
+  valid_until: z.string().nullable().optional(),
+  is_active: z.boolean().optional(),
+}).refine(
+  (data) => !(data.discount_type === 'percentage' && data.discount_value != null && data.discount_value > 100),
+  { message: 'percentage discount_value must be 0-100', path: ['discount_value'] },
+);
+
+async function verifyCouponAdmin(couponId: string, userId: string): Promise<string | null> {
+  const admin = createServiceRoleClient();
+  const { data: coupon } = await admin.from('coupons').select('facility_id').eq('id', couponId).single();
+  if (!coupon) return null;
+
+  const supabase = createServerSupabaseAuthClient();
+  const { data: mem } = await supabase
+    .from('facility_members')
+    .select('facility_id')
+    .eq('user_id', userId)
+    .eq('facility_id', coupon.facility_id)
+    .in('role', ['owner', 'admin'])
+    .single();
+
+  return mem ? coupon.facility_id : null;
+}
+
+export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const facilityId = await verifyCouponAdmin(params.id, user.id);
+  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const body = await request.json().catch(() => null);
+  const parsed = updateSchema.safeParse(body);
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+
+  const admin = createServiceRoleClient();
+  const { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).select().single();
+
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  return NextResponse.json({ coupon: data });
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const facilityId = await verifyCouponAdmin(params.id, user.id);
+  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const admin = createServiceRoleClient();
+  const { error } = await admin.from('coupons').delete().eq('id', params.id);
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  return NextResponse.json({ message: 'deleted' });
+}

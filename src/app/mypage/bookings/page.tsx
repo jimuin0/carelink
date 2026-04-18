@@ -7,6 +7,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
   completed: { label: '完了', color: 'bg-gray-100 text-gray-800' },
   cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
+  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'bg-orange-100 text-orange-800' },
   no_show: { label: '無断キャンセル', color: 'bg-red-100 text-red-800' },
 };
 

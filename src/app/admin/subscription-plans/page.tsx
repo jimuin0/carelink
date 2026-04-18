@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 interface Plan {
@@ -44,6 +45,8 @@ export default function SubscriptionPlansPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDeletePlan, setConfirmDeletePlan] = useState<Plan | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -54,11 +57,11 @@ export default function SubscriptionPlansPage() {
     setFacilityId(mem.facility_id);
 
     const [p, s] = await Promise.all([
-      fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => r.json()),
-      fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => r.json()),
+      fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+      fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
     ]);
     setPlans(p.plans ?? []);
-    setSubs((s.subscriptions ?? []) as unknown as Subscription[]);
+    setSubs((s.subscriptions ?? []) as Subscription[]);
     setLoading(false);
   }, []);
 
@@ -85,28 +88,48 @@ export default function SubscriptionPlansPage() {
   };
 
   const toggleActive = async (plan: Plan) => {
-    await fetch(`/api/admin/subscription-plans/${plan.id}`, {
+    const res = await fetch(`/api/admin/subscription-plans/${plan.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ is_active: !plan.is_active }),
     });
+    if (!res.ok) {
+      const e = await res.json().catch(() => null);
+      setToast({ type: 'error', message: e?.error ?? '更新に失敗しました' });
+    }
     load();
   };
 
-  const handleDelete = async (plan: Plan) => {
-    if (!confirm(`「${plan.name}」を削除しますか？`)) return;
+  const handleDelete = (plan: Plan) => {
+    setConfirmDeletePlan(plan);
+    setConfirmDelete(true);
+  };
+
+  const doDelete = async () => {
+    if (!confirmDeletePlan) return;
+    setConfirmDelete(false);
+    const plan = confirmDeletePlan;
+    setConfirmDeletePlan(null);
     const res = await fetch(`/api/admin/subscription-plans/${plan.id}`, { method: 'DELETE' });
-    const j = await res.json();
-    setToast({ type: 'success', message: j.message ?? '削除しました' });
+    const j = await res.json().catch(() => null);
+    if (res.ok) {
+      setToast({ type: 'success', message: j?.message ?? '削除しました' });
+    } else {
+      setToast({ type: 'error', message: j?.error ?? '削除に失敗しました' });
+    }
     load();
   };
 
   const updateSubStatus = async (sub: Subscription, status: string) => {
-    await fetch('/api/admin/user-subscriptions', {
+    const res = await fetch('/api/admin/user-subscriptions', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ subscription_id: sub.id, status }),
     });
+    if (!res.ok) {
+      const e = await res.json().catch(() => null);
+      setToast({ type: 'error', message: e?.error ?? '更新に失敗しました' });
+    }
     load();
   };
 
@@ -122,7 +145,7 @@ export default function SubscriptionPlansPage() {
           <p className="text-xs text-gray-400 mt-0.5">サブスクリプション定義と契約者管理</p>
         </div>
         {tab === 'plans' && (
-          <button onClick={() => setShowForm(true)}
+          <button type="button" onClick={() => setShowForm(true)}
             className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium">
             + 新規プラン
           </button>
@@ -131,7 +154,7 @@ export default function SubscriptionPlansPage() {
 
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         {(['plans', 'subscribers'] as const).map((t) => (
-          <button key={t} onClick={() => setTab(t)}
+          <button type="button" key={t} onClick={() => setTab(t)}
             className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${tab === t ? 'bg-white shadow text-gray-800' : 'text-gray-500'}`}>
             {t === 'plans' ? 'プラン定義' : '契約者一覧'}
           </button>
@@ -147,7 +170,7 @@ export default function SubscriptionPlansPage() {
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">プラン名 <span className="text-red-500">*</span></label>
                   <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="月4回プラン など" />
+                    maxLength={100} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="月4回プラン など" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">月額料金（円）</label>
@@ -167,12 +190,12 @@ export default function SubscriptionPlansPage() {
                 <div className="sm:col-span-2">
                   <label className="text-xs text-gray-500 block mb-1">説明文</label>
                   <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
-                    rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="月4回まで鍼灸施術を受けられるお得なプラン" />
+                    rows={2} maxLength={500} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="月4回まで鍼灸施術を受けられるお得なプラン" />
                 </div>
               </div>
               <div className="flex gap-3">
-                <button onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
-                <button onClick={handleCreate} disabled={saving || !form.name}
+                <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
+                <button type="button" onClick={handleCreate} disabled={saving || !form.name}
                   className="px-6 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 font-medium">
                   {saving ? '保存中...' : '作成'}
                 </button>
@@ -199,11 +222,11 @@ export default function SubscriptionPlansPage() {
                     {plan.description && <p className="text-xs text-gray-400 mt-0.5">{plan.description}</p>}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={() => toggleActive(plan)}
+                    <button type="button" onClick={() => toggleActive(plan)}
                       className="text-xs text-gray-500 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50">
                       {plan.is_active ? '非公開に' : '公開に'}
                     </button>
-                    <button onClick={() => handleDelete(plan)}
+                    <button type="button" onClick={() => handleDelete(plan)}
                       className="text-xs text-red-500 border border-red-200 rounded px-2 py-1 hover:bg-red-50">
                       削除
                     </button>
@@ -238,18 +261,18 @@ export default function SubscriptionPlansPage() {
                   </div>
                   {sub.status === 'active' && (
                     <div className="flex gap-2 shrink-0">
-                      <button onClick={() => updateSubStatus(sub, 'paused')}
+                      <button type="button" onClick={() => updateSubStatus(sub, 'paused')}
                         className="text-xs text-yellow-600 border border-yellow-200 rounded px-2 py-1 hover:bg-yellow-50">
                         一時停止
                       </button>
-                      <button onClick={() => updateSubStatus(sub, 'cancelled')}
+                      <button type="button" onClick={() => updateSubStatus(sub, 'cancelled')}
                         className="text-xs text-red-500 border border-red-200 rounded px-2 py-1 hover:bg-red-50">
                         解約
                       </button>
                     </div>
                   )}
                   {sub.status === 'paused' && (
-                    <button onClick={() => updateSubStatus(sub, 'active')}
+                    <button type="button" onClick={() => updateSubStatus(sub, 'active')}
                       className="text-xs text-green-600 border border-green-200 rounded px-2 py-1 hover:bg-green-50 shrink-0">
                       再開
                     </button>
@@ -260,6 +283,15 @@ export default function SubscriptionPlansPage() {
           })}
         </div>
       )}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="プランを削除"
+        message={`「${confirmDeletePlan?.name}」を削除しますか？`}
+        confirmLabel="削除する"
+        onConfirm={doDelete}
+        onCancel={() => { setConfirmDelete(false); setConfirmDeletePlan(null); }}
+      />
     </div>
   );
 }

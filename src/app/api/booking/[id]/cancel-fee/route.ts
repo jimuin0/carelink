@@ -7,7 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
   apiVersion: '2025-04-30.basil',
@@ -15,13 +18,21 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://carelink-jp.com';
 
-export async function POST(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
   try {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 5, 60_000, 'cancel-fee')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // Get booking
   const { data: booking } = await admin
@@ -81,8 +92,8 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
       price_data: {
         currency: 'jpy',
         product_data: {
-          name: `${facility.name} キャンセル料（${feePercent}%）`,
-          description: `予約ID: ${booking.id.slice(0, 8)} / ${booking.menu_name ?? '施術'}`,
+          name: `${String(facility.name).slice(0, 100)} キャンセル料（${feePercent}%）`,
+          description: `予約ID: ${booking.id.slice(0, 8)} / ${String(booking.menu_name ?? '施術').slice(0, 100)}`,
         },
         unit_amount: feeAmount,
       },
@@ -117,6 +128,7 @@ export async function POST(_request: NextRequest, { params }: { params: { id: st
     fee_percent: feePercent,
   });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Internal error' }, { status: 500 });
+    console.error('[cancel-fee] error:', e);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

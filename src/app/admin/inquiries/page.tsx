@@ -60,13 +60,12 @@ export default function AdminInquiriesPage() {
     id: string,
     updates: Partial<Pick<Contact, 'ticket_status' | 'priority' | 'ticket_notes'>>
   ) => {
-    const supabase = createBrowserSupabaseClient();
-    const payload: Record<string, unknown> = { ...updates };
-    if (updates.ticket_status === 'resolved') {
-      payload.resolved_at = new Date().toISOString();
-    }
-    const { error } = await supabase.from('contacts').update(payload).eq('id', id);
-    if (error) {
+    const res = await fetch(`/api/admin/inquiries/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
       setToast({ type: 'error', message: '更新に失敗しました' });
       return;
     }
@@ -87,13 +86,14 @@ export default function AdminInquiriesPage() {
             <p className="text-sm text-sky-600 mt-0.5">{openCount}件の新着問い合わせ</p>
           )}
         </div>
-        <button onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
+        <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
       </div>
 
       {/* ステータスフィルター */}
       <div className="flex flex-wrap gap-2">
         {(['open', 'in_progress', 'waiting', 'resolved', 'closed', ''] as const).map((s) => (
           <button
+            type="button"
             key={s}
             onClick={() => setStatusFilter(s)}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
@@ -186,9 +186,11 @@ export default function AdminInquiriesPage() {
                       onChange={(e) => setEditingNotes((prev) => ({ ...prev, [c.id]: e.target.value }))}
                       rows={2}
                       placeholder="対応履歴・メモを記入..."
+                      maxLength={2000}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sky-400"
                     />
                     <button
+                      type="button"
                       onClick={() => updateTicket(c.id, { ticket_notes: editingNotes[c.id] ?? c.ticket_notes ?? '' })}
                       className="mt-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
                     >

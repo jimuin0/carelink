@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 async function requirePlatformAdmin() {
   const supabase = createServerSupabaseAuthClient();
@@ -26,19 +28,31 @@ export async function GET() {
     .order('created_at', { ascending: false })
     .limit(100);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ campaigns });
 }
 
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 5, 60_000, 'newsletter-create')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   const user = await requirePlatformAdmin();
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const { campaign_type, subject, html_content, text_content, scheduled_at } = body;
 
   if (!campaign_type || !subject || !html_content) {
     return NextResponse.json({ error: 'campaign_type, subject, html_content are required' }, { status: 400 });
+  }
+  if (typeof subject !== 'string' || subject.length > 200) {
+    return NextResponse.json({ error: 'subject must be a string under 200 chars' }, { status: 400 });
+  }
+  if (typeof html_content !== 'string' || html_content.length > 100_000) {
+    return NextResponse.json({ error: 'html_content must be under 100KB' }, { status: 400 });
   }
 
   const VALID_TYPES = ['owner_monthly', 'user_digest', 'user_coupon', 'promo'];
@@ -61,6 +75,6 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ campaign }, { status: 201 });
 }

@@ -2,9 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
+import { useRouter } from 'next/navigation';
 import type { FacilityReview } from '@/types';
 import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ReviewReply {
   id: string;
@@ -31,12 +34,15 @@ const AXES: { key: keyof FacilityReview; label: string }[] = [
 ];
 
 export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
+  const router = useRouter();
   const [repliesMap, setRepliesMap] = useState<Record<string, ReviewReply[]>>({});
   const [helpfulMap, setHelpfulMap] = useState<Record<string, number>>({});
   const [myHelpful, setMyHelpful] = useState<Set<string>>(new Set());
   const [helpfulLoading, setHelpfulLoading] = useState<string | null>(null);
   const [reportedSet, setReportedSet] = useState<Set<string>>(new Set());
   const [reportingId, setReportingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmReportId, setConfirmReportId] = useState<string | null>(null);
 
   useEffect(() => {
     if (reviews.length === 0) return;
@@ -93,7 +99,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        window.location.href = '/auth/login';
+        router.push('/auth/login');
         return;
       }
       const wasHelpful = myHelpful.has(reviewId);
@@ -120,9 +126,15 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     setHelpfulLoading(null);
   };
 
-  const handleReport = async (reviewId: string) => {
+  const handleReport = (reviewId: string) => {
     if (reportingId || reportedSet.has(reviewId)) return;
-    if (!window.confirm('この口コミを不正・不適切として通報しますか？')) return;
+    setConfirmReportId(reviewId);
+  };
+
+  const executeReport = async () => {
+    const reviewId = confirmReportId;
+    if (!reviewId) return;
+    setConfirmReportId(null);
     setReportingId(reviewId);
     try {
       const res = await fetch('/api/report', {
@@ -132,13 +144,13 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       });
       if (res.ok) {
         setReportedSet((prev) => new Set(prev).add(reviewId));
-        window.alert('通報しました。ご協力ありがとうございます。');
+        setToast({ type: 'success', message: '通報しました。ご協力ありがとうございます。' });
       } else {
         const body = await res.json().catch(() => null);
-        window.alert(body?.error || '通報に失敗しました');
+        setToast({ type: 'error', message: body?.error || '通報に失敗しました' });
       }
     } catch {
-      window.alert('通報に失敗しました');
+      setToast({ type: 'error', message: '通報に失敗しました' });
     }
     setReportingId(null);
   };
@@ -247,6 +259,16 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
           </div>
         );
       })}
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmReportId !== null}
+        title="口コミを通報"
+        message="この口コミを不正・不適切として通報しますか？"
+        confirmLabel="通報する"
+        cancelLabel="キャンセル"
+        onConfirm={executeReport}
+        onCancel={() => setConfirmReportId(null)}
+      />
     </div>
   );
 }

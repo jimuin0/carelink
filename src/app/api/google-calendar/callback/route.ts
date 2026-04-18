@@ -15,15 +15,17 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 
-  if (!code || !state) {
+  if (!code || !state || state.length > 2000) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 
   // Decode state to get userId
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let userId: string;
   try {
     const decoded = JSON.parse(Buffer.from(state, 'base64url').toString());
     userId = decoded.userId;
+    if (!UUID_RE.test(userId)) throw new Error('Invalid userId');
     // Reject stale states (> 10 min)
     if (Date.now() - decoded.ts > 10 * 60 * 1000) throw new Error('State expired');
   } catch {

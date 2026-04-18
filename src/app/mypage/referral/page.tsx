@@ -17,7 +17,7 @@ export default function ReferralPage() {
 
   useEffect(() => {
     fetch('/api/referral')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => {
         setReferralCode(d.code ?? null);
         setInvitedCount(d.used_count ?? 0);

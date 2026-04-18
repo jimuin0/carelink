@@ -5,8 +5,10 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createHash, randomBytes } from 'crypto';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
 
@@ -18,6 +20,8 @@ function generateApiKey(): { raw: string; hash: string; prefix: string } {
 }
 
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -26,6 +30,7 @@ export async function POST(request: NextRequest) {
   const { facility_id, name, scopes } = body as { facility_id?: string; name?: string; scopes?: string[] };
 
   if (!facility_id || typeof facility_id !== 'string') return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  if (!UUID_REGEX.test(facility_id)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
   if (!name || typeof name !== 'string' || name.trim().length === 0) return NextResponse.json({ error: 'name required' }, { status: 400 });
   if (!Array.isArray(scopes) || scopes.length === 0) return NextResponse.json({ error: 'scopes required' }, { status: 400 });
 
@@ -42,7 +47,7 @@ export async function POST(request: NextRequest) {
     .single();
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { raw, hash, prefix } = generateApiKey();
 
   const { data: newKey, error } = await admin.from('api_keys').insert({
@@ -54,7 +59,7 @@ export async function POST(request: NextRequest) {
     created_by: user.id,
   }).select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').single();
 
-  if (error || !newKey) return NextResponse.json({ error: error?.message ?? 'Failed to create API key' }, { status: 500 });
+  if (error || !newKey) return NextResponse.json({ error: 'APIキーの作成に失敗しました' }, { status: 500 });
 
   // Return the raw key ONCE — it won't be retrievable after this
   return NextResponse.json({ raw_key: raw, key: newKey }, { status: 201 });
@@ -67,6 +72,7 @@ export async function GET(request: NextRequest) {
 
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
 
   const { data: mem } = await supabase
     .from('facility_members').select('role')
@@ -74,7 +80,7 @@ export async function GET(request: NextRequest) {
     .in('role', ['owner', 'admin']).single();
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { data } = await admin.from('api_keys')
     .select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at')
     .eq('facility_id', facilityId)

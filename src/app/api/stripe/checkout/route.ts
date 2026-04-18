@@ -7,7 +7,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { UUID_REGEX } from '@/lib/constants';
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
   apiVersion: '2025-04-30.basil',
@@ -16,20 +19,35 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://carelink-jp.com';
 
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 5, 60_000, 'stripe-checkout')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));
-  const { booking_id, facility_id, amount, payment_type = 'deposit' } = body as {
-    booking_id?: string; facility_id: string; amount: number; payment_type?: string;
+  const { booking_id, facility_id, payment_type = 'deposit' } = body as {
+    booking_id?: string; facility_id: string; payment_type?: string;
   };
 
-  if (!facility_id || !amount || amount < 50) {
-    return NextResponse.json({ error: 'facility_id と amount（最小50円）が必要です' }, { status: 400 });
+  if (!facility_id || !UUID_REGEX.test(facility_id)) {
+    return NextResponse.json({ error: 'facility_id が不正です' }, { status: 400 });
+  }
+  if (booking_id && !UUID_REGEX.test(booking_id)) {
+    return NextResponse.json({ error: 'booking_id が不正です' }, { status: 400 });
+  }
+  const VALID_PAYMENT_TYPES = ['deposit', 'full'];
+  if (!VALID_PAYMENT_TYPES.includes(payment_type)) {
+    return NextResponse.json({ error: 'payment_type が不正です' }, { status: 400 });
   }
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // 施設情報取得
   const { data: facility } = await admin
@@ -40,6 +58,31 @@ export async function POST(request: NextRequest) {
 
   if (!facility) return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
   if (!facility.stripe_enabled) return NextResponse.json({ error: 'この施設はオンライン決済に対応していません' }, { status: 400 });
+
+  // Determine amount from DB — never trust client-provided amount
+  let amount: number;
+  if (booking_id) {
+    const { data: booking } = await admin
+      .from('bookings')
+      .select('total_price, user_id')
+      .eq('id', booking_id)
+      .eq('facility_id', facility_id)
+      .single();
+    if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+    if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+    amount = booking.total_price ?? 0;
+  } else {
+    // No booking_id: use facility's deposit amount
+    const { data: facilityDetail } = await admin
+      .from('facility_profiles')
+      .select('deposit_amount')
+      .eq('id', facility_id)
+      .single();
+    amount = facilityDetail?.deposit_amount ?? 0;
+  }
+  if (!amount || amount < 50) {
+    return NextResponse.json({ error: '支払い金額を決定できませんでした' }, { status: 400 });
+  }
 
   // Get user email
   const { data: authUser } = await admin.auth.admin.getUserById(user.id);
@@ -52,6 +95,7 @@ export async function POST(request: NextRequest) {
   } : undefined;
 
   // Create Stripe Checkout session
+  try {
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
     mode: 'payment',
@@ -93,4 +137,7 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({ url: session.url, session_id: session.id });
+  } catch {
+    return NextResponse.json({ error: '決済セッションの作成に失敗しました' }, { status: 500 });
+  }
 }

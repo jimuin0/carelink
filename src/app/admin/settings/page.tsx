@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import dynamic from 'next/dynamic';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
@@ -48,6 +49,7 @@ export default function AdminSettingsPage() {
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [bufferMinutes, setBufferMinutes] = useState(0);
   const [publishToggling, setPublishToggling] = useState(false);
+  const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
 
   // Business hours
   const [hours, setHours] = useState<BusinessHours>(() => {
@@ -144,10 +146,10 @@ export default function AdminSettingsPage() {
         businessHours[d] = closedDays.includes(d) ? null : (hours[d] || { open: '09:00', close: '19:00' });
       });
 
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('facility_profiles')
-        .update({
+      const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           name,
           business_type: businessType,
           catch_copy: catchCopy || null,
@@ -169,12 +171,12 @@ export default function AdminSettingsPage() {
           business_hours: businessHours,
           booking_auto_confirm: autoConfirm,
           booking_buffer_minutes: bufferMinutes,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', facilityId);
+        }),
+      });
 
-      if (error) {
-        setToast({ type: 'error', message: '保存に失敗しました' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
       } else {
         setToast({ type: 'success', message: '施設情報を保存しました' });
       }
@@ -206,15 +208,23 @@ export default function AdminSettingsPage() {
               {facilityStatus === 'published' ? '公開中' : '非公開'}
             </span>
             <button
+              type="button"
               onClick={async () => {
                 const newStatus = facilityStatus === 'published' ? 'draft' : 'published';
-                if (newStatus === 'draft' && !confirm('施設を非公開にしますか？検索結果から消えます。')) return;
+                if (newStatus === 'draft') { setShowUnpublishConfirm(true); return; }
                 setPublishToggling(true);
-                const supabase = createBrowserSupabaseClient();
-                await supabase.from('facility_profiles').update({ status: newStatus }).eq('id', facilityId);
-                setFacilityStatus(newStatus);
+                const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ status: newStatus }),
+                });
+                if (res.ok) {
+                  setFacilityStatus(newStatus);
+                  setToast({ type: 'success', message: '施設を公開しました！' });
+                } else {
+                  setToast({ type: 'error', message: '公開に失敗しました' });
+                }
                 setPublishToggling(false);
-                setToast({ type: 'success', message: newStatus === 'published' ? '施設を公開しました！' : '施設を非公開にしました' });
               }}
               disabled={publishToggling || !facilityId}
               className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-500 text-white hover:bg-green-600'}`}
@@ -541,6 +551,30 @@ export default function AdminSettingsPage() {
       </section>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={showUnpublishConfirm}
+        title="施設を非公開にする"
+        message="施設を非公開にしますか？検索結果から消え、新規予約ができなくなります。"
+        confirmLabel="非公開にする"
+        cancelLabel="キャンセル"
+        onConfirm={async () => {
+          setShowUnpublishConfirm(false);
+          setPublishToggling(true);
+          const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'draft' }),
+          });
+          if (res.ok) {
+            setFacilityStatus('draft');
+            setToast({ type: 'success', message: '施設を非公開にしました' });
+          } else {
+            setToast({ type: 'error', message: '非公開への変更に失敗しました' });
+          }
+          setPublishToggling(false);
+        }}
+        onCancel={() => setShowUnpublishConfirm(false)}
+      />
     </div>
   );
 }

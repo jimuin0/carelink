@@ -7,7 +7,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 const CreateSchema = z.object({
   facility_id: z.string().uuid(),
@@ -26,6 +28,13 @@ const CreateSchema = z.object({
 });
 
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 5, 60_000, 'group-booking')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -34,10 +43,10 @@ export async function POST(request: NextRequest) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
 
   const parsed = CreateSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
   const data = parsed.data;
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // Verify facility exists
   const { data: facility } = await admin.from('facility_profiles').select('id, status').eq('id', data.facility_id).single();
@@ -58,7 +67,7 @@ export async function POST(request: NextRequest) {
   }).select('id, share_code').single();
 
   if (error || !groupBooking) {
-    return NextResponse.json({ error: error?.message ?? 'グループ予約の作成に失敗しました' }, { status: 500 });
+    return NextResponse.json({ error: 'グループ予約の作成に失敗しました' }, { status: 500 });
   }
 
   // Add organizer as first member
@@ -93,9 +102,9 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
-  if (!code) return NextResponse.json({ error: 'code required' }, { status: 400 });
+  if (!code || code.length > 20) return NextResponse.json({ error: 'code required' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: group } = await admin
     .from('group_bookings')

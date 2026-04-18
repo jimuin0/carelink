@@ -6,11 +6,20 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { checkCsrf } from '@/lib/csrf';
+import { UUID_REGEX } from '@/lib/constants';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-export async function PATCH(request: Request) {
+export async function PATCH(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'facility-verify')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,11 +41,11 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });
   }
 
-  const body = await request.json();
+  const body = await request.json().catch(() => ({}));
   const { facility_id, is_verified, verified_type } = body;
 
-  if (!facility_id) {
-    return NextResponse.json({ error: 'facility_id が必要です' }, { status: 400 });
+  if (!facility_id || !UUID_REGEX.test(facility_id)) {
+    return NextResponse.json({ error: 'facility_id が不正です' }, { status: 400 });
   }
 
   const validTypes = ['phone', 'identity', 'site_visit'];

@@ -1,6 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import Toast from '@/components/Toast';
+
+type Reply = {
+  id: string;
+  body: string;
+  created_at: string;
+  profiles?: { display_name: string | null } | null;
+};
 
 type Post = {
   id: string;
@@ -25,6 +33,132 @@ const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
   announcement: { label: 'お知らせ', color: 'bg-orange-100 text-orange-700' },
 };
 
+function PostDetail({ post, onLike, onReply }: {
+  post: Post;
+  onLike: (postId: string, liked: boolean) => void;
+  onReply: (postId: string, reply: Reply) => void;
+}) {
+  const [replies, setReplies] = useState<Reply[]>([]);
+  const [loadingReplies, setLoadingReplies] = useState(true);
+  const [replyBody, setReplyBody] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(post.like_count);
+  const [likePending, setLikePending] = useState(false);
+
+  useEffect(() => {
+    setLoadingReplies(true);
+    fetch(`/api/admin/community/posts/${post.id}/replies`)
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((d) => { setReplies(d.replies || []); setLoadingReplies(false); })
+      .catch(() => setLoadingReplies(false));
+  }, [post.id]);
+
+  const handleLike = useCallback(async () => {
+    if (likePending) return;
+    setLikePending(true);
+    const method = liked ? 'DELETE' : 'POST';
+    try {
+      const res = await fetch(`/api/admin/community/posts/${post.id}/likes`, { method });
+      if (res.ok || res.status === 409) {
+        const newLiked = !liked;
+        const newCount = newLiked ? likeCount + 1 : likeCount - 1;
+        setLiked(newLiked);
+        setLikeCount(newCount);
+        onLike(post.id, newLiked);
+      }
+    } finally {
+      setLikePending(false);
+    }
+  }, [liked, likeCount, likePending, post.id, onLike]);
+
+  const handleReply = async () => {
+    if (!replyBody.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/admin/community/posts/${post.id}/replies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body: replyBody }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setReplies((prev) => [...prev, data.reply]);
+        setReplyBody('');
+        onReply(post.id, data.reply);
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="mt-4 border-t pt-4 space-y-4">
+      <p className="text-sm text-gray-700 whitespace-pre-wrap">{post.body}</p>
+
+      {/* Like button */}
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={handleLike}
+          disabled={likePending}
+          className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded-full border transition-colors ${
+            liked
+              ? 'bg-sky-50 border-sky-300 text-sky-600 font-medium'
+              : 'border-gray-200 text-gray-500 hover:border-sky-200 hover:text-sky-500'
+          } disabled:opacity-50`}
+        >
+          👍 <span>{likeCount}</span>
+        </button>
+      </div>
+
+      {/* Replies */}
+      <div className="space-y-3">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wide">返信 {replies.length}件</h4>
+        {loadingReplies ? (
+          <p className="text-xs text-gray-400">読み込み中...</p>
+        ) : replies.length === 0 ? (
+          <p className="text-xs text-gray-400">まだ返信がありません</p>
+        ) : (
+          replies.map((r) => (
+            <div key={r.id} className="bg-gray-50 rounded-lg px-4 py-3">
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{r.body}</p>
+              <p className="text-xs text-gray-400 mt-1">
+                {r.profiles?.display_name ?? '匿名'} · {new Date(r.created_at).toLocaleDateString('ja-JP')}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Reply form */}
+      {!post.is_locked && (
+        <div className="flex gap-2">
+          <textarea
+            value={replyBody}
+            onChange={(e) => setReplyBody(e.target.value)}
+            placeholder="返信を入力..."
+            rows={2}
+            maxLength={2000}
+            className="flex-1 border rounded-lg px-3 py-2 text-sm resize-none"
+          />
+          <button
+            type="button"
+            onClick={handleReply}
+            disabled={submitting || !replyBody.trim()}
+            className="self-end bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors whitespace-nowrap"
+          >
+            {submitting ? '送信中...' : '返信する'}
+          </button>
+        </div>
+      )}
+      {post.is_locked && (
+        <p className="text-xs text-gray-400">🔒 このスレッドはロックされています</p>
+      )}
+    </div>
+  );
+}
+
 export default function CommunityPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,10 +166,11 @@ export default function CommunityPage() {
   const [selectedPost, setSelectedPost] = useState<Post | null>(null);
   const [form, setForm] = useState({ category: 'general', title: '', body: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     fetch('/api/admin/community/posts')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setPosts(d.posts || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
@@ -54,11 +189,26 @@ export default function CommunityPage() {
         setPosts((prev) => [data.post, ...prev]);
         setShowCreate(false);
         setForm({ category: 'general', title: '', body: '' });
+      } else {
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: e?.error ?? '投稿に失敗しました' });
       }
     } finally {
       setSubmitting(false);
     }
   };
+
+  const handleLike = useCallback((postId: string, liked: boolean) => {
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, like_count: p.like_count + (liked ? 1 : -1) } : p
+    ));
+  }, []);
+
+  const handleReply = useCallback((postId: string, _reply: Reply) => {
+    setPosts((prev) => prev.map((p) =>
+      p.id === postId ? { ...p, reply_count: p.reply_count + 1 } : p
+    ));
+  }, []);
 
   return (
     <div className="max-w-4xl space-y-6">
@@ -68,6 +218,7 @@ export default function CommunityPage() {
           <p className="text-sm text-gray-500 mt-1">施設オーナー同士の交流・情報共有の場です</p>
         </div>
         <button
+          type="button"
           onClick={() => setShowCreate(true)}
           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors"
         >
@@ -129,6 +280,7 @@ export default function CommunityPage() {
           </div>
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={handleCreate}
               disabled={submitting || !form.title || !form.body}
               className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors"
@@ -136,6 +288,7 @@ export default function CommunityPage() {
               {submitting ? '投稿中...' : '投稿する'}
             </button>
             <button
+              type="button"
               onClick={() => setShowCreate(false)}
               className="px-4 py-2 rounded-lg text-sm border hover:bg-gray-50 transition-colors"
             >
@@ -159,35 +312,49 @@ export default function CommunityPage() {
           {posts.map((post) => (
             <div
               key={post.id}
-              className={`bg-white rounded-xl border p-5 hover:border-sky-200 transition-colors cursor-pointer ${
+              className={`bg-white rounded-xl border p-5 hover:border-sky-200 transition-colors ${
                 selectedPost?.id === post.id ? 'border-sky-300 bg-sky-50/30' : ''
               }`}
-              onClick={() => setSelectedPost(selectedPost?.id === post.id ? null : post)}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {post.is_pinned && <span className="text-xs">📌</span>}
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_LABELS[post.category]?.color || 'bg-gray-100'}`}>
-                      {CATEGORY_LABELS[post.category]?.label || post.category}
-                    </span>
+              <div
+                className="cursor-pointer"
+                onClick={() => setSelectedPost(selectedPost?.id === post.id ? null : post)}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {post.is_pinned && <span className="text-xs">📌</span>}
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${CATEGORY_LABELS[post.category]?.color || 'bg-gray-100'}`}>
+                        {CATEGORY_LABELS[post.category]?.label || post.category}
+                      </span>
+                    </div>
+                    <h3 className="font-semibold text-gray-900 mt-1 truncate">{post.title}</h3>
+                    <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
+                      <span>{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
+                      <span>👍 {post.like_count}</span>
+                      <span>💬 {post.reply_count}</span>
+                      <span>👁 {post.view_count}</span>
+                    </div>
                   </div>
-                  <h3 className="font-semibold text-gray-900 mt-1 truncate">{post.title}</h3>
-                  {selectedPost?.id === post.id && (
-                    <p className="text-sm text-gray-700 mt-2 whitespace-pre-wrap">{post.body}</p>
-                  )}
-                  <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
-                    <span>{new Date(post.created_at).toLocaleDateString('ja-JP')}</span>
-                    <span>👍 {post.like_count}</span>
-                    <span>💬 {post.reply_count}</span>
-                    <span>👁 {post.view_count}</span>
-                  </div>
+                  <span className="text-xs text-gray-400 mt-1 shrink-0">
+                    {selectedPost?.id === post.id ? '▲' : '▼'}
+                  </span>
                 </div>
               </div>
+
+              {selectedPost?.id === post.id && (
+                <PostDetail
+                  post={post}
+                  onLike={handleLike}
+                  onReply={handleReply}
+                />
+              )}
             </div>
           ))}
         </div>
       )}
+
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );
 }

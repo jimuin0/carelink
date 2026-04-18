@@ -47,8 +47,8 @@ export default function JobForm({
         <label htmlFor="job-title" className="form-label">
           求人タイトル <span className="text-red-500">*</span>
         </label>
-        <input id="job-title" {...register('title')} className="form-input" placeholder="美容師（スタイリスト）募集" />
-        {errors.title && <p className="text-xs text-red-500 mt-1">{errors.title.message}</p>}
+        <input id="job-title" {...register('title')} className="form-input" placeholder="美容師（スタイリスト）募集" maxLength={100} />
+        {errors.title && <p role="alert" className="text-xs text-red-500 mt-1">{errors.title.message}</p>}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -56,8 +56,8 @@ export default function JobForm({
           <label htmlFor="job-type" className="form-label">
             職種 <span className="text-red-500">*</span>
           </label>
-          <input id="job-type" {...register('job_type')} className="form-input" placeholder="美容師 / 看護師 / 介護士 など" />
-          {errors.job_type && <p className="text-xs text-red-500 mt-1">{errors.job_type.message}</p>}
+          <input id="job-type" {...register('job_type')} className="form-input" placeholder="美容師 / 看護師 / 介護士 など" maxLength={50} />
+          {errors.job_type && <p role="alert" className="text-xs text-red-500 mt-1">{errors.job_type.message}</p>}
         </div>
         <div>
           <label htmlFor="employment-type" className="form-label">
@@ -68,7 +68,7 @@ export default function JobForm({
               <option key={t} value={t}>{t}</option>
             ))}
           </select>
-          {errors.employment_type && <p className="text-xs text-red-500 mt-1">{errors.employment_type.message}</p>}
+          {errors.employment_type && <p role="alert" className="text-xs text-red-500 mt-1">{errors.employment_type.message}</p>}
         </div>
       </div>
 
@@ -76,33 +76,33 @@ export default function JobForm({
         <div>
           <label htmlFor="salary-min" className="form-label">給与（下限・円）</label>
           <input id="salary-min" type="number" min={0} {...register('salary_min')} className="form-input" placeholder="220000" />
-          {errors.salary_min && <p className="text-xs text-red-500 mt-1">{errors.salary_min.message}</p>}
+          {errors.salary_min && <p role="alert" className="text-xs text-red-500 mt-1">{errors.salary_min.message}</p>}
         </div>
         <div>
           <label htmlFor="salary-max" className="form-label">給与（上限・円）</label>
           <input id="salary-max" type="number" min={0} {...register('salary_max')} className="form-input" placeholder="350000" />
-          {errors.salary_max && <p className="text-xs text-red-500 mt-1">{errors.salary_max.message}</p>}
+          {errors.salary_max && <p role="alert" className="text-xs text-red-500 mt-1">{errors.salary_max.message}</p>}
         </div>
       </div>
 
       <div>
         <label htmlFor="salary-note" className="form-label">給与備考</label>
-        <input id="salary-note" {...register('salary_note')} className="form-input" placeholder="経験・能力により応相談" />
+        <input id="salary-note" {...register('salary_note')} className="form-input" placeholder="経験・能力により応相談" maxLength={200} />
       </div>
 
       <div>
         <label htmlFor="job-desc" className="form-label">仕事内容</label>
-        <textarea id="job-desc" {...register('description')} className="form-input" rows={5} />
+        <textarea id="job-desc" {...register('description')} className="form-input" rows={5} maxLength={3000} />
       </div>
 
       <div>
         <label htmlFor="job-req" className="form-label">必須スキル・応募資格</label>
-        <textarea id="job-req" {...register('requirements')} className="form-input" rows={3} />
+        <textarea id="job-req" {...register('requirements')} className="form-input" rows={3} maxLength={2000} />
       </div>
 
       <div>
         <label htmlFor="job-benefits" className="form-label">福利厚生</label>
-        <textarea id="job-benefits" {...register('benefits')} className="form-input" rows={3} />
+        <textarea id="job-benefits" {...register('benefits')} className="form-input" rows={3} maxLength={2000} />
       </div>
 
       <div className="flex gap-3 pt-4">

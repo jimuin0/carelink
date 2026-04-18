@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 const SECTION_TEMPLATES = {
   paragraph: '{"type":"paragraph","text":"テキストをここに入力"}',
@@ -31,6 +32,7 @@ export default function EditPlatformBlogPage({ params }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [jsonError, setJsonError] = useState('');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -81,32 +83,38 @@ export default function EditPlatformBlogPage({ params }: Props) {
     if (!validateJson(contentJson)) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('platform_blog_posts').update({
-      slug,
-      title,
-      description,
-      category,
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-      reading_time: readingTime,
-      content: JSON.parse(contentJson),
-      is_published: isPublished,
-      published_at: isPublished ? new Date().toISOString() : null,
-    }).eq('id', params.id);
+    const res = await fetch(`/api/admin/platform-blog/${params.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug,
+        title,
+        description,
+        category,
+        tags: tags.split(',').map((t: string) => t.trim()).filter(Boolean),
+        reading_time: readingTime,
+        content: JSON.parse(contentJson),
+        is_published: isPublished,
+      }),
+    });
 
-    if (error) {
-      setToast({ type: 'error', message: `保存に失敗しました: ${error.message}` });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '保存に失敗しました' });
     } else {
       setToast({ type: 'success', message: '保存しました' });
     }
     setSaving(false);
   };
 
-  const handleDelete = async () => {
-    if (!confirm('この記事を削除しますか？元に戻せません。')) return;
+  const handleDelete = () => {
+    setConfirmDelete(true);
+  };
+
+  const doDelete = async () => {
+    setConfirmDelete(false);
     setDeleting(true);
-    const supabase = createBrowserSupabaseClient();
-    await supabase.from('platform_blog_posts').delete().eq('id', params.id);
+    await fetch(`/api/admin/platform-blog/${params.id}`, { method: 'DELETE' });
     router.push('/admin/platform-blog');
   };
 
@@ -126,11 +134,11 @@ export default function EditPlatformBlogPage({ params }: Props) {
         <h1 className="text-xl font-bold">コラム記事を編集</h1>
         <div className="flex items-center gap-3">
           {isPublished && (
-            <a href={`/blog/${slug}`} target="_blank" className="text-sm text-gray-500 hover:text-sky-600">
+            <a href={`/blog/${slug}`} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-500 hover:text-sky-600">
               表示 →
             </a>
           )}
-          <button onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">
+          <button type="button" onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">
             ← 一覧
           </button>
         </div>
@@ -142,6 +150,7 @@ export default function EditPlatformBlogPage({ params }: Props) {
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            maxLength={200}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
           />
         </div>
@@ -162,6 +171,7 @@ export default function EditPlatformBlogPage({ params }: Props) {
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
+            maxLength={500}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
           />
         </div>
@@ -230,7 +240,7 @@ export default function EditPlatformBlogPage({ params }: Props) {
           className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-400 ${jsonError ? 'border-red-400' : 'border-gray-300'}`}
           spellCheck={false}
         />
-        {jsonError && <p className="text-xs text-red-500">{jsonError}</p>}
+        {jsonError && <p role="alert" className="text-xs text-red-500">{jsonError}</p>}
       </div>
 
       <div className="bg-white rounded-xl border border-gray-100 p-5">
@@ -247,6 +257,7 @@ export default function EditPlatformBlogPage({ params }: Props) {
 
       <div className="flex gap-3">
         <button
+          type="button"
           onClick={handleDelete}
           disabled={deleting}
           className="px-4 py-2.5 text-sm text-red-600 border border-red-200 rounded-lg hover:bg-red-50 disabled:opacity-50"
@@ -255,12 +266,14 @@ export default function EditPlatformBlogPage({ params }: Props) {
         </button>
         <div className="flex-1" />
         <button
+          type="button"
           onClick={() => router.push('/admin/platform-blog')}
           className="px-4 py-2.5 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50"
         >
           キャンセル
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving || !title || !slug}
           className="px-6 py-2.5 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium disabled:opacity-50"
@@ -268,6 +281,14 @@ export default function EditPlatformBlogPage({ params }: Props) {
           {saving ? '保存中...' : '保存'}
         </button>
       </div>
+      <ConfirmDialog
+        open={confirmDelete}
+        title="記事を削除"
+        message="この記事を削除しますか？元に戻せません。"
+        confirmLabel="削除する"
+        onConfirm={doDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

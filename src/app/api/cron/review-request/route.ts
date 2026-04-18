@@ -8,7 +8,9 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
+import { escSubject } from '@/lib/email';
 import { logCronRun } from '@/lib/cron-logger';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,10 +20,8 @@ const supabase = createClient(
 );
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
   try {
@@ -61,7 +61,7 @@ export async function GET(request: Request) {
         await resend.emails.send({
           from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
           to: booking.email,
-          subject: `【${facility.name}】ご来店ありがとうございました`,
+          subject: escSubject(`【${facility.name}】ご来店ありがとうございました`),
           html: `<p>${booking.customer_name || 'お客'}様</p><p>先日は<strong>${facility.name}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
         }).catch(() => {});
       }

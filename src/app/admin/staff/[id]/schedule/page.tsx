@@ -25,6 +25,7 @@ export default function StaffSchedulePage() {
   const params = useParams();
   const router = useRouter();
   const staffId = params.id as string;
+  const [facilityId, setFacilityId] = useState<string | null>(null);
   const [staffName, setStaffName] = useState('');
   const [schedules, setSchedules] = useState<Schedule[]>(
     DAY_LABELS.map((_, i) => ({ day_of_week: i, start_time: '09:00', end_time: '19:00' }))
@@ -40,6 +41,11 @@ export default function StaffSchedulePage() {
 
   const loadData = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      if (mem) setFacilityId(mem.facility_id);
+    }
     const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', staffId).single();
     if (staff) setStaffName(staff.name);
 
@@ -70,17 +76,22 @@ export default function StaffSchedulePage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleSaveSchedules = async () => {
+    if (!facilityId) return;
     setSaving(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      // Delete existing then insert enabled days
-      await supabase.from('staff_schedules').delete().eq('staff_id', staffId);
       const rows = schedules
         .filter((_, i) => enabledDays[i])
-        .map((s) => ({ staff_id: staffId, day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
-      if (rows.length > 0) {
-        const { error } = await supabase.from('staff_schedules').insert(rows);
-        if (error) { setToast({ type: 'error', message: '保存に失敗しました' }); return; }
+        .map((s) => ({ day_of_week: s.day_of_week, start_time: s.start_time, end_time: s.end_time }));
+
+      const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ schedules: rows }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+        return;
       }
       setToast({ type: 'success', message: 'スケジュールを保存しました' });
     } catch {
@@ -91,20 +102,26 @@ export default function StaffSchedulePage() {
   };
 
   const handleAddOverride = async () => {
-    if (!newOverrideDate) return;
+    if (!newOverrideDate || !facilityId) return;
     try {
-      const supabase = createBrowserSupabaseClient();
-      const row: Record<string, unknown> = {
-        staff_id: staffId,
+      const body: Record<string, unknown> = {
         date: newOverrideDate,
         is_holiday: newOverrideHoliday,
       };
       if (!newOverrideHoliday) {
-        row.start_time = newOverrideStart;
-        row.end_time = newOverrideEnd;
+        body.start_time = newOverrideStart;
+        body.end_time = newOverrideEnd;
       }
-      const { error } = await supabase.from('schedule_overrides').upsert(row, { onConflict: 'staff_id,date' });
-      if (error) { setToast({ type: 'error', message: '追加に失敗しました' }); return; }
+      const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '追加に失敗しました' });
+        return;
+      }
       setNewOverrideDate('');
       loadData();
       setToast({ type: 'success', message: '特別日を追加しました' });
@@ -114,9 +131,17 @@ export default function StaffSchedulePage() {
   };
 
   const handleDeleteOverride = async (id: string) => {
-    const supabase = createBrowserSupabaseClient();
-    await supabase.from('schedule_overrides').delete().eq('id', id);
-    setOverrides((prev) => prev.filter((o) => o.id !== id));
+    if (!facilityId) return;
+    const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ override_id: id }),
+    });
+    if (res.ok) {
+      setOverrides((prev) => prev.filter((o) => o.id !== id));
+    } else {
+      setToast({ type: 'error', message: '削除に失敗しました' });
+    }
   };
 
   return (

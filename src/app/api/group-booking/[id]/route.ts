@@ -7,14 +7,18 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 export async function GET(_request: NextRequest, { params }: { params: { id: string } }) {
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: group } = await admin
     .from('group_bookings')
@@ -34,11 +38,15 @@ export async function GET(_request: NextRequest, { params }: { params: { id: str
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: group } = await admin.from('group_bookings').select('organizer_id').eq('id', params.id).single();
   if (!group) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -47,20 +55,24 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const body = await request.json().catch(() => ({}));
   const allowed: Record<string, unknown> = {};
   if (body.status && ['confirmed', 'cancelled', 'completed'].includes(body.status)) allowed.status = body.status;
-  if (body.notes !== undefined) allowed.notes = body.notes;
+  if (body.notes !== undefined) allowed.notes = typeof body.notes === 'string' ? body.notes.slice(0, 500) : null;
 
   const { data, error } = await admin.from('group_bookings').update(allowed).eq('id', params.id).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   return NextResponse.json(data);
 }
 
-export async function DELETE(_request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: group } = await admin.from('group_bookings').select('organizer_id').eq('id', params.id).single();
   if (!group) return NextResponse.json({ error: 'Not found' }, { status: 404 });

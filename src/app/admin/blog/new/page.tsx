@@ -11,16 +11,20 @@ function sanitizeUrl(url: string): string {
   return '#';
 }
 
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function simpleMarkdown(text: string): string {
   return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/^- (.+)$/gm, '<li>$1</li>')
     .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
-    .replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => `<a href="${sanitizeUrl(url)}" class="text-sky-600 underline">${label}</a>`)
+    .replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => `<a href="${escapeAttr(sanitizeUrl(url))}" class="text-sky-600 underline">${label}</a>`)
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>')
     .replace(/^/, '<p>').replace(/$/, '</p>');
@@ -63,23 +67,15 @@ export default function NewBlogPage() {
 
     if (!membership) { setSaving(false); return; }
 
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9\u3040-\u309f\u30a0-\u30ff\u4e00-\u9faf]+/g, '-')
-      .replace(/^-|-$/g, '')
-      || `post-${Date.now()}`;
-
-    const { error } = await supabase.from('blog_posts').insert({
-      facility_id: membership.facility_id,
-      title,
-      slug,
-      content,
-      is_published: isPublished,
-      published_at: isPublished ? new Date().toISOString() : null,
+    const res = await fetch(`/api/admin/blog?facility_id=${membership.facility_id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content, is_published: isPublished }),
     });
 
-    if (error) {
-      setToast({ type: 'error', message: '作成に失敗しました' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
     } else {
       router.push('/admin/blog');
     }
@@ -93,7 +89,7 @@ export default function NewBlogPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="blog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" />
+          <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" maxLength={200} />
         </div>
         <div>
           <label htmlFor="blog-content" className="form-label">

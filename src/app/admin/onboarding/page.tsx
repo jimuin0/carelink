@@ -80,9 +80,9 @@ function OnboardingContent() {
   if (status === 'error') {
     return (
       <div className="section-container max-w-lg mx-auto text-center py-16">
-        <p className="text-red-600 font-bold mb-4">エラーが発生しました</p>
+        <p role="alert" className="text-red-600 font-bold mb-4">エラーが発生しました</p>
         <p className="text-sm text-gray-600 mb-6">{error}</p>
-        <button onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再試行</button>
+        <button type="button" onClick={() => window.location.reload()} className="btn-primary px-8 py-3">再試行</button>
       </div>
     );
   }

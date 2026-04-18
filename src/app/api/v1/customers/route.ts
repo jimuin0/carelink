@@ -5,16 +5,19 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'crypto';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 const API_VERSION = '1.0.0';
 
 async function resolveApiKey(apiKey: string) {
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const keyHash = createHash('sha256').update(apiKey).digest('hex');
+  const admin = createServiceRoleClient();
   const { data } = await admin
     .from('api_keys')
     .select('facility_id, scopes, is_active, expires_at')
-    .eq('key_hash', apiKey)
+    .eq('key_hash', keyHash)
     .single();
   if (!data || !data.is_active) return null;
   if (data.expires_at && new Date(data.expires_at) < new Date()) return null;
@@ -22,6 +25,10 @@ async function resolveApiKey(apiKey: string) {
 }
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 60, 60_000, 'v1-customers')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -36,11 +43,11 @@ export async function GET(request: NextRequest) {
 
   const sp = request.nextUrl.searchParams;
   const limit = Math.min(parseInt(sp.get('limit') ?? '50') || 50, 100);
-  const page = Math.max(parseInt(sp.get('page') ?? '1') || 1, 1);
+  const page = Math.min(Math.max(parseInt(sp.get('page') ?? '1') || 1, 1), 10000);
   const offset = (page - 1) * limit;
   const search = sp.get('search');
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // Get unique customers from bookings for this facility
   let query = admin
@@ -51,11 +58,12 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (search) {
-    query = query.or(`customer_name.ilike.%${search}%,customer_phone.ilike.%${search}%`);
+    const safeSearch = search.replace(/[%_\\]/g, '\\$&').slice(0, 100);
+    query = query.or(`customer_name.ilike.%${safeSearch}%,customer_phone.ilike.%${safeSearch}%`);
   }
 
   const { data, error, count } = await query.range(offset, offset + limit - 1);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
 
   // Deduplicate by phone/user_id
   const seen = new Set<string>();

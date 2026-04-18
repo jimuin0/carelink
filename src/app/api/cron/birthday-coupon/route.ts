@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,10 +23,8 @@ const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
 const BIRTHDAY_POINTS = 100;
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
   try {

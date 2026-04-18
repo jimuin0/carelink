@@ -113,7 +113,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
             maxLength={500}
           />
         </div>
-        <button onClick={handleSave} disabled={saving} className="btn-primary !py-2 text-sm">
+        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary !py-2 text-sm">
           {saving ? '保存中...' : saved ? '保存しました' : 'ポリシーを保存'}
         </button>
       </div>

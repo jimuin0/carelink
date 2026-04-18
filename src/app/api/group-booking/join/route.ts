@@ -6,18 +6,28 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'group-booking-join')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));
-  const code = typeof body.share_code === 'string' ? body.share_code.toUpperCase().trim() : null;
+  const raw = typeof body.share_code === 'string' ? body.share_code.toUpperCase().trim() : null;
+  const code = raw && raw.length <= 20 ? raw : null;
   if (!code) return NextResponse.json({ error: 'share_code required' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: group } = await admin
     .from('group_bookings')
@@ -48,12 +58,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ group_id: group.id, already_joined: true });
   }
 
-  // Check capacity
-  if (group.confirmed_members >= group.total_members) {
+  // Atomic capacity increment: only succeeds if there is still room.
+  // This prevents race conditions where two concurrent requests both pass
+  // the capacity check and both get inserted, exceeding total_members.
+  const { data: incremented, error: incError } = await admin
+    .from('group_bookings')
+    .update({ confirmed_members: group.confirmed_members + 1 })
+    .eq('id', group.id)
+    .eq('confirmed_members', group.confirmed_members)        // optimistic lock
+    .lt('confirmed_members', group.total_members)            // capacity guard
+    .select('id')
+    .single();
+
+  if (incError || !incremented) {
+    // Either the count changed under us (another join won the race) or it was already full.
     return NextResponse.json({ error: 'グループの人数が上限に達しています' }, { status: 409 });
   }
 
-  // Add user as member
+  // Add user as member (capacity slot is already secured above)
   await admin.from('group_booking_members').insert({
     group_booking_id: group.id,
     user_id: user.id,
@@ -61,11 +83,6 @@ export async function POST(request: NextRequest) {
     is_organizer: false,
     joined_at: new Date().toISOString(),
   });
-
-  // Update confirmed count
-  await admin.from('group_bookings').update({
-    confirmed_members: group.confirmed_members + 1,
-  }).eq('id', group.id);
 
   return NextResponse.json({ group_id: group.id, joined: true });
 }

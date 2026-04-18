@@ -30,15 +30,18 @@ export default function NewCatalogPage() {
 
     if (!membership) { setSaving(false); return; }
 
-    const { error } = await supabase.from('treatment_catalogs').insert({
-      facility_id: membership.facility_id,
-      title,
-      description: description || null,
-      tags: tags ? tags.split(',').map((t) => t.trim()) : [],
+    const res = await fetch(`/api/admin/catalog?facility_id=${membership.facility_id}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: title,
+        description: description || null,
+      }),
     });
 
-    if (error) {
-      setToast({ type: 'error', message: '作成に失敗しました' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
     } else {
       router.push('/admin/catalog');
     }
@@ -52,15 +55,15 @@ export default function NewCatalogPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="catalog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input id="catalog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" />
+          <input id="catalog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} className="form-input" />
         </div>
         <div>
           <label htmlFor="catalog-desc" className="form-label">説明</label>
-          <textarea id="catalog-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={3} />
+          <textarea id="catalog-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={3} maxLength={2000} />
         </div>
         <div>
           <label htmlFor="catalog-tags" className="form-label">タグ（カンマ区切り）</label>
-          <input id="catalog-tags" value={tags} onChange={(e) => setTags(e.target.value)} className="form-input" placeholder="ショートヘア, ボブ, カラー" />
+          <input id="catalog-tags" value={tags} onChange={(e) => setTags(e.target.value)} maxLength={200} className="form-input" placeholder="ショートヘア, ボブ, カラー" />
         </div>
 
         {/* 医療広告ガイドライン警告（v8.5） */}

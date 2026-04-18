@@ -10,7 +10,9 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,7 +58,13 @@ export async function GET(request: Request) {
   });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 3, 60_000 * 10, 'backup-export')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   // 管理者権限チェック
   const cookieStore = cookies();
   const supabase = createServerClient(
@@ -99,9 +107,10 @@ export async function POST(request: Request) {
         const val = (row as Record<string, unknown>)[h];
         if (val === null || val === undefined) return '';
         const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
-        return str.includes(',') || str.includes('\n') || str.includes('"')
-          ? `"${str.replace(/"/g, '""')}"`
-          : str;
+        const safe = /^[=+\-@|]/.test(str) ? `'${str}` : str;
+        return safe.includes(',') || safe.includes('\n') || safe.includes('"')
+          ? `"${safe.replace(/"/g, '""')}"`
+          : safe;
       }).join(',')
     ),
   ].join('\n');

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { FacilityMenu } from '@/types';
 
 const categories = ['カット', 'カラー', 'パーマ', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'ネイル', 'まつげ', 'エステ', 'リラクゼーション', '鍼灸', '整体', '介護', 'その他'];
@@ -32,6 +33,7 @@ export default function AdminMenusPage() {
   const [editForm, setEditForm] = useState<MenuForm | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const loadMenus = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -65,9 +67,7 @@ export default function AdminMenusPage() {
     }
     setSaving(true);
     try {
-      const supabase = createBrowserSupabaseClient();
       const payload = {
-        facility_id: facilityId,
         category: editForm.category,
         name: editForm.name.trim(),
         description: editForm.description.trim() || null,
@@ -76,31 +76,27 @@ export default function AdminMenusPage() {
         duration_minutes: editForm.duration_minutes ? parseInt(editForm.duration_minutes) : null,
         photo_url: editForm.photo_url.trim() || null,
         is_featured: editForm.is_featured,
-        updated_at: new Date().toISOString(),
       };
 
-      // Duplicate name check
-      const { data: existing } = await supabase
-        .from('facility_menus')
-        .select('id')
-        .eq('facility_id', facilityId)
-        .eq('name', editForm.name.trim())
-        .maybeSingle();
-      if (existing && existing.id !== editForm.id) {
-        setToast({ type: 'error', message: '同じ名前のメニューが既に存在します' });
-        setSaving(false);
-        return;
+      let res: Response;
+      if (editForm.id) {
+        res = await fetch(`/api/admin/menus/${editForm.id}?facility_id=${facilityId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      } else {
+        res = await fetch(`/api/admin/menus?facility_id=${facilityId}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, sort_order: menus.length }),
+        });
       }
 
-      if (editForm.id) {
-        const { error } = await supabase.from('facility_menus').update(payload).eq('id', editForm.id).eq('facility_id', facilityId);
-        if (error) throw error;
-      } else {
-        const { error } = await supabase.from('facility_menus').insert({
-          ...payload,
-          sort_order: menus.length,
-        });
-        if (error) throw error;
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+        return;
       }
       setToast({ type: 'success', message: editForm.id ? '更新しました' : '追加しました' });
       setEditForm(null);
@@ -112,14 +108,23 @@ export default function AdminMenusPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!facilityId || deleting) return;
-    if (!window.confirm('このメニューを削除しますか？')) return;
+    setConfirmDeleteId(id);
+  };
+
+  const executeDelete = async () => {
+    const id = confirmDeleteId;
+    if (!id || !facilityId) return;
+    setConfirmDeleteId(null);
     setDeleting(id);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.from('facility_menus').delete().eq('id', id).eq('facility_id', facilityId);
-      if (error) throw error;
+      const res = await fetch(`/api/admin/menus/${id}?facility_id=${facilityId}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '削除に失敗しました' });
+        return;
+      }
       setToast({ type: 'success', message: '削除しました' });
       await loadMenus(facilityId);
     } catch {
@@ -269,6 +274,15 @@ export default function AdminMenusPage() {
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="メニューを削除"
+        message="このメニューを削除しますか？削除すると元に戻せません。"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

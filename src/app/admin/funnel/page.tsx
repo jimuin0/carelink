@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notFound } from 'next/navigation';
 
 export const metadata: Metadata = { title: 'コンバージョンファネル' };
@@ -27,7 +27,7 @@ export default async function FunnelPage() {
   if (!mem) notFound();
 
   const facilityId = mem.facility_id;
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const since = monthsAgo(1);
 

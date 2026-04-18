@@ -31,7 +31,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const parsed = changeSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });

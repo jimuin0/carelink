@@ -30,7 +30,7 @@ export default function JoinGroupBookingPage({ params }: { params: { code: strin
 
   useEffect(() => {
     fetch(`/api/group-booking?code=${encodeURIComponent(params.code)}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data) => {
         if (data.error) setError(data.error);
         else setInfo(data);

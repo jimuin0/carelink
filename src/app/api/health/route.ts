@@ -26,11 +26,11 @@ export async function GET() {
     const elapsed = Date.now() - start;
 
     if (error) {
+      console.error('[health] DB error:', error.message);
       return NextResponse.json(
         {
           status: 'unhealthy',
           db: 'error',
-          message: error.message,
           elapsed_ms: elapsed,
           timestamp: new Date().toISOString(),
         },
@@ -46,11 +46,11 @@ export async function GET() {
       version: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? 'local',
     });
   } catch (e) {
+    console.error('[health] exception:', e);
     return NextResponse.json(
       {
         status: 'unhealthy',
         db: 'exception',
-        message: e instanceof Error ? e.message : 'unknown',
         elapsed_ms: Date.now() - start,
         timestamp: new Date().toISOString(),
       },

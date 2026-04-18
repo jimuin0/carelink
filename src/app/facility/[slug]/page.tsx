@@ -21,7 +21,7 @@ import ShareButtons from '@/components/facility/ShareButtons';
 import SymptomList from '@/components/facility/SymptomList';
 import CertificationList from '@/components/facility/CertificationList';
 // InsuranceMenuBadge はMenuListコンポーネント内で使用（menu.insurance_covered時に表示）
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import ViewCount from '@/components/facility/ViewCount';
 import StaffList from '@/components/facility/StaffList';
 import CouponList from '@/components/facility/CouponList';
@@ -113,7 +113,7 @@ export default async function FacilityPage({ params }: Props) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let certifications: any[] = [];
   if (isAcupuncture) {
-    const adminSupa = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const adminSupa = createServiceRoleClient();
     const [sympRes, certRes] = await Promise.all([
       adminSupa.from('facility_symptoms').select('symptom_id, description, symptoms(name, slug, category)').eq('facility_id', facility.id),
       adminSupa.from('facility_certifications').select('*').eq('facility_id', facility.id).order('sort_order'),

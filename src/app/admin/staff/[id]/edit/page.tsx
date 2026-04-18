@@ -49,25 +49,24 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
     setSaving(true);
 
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('staff_profiles')
-        .update({
+      const res = await fetch(`/api/admin/staff/${params.id}?facility_id=${facilityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           name,
           position: position || null,
           bio: bio || null,
-          specialties: specialties ? specialties.split(',').map((s) => s.trim()) : [],
+          specialties: specialties ? specialties.split(',').map((s: string) => s.trim()) : [],
           years_experience: yearsExperience ? parseInt(yearsExperience) : null,
           instagram_url: instagramUrl || null,
           line_works_channel_id: lineWorksChannelId || null,
           line_works_notify_all: lineWorksNotifyAll,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', params.id)
-        .eq('facility_id', facilityId);
+        }),
+      });
 
-      if (error) {
-        setToast({ type: 'error', message: '保存に失敗しました' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
       } else {
         setToast({ type: 'success', message: '保存しました' });
       }
@@ -89,19 +88,19 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="staff-name" className="form-label">名前 <span className="text-red-500">*</span></label>
-          <input id="staff-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" />
+          <input id="staff-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" maxLength={50} />
         </div>
         <div>
           <label htmlFor="staff-position" className="form-label">役職</label>
-          <input id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} className="form-input" placeholder="店長、スタイリスト等" />
+          <input id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} className="form-input" placeholder="店長、スタイリスト等" maxLength={50} />
         </div>
         <div>
           <label htmlFor="staff-bio" className="form-label">自己紹介</label>
-          <textarea id="staff-bio" value={bio} onChange={(e) => setBio(e.target.value)} className="form-input" rows={4} />
+          <textarea id="staff-bio" value={bio} onChange={(e) => setBio(e.target.value)} className="form-input" rows={4} maxLength={500} />
         </div>
         <div>
           <label htmlFor="staff-specialties" className="form-label">得意分野（カンマ区切り）</label>
-          <input id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} className="form-input" placeholder="カット, カラー, パーマ" />
+          <input id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} className="form-input" placeholder="カット, カラー, パーマ" maxLength={200} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -110,7 +109,7 @@ export default function EditStaffPage({ params }: { params: { id: string } }) {
           </div>
           <div>
             <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
-            <input id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" />
+            <input id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" maxLength={200} />
           </div>
         </div>
 

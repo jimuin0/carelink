@@ -4,15 +4,18 @@ import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
  * POST /api/payment/checkout
  */
 
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { SITE_URL } from '@/lib/constants';
+import { SITE_URL, UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     return NextResponse.json({ error: '決済機能が設定されていません' }, { status: 503 });
@@ -33,9 +36,9 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
-    const { bookingId } = await request.json();
+    const { bookingId } = await request.json().catch(() => ({}));
 
-    if (!bookingId) {
+    if (!bookingId || !UUID_REGEX.test(bookingId)) {
       return NextResponse.json({ error: 'パラメータが不正です' }, { status: 400 });
     }
 

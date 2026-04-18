@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { BlogPost } from '@/types';
 
 function sanitizeUrl(url: string): string {
@@ -12,16 +13,20 @@ function sanitizeUrl(url: string): string {
   return '#';
 }
 
+function escapeAttr(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function simpleMarkdown(text: string): string {
   return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/^- (.+)$/gm, '<li>$1</li>')
     .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$1</ul>')
-    .replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => `<a href="${sanitizeUrl(url)}" class="text-sky-600 underline">${label}</a>`)
+    .replace(/\[(.+?)\]\((.+?)\)/g, (_, label, url) => `<a href="${escapeAttr(sanitizeUrl(url))}" class="text-sky-600 underline">${label}</a>`)
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>')
     .replace(/^/, '<p>').replace(/$/, '</p>');
@@ -40,6 +45,7 @@ export default function EditBlogPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const insertMd = (before: string, after: string) => {
     const el = document.getElementById('blog-content') as HTMLTextAreaElement | null;
@@ -82,20 +88,15 @@ export default function EditBlogPage() {
     if (saving || !title || !content || !facilityId) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase
-      .from('blog_posts')
-      .update({
-        title,
-        content,
-        is_published: isPublished,
-        published_at: isPublished ? new Date().toISOString() : null,
-      })
-      .eq('id', postId)
-      .eq('facility_id', facilityId);
+    const res = await fetch(`/api/admin/blog/${postId}?facility_id=${facilityId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title, content, is_published: isPublished }),
+    });
 
-    if (error) {
-      setToast({ type: 'error', message: '保存に失敗しました' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '保存に失敗しました' });
     } else {
       setToast({ type: 'success', message: '保存しました' });
       setTimeout(() => router.push('/admin/blog'), 1000);
@@ -103,12 +104,15 @@ export default function EditBlogPage() {
     setSaving(false);
   };
 
-  const handleDelete = async () => {
-    if (!confirm('この記事を削除しますか？')) return;
+  const handleDelete = () => {
+    setConfirmDelete(true);
+  };
 
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('blog_posts').delete().eq('id', postId).eq('facility_id', facilityId ?? '');
-    if (error) {
+  const doDelete = async () => {
+    setConfirmDelete(false);
+    if (!facilityId) return;
+    const res = await fetch(`/api/admin/blog/${postId}?facility_id=${facilityId}`, { method: 'DELETE' });
+    if (!res.ok) {
       setToast({ type: 'error', message: '削除に失敗しました' });
       return;
     }
@@ -182,6 +186,15 @@ export default function EditBlogPage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="記事を削除"
+        message="この記事を削除しますか？"
+        confirmLabel="削除する"
+        onConfirm={doDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

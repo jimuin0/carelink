@@ -8,6 +8,7 @@ import { logCronRun } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendFavoritesDigest, generateUnsubscribeToken } from '@/lib/email';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -17,10 +18,8 @@ const supabase = createClient(
 );
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   let sent = 0;
   const startedAt = new Date();

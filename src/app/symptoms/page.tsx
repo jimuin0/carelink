@@ -75,6 +75,7 @@ export default function SymptomsPage() {
               value={symptoms}
               onChange={(e) => setSymptoms(e.target.value)}
               rows={4}
+              maxLength={1000}
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
               placeholder="例: 1週間前から右肩が重く、首を回すと痛みがある。デスクワークが多い。"
             />
@@ -98,6 +99,7 @@ export default function SymptomsPage() {
               {SYMPTOM_EXAMPLES.map((s) => (
                 <button
                   key={s}
+                  type="button"
                   onClick={() => setSymptoms(s)}
                   className="text-xs px-3 py-1.5 bg-sky-50 text-sky-700 rounded-full hover:bg-sky-100 transition-colors"
                 >
@@ -108,6 +110,7 @@ export default function SymptomsPage() {
           </div>
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={!symptoms.trim() || loading}
             className="w-full py-3 bg-sky-500 text-white rounded-xl font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"

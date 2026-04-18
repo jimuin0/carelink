@@ -93,9 +93,7 @@ export default function TreatmentRecordsPage() {
     if (!facilityId || saving) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
     const payload = {
-      facility_id: facilityId,
       user_id: form.user_id || null,
       treated_at: form.treated_at,
       menu_name: form.menu_name || null,
@@ -107,15 +105,24 @@ export default function TreatmentRecordsPage() {
       next_visit_note: form.next_visit_note || null,
     };
 
-    let error;
+    let res: Response;
     if (editRecord) {
-      ({ error } = await supabase.from('treatment_records').update(payload).eq('id', editRecord.id));
+      res = await fetch(`/api/admin/treatment-records/${editRecord.id}?facility_id=${facilityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
     } else {
-      ({ error } = await supabase.from('treatment_records').insert(payload));
+      res = await fetch(`/api/admin/treatment-records?facility_id=${facilityId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
     }
 
-    if (error) {
-      setToast({ type: 'error', message: '保存に失敗しました' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '保存に失敗しました' });
     } else {
       setToast({ type: 'success', message: editRecord ? '更新しました' : '記録しました' });
       setShowForm(false);
@@ -167,6 +174,7 @@ export default function TreatmentRecordsPage() {
           <p className="text-xs text-gray-400 mt-0.5">患者の施術経過・SOAP記録を管理</p>
         </div>
         <button
+          type="button"
           onClick={() => { setEditRecord(null); setForm(EMPTY_FORM); setShowForm(true); }}
           className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium"
         >
@@ -235,37 +243,37 @@ export default function TreatmentRecordsPage() {
             <div>
               <label className="text-xs text-gray-500 block mb-1">S: 主訴（患者の訴え）</label>
               <textarea value={form.subjective} onChange={(e) => setForm({ ...form, subjective: e.target.value })}
-                rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰が痛い、右肩こり..." />
+                rows={3} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰が痛い、右肩こり..." />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">O: 所見（他覚的）</label>
               <textarea value={form.objective} onChange={(e) => setForm({ ...form, objective: e.target.value })}
-                rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="L4/5圧痛+、ROM制限..." />
+                rows={3} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="L4/5圧痛+、ROM制限..." />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">A: 評価</label>
               <textarea value={form.assessment} onChange={(e) => setForm({ ...form, assessment: e.target.value })}
-                rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰椎捻挫、筋緊張亢進..." />
+                rows={3} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="腰椎捻挫、筋緊張亢進..." />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">P: 計画</label>
               <textarea value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })}
-                rows={3} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="鍼治療週2回、3週間..." />
+                rows={3} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="鍼治療週2回、3週間..." />
             </div>
           </div>
 
           <div>
             <label className="text-xs text-gray-500 block mb-1">次回への申し送り</label>
             <textarea value={form.next_visit_note} onChange={(e) => setForm({ ...form, next_visit_note: e.target.value })}
-              rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="次回は腰部中心で..." />
+              rows={2} maxLength={2000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="次回は腰部中心で..." />
           </div>
 
           <div className="flex gap-3">
-            <button onClick={() => { setShowForm(false); setEditRecord(null); }}
+            <button type="button" onClick={() => { setShowForm(false); setEditRecord(null); }}
               className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">
               キャンセル
             </button>
-            <button onClick={handleSave} disabled={saving || !form.treated_at}
+            <button type="button" onClick={handleSave} disabled={saving || !form.treated_at}
               className="px-6 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 font-medium">
               {saving ? '保存中...' : '保存'}
             </button>
@@ -289,7 +297,7 @@ export default function TreatmentRecordsPage() {
                   {r.menu_name && <span className="text-xs bg-sky-50 text-sky-700 px-2 py-0.5 rounded-full">{r.menu_name}</span>}
                   {r.staff_profiles && <span className="text-xs text-gray-400">担当: {r.staff_profiles.name}</span>}
                 </div>
-                <button onClick={() => handleEdit(r)} className="text-xs text-sky-600 hover:underline shrink-0">編集</button>
+                <button type="button" onClick={() => handleEdit(r)} className="text-xs text-sky-600 hover:underline shrink-0">編集</button>
               </div>
 
               {/* SOAP */}

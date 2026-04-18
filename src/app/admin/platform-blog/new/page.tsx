@@ -66,24 +66,24 @@ export default function NewPlatformBlogPage() {
     if (!validateJson(contentJson)) return;
     setSaving(true);
 
-    const supabase = createBrowserSupabaseClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
-
-    const { error } = await supabase.from('platform_blog_posts').insert({
-      slug,
-      title,
-      description,
-      category,
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-      reading_time: readingTime,
-      content: JSON.parse(contentJson),
-      is_published: isPublished,
-      published_at: isPublished ? new Date().toISOString() : null,
+    const res = await fetch('/api/admin/platform-blog', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        slug,
+        title,
+        description,
+        category,
+        tags: tags.split(',').map((t: string) => t.trim()).filter(Boolean),
+        reading_time: readingTime,
+        content: JSON.parse(contentJson),
+        is_published: isPublished,
+      }),
     });
 
-    if (error) {
-      setToast({ type: 'error', message: `作成に失敗しました: ${error.message}` });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '作成に失敗しました' });
     } else {
       router.push('/admin/platform-blog');
     }
@@ -96,7 +96,7 @@ export default function NewPlatformBlogPage() {
 
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">新規コラム記事</h1>
-        <button onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">
+        <button type="button" onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">
           ← 一覧に戻る
         </button>
       </div>
@@ -110,6 +110,7 @@ export default function NewPlatformBlogPage() {
             onBlur={handleTitleBlur}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
             placeholder="初めての鍼灸院ガイド"
+            maxLength={200}
           />
         </div>
 
@@ -120,6 +121,7 @@ export default function NewPlatformBlogPage() {
             onChange={(e) => setSlug(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-400"
             placeholder="beginner-acupuncture-guide"
+            maxLength={200}
           />
           <p className="text-xs text-gray-400 mt-1">/blog/{slug || '(スラッグ)'}</p>
         </div>
@@ -132,6 +134,7 @@ export default function NewPlatformBlogPage() {
             rows={2}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
             placeholder="記事の概要（検索結果のdescriptionに使用）"
+            maxLength={500}
           />
         </div>
 
@@ -142,6 +145,7 @@ export default function NewPlatformBlogPage() {
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               list="category-options"
+              maxLength={50}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
               placeholder="美容ガイド"
             />
@@ -171,6 +175,7 @@ export default function NewPlatformBlogPage() {
             onChange={(e) => setTags(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
             placeholder="鍼灸, 初めて, 効果"
+            maxLength={200}
           />
         </div>
       </div>
@@ -204,7 +209,7 @@ export default function NewPlatformBlogPage() {
           className={`w-full border rounded-lg px-3 py-2 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sky-400 ${jsonError ? 'border-red-400' : 'border-gray-300'}`}
           spellCheck={false}
         />
-        {jsonError && <p className="text-xs text-red-500">{jsonError}</p>}
+        {jsonError && <p role="alert" className="text-xs text-red-500">{jsonError}</p>}
         <p className="text-xs text-gray-400">
           各セクションの type: paragraph / heading / list / callout（calloutType: tip|info|warning）
         </p>
@@ -224,12 +229,14 @@ export default function NewPlatformBlogPage() {
 
       <div className="flex gap-3">
         <button
+          type="button"
           onClick={() => router.push('/admin/platform-blog')}
           className="px-4 py-2.5 text-sm text-gray-500 border border-gray-300 rounded-lg hover:bg-gray-50"
         >
           キャンセル
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving || !title || !slug}
           className="flex-1 px-4 py-2.5 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium disabled:opacity-50"

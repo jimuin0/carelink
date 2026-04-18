@@ -1,11 +1,16 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import * as Sentry from '@sentry/nextjs';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
+    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    if (inMemoryRateLimit(ip, 20, 60_000, 'line-auth')) {
+      return NextResponse.redirect(new URL('/auth/login?error=too_many_requests', request.url));
+    }
     const { searchParams } = new URL(request.url);
     const rawRedirect = searchParams.get('redirect') || '/mypage';
     const redirect = rawRedirect.startsWith('/') && !rawRedirect.startsWith('//') ? rawRedirect : '/mypage';

@@ -7,13 +7,16 @@ import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkCsrf } from '@/lib/csrf';
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const csrfError = checkCsrf(request);
+    if (csrfError) return csrfError;
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
@@ -28,7 +31,7 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
-    const { confirmation } = await request.json();
+    const { confirmation } = await request.json().catch(() => ({}));
     if (confirmation !== 'DELETE') {
       return NextResponse.json({ error: '確認コードが正しくありません' }, { status: 400 });
     }

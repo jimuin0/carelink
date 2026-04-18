@@ -58,7 +58,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
         signal: controller.signal,
       })
-        .then((r) => r.json())
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((data) => { if (!controller.signal.aborted) setSlots(data.slots ?? []); })
         .catch((err) => { if (err.name !== 'AbortError') setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); })
         .finally(() => { if (!controller.signal.aborted) setSlotsLoading(false); });
@@ -67,7 +67,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         staff.map((s) =>
           fetch(`/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${selectedDate}&duration=${totalDuration}`, {
             signal: controller.signal,
-          }).then((r) => r.json()).catch(() => ({ slots: [] }))
+          }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => ({ slots: [] }))
         )
       ).then((results) => {
         if (controller.signal.aborted) return;
@@ -500,6 +500,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 className="form-input"
                 placeholder="山田 太郎"
                 aria-required="true"
+                maxLength={50}
               />
             </div>
             <div>
@@ -512,6 +513,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 className="form-input"
                 placeholder="example@email.com"
                 aria-required="true"
+                maxLength={254}
               />
             </div>
             <div>
@@ -523,6 +525,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 type="tel"
                 className="form-input"
                 placeholder="090-1234-5678"
+                maxLength={20}
               />
             </div>
             <div>
@@ -533,6 +536,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                 onChange={(e) => setNote(e.target.value)}
                 className="form-input"
                 rows={3}
+                maxLength={500}
                 placeholder="ご要望があればご記入ください"
               />
             </div>

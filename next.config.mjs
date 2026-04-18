@@ -26,6 +26,7 @@ const nextConfig = {
               "worker-src 'self'",
               "manifest-src 'self'",
               "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+              "frame-ancestors 'none'",
               "object-src 'none'",
               "base-uri 'self'",
               "form-action 'self'",

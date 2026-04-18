@@ -43,7 +43,7 @@ export default async function PlatformBlogPage() {
           <p className="text-xs text-gray-400 mt-0.5">CareLink 公式コラム記事の管理</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/blog" target="_blank" className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+          <Link href="/blog" target="_blank" rel="noopener noreferrer" className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
             公開ページ →
           </Link>
           <Link href="/admin/platform-blog/new" className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium">
@@ -92,7 +92,7 @@ export default async function PlatformBlogPage() {
                   <td className="px-4 py-3 text-right">
                     <div className="flex items-center gap-2 justify-end">
                       {post.is_published && (
-                        <Link href={`/blog/${post.slug}`} target="_blank" className="text-xs text-gray-400 hover:text-sky-600">
+                        <Link href={`/blog/${post.slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-sky-600">
                           表示
                         </Link>
                       )}

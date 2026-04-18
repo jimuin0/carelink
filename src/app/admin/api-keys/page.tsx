@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import Toast from '@/components/Toast';
 
 interface ApiKey {
   id: string;
@@ -29,6 +31,9 @@ export default function ApiKeysPage() {
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['bookings:read']);
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -59,16 +64,31 @@ export default function ApiKeysPage() {
         setKeys((prev) => [data.key, ...prev]);
         setNewKeyName('');
         setSelectedScopes(['bookings:read']);
+      } else {
+        setToast({ type: 'error', message: data.error || 'APIキーの作成に失敗しました' });
       }
     } finally {
       setCreating(false);
     }
   };
 
-  const handleRevoke = async (id: string) => {
-    if (!confirm('このAPIキーを無効化しますか？一度無効化すると元に戻せません。')) return;
+  const handleRevoke = (id: string) => {
+    setConfirmRevokeId(id);
+    setConfirmRevoke(true);
+  };
+
+  const doRevoke = async () => {
+    if (!confirmRevokeId) return;
+    setConfirmRevoke(false);
+    const id = confirmRevokeId;
+    setConfirmRevokeId(null);
     const res = await fetch(`/api/admin/api-keys/${id}`, { method: 'DELETE' });
-    if (res.ok) setKeys((prev) => prev.map((k) => k.id === id ? { ...k, is_active: false } : k));
+    if (res.ok) {
+      setKeys((prev) => prev.map((k) => k.id === id ? { ...k, is_active: false } : k));
+      setToast({ type: 'success', message: 'APIキーを無効化しました' });
+    } else {
+      setToast({ type: 'error', message: '無効化に失敗しました' });
+    }
   };
 
   const copyKey = () => {
@@ -188,6 +208,17 @@ export default function ApiKeysPage() {
           </div>
         )}
       </div>
+
+      <ConfirmDialog
+        open={confirmRevoke}
+        title="APIキーを無効化"
+        message="このAPIキーを無効化しますか？一度無効化すると元に戻せません。"
+        confirmLabel="無効化する"
+        onConfirm={doRevoke}
+        onCancel={() => { setConfirmRevoke(false); setConfirmRevokeId(null); }}
+      />
+
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
       {/* API docs link */}
       <div className="bg-sky-50 rounded-xl p-5 text-sm text-sky-800">

@@ -18,7 +18,7 @@ export default function StationSearch() {
     setLoading(true);
     setFetchError(false);
     fetch('/api/stations', { signal: AbortSignal.timeout(10000) })
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((data) => setStations(data.stations || []))
       .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
@@ -63,6 +63,7 @@ export default function StationSearch() {
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="駅名を入力..."
                 className="form-input w-full text-sm"
+                maxLength={50}
                 autoFocus
               />
             </div>

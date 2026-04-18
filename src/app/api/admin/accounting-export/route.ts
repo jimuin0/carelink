@@ -5,7 +5,8 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { UUID_REGEX } from '@/lib/constants';
 
 function toJST(isoString: string) {
   const d = new Date(isoString);
@@ -14,8 +15,10 @@ function toJST(isoString: string) {
 
 function csvEscape(val: string | number | null | undefined): string {
   const s = String(val ?? '');
-  if (s.includes(',') || s.includes('"') || s.includes('\n')) return `"${s.replace(/"/g, '""')}"`;
-  return s;
+  // Prefix formula-trigger characters to prevent CSV injection
+  const safe = /^[=+\-@|]/.test(s) ? `'${s}` : s;
+  if (safe.includes(',') || safe.includes('"') || safe.includes('\n')) return `"${safe.replace(/"/g, '""')}"`;
+  return safe;
 }
 
 function toCsvRow(cols: (string | number | null | undefined)[]): string {
@@ -33,6 +36,21 @@ export async function GET(request: NextRequest) {
   const to = request.nextUrl.searchParams.get('to');
 
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
+  if (!['freee', 'mf', 'generic'].includes(format)) return NextResponse.json({ error: 'Invalid format' }, { status: 400 });
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (from && !dateRegex.test(from)) return NextResponse.json({ error: 'Invalid from date' }, { status: 400 });
+  if (to && !dateRegex.test(to)) return NextResponse.json({ error: 'Invalid to date' }, { status: 400 });
+
+  // Enforce maximum export range of 366 days to prevent DoS via huge queries
+  if (from && to) {
+    const fromMs = new Date(from).getTime();
+    const toMs = new Date(to).getTime();
+    if (isNaN(fromMs) || isNaN(toMs)) return NextResponse.json({ error: 'Invalid date' }, { status: 400 });
+    if (toMs < fromMs) return NextResponse.json({ error: 'to must be after from' }, { status: 400 });
+    const diffDays = (toMs - fromMs) / (1000 * 60 * 60 * 24);
+    if (diffDays > 366) return NextResponse.json({ error: 'エクスポート範囲は最大366日です' }, { status: 400 });
+  }
 
   const { data: mem } = await supabase
     .from('facility_members')
@@ -43,7 +61,7 @@ export async function GET(request: NextRequest) {
     .single();
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   let query = admin
     .from('bookings')
@@ -56,7 +74,7 @@ export async function GET(request: NextRequest) {
   if (to) query = query.lte('created_at', to + 'T23:59:59Z');
 
   const { data: bookings, error } = await query.limit(5000);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
 
   let csv = '';
   let filename = '';

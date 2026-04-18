@@ -149,6 +149,7 @@ export default function ContactPage() {
                 id="contact-message"
                 {...register('message')}
                 className="form-input min-h-[150px]"
+                maxLength={5000}
                 placeholder="お問い合わせ内容をご記入ください"
                 aria-required="true"
               />

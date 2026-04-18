@@ -112,6 +112,7 @@ function LoginContent() {
           </a>
 
           <button
+            type="button"
             onClick={async () => {
               const supabase = createBrowserSupabaseClient();
               await supabase.auth.signInWithOAuth({

@@ -2,15 +2,14 @@ import { logCronRun } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { fetchPlaceDetails } from '@/lib/gbp';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 // Vercel Cron: runs every Sunday at 3:00 JST (18:00 UTC Saturday)
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const supabase = createServiceRoleClient();
   const startedAt = new Date();
@@ -24,7 +23,7 @@ export async function GET(request: Request) {
 
   if (error) {
     await logCronRun('sync-google-ratings', 'error', startedAt, { error_msg: error.message });
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 
   const results = { updated: 0, skipped: 0, errors: 0 };

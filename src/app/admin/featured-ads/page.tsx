@@ -31,6 +31,7 @@ const PLANS = [
 export default function FeaturedAdsPage() {
   const [slots, setSlots] = useState<FeaturedSlot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState<string>('search_top');
   const [form, setForm] = useState({ area: '', business_type: '', starts_at: '', ends_at: '' });
@@ -39,7 +40,7 @@ export default function FeaturedAdsPage() {
 
   const loadSlots = useCallback(() => {
     fetch('/api/admin/featured-ads')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setSlots(d.slots || []); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
@@ -69,6 +70,7 @@ export default function FeaturedAdsPage() {
           <p className="text-sm text-gray-500 mt-1">検索結果の上位表示・バナー広告枠を管理します</p>
         </div>
         <button
+          type="button"
           onClick={() => setShowCreate(true)}
           className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors"
         >
@@ -114,6 +116,7 @@ export default function FeaturedAdsPage() {
                 value={form.area}
                 onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))}
                 placeholder="例: 豊中市"
+                maxLength={50}
                 className="w-full border rounded-lg px-3 py-2 text-sm"
               />
             </div>
@@ -124,6 +127,7 @@ export default function FeaturedAdsPage() {
                 value={form.business_type}
                 onChange={(e) => setForm((f) => ({ ...f, business_type: e.target.value }))}
                 placeholder="例: 鍼灸院"
+                maxLength={50}
                 className="w-full border rounded-lg px-3 py-2 text-sm"
               />
             </div>
@@ -155,27 +159,36 @@ export default function FeaturedAdsPage() {
           )}
           <div className="flex gap-3">
             <button
+              type="button"
+              disabled={submitting || !form.starts_at || !form.ends_at}
               onClick={async () => {
-                const res = await fetch('/api/admin/featured-ads', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ slot_type: selectedPlan, ...form }),
-                });
-                if (res.ok) {
-                  const data = await res.json();
-                  if (data.checkout_url) {
+                if (submitting) return;
+                setSubmitting(true);
+                try {
+                  const res = await fetch('/api/admin/featured-ads', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ slot_type: selectedPlan, ...form }),
+                  });
+                  const data = await res.json().catch(() => ({}));
+                  if (!res.ok) {
+                    alert(data.error || '申込みに失敗しました');
+                  } else if (data.checkout_url) {
                     window.location.href = data.checkout_url;
                   } else {
                     setSlots((prev) => [data.slot, ...prev]);
                     setShowCreate(false);
                   }
+                } finally {
+                  setSubmitting(false);
                 }
               }}
-              className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors"
+              className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors disabled:opacity-50"
             >
-              決済へ進む
+              {submitting ? '処理中...' : '決済へ進む'}
             </button>
             <button
+              type="button"
               onClick={() => setShowCreate(false)}
               className="px-4 py-2 rounded-lg text-sm border hover:bg-gray-50 transition-colors"
             >

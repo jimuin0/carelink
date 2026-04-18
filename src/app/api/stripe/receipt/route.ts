@@ -6,7 +6,11 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+
+function esc(s: string | null | undefined): string {
+  return (s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
 
 export async function GET(request: NextRequest) {
   const supabase = createServerSupabaseAuthClient();
@@ -14,9 +18,9 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const sessionId = request.nextUrl.searchParams.get('session_id');
-  if (!sessionId) return NextResponse.json({ error: 'session_id required' }, { status: 400 });
+  if (!sessionId || sessionId.length > 200) return NextResponse.json({ error: 'session_id required' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: session } = await admin
     .from('stripe_sessions')
@@ -92,7 +96,7 @@ export async function GET(request: NextRequest) {
     </thead>
     <tbody>
       <tr>
-        <td>${facility?.name ?? '施設'} ${session.payment_type === 'deposit' ? 'デポジット（予約保証金）' : '施術料金'}</td>
+        <td>${esc(facility?.name ?? '施設')} ${session.payment_type === 'deposit' ? 'デポジット（予約保証金）' : '施術料金'}</td>
         <td>課税</td>
         <td>¥${session.amount.toLocaleString()}</td>
       </tr>
@@ -108,15 +112,15 @@ export async function GET(request: NextRequest) {
 
   <div class="section" style="clear:both;margin-top:32px;">
     <div class="label">発行者</div>
-    <div class="value">${facility?.name ?? '施設名'}</div>
-    ${facility?.postal_code ? `<div style="font-size:13px;color:#555;margin-top:4px;">〒${facility.postal_code} ${facility?.prefecture ?? ''}${facility?.city ?? ''}${facility?.address ?? ''}</div>` : ''}
-    ${facility?.phone ? `<div style="font-size:13px;color:#555;">TEL: ${facility.phone}</div>` : ''}
+    <div class="value">${esc(facility?.name ?? '施設名')}</div>
+    ${facility?.postal_code ? `<div style="font-size:13px;color:#555;margin-top:4px;">〒${esc(facility.postal_code)} ${esc(facility?.prefecture ?? '')}${esc(facility?.city ?? '')}${esc(facility?.address ?? '')}</div>` : ''}
+    ${facility?.phone ? `<div style="font-size:13px;color:#555;">TEL: ${esc(facility.phone)}</div>` : ''}
   </div>
 
   <div class="footer">
     <p>CareLink（ケアリンク）https://carelink-jp.com</p>
     <p>この領収書は電子的に発行されました</p>
-    <p style="margin-top:4px;font-size:10px;">決済ID: ${session.stripe_session_id}</p>
+    <p style="margin-top:4px;font-size:10px;">決済ID: ${esc(session.stripe_session_id)}</p>
   </div>
 </body>
 </html>`;

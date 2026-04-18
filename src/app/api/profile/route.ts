@@ -9,11 +9,11 @@ import * as Sentry from '@sentry/nextjs';
 export const dynamic = 'force-dynamic';
 
 const profileSchema = z.object({
-  display_name: z.string().min(1, 'お名前は必須です'),
-  phone: z.string().nullable().optional(),
-  prefecture: z.string().nullable().optional(),
-  city: z.string().nullable().optional(),
-  birth_date: z.string().nullable().optional(),
+  display_name: z.string().min(1, 'お名前は必須です').max(50),
+  phone: z.string().max(20).nullable().optional(),
+  prefecture: z.string().max(20).nullable().optional(),
+  city: z.string().max(50).nullable().optional(),
+  birth_date: z.string().max(10).nullable().optional(),
   gender: z.enum(['male', 'female', 'other', 'unspecified']).nullable().optional(),
 });
 
@@ -27,10 +27,10 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     const parsed = profileSchema.safeParse(body);
     if (!parsed.success) {
-      return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+      return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
     }
 
     const cookieStore = cookies();
@@ -56,9 +56,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
+    const d = parsed.data;
     const { error } = await supabase
       .from('profiles')
-      .update({ ...parsed.data, updated_at: new Date().toISOString() })
+      .update({
+        display_name: d.display_name,
+        phone: d.phone ?? null,
+        prefecture: d.prefecture ?? null,
+        city: d.city ?? null,
+        birth_date: d.birth_date ?? null,
+        gender: d.gender ?? null,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', user.id);
 
     if (error) {

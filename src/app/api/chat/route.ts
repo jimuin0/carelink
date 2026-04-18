@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -31,8 +32,11 @@ CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予
 - 3文以内に収める（詳細が必要な場合は箇条書きを使う）`;
 
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60000, 'chat')) {
+  if (inMemoryRateLimit(ip, 5, 60000, 'chat')) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
   }
 
@@ -46,21 +50,24 @@ export async function POST(request: NextRequest) {
 
   // Validate roles and take last 10 messages
   const validMessages = messages
-    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.length <= 2000)
     .slice(-10)
-    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content.slice(0, 2000) }));
 
   if (validMessages.length === 0) {
     return NextResponse.json({ error: 'No valid messages' }, { status: 400 });
   }
 
-  const response = await anthropic.messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 512,
-    system: SYSTEM_PROMPT,
-    messages: validMessages,
-  });
-
-  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-  return NextResponse.json({ reply: text });
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      system: SYSTEM_PROMPT,
+      messages: validMessages,
+    });
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    return NextResponse.json({ reply: text });
+  } catch {
+    return NextResponse.json({ error: 'AIサービスに接続できませんでした' }, { status: 503 });
+  }
 }

@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 const grantSchema = z.object({
   facility_id: z.string().uuid(),
@@ -24,6 +26,8 @@ export async function GET(request: NextRequest) {
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   const userId = request.nextUrl.searchParams.get('user_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
+  if (userId && !UUID_REGEX.test(userId)) return NextResponse.json({ error: 'Invalid user_id' }, { status: 400 });
 
   const { data: membership } = await supabase
     .from('facility_members')
@@ -34,7 +38,7 @@ export async function GET(request: NextRequest) {
     .single();
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   let query = admin
     .from('user_packages')
     .select('*, service_packages(name, session_count, bonus_count), profiles(display_name, email)')
@@ -44,19 +48,21 @@ export async function GET(request: NextRequest) {
   if (userId) query = query.eq('user_id', userId);
 
   const { data, error } = await query.limit(200);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ user_packages: data });
 }
 
 // 管理者がユーザーに回数券を付与
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = grantSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const { data: membership } = await supabase
     .from('facility_members')
@@ -67,7 +73,7 @@ export async function POST(request: NextRequest) {
     .single();
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // パッケージ情報取得
   const { data: pkg } = await admin
@@ -91,21 +97,23 @@ export async function POST(request: NextRequest) {
     notes: parsed.data.notes,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ user_package: data }, { status: 201 });
 }
 
 // 回数券を1回使用（booking時に呼び出す）
 export async function PATCH(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = useSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // 回数券の所有権確認
   const { data: userPkg } = await admin
@@ -147,7 +155,7 @@ export async function PATCH(request: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   // ログ記録
   await admin.from('package_usage_logs').insert({

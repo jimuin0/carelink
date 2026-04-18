@@ -11,6 +11,7 @@ const statusConfig: Record<string, { label: string; color: string; bg: string }>
   confirmed: { label: '確定', color: 'text-green-700', bg: 'bg-green-50 border-green-200' },
   completed: { label: '完了', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
   cancelled: { label: 'キャンセル', color: 'text-gray-500', bg: 'bg-gray-50 border-gray-200' },
+  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
   no_show: { label: '無断キャンセル', color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
 };
 

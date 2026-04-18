@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 export async function GET(req: NextRequest) {
   const supabase = createServerSupabaseAuthClient();
@@ -17,11 +19,13 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ posts: data ?? [] });
 }
 
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -30,32 +34,37 @@ export async function POST(req: NextRequest) {
     .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const body = await req.json();
+  const body = await req.json().catch(() => ({}));
   const { title, body: postBody, post_type, photo_url, cta_type, cta_url, scheduled_at } = body;
 
   if (!postBody?.trim()) return NextResponse.json({ error: 'body is required' }, { status: 400 });
+
+  const VALID_POST_TYPES = ['STANDARD', 'EVENT', 'OFFER'];
+  const VALID_CTA_TYPES = ['BOOK', 'ORDER', 'SHOP', 'LEARN_MORE', 'SIGN_UP', 'CALL'];
 
   const { data, error } = await supabase
     .from('gbp_posts')
     .insert({
       facility_id: membership.facility_id,
-      title: title || null,
-      body: postBody,
-      post_type: post_type || 'STANDARD',
-      photo_url: photo_url || null,
-      cta_type: cta_type || null,
-      cta_url: cta_url || null,
+      title: title ? String(title).slice(0, 200) : null,
+      body: String(postBody).slice(0, 1500),
+      post_type: VALID_POST_TYPES.includes(post_type) ? post_type : 'STANDARD',
+      photo_url: photo_url && /^https:\/\/[^\s]{1,490}$/.test(String(photo_url)) ? String(photo_url) : null,
+      cta_type: VALID_CTA_TYPES.includes(cta_type) ? cta_type : null,
+      cta_url: cta_url && /^https:\/\/[^\s]{1,490}$/.test(String(cta_url)) ? String(cta_url) : null,
       status: scheduled_at ? 'scheduled' : 'draft',
       scheduled_at: scheduled_at || null,
     })
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ post: data });
 }
 
 export async function PATCH(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -64,21 +73,39 @@ export async function PATCH(req: NextRequest) {
     .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const body = await req.json();
-  const { id, ...updates } = body;
+  const body = await req.json().catch(() => ({}));
+  const { id, title, body: postBody, post_type, photo_url, cta_type, cta_url, status, scheduled_at, published_at } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+  if (!UUID_REGEX.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
+  const VALID_POST_TYPES = ['STANDARD', 'EVENT', 'OFFER'];
+  const VALID_CTA_TYPES = ['BOOK', 'ORDER', 'SHOP', 'LEARN_MORE', 'SIGN_UP', 'CALL'];
+  const VALID_STATUSES = ['draft', 'scheduled', 'published', 'cancelled'];
+
+  const allowed: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (title !== undefined) allowed.title = title ? String(title).slice(0, 200) : null;
+  if (postBody !== undefined) allowed.body = String(postBody).slice(0, 1500);
+  if (post_type !== undefined && VALID_POST_TYPES.includes(post_type)) allowed.post_type = post_type;
+  if (photo_url !== undefined) allowed.photo_url = photo_url && /^https:\/\/[^\s]{1,490}$/.test(String(photo_url)) ? String(photo_url) : null;
+  if (cta_type !== undefined) allowed.cta_type = VALID_CTA_TYPES.includes(cta_type) ? cta_type : null;
+  if (cta_url !== undefined) allowed.cta_url = cta_url && /^https:\/\/[^\s]{1,490}$/.test(String(cta_url)) ? String(cta_url) : null;
+  if (status !== undefined && VALID_STATUSES.includes(status)) allowed.status = status;
+  if (scheduled_at !== undefined) allowed.scheduled_at = scheduled_at || null;
+  if (published_at !== undefined) allowed.published_at = published_at || null;
 
   const { error } = await supabase
     .from('gbp_posts')
-    .update({ ...updates, updated_at: new Date().toISOString() })
+    .update(allowed)
     .eq('id', id)
     .eq('facility_id', membership.facility_id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -89,6 +116,7 @@ export async function DELETE(req: NextRequest) {
 
   const id = req.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
+  if (!UUID_REGEX.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
   const { error } = await supabase
     .from('gbp_posts')
@@ -96,6 +124,6 @@ export async function DELETE(req: NextRequest) {
     .eq('id', id)
     .eq('facility_id', membership.facility_id);
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ ok: true });
 }

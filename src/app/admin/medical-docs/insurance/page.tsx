@@ -63,7 +63,7 @@ export default function InsurancePage() {
           <h1 className="text-xl font-bold">保険請求書（療養費支給申請書）</h1>
           <p className="text-xs text-gray-400 mt-0.5">鍼灸・マッサージ施術の療養費申請書を作成・印刷</p>
         </div>
-        <button onClick={() => window.print()}
+        <button type="button" onClick={() => window.print()}
           className="print:hidden flex items-center gap-2 px-4 py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
@@ -80,11 +80,11 @@ export default function InsurancePage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">氏名 <span className="text-red-500">*</span></label>
-              <input value={form.patient_name} onChange={f('patient_name')} className="input" placeholder="山田 太郎" />
+              <input value={form.patient_name} onChange={f('patient_name')} maxLength={50} className="input" placeholder="山田 太郎" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">フリガナ</label>
-              <input value={form.patient_kana} onChange={f('patient_kana')} className="input" placeholder="ヤマダ タロウ" />
+              <input value={form.patient_kana} onChange={f('patient_kana')} maxLength={50} className="input" placeholder="ヤマダ タロウ" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">生年月日</label>
@@ -98,11 +98,11 @@ export default function InsurancePage() {
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">住所</label>
-              <input value={form.patient_address} onChange={f('patient_address')} className="input" placeholder="大阪府豊中市..." />
+              <input value={form.patient_address} onChange={f('patient_address')} maxLength={200} className="input" placeholder="大阪府豊中市..." />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">電話番号</label>
-              <input value={form.patient_phone} onChange={f('patient_phone')} className="input" placeholder="06-xxxx-xxxx" />
+              <input value={form.patient_phone} onChange={f('patient_phone')} maxLength={20} className="input" placeholder="06-xxxx-xxxx" />
             </div>
           </div>
         </section>
@@ -113,19 +113,19 @@ export default function InsurancePage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">保険者名</label>
-              <input value={form.insurer_name} onChange={f('insurer_name')} className="input" placeholder="〇〇健康保険組合" />
+              <input value={form.insurer_name} onChange={f('insurer_name')} maxLength={100} className="input" placeholder="〇〇健康保険組合" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">保険者番号</label>
-              <input value={form.insurer_number} onChange={f('insurer_number')} className="input" placeholder="06..." />
+              <input value={form.insurer_number} onChange={f('insurer_number')} maxLength={20} className="input" placeholder="06..." />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">被保険者証記号</label>
-              <input value={form.symbol_number} onChange={f('symbol_number')} className="input" />
+              <input value={form.symbol_number} onChange={f('symbol_number')} maxLength={20} className="input" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">被保険者証番号</label>
-              <input value={form.insured_number} onChange={f('insured_number')} className="input" />
+              <input value={form.insured_number} onChange={f('insured_number')} maxLength={20} className="input" />
             </div>
           </div>
         </section>
@@ -149,7 +149,7 @@ export default function InsurancePage() {
             {form.disease_name === 'その他' && (
               <div>
                 <label className="text-xs text-gray-500 block mb-1">傷病名（その他）</label>
-                <input value={form.disease_other} onChange={f('disease_other')} className="input" />
+                <input value={form.disease_other} onChange={f('disease_other')} maxLength={100} className="input" />
               </div>
             )}
             <div>
@@ -183,30 +183,30 @@ export default function InsurancePage() {
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
               <label className="text-xs text-gray-500 block mb-1">施術者氏名</label>
-              <input value={form.practitioner_name} onChange={f('practitioner_name')} className="input" />
+              <input value={form.practitioner_name} onChange={f('practitioner_name')} maxLength={50} className="input" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">施術所名</label>
-              <input value={form.facility_name} onChange={f('facility_name')} className="input" />
+              <input value={form.facility_name} onChange={f('facility_name')} maxLength={100} className="input" />
             </div>
             <div className="sm:col-span-2">
               <label className="text-xs text-gray-500 block mb-1">施術所住所</label>
-              <input value={form.facility_address} onChange={f('facility_address')} className="input" />
+              <input value={form.facility_address} onChange={f('facility_address')} maxLength={200} className="input" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">電話番号</label>
-              <input value={form.facility_phone} onChange={f('facility_phone')} className="input" />
+              <input value={form.facility_phone} onChange={f('facility_phone')} maxLength={20} className="input" />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">施術者登録番号</label>
-              <input value={form.registration_number} onChange={f('registration_number')} className="input" />
+              <input value={form.registration_number} onChange={f('registration_number')} maxLength={20} className="input" />
             </div>
           </div>
         </section>
 
         <div>
           <label className="text-xs text-gray-500 block mb-1">備考</label>
-          <textarea value={form.notes} onChange={f('notes')} rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+          <textarea value={form.notes} onChange={f('notes')} rows={2} maxLength={1000} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
         </div>
       </div>
 

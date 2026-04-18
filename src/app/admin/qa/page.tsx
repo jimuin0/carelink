@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface QAItem {
   id: string;
@@ -27,6 +28,7 @@ export default function AdminQAPage() {
   const [answeringId, setAnsweringId] = useState<string | null>(null);
   const [answerText, setAnswerText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const loadQA = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -58,18 +60,12 @@ export default function AdminQAPage() {
     if (!answeringId || !answerText.trim() || !facilityId || !userId || saving) return;
     setSaving(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('facility_qa')
-        .update({
-          answer: answerText.trim(),
-          answered_by: userId,
-          answered_at: new Date().toISOString(),
-          status: 'answered',
-        })
-        .eq('id', answeringId)
-        .eq('facility_id', facilityId);
-      if (error) throw error;
+      const res = await fetch(`/api/admin/qa?facility_id=${facilityId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qa_id: answeringId, answer: answerText.trim() }),
+      });
+      if (!res.ok) throw new Error();
       setToast({ type: 'success', message: '回答を送信しました' });
       setAnsweringId(null);
       setAnswerText('');
@@ -84,13 +80,12 @@ export default function AdminQAPage() {
   const togglePublic = async (qa: QAItem) => {
     if (!facilityId) return;
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase
-        .from('facility_qa')
-        .update({ is_public: !qa.is_public })
-        .eq('id', qa.id)
-        .eq('facility_id', facilityId);
-      if (error) throw error;
+      const res = await fetch(`/api/admin/qa?facility_id=${facilityId}&action=toggle-public`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qa_id: qa.id, is_public: !qa.is_public }),
+      });
+      if (!res.ok) throw new Error();
       setToast({ type: 'success', message: qa.is_public ? '非公開にしました' : '公開にしました' });
       await loadQA(facilityId);
     } catch {
@@ -98,13 +93,22 @@ export default function AdminQAPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
     if (!facilityId) return;
-    if (!window.confirm('このQ&Aを削除しますか？')) return;
+    setConfirmDeleteId(id);
+  };
+
+  const executeDelete = async () => {
+    const id = confirmDeleteId;
+    if (!id || !facilityId) return;
+    setConfirmDeleteId(null);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.from('facility_qa').delete().eq('id', id).eq('facility_id', facilityId);
-      if (error) throw error;
+      const res = await fetch(`/api/admin/qa?facility_id=${facilityId}&action=delete`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qa_id: id }),
+      });
+      if (!res.ok) throw new Error();
       setToast({ type: 'success', message: '削除しました' });
       await loadQA(facilityId);
     } catch {
@@ -181,10 +185,10 @@ export default function AdminQAPage() {
                 onChange={(e) => setAnswerText(e.target.value)}
                 className="form-input"
                 rows={5}
-                maxLength={1000}
+                maxLength={2000}
                 placeholder="お客様への回答を入力してください"
               />
-              <p className="text-xs text-gray-400 mt-1 text-right">{answerText.length}/1000</p>
+              <p className="text-xs text-gray-400 mt-1 text-right">{answerText.length}/2000</p>
             </div>
             <div className="flex gap-3 mt-4">
               <button type="button" onClick={() => { setAnsweringId(null); setAnswerText(''); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
@@ -267,6 +271,15 @@ export default function AdminQAPage() {
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="Q&Aを削除"
+        message="このQ&Aを削除しますか？削除すると元に戻せません。"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

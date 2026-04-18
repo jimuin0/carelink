@@ -119,6 +119,7 @@ export default function AdminGbpPage() {
     setPostsLoading(true);
     try {
       const res = await fetch('/api/admin/gbp/posts');
+      if (!res.ok) throw new Error();
       const data = await res.json();
       setPosts(data.posts ?? []);
     } catch {
@@ -155,17 +156,27 @@ export default function AdminGbpPage() {
   };
 
   const deletePost = async (id: string) => {
-    await fetch(`/api/admin/gbp/posts?id=${id}`, { method: 'DELETE' });
+    const res = await fetch(`/api/admin/gbp/posts?id=${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const e = await res.json().catch(() => null);
+      setToast({ type: 'error', message: e?.error ?? '操作に失敗しました' });
+      return;
+    }
     setPosts((prev) => prev.filter((p) => p.id !== id));
     setToast({ type: 'success', message: '削除しました' });
   };
 
   const markPublished = async (id: string) => {
-    await fetch('/api/admin/gbp/posts', {
+    const res = await fetch('/api/admin/gbp/posts', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ id, status: 'published', published_at: new Date().toISOString() }),
     });
+    if (!res.ok) {
+      const e = await res.json().catch(() => null);
+      setToast({ type: 'error', message: e?.error ?? '操作に失敗しました' });
+      return;
+    }
     setPosts((prev) => prev.map((p) => p.id === id ? { ...p, status: 'published', published_at: new Date().toISOString() } : p));
     setToast({ type: 'success', message: 'GBP投稿済みとしてマークしました' });
   };
@@ -232,6 +243,7 @@ export default function AdminGbpPage() {
                   value={placeId}
                   onChange={(e) => setPlaceId(e.target.value)}
                   placeholder="ChIJxxxxxxxxxxxxxxxxxx"
+                  maxLength={300}
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
                 />
               </div>
@@ -245,6 +257,7 @@ export default function AdminGbpPage() {
                   value={gbpCid}
                   onChange={(e) => setGbpCid(e.target.value)}
                   placeholder="1234567890123456789"
+                  maxLength={300}
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300"
                 />
               </div>
@@ -554,6 +567,7 @@ export default function AdminGbpPage() {
                   <label className="text-xs font-medium text-gray-600">タイトル（任意）</label>
                   <input type="text" value={newPost.title} onChange={(e) => setNewPost((p) => ({ ...p, title: e.target.value }))}
                          placeholder="例: 【期間限定】春のキャンペーン"
+                         maxLength={58}
                          className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
                 </div>
                 <div>
@@ -580,7 +594,7 @@ export default function AdminGbpPage() {
                   <div>
                     <label className="text-xs font-medium text-gray-600">CTA URL（任意）</label>
                     <input type="url" value={newPost.cta_url} onChange={(e) => setNewPost((p) => ({ ...p, cta_url: e.target.value }))}
-                           placeholder="https://..."
+                           placeholder="https://..." maxLength={500}
                            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
                   </div>
                 </div>

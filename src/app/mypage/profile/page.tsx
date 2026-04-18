@@ -6,6 +6,7 @@ import { useForm } from 'react-hook-form';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 interface ProfileForm {
   display_name: string;
@@ -24,8 +25,12 @@ export default function ProfileEditPage() {
   const [lineLinked, setLineLinked] = useState(false);
   const [lineDisplayName, setLineDisplayName] = useState<string | null>(null);
   const [lineUnlinking, setLineUnlinking] = useState(false);
+  const [showLineUnlinkConfirm, setShowLineUnlinkConfirm] = useState(false);
   const [emailUnsubscribed, setEmailUnsubscribed] = useState(false);
   const [unsubscribeToggling, setUnsubscribeToggling] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<ProfileForm>();
 
@@ -238,24 +243,8 @@ export default function ProfileEditPage() {
             </div>
             <p className="text-xs text-gray-500 mb-3">予約確認・リマインド・キャンセル通知がLINEに届きます。</p>
             <button
-              onClick={async () => {
-                if (!confirm('LINE連携を解除しますか？通知が届かなくなります。')) return;
-                setLineUnlinking(true);
-                try {
-                  const supabase = createBrowserSupabaseClient();
-                  const { data: { user } } = await supabase.auth.getUser();
-                  if (user) {
-                    await supabase.from('line_user_links').delete().eq('user_id', user.id);
-                    setLineLinked(false);
-                    setLineDisplayName(null);
-                    setToast({ type: 'success', message: 'LINE連携を解除しました' });
-                  }
-                } catch {
-                  setToast({ type: 'error', message: '解除に失敗しました' });
-                } finally {
-                  setLineUnlinking(false);
-                }
-              }}
+              type="button"
+              onClick={() => setShowLineUnlinkConfirm(true)}
               disabled={lineUnlinking}
               className="text-xs text-red-500 hover:text-red-700 transition-colors"
             >
@@ -319,21 +308,9 @@ export default function ProfileEditPage() {
           アカウントを削除すると、予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
         </p>
         <button
-          onClick={async () => {
-            const input = prompt('本当に削除しますか？確認のため「DELETE」と入力してください。');
-            if (input !== 'DELETE') return;
-            const res = await fetch('/api/account/delete', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ confirmation: 'DELETE' }),
-            });
-            if (res.ok) {
-              alert('アカウントが削除されました。');
-              window.location.href = '/';
-            } else {
-              setToast({ type: 'error', message: 'アカウント削除に失敗しました' });
-            }
-          }}
+          id="delete"
+          type="button"
+          onClick={() => setShowDeleteModal(true)}
           className="text-xs text-red-500 hover:text-red-700 font-bold transition-colors"
         >
           アカウントを削除する
@@ -341,6 +318,90 @@ export default function ProfileEditPage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+
+      <ConfirmDialog
+        open={showLineUnlinkConfirm}
+        title="LINE連携を解除"
+        message="LINE連携を解除しますか？通知が届かなくなります。"
+        confirmLabel="解除する"
+        cancelLabel="キャンセル"
+        onConfirm={async () => {
+          setShowLineUnlinkConfirm(false);
+          setLineUnlinking(true);
+          try {
+            const supabase = createBrowserSupabaseClient();
+            const { data: { user } } = await supabase.auth.getUser();
+            if (user) {
+              await supabase.from('line_user_links').delete().eq('user_id', user.id);
+              setLineLinked(false);
+              setLineDisplayName(null);
+              setToast({ type: 'success', message: 'LINE連携を解除しました' });
+            }
+          } catch {
+            setToast({ type: 'error', message: '解除に失敗しました' });
+          } finally {
+            setLineUnlinking(false);
+          }
+        }}
+        onCancel={() => setShowLineUnlinkConfirm(false)}
+      />
+
+      {/* アカウント削除確認モーダル */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowDeleteModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-red-600 mb-2">アカウントを削除する</h3>
+            <p className="text-sm text-gray-600 mb-4">
+              予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
+            </p>
+            <p className="text-xs font-medium text-gray-700 mb-2">
+              確認のため「<span className="font-bold text-red-600">DELETE</span>」と入力してください
+            </p>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder="DELETE"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 font-mono"
+            />
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-medium hover:bg-gray-50 transition-colors"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                disabled={deleteConfirmText !== 'DELETE' || deleting}
+                onClick={async () => {
+                  setDeleting(true);
+                  try {
+                    const res = await fetch('/api/account/delete', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ confirmation: 'DELETE' }),
+                    });
+                    if (res.ok) {
+                      window.location.href = '/';
+                    } else {
+                      setShowDeleteModal(false);
+                      setDeleteConfirmText('');
+                      setToast({ type: 'error', message: 'アカウント削除に失敗しました' });
+                    }
+                  } finally {
+                    setDeleting(false);
+                  }
+                }}
+                className="flex-1 py-2.5 bg-red-500 text-white rounded-xl text-sm font-bold hover:bg-red-600 disabled:opacity-40 transition-colors"
+              >
+                {deleting ? '削除中...' : '削除する'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 async function getFacilityId(userId: string) {
   const admin = createServiceRoleClient();
@@ -34,7 +35,11 @@ export async function GET() {
 
 // Public POST: submit application
 export async function POST(req: NextRequest) {
-  const body = await req.json();
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 5, 60_000, 'job-apply')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+  const body = await req.json().catch(() => ({}));
   const { job_posting_id, facility_id, applicant_name, applicant_email, applicant_phone, cover_letter } = body;
 
   if (!facility_id || !applicant_name || !applicant_email) {
@@ -79,6 +84,6 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: '応募の保存に失敗しました' }, { status: 500 });
   return NextResponse.json({ application }, { status: 201 });
 }

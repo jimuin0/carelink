@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import Toast from '@/components/Toast';
 
 interface PaymentSession {
   id: string;
@@ -37,6 +38,7 @@ export default function AdminPaymentsPage() {
   const [depositType, setDepositType] = useState<'none' | 'fixed' | 'percent'>('none');
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -64,13 +66,18 @@ export default function AdminPaymentsPage() {
   const handleSave = async () => {
     if (!facilityId) return;
     setSaving(true);
-    const supabase = createBrowserSupabaseClient();
-    await supabase.from('facility_profiles').update({
-      deposit_amount: depositAmount,
-      deposit_type: depositType,
-    }).eq('id', facilityId);
+    const res = await fetch(`/api/admin/payments-settings?facility_id=${facilityId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ deposit_amount: depositAmount, deposit_type: depositType }),
+    });
     setSaving(false);
-    alert('保存しました');
+    if (res.ok) {
+      setToast({ type: 'success', message: '設定を保存しました' });
+    } else {
+      const e = await res.json().catch(() => ({}));
+      setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+    }
   };
 
   const totalPaid = sessions.filter((s) => s.status === 'paid').reduce((sum, s) => sum + s.amount, 0);
@@ -190,6 +197,8 @@ export default function AdminPaymentsPage() {
           </div>
         )}
       </div>
+
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>
   );
 }

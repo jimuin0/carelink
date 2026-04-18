@@ -53,7 +53,7 @@ export async function verifyRecaptcha(
 
     return { success: true, score: data.score };
   } catch {
-    // 検証失敗時は通過させる（reCAPTCHAサービス障害でUXを壊さない）
-    return { success: true, reason: 'verify_error' };
+    // ネットワーク障害時はfail-closed（攻撃者がネットワーク制御でreCAPTCHAを回避できないようにする）
+    return { success: false, reason: 'verify_error' };
   }
 }

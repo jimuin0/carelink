@@ -29,8 +29,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.text();
     const signature = request.headers.get('x-line-signature');
-
-    if (signature && !verifyLineSignature(body, signature)) {
+    if (!signature || !verifyLineSignature(body, signature)) {
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
     }
 
@@ -39,7 +38,7 @@ export async function POST(request: Request) {
 
     for (const event of events) {
       const lineUserId = event.source?.userId;
-      if (!lineUserId) continue;
+      if (!lineUserId || !/^[A-Za-z0-9_-]+$/.test(lineUserId)) continue;
 
       switch (event.type) {
         case 'follow':

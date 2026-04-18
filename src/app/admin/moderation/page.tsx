@@ -102,7 +102,7 @@ export default function ModerationPage() {
             <p className="text-sm text-amber-600 mt-0.5">{pendingCount}件の未審査コンテンツがあります</p>
           )}
         </div>
-        <button onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
+        <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
       </div>
 
       {/* フィルター */}
@@ -110,6 +110,7 @@ export default function ModerationPage() {
         {(['pending', 'approved', 'rejected', 'escalated', ''] as const).map((s) => (
           <button
             key={s}
+            type="button"
             onClick={() => setStatusFilter(s)}
             className={`text-xs px-3 py-1.5 rounded-full font-medium transition-colors ${
               statusFilter === s
@@ -171,28 +172,33 @@ export default function ModerationPage() {
                         onChange={(e) => setReviewNote(e.target.value)}
                         placeholder="審査メモ（任意）"
                         rows={2}
+                        maxLength={500}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-sky-400"
                       />
                       <div className="flex gap-2">
                         <button
+                          type="button"
                           onClick={() => handleDecision(item.id, 'approved')}
                           className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-sm font-bold hover:bg-emerald-600"
                         >
                           承認
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDecision(item.id, 'rejected')}
                           className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600"
                         >
                           却下
                         </button>
                         <button
+                          type="button"
                           onClick={() => handleDecision(item.id, 'escalated')}
                           className="flex-1 py-2 bg-purple-500 text-white rounded-lg text-sm font-bold hover:bg-purple-600"
                         >
                           エスカレ
                         </button>
                         <button
+                          type="button"
                           onClick={() => { setReviewingId(null); setReviewNote(''); }}
                           className="px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-50"
                         >
@@ -202,6 +208,7 @@ export default function ModerationPage() {
                     </>
                   ) : (
                     <button
+                      type="button"
                       onClick={() => setReviewingId(item.id)}
                       className="text-sm px-4 py-2 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200 font-medium"
                     >

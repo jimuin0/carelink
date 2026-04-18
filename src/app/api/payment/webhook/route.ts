@@ -113,6 +113,31 @@ export async function POST(request: Request) {
       break;
     }
 
+    case 'charge.dispute.created': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const paymentIntentId = dispute.payment_intent as string;
+      if (paymentIntentId) {
+        await supabase
+          .from('bookings')
+          .update({ payment_status: 'disputed' })
+          .eq('stripe_payment_intent_id', paymentIntentId);
+      }
+      break;
+    }
+
+    case 'charge.dispute.closed': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const paymentIntentId = dispute.payment_intent as string;
+      if (paymentIntentId) {
+        const status = dispute.status === 'won' ? 'paid' : 'dispute_lost';
+        await supabase
+          .from('bookings')
+          .update({ payment_status: status })
+          .eq('stripe_payment_intent_id', paymentIntentId);
+      }
+      break;
+    }
+
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
     case 'customer.subscription.deleted':

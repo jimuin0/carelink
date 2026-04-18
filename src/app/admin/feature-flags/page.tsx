@@ -33,9 +33,12 @@ export default function FeatureFlagsPage() {
 
   const updateFlag = async (id: string, updates: Partial<Pick<FeatureFlag, 'enabled' | 'rollout_pct'>>) => {
     setSaving(id);
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('feature_flags').update(updates).eq('id', id);
-    if (error) {
+    const res = await fetch(`/api/admin/feature-flags/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(updates),
+    });
+    if (!res.ok) {
       setToast({ type: 'error', message: '更新に失敗しました' });
     } else {
       setToast({ type: 'success', message: '更新しました' });
@@ -50,7 +53,7 @@ export default function FeatureFlagsPage() {
 
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">Feature Flags</h1>
-        <button onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
+        <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
       </div>
 
       <p className="text-sm text-gray-500">
@@ -93,6 +96,7 @@ export default function FeatureFlagsPage() {
 
               {/* トグル */}
               <button
+                type="button"
                 onClick={() => updateFlag(flag.id, { enabled: !flag.enabled, rollout_pct: !flag.enabled ? 100 : 0 })}
                 disabled={saving === flag.id}
                 className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 focus:outline-none ${

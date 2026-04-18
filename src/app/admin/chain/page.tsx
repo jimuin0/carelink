@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
+import BulkActions from './BulkActions';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
 export const dynamic = 'force-dynamic';
@@ -193,7 +194,7 @@ export default async function ChainManagementPage() {
                     )}
                   </td>
                   <td className="px-4 py-3">
-                    <Link href={`/facility/${f.slug}`} target="_blank"
+                    <Link href={`/facility/${f.slug}`} target="_blank" rel="noopener noreferrer"
                       className="text-xs text-sky-600 hover:underline">公開ページ →</Link>
                   </td>
                 </tr>
@@ -204,10 +205,10 @@ export default async function ChainManagementPage() {
       </div>
 
       {/* 一括操作 */}
-      <div className="bg-amber-50 border border-amber-100 rounded-xl p-4 text-sm text-amber-800">
-        <strong>一括設定の操作:</strong> 現在、施設ごとの個別設定画面をご利用ください。
-        一括メニュー更新・一括クーポン発行は今後実装予定です。
-      </div>
+      <BulkActions
+        facilityIds={facilityIds}
+        facilityNames={(facilities ?? []).map((f) => ({ id: f.id, name: f.name }))}
+      />
     </div>
   );
 }

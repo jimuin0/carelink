@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import ConfirmDialog from '@/components/ConfirmDialog';
+import Toast from '@/components/Toast';
 
 interface GroupBooking {
   id: string;
@@ -28,6 +30,9 @@ export default function AdminGroupBookingsPage() {
   const [bookings, setBookings] = useState<GroupBooking[]>([]);
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState<string | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -58,13 +63,21 @@ export default function AdminGroupBookingsPage() {
   };
 
   const handleStatusChange = async (id: string, status: string) => {
-    const res = await fetch(`/api/group-booking/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    });
-    if (res.ok) {
-      setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status } : b));
+    setProcessingId(id);
+    try {
+      const res = await fetch(`/api/group-booking/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        setBookings((prev) => prev.map((b) => b.id === id ? { ...b, status } : b));
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: data.error || 'ステータスの更新に失敗しました' });
+      }
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -74,6 +87,7 @@ export default function AdminGroupBookingsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       <div>
         <h1 className="text-xl font-bold">グループ予約</h1>
         <p className="text-xs text-gray-400 mt-0.5">複数人同時予約の管理・シェアリンク発行</p>
@@ -125,7 +139,8 @@ export default function AdminGroupBookingsPage() {
                       <button
                         type="button"
                         onClick={() => handleStatusChange(b.id, 'confirmed')}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors font-bold"
+                        disabled={processingId === b.id}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors font-bold disabled:opacity-50"
                       >
                         確定する
                       </button>
@@ -135,7 +150,8 @@ export default function AdminGroupBookingsPage() {
                       <button
                         type="button"
                         onClick={() => handleStatusChange(b.id, 'completed')}
-                        className="text-xs px-3 py-1.5 rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors font-bold"
+                        disabled={processingId === b.id}
+                        className="text-xs px-3 py-1.5 rounded-lg bg-gray-500 text-white hover:bg-gray-600 transition-colors font-bold disabled:opacity-50"
                       >
                         完了にする
                       </button>
@@ -144,12 +160,9 @@ export default function AdminGroupBookingsPage() {
                     {!['cancelled', 'completed'].includes(b.status) && (
                       <button
                         type="button"
-                        onClick={() => {
-                          if (confirm('このグループ予約をキャンセルしますか？')) {
-                            handleStatusChange(b.id, 'cancelled');
-                          }
-                        }}
-                        className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                        onClick={() => setConfirmCancelId(b.id)}
+                        disabled={processingId === b.id}
+                        className="text-xs px-3 py-1.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 transition-colors disabled:opacity-50"
                       >
                         キャンセル
                       </button>
@@ -170,6 +183,15 @@ export default function AdminGroupBookingsPage() {
           <p>• 全員が参加したら「確定」ボタンを押して予約を確定させます</p>
         </div>
       )}
+      <ConfirmDialog
+        open={confirmCancelId !== null}
+        title="グループ予約をキャンセル"
+        message="このグループ予約をキャンセルしますか？"
+        confirmLabel="キャンセルする"
+        cancelLabel="閉じる"
+        onConfirm={() => { if (confirmCancelId) { handleStatusChange(confirmCancelId, 'cancelled'); } setConfirmCancelId(null); }}
+        onCancel={() => setConfirmCancelId(null)}
+      />
     </div>
   );
 }

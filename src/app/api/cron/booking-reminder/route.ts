@@ -2,16 +2,15 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { logCronRun } from '@/lib/cron-logger';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 // Vercel Cron: runs daily at 9:00 JST (0:00 UTC)
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  // Verify cron secret
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // Verify cron secret (timing-safe)
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
   try {

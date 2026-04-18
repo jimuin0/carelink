@@ -30,7 +30,7 @@ export default function ReviewSummary({ reviews, facilityId }: Props) {
     setAiAttempted(true);
     setLoading(true);
     fetch(`/api/admin/review-summary?facility_id=${facilityId}`)
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { if (d.summary) setAiSummary(d.summary); })
       .catch(() => {})
       .finally(() => setLoading(false));

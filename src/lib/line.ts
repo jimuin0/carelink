@@ -123,6 +123,7 @@ export async function sendBookingReminder(
 
 /**
  * LINE Webhook 署名検証
+ * タイミング攻撃防止のため timingSafeEqual を使用
  */
 export function verifyLineSignature(body: string, signature: string): boolean {
   const secret = process.env.LINE_CHANNEL_SECRET_CARELINK;
@@ -133,7 +134,12 @@ export function verifyLineSignature(body: string, signature: string): boolean {
     .update(body)
     .digest('base64');
 
-  return hash === signature;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(signature));
+  } catch {
+    // Buffer lengths differ → signature is definitely invalid
+    return false;
+  }
 }
 
 /**

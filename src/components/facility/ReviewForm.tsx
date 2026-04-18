@@ -300,7 +300,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
 
         <div>
           <label htmlFor="review_comment" className="form-label">コメント</label>
-          <textarea {...register('comment')} id="review_comment" className="form-input" rows={3} placeholder="ご感想をお聞かせください（500文字以内）" />
+          <textarea {...register('comment')} id="review_comment" className="form-input" rows={3} maxLength={500} placeholder="ご感想をお聞かせください（500文字以内）" />
           {errors.comment && <p className="form-error" role="alert">{errors.comment.message}</p>}
         </div>
 

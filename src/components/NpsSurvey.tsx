@@ -61,7 +61,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
         <p className="font-medium text-gray-800 mb-1">フィードバックありがとうございます！</p>
         <p className="text-sm text-gray-500">ご意見はサービス改善に活用します</p>
         {onDismiss && (
-          <button onClick={onDismiss} className="mt-3 text-xs text-gray-400 hover:underline">閉じる</button>
+          <button type="button" onClick={onDismiss} className="mt-3 text-xs text-gray-400 hover:underline">閉じる</button>
         )}
       </div>
     );
@@ -77,7 +77,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
           <p className="text-xs text-gray-400 mt-0.5">0（まったく勧めない）〜 10（ぜひ勧めたい）</p>
         </div>
         {onDismiss && (
-          <button onClick={onDismiss} className="text-gray-400 hover:text-gray-600 shrink-0 p-1">
+          <button type="button" onClick={onDismiss} aria-label="閉じる" className="text-gray-400 hover:text-gray-600 shrink-0 p-1">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -90,6 +90,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
         {Array.from({ length: 11 }, (_, i) => (
           <button
             key={i}
+            type="button"
             onClick={() => setScore(i)}
             className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
               score === i ? getColor(i) : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
@@ -117,6 +118,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
           </div>
 
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={loading}
             className="w-full py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50"

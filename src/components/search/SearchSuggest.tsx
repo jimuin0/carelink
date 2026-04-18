@@ -39,7 +39,7 @@ export default function SearchSuggest({ query, onSelect, visible, onClose }: Pro
       fetch(`/api/facilities/suggest?q=${encodeURIComponent(query)}`, {
         signal: controller.signal,
       })
-        .then((r) => r.json())
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((data) => { if (!controller.signal.aborted) setResults(data); })
         .catch((err) => { if (err.name !== 'AbortError') setResults({ facilities: [], areas: [] }); });
     }, 300);

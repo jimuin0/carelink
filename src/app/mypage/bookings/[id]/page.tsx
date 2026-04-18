@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { Booking } from '@/types';
 
 const statusLabels: Record<string, { label: string; color: string }> = {
@@ -11,6 +12,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
   completed: { label: '完了', color: 'bg-gray-100 text-gray-800' },
   cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
+  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'bg-orange-100 text-orange-800' },
   no_show: { label: '無断キャンセル', color: 'bg-red-100 text-red-800' },
 };
 
@@ -22,6 +24,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
   const [syncing, setSyncing] = useState(false);
   const [gcalConnected, setGcalConnected] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
     const load = async () => {
@@ -39,7 +42,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
       setLoading(false);
       // Check Google Calendar connection
       fetch('/api/google-calendar')
-        .then((r) => r.json())
+        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((d) => setGcalConnected(d.connected && !d.isExpired))
         .catch(() => {});
     };
@@ -48,7 +51,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
 
   const handleCancel = async () => {
     if (cancelling) return;
-    if (!confirm('この予約をキャンセルしますか？')) return;
     setCancelling(true);
 
     try {
@@ -185,7 +187,7 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
       {canCancel && (
         <button
           type="button"
-          onClick={handleCancel}
+          onClick={() => setShowCancelConfirm(true)}
           disabled={cancelling}
           className="w-full mt-4 py-3 rounded-xl border border-red-300 text-red-600 font-bold hover:bg-red-50 transition-colors"
         >
@@ -218,6 +220,15 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
       </button>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={showCancelConfirm}
+        title="予約をキャンセル"
+        message="この予約をキャンセルしますか？キャンセルポリシーによりキャンセル料が発生する場合があります。"
+        confirmLabel="キャンセルする"
+        cancelLabel="戻る"
+        onConfirm={() => { setShowCancelConfirm(false); handleCancel(); }}
+        onCancel={() => setShowCancelConfirm(false)}
+      />
     </div>
   );
 }

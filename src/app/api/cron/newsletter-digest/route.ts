@@ -1,16 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { Resend } from 'resend';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 // Monthly newsletter cron — runs on 1st of each month
 // Sends owner_monthly digest to all facility owners
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: NextRequest) {
-  const authHeader = req.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(req);
+  if (cronAuthError) return cronAuthError;
 
   const admin = createServiceRoleClient();
   const now = new Date();
@@ -127,7 +126,8 @@ export async function GET(req: NextRequest) {
     .single();
 
   if (insertErr || !campaign) {
-    return NextResponse.json({ error: insertErr?.message || 'Insert failed' }, { status: 500 });
+    console.error('[newsletter-digest] insert error:', insertErr);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 
   // Get all owner emails

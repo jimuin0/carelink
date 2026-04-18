@@ -1,26 +1,24 @@
-import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 /**
- * 施設自動セットアップ API（v8.2）
+ * 施設自動セットアップ API（v8.3）
  * POST /api/facility/setup
  * 認証済みユーザーが施設を新規作成し、facility_membersにowner登録
  */
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { sendWelcomeEmail } from '@/lib/email';
+import { checkCsrf } from '@/lib/csrf';
+import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
-const adminSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
   try {
+    const csrfError = checkCsrf(request);
+    if (csrfError) return csrfError;
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
@@ -37,6 +35,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
+    const adminSupabase = createServiceRoleClient();
+
     // 既に施設を持っているか確認
     const { data: existingMember } = await adminSupabase
       .from('facility_members')
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
       });
     }
 
-    const body = await request.json();
+    const body = await request.json().catch(() => ({}));
     let {
       facility_name,
       business_type,
@@ -85,6 +85,12 @@ export async function POST(request: Request) {
     if (!facility_name || !business_type) {
       return NextResponse.json({ error: '施設名と業種は必須です' }, { status: 400 });
     }
+    facility_name = String(facility_name).slice(0, 100);
+    business_type = String(business_type).slice(0, 50);
+    if (phone) phone = String(phone).slice(0, 20);
+    if (prefecture) prefecture = String(prefecture).slice(0, 20);
+    if (city) city = String(city).slice(0, 50);
+    if (address) address = String(address).slice(0, 200);
 
     // slug生成（施設名からローマ字変換は複雑なのでランダム）
     const slug = facility_name

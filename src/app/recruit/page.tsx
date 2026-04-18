@@ -15,18 +15,18 @@ import { formatPhone } from '@/lib/validations';
 const phoneRegex = /^[\d-]+$/;
 
 const step1Schema = z.object({
-  facility_name: z.string().min(1, '施設名を入力してください'),
+  facility_name: z.string().min(1, '施設名を入力してください').max(100),
   business_type: z.string().min(1, '業種を選択してください'),
-  representative_name: z.string().min(1, '代表者名を入力してください'),
-  contact_name: z.string().min(1, '担当者名を入力してください'),
-  email: z.string().email('正しいメールアドレスを入力してください'),
-  phone: z.string().min(1, '電話番号を入力してください').regex(phoneRegex, '正しい電話番号を入力してください'),
+  representative_name: z.string().min(1, '代表者名を入力してください').max(50),
+  contact_name: z.string().min(1, '担当者名を入力してください').max(50),
+  email: z.string().email('正しいメールアドレスを入力してください').max(254),
+  phone: z.string().min(1, '電話番号を入力してください').max(20).regex(phoneRegex, '正しい電話番号を入力してください'),
 });
 
 const step2Schema = z.object({
   postal_code: z.string().regex(/^(\d{7})?$/, '7桁の数字で入力してください').or(z.literal('')).optional(),
-  address: z.string().optional(),
-  website: z.string().optional(),
+  address: z.string().max(200).optional(),
+  website: z.string().max(500).optional(),
   description: z.string().max(1000, '1000文字以内で入力してください').optional(),
 });
 
@@ -121,7 +121,7 @@ export default function RecruitPage() {
             <div className="space-y-4">
               <div>
                 <label className="form-label">施設名 *</label>
-                <input {...register('facility_name')} className="form-input w-full" placeholder="例: ○○鍼灸院" aria-required="true" />
+                <input {...register('facility_name')} maxLength={100} className="form-input w-full" placeholder="例: ○○鍼灸院" aria-required="true" />
                 {errors.facility_name && <p className="form-error" role="alert">{errors.facility_name.message}</p>}
               </div>
               <div>
@@ -134,22 +134,22 @@ export default function RecruitPage() {
               </div>
               <div>
                 <label className="form-label">代表者名 *</label>
-                <input {...register('representative_name')} className="form-input w-full" aria-required="true" />
+                <input {...register('representative_name')} maxLength={50} className="form-input w-full" aria-required="true" />
                 {errors.representative_name && <p className="form-error" role="alert">{errors.representative_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">担当者名 *</label>
-                <input {...register('contact_name')} className="form-input w-full" aria-required="true" />
+                <input {...register('contact_name')} maxLength={50} className="form-input w-full" aria-required="true" />
                 {errors.contact_name && <p className="form-error" role="alert">{errors.contact_name.message}</p>}
               </div>
               <div>
                 <label className="form-label">メールアドレス *</label>
-                <input type="email" {...register('email')} className="form-input w-full" aria-required="true" />
+                <input type="email" {...register('email')} maxLength={254} className="form-input w-full" aria-required="true" />
                 {errors.email && <p className="form-error" role="alert">{errors.email.message}</p>}
               </div>
               <div>
                 <label className="form-label">電話番号 *</label>
-                <input {...register('phone')} className="form-input w-full" value={phoneValue ? formatPhone(phoneValue) : ''} onChange={(e) => setValue('phone', e.target.value.replace(/[^\d-]/g, ''))} />
+                <input {...register('phone')} maxLength={20} className="form-input w-full" value={phoneValue ? formatPhone(phoneValue) : ''} onChange={(e) => setValue('phone', e.target.value.replace(/[^\d-]/g, ''))} />
                 {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
             </div>
@@ -164,15 +164,15 @@ export default function RecruitPage() {
               </div>
               <div>
                 <label className="form-label">住所</label>
-                <input {...register('address')} className="form-input w-full" placeholder="例: 大阪府豊中市〇〇町1-2-3" />
+                <input {...register('address')} maxLength={200} className="form-input w-full" placeholder="例: 大阪府豊中市〇〇町1-2-3" />
               </div>
               <div>
                 <label className="form-label">ウェブサイト</label>
-                <input {...register('website')} className="form-input w-full" placeholder="https://..." />
+                <input {...register('website')} maxLength={500} className="form-input w-full" placeholder="https://..." />
               </div>
               <div>
                 <label className="form-label">施設紹介</label>
-                <textarea {...register('description')} className="form-input w-full" rows={4} placeholder="施設の特徴やPRをご記入ください" />
+                <textarea {...register('description')} className="form-input w-full" rows={4} maxLength={1000} placeholder="施設の特徴やPRをご記入ください" />
                 {errors.description && <p className="form-error" role="alert">{errors.description.message}</p>}
               </div>
             </div>

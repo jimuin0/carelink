@@ -14,7 +14,9 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createHash } from 'crypto';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 const API_VERSION = '1.0.0';
 
@@ -26,11 +28,12 @@ function unauthorized() {
 }
 
 async function resolveApiKey(apiKey: string): Promise<{ facility_id: string; scopes: string[] } | null> {
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const keyHash = createHash('sha256').update(apiKey).digest('hex');
+  const admin = createServiceRoleClient();
   const { data } = await admin
     .from('api_keys')
     .select('facility_id, scopes, is_active, expires_at')
-    .eq('key_hash', apiKey) // In production: store SHA256(key), compare hash
+    .eq('key_hash', keyHash)
     .single();
 
   if (!data || !data.is_active) return null;
@@ -39,6 +42,10 @@ async function resolveApiKey(apiKey: string): Promise<{ facility_id: string; sco
 }
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 60, 60_000, 'v1-bookings')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   // Validate Authorization header
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return unauthorized();
@@ -67,7 +74,7 @@ export async function GET(request: NextRequest) {
   const page = Math.max(parseInt(sp.get('page') ?? '1') || 1, 1);
   const offset = (page - 1) * limit;
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   let query = admin
     .from('bookings')
@@ -81,7 +88,7 @@ export async function GET(request: NextRequest) {
   if (status) query = query.eq('status', status);
 
   const { data, error, count } = await query;
-  if (error) return NextResponse.json({ error: 'Internal Server Error', message: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
 
   return NextResponse.json({
     api_version: API_VERSION,

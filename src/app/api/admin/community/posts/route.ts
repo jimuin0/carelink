@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 async function requireFacilityMember(userId: string) {
   const admin = createServiceRoleClient();
@@ -35,6 +37,12 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'community-posts')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -42,7 +50,10 @@ export async function POST(req: NextRequest) {
   const isMember = await requireFacilityMember(user.id);
   if (!isMember) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { category, title, body } = await req.json();
+  const raw = await req.json().catch(() => ({}));
+  const title = typeof raw.title === 'string' ? raw.title : '';
+  const body = typeof raw.body === 'string' ? raw.body : '';
+  const category = typeof raw.category === 'string' ? raw.category : '';
 
   if (!title || !body) return NextResponse.json({ error: 'title and body required' }, { status: 400 });
 
@@ -63,6 +74,6 @@ export async function POST(req: NextRequest) {
     .select('*, profiles(display_name)')
     .single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ post }, { status: 201 });
 }

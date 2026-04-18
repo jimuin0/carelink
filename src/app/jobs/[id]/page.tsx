@@ -271,11 +271,11 @@ export default async function JobDetailPage({ params }: Props) {
 
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: escape(JSON.stringify(jobPostingLd)) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jobPostingLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: escape(JSON.stringify(breadcrumbLd)) }}
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }}
       />
     </div>
   );

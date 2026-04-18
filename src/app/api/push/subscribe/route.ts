@@ -42,6 +42,9 @@ export async function POST(request: NextRequest) {
     if (!endpoint || typeof endpoint !== 'string' || !keys?.p256dh || !keys?.auth) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
+    if (!endpoint.startsWith('https://') || endpoint.length > 2048 || String(keys.p256dh).length > 200 || String(keys.auth).length > 100) {
+      return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
+    }
 
     const { error } = await supabase
       .from('push_subscriptions')

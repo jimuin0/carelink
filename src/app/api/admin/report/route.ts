@@ -5,11 +5,17 @@
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
+import { UUID_REGEX } from '@/lib/constants';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
+export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'admin-report')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   const { searchParams } = new URL(request.url);
   const facilityId = searchParams.get('facility_id');
   const from = searchParams.get('from');
@@ -17,6 +23,13 @@ export async function GET(request: Request) {
 
   if (!facilityId || !from || !to) {
     return NextResponse.json({ error: 'facility_id, from, to required' }, { status: 400 });
+  }
+  if (!UUID_REGEX.test(facilityId)) {
+    return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
+  }
+  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+  if (!dateRegex.test(from) || !dateRegex.test(to)) {
+    return NextResponse.json({ error: 'from, to must be YYYY-MM-DD' }, { status: 400 });
   }
 
   const cookieStore = cookies();

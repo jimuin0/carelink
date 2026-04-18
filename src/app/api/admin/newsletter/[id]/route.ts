@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { Resend } from 'resend';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { escSubject } from '@/lib/email';
 
 async function requirePlatformAdmin() {
   const supabase = createServerSupabaseAuthClient();
@@ -20,10 +24,17 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 5, 60_000 * 10, 'newsletter-send')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const user = await requirePlatformAdmin();
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  const { action } = await req.json();
+  const { action } = await req.json().catch(() => ({}));
   const admin = createServiceRoleClient();
 
   const { data: campaign, error: fetchErr } = await admin
@@ -116,7 +127,7 @@ export async function PATCH(
         await resend.emails.send({
           from: 'CareLink <newsletter@carelink-jp.com>',
           to: batch,
-          subject: campaign.subject,
+          subject: escSubject(campaign.subject),
           html: campaign.html_content + `<br><br><hr><p style="font-size:11px;color:#999">配信停止は<a href="https://carelink-jp.com/unsubscribe?id=${campaign.id}">こちら</a></p>`,
           text: campaign.text_content || undefined,
         });

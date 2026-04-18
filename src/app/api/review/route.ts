@@ -26,7 +26,7 @@ const reviewSchema = z.object({
   rating_cleanliness: ratingAxis,
   rating_explanation: ratingAxis,
   comment: z.string().max(500).optional().nullable(),
-  photo_urls: z.array(z.string().url()).max(3).optional().nullable(),
+  photo_urls: z.array(z.string().url().startsWith('https://')).max(3).optional().nullable(),
 });
 
 export async function POST(request: Request) {

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 export default function CouponEditPage() {
   const params = useParams();
@@ -20,9 +21,13 @@ export default function CouponEditPage() {
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const loadCoupon = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { router.push('/admin/coupons'); return; }
+
     const { data } = await supabase.from('coupons').select('*').eq('id', couponId).single();
     if (!data) { router.push('/admin/coupons'); return; }
     setName(data.name);
@@ -43,23 +48,44 @@ export default function CouponEditPage() {
       setToast({ type: 'error', message: 'クーポン名は必須です' });
       return;
     }
+
+    // Client-side pre-validation
+    const dv = discountType !== 'special_price' && discountValue ? parseInt(discountValue) : null;
+    const sp = discountType === 'special_price' && specialPrice ? parseInt(specialPrice) : null;
+    if (dv !== null && dv < 0) {
+      setToast({ type: 'error', message: '割引額は0以上で入力してください' });
+      return;
+    }
+    if (discountType === 'percentage' && dv !== null && dv > 100) {
+      setToast({ type: 'error', message: '割合割引は0〜100%で入力してください' });
+      return;
+    }
+    if (sp !== null && sp < 0) {
+      setToast({ type: 'error', message: '特別価格は0以上で入力してください' });
+      return;
+    }
+
     setSaving(true);
     try {
-      const supabase = createBrowserSupabaseClient();
-      const { error } = await supabase.from('coupons').update({
-        name: name.trim(),
-        description: description.trim() || null,
-        coupon_type: couponType,
-        discount_type: discountType,
-        discount_value: discountType !== 'special_price' && discountValue ? parseInt(discountValue) : null,
-        special_price: discountType === 'special_price' && specialPrice ? parseInt(specialPrice) : null,
-        valid_from: validFrom || null,
-        valid_until: validUntil || null,
-        is_active: isActive,
-      }).eq('id', couponId);
+      const res = await fetch(`/api/admin/coupons/${couponId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: name.trim(),
+          description: description.trim() || null,
+          coupon_type: couponType,
+          discount_type: discountType,
+          discount_value: dv,
+          special_price: sp,
+          valid_from: validFrom || null,
+          valid_until: validUntil || null,
+          is_active: isActive,
+        }),
+      });
 
-      if (error) {
-        setToast({ type: 'error', message: '保存に失敗しました' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: err.error ?? '保存に失敗しました' });
       } else {
         setToast({ type: 'success', message: '保存しました' });
       }
@@ -70,14 +96,24 @@ export default function CouponEditPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm('このクーポンを削除しますか？')) return;
-    const supabase = createBrowserSupabaseClient();
-    const { error } = await supabase.from('coupons').delete().eq('id', couponId);
-    if (error) {
-      setToast({ type: 'error', message: '削除に失敗しました' });
-    } else {
-      router.push('/admin/coupons');
+  const handleDelete = () => {
+    setConfirmDelete(true);
+  };
+
+  const doDelete = async () => {
+    setConfirmDelete(false);
+    try {
+      const res = await fetch(`/api/admin/coupons/${couponId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: err.error ?? '削除に失敗しました' });
+      } else {
+        router.push('/admin/coupons');
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
     }
   };
 
@@ -88,11 +124,11 @@ export default function CouponEditPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
-          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" />
+          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" maxLength={100} />
         </div>
         <div>
           <label htmlFor="coupon-desc" className="form-label">説明</label>
-          <textarea id="coupon-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={3} />
+          <textarea id="coupon-desc" value={description} onChange={(e) => setDescription(e.target.value)} className="form-input" rows={3} maxLength={500} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
@@ -115,13 +151,30 @@ export default function CouponEditPage() {
         </div>
         {discountType !== 'special_price' ? (
           <div>
-            <label htmlFor="discount-val" className="form-label">割引値{discountType === 'fixed' ? '（円）' : '（%）'}</label>
-            <input id="discount-val" type="number" value={discountValue} onChange={(e) => setDiscountValue(e.target.value)} className="form-input" />
+            <label htmlFor="discount-val" className="form-label">
+              割引値{discountType === 'fixed' ? '（円）' : '（%）※0〜100'}
+            </label>
+            <input
+              id="discount-val"
+              type="number"
+              min={0}
+              max={discountType === 'percentage' ? 100 : 100000}
+              value={discountValue}
+              onChange={(e) => setDiscountValue(e.target.value)}
+              className="form-input"
+            />
           </div>
         ) : (
           <div>
             <label htmlFor="special-price" className="form-label">特別価格（円）</label>
-            <input id="special-price" type="number" value={specialPrice} onChange={(e) => setSpecialPrice(e.target.value)} className="form-input" />
+            <input
+              id="special-price"
+              type="number"
+              min={0}
+              value={specialPrice}
+              onChange={(e) => setSpecialPrice(e.target.value)}
+              className="form-input"
+            />
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
@@ -153,6 +206,15 @@ export default function CouponEditPage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="クーポンを削除"
+        message="このクーポンを削除しますか？"
+        confirmLabel="削除する"
+        onConfirm={doDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
     }
 
-    const { facilityId } = await request.json();
+    const { facilityId } = await request.json().catch(() => ({}));
     if (!facilityId || !uuidRegex.test(facilityId)) {
       return NextResponse.json({ error: '無効な施設IDです' }, { status: 400 });
     }

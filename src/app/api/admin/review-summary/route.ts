@@ -9,6 +9,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { UUID_REGEX } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -22,7 +23,9 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const facilityId = searchParams.get('facility_id');
-  if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  if (!facilityId || !UUID_REGEX.test(facilityId)) {
+    return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  }
 
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ error: 'AI機能は設定されていません' }, { status: 503 });
@@ -34,6 +37,22 @@ export async function GET(request: Request) {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
+
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+
+  // 施設メンバーまたはプラットフォーム管理者のみ許可
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  if (profile?.role !== 'admin') {
+    const { data: mem } = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .eq('facility_id', facilityId)
+      .limit(1)
+      .maybeSingle();
+    if (!mem) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+  }
 
   // レビューを最新20件取得
   const { data: reviews } = await supabase

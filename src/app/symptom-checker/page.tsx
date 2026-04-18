@@ -93,6 +93,7 @@ export default function SymptomCheckerPage() {
         </div>
 
         <button
+          type="button"
           onClick={handleSearch}
           disabled={selected.length === 0 || searching}
           className="w-full py-3 bg-emerald-500 text-white font-bold rounded-xl hover:bg-emerald-600 transition-colors disabled:bg-gray-300"

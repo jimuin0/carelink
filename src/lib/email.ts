@@ -22,6 +22,11 @@ function esc(str: string): string {
     .replace(/'/g, '&#39;');
 }
 
+/** メール件名用サニタイズ（ヘッダーインジェクション防止） */
+function escSubject(str: string): string {
+  return str.replace(/[\r\n\t]/g, ' ').slice(0, 200);
+}
+
 interface BookingEmailData {
   customerName: string;
   customerEmail: string;
@@ -66,7 +71,7 @@ export function generateUnsubscribeToken(): string {
 
 function wrapHtml(body: string, unsubscribeToken?: string): string {
   const unsubLink = unsubscribeToken
-    ? `<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px;"><a href="${SITE_URL}/unsubscribe?token=${unsubscribeToken}" style="color:#94a3b8;">メールの受信を停止する</a></p>`
+    ? `<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px;"><a href="${SITE_URL}/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}" style="color:#94a3b8;">メールの受信を停止する</a></p>`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:20px;">
     <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0ea5e9;font-size:20px;">CareLink</strong></div>
@@ -78,7 +83,7 @@ function wrapHtml(body: string, unsubscribeToken?: string): string {
 }
 
 // テスト用にpure関数をexport
-export { esc, formatDate, formatTime };
+export { esc, escSubject, formatDate, formatTime };
 
 /** メール送信ラッパー（エラーログ付き） */
 async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string) {
@@ -98,7 +103,7 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
   await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
-    subject: `【CareLink】${data.facilityName}のご予約を受け付けました`,
+    subject: escSubject(`【CareLink】${data.facilityName}のご予約を受け付けました`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>${facility}へのご予約を受け付けました。<br>施設からの確認後、確定メールをお送りいたします。</p>
@@ -117,7 +122,7 @@ export async function sendBookingReminder(data: BookingEmailData) {
   await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
-    subject: `【CareLink】明日のご予約リマインド - ${data.facilityName}`,
+    subject: escSubject(`【CareLink】明日のご予約リマインド - ${data.facilityName}`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>明日、${facility}のご予約がございます。</p>
@@ -137,7 +142,7 @@ export async function sendBookingConfirmed(data: BookingEmailData) {
   await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
-    subject: `【CareLink】${data.facilityName}のご予約が確定しました`,
+    subject: escSubject(`【CareLink】${data.facilityName}のご予約が確定しました`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>${facility}のご予約が<strong style="color:#16a34a;">確定</strong>しました。</p>
@@ -157,7 +162,7 @@ export async function sendBookingCancelled(data: BookingEmailData) {
   await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
-    subject: `【CareLink】${data.facilityName}のご予約がキャンセルされました`,
+    subject: escSubject(`【CareLink】${data.facilityName}のご予約がキャンセルされました`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>${facility}のご予約がキャンセルされました。</p>
@@ -177,7 +182,7 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
   await safeSend(resend, {
     from: FROM,
     to: data.facilityEmail,
-    subject: `【CareLink】新しい予約が入りました - ${data.customerName}様`,
+    subject: escSubject(`【CareLink】新しい予約が入りました - ${data.customerName}様`),
     html: wrapHtml(`
       <p>新しい予約が入りました。管理画面から確認・承認してください。</p>
       <table style="width:100%;border-collapse:collapse;margin:16px 0;">
@@ -200,7 +205,7 @@ export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: s
   await safeSend(resend, {
     from: FROM,
     to: data.ownerEmail,
-    subject: `【CareLink】${data.facilityName}の登録ありがとうございます`,
+    subject: escSubject(`【CareLink】${data.facilityName}の登録ありがとうございます`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>この度はCareLinksに施設を登録いただき、ありがとうございます！</p>
@@ -228,7 +233,7 @@ export async function sendOnboardingFollowEmail(data: {
   await safeSend(resend, {
     from: FROM,
     to: data.ownerEmail,
-    subject: `【CareLink】${data.facilityName}の設定があと少しです`,
+    subject: escSubject(`【CareLink】${data.facilityName}の設定があと少しです`),
     html: wrapHtml(`
       <p>${facility}のご登録から数日が経ちました。</p>
       <p>以下の項目が未設定です。設定を完了するとお客様が予約しやすくなります！</p>
@@ -255,7 +260,7 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
   await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
-    subject: `【CareLink】予約ステータスが「${statusLabel}」に変更されました`,
+    subject: escSubject(`【CareLink】予約ステータスが「${statusLabel}」に変更されました`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>${facility}のご予約のステータスが<strong>「${statusLabel}」</strong>に変更されました。</p>

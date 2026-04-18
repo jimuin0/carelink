@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { FacilityPhoto } from '@/types';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
@@ -22,6 +23,7 @@ export default function AdminPhotosPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Upload form
   const [selectedType, setSelectedType] = useState<FacilityPhoto['photo_type']>('interior');
@@ -104,16 +106,22 @@ export default function AdminPhotosPage() {
     }
   };
 
-  const handleDelete = async (photo: FacilityPhoto) => {
+  const handleDelete = (photo: FacilityPhoto) => {
     if (!facilityId || deleting) return;
-    if (!window.confirm('この写真を削除しますか？')) return;
-    setDeleting(photo.id);
+    setConfirmDeleteId(photo.id);
+  };
+
+  const executeDelete = async () => {
+    const id = confirmDeleteId;
+    if (!id || !facilityId) return;
+    setConfirmDeleteId(null);
+    setDeleting(id);
     try {
       const supabase = createBrowserSupabaseClient();
       const { error } = await supabase
         .from('facility_photos')
         .delete()
-        .eq('id', photo.id)
+        .eq('id', id)
         .eq('facility_id', facilityId);
       if (error) throw error;
       setToast({ type: 'success', message: '削除しました' });
@@ -230,6 +238,15 @@ export default function AdminPhotosPage() {
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmDeleteId !== null}
+        title="写真を削除"
+        message="この写真を削除しますか？削除すると元に戻せません。"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        onConfirm={executeDelete}
+        onCancel={() => setConfirmDeleteId(null)}
+      />
     </div>
   );
 }

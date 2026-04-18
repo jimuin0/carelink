@@ -58,6 +58,7 @@ export default function SearchBar() {
             placeholder="キーワード（店名・エリアなど）"
             className="form-input w-full"
             autoComplete="off"
+            maxLength={100}
           />
           <SearchSuggest
             query={keyword}

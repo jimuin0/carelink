@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -41,10 +42,16 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ ok: true });
 }
 
-// A/Bテスト結果の取得（管理者用）
+// A/Bテスト結果の取得（プラットフォーム管理者専用）
 export async function GET(request: NextRequest) {
+  const supabase = createServerSupabaseAuthClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
   const key = request.nextUrl.searchParams.get('key');
-  if (!key) return NextResponse.json({ error: 'key required' }, { status: 400 });
+  if (!key || key.length > 100) return NextResponse.json({ error: 'key required' }, { status: 400 });
 
   const admin = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

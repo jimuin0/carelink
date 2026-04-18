@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import JobForm from '@/components/admin/JobForm';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import type { JobFormInput, JobFormValues } from '@/lib/jobs';
 
 export default function EditJobPage() {
@@ -15,6 +16,7 @@ export default function EditJobPage() {
   const [submitting, setSubmitting] = useState(false);
   const [defaults, setDefaults] = useState<Partial<JobFormInput> | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -67,8 +69,12 @@ export default function EditJobPage() {
     }
   };
 
-  const handleDelete = async () => {
-    if (!confirm('この求人を削除しますか？')) return;
+  const handleDelete = () => {
+    setConfirmDelete(true);
+  };
+
+  const doDelete = async () => {
+    setConfirmDelete(false);
     try {
       const res = await fetch(`/api/admin/jobs/${jobId}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -99,6 +105,15 @@ export default function EditJobPage() {
         />
       )}
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+
+      <ConfirmDialog
+        open={confirmDelete}
+        title="求人を削除"
+        message="この求人を削除しますか？"
+        confirmLabel="削除する"
+        onConfirm={doDelete}
+        onCancel={() => setConfirmDelete(false)}
+      />
     </div>
   );
 }

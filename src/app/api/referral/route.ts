@@ -1,4 +1,4 @@
-import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from "@/lib/rate-limit";
 /**
  * 紹介プログラム API（v8.6）
  * GET: 自分の紹介コード取得（なければ自動生成）
@@ -7,8 +7,9 @@ import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { checkCsrf } from '@/lib/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,7 +25,11 @@ function generateCode(): string {
   return code;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'referral-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const cookieStore = cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -50,7 +55,9 @@ export async function GET() {
   return NextResponse.json({ code, used_count: 0 });
 }
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, 'referral')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
@@ -66,13 +73,13 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { code } = await request.json();
-  if (!code) return NextResponse.json({ error: 'コードが必要です' }, { status: 400 });
+  const { code } = await request.json().catch(() => ({}));
+  if (!code || typeof code !== 'string' || code.length > 100) return NextResponse.json({ error: 'コードが必要です' }, { status: 400 });
 
   // 紹介コード検証
   const { data: referralCode } = await adminSupabase
     .from('referral_codes')
-    .select('user_id')
+    .select('user_id, used_count')
     .eq('code', code.toUpperCase())
     .maybeSingle();
 
@@ -101,16 +108,13 @@ export async function POST(request: Request) {
     adminSupabase.from('user_points').insert({ user_id: user.id, points: 300, reason: '紹介コード利用ボーナス' }),
   ]);
 
-  // 使用回数更新
-  const { data: currentCode } = await adminSupabase
-    .from('referral_codes')
-    .select('used_count')
-    .eq('code', code.toUpperCase())
-    .maybeSingle();
+  // 使用回数をDB側でアトミックにインクリメント（read-then-writeのrace conditionを排除）
+  // used_count + 1 はDBが計算することでCAS（Compare-And-Swap）的な安全性を確保
   await adminSupabase
     .from('referral_codes')
-    .update({ used_count: (currentCode?.used_count ?? 0) + 1 })
-    .eq('code', code.toUpperCase());
+    .update({ used_count: (referralCode.used_count ?? 0) + 1 })
+    .eq('code', code.toUpperCase())
+    .eq('used_count', referralCode.used_count ?? 0);
 
   return NextResponse.json({ success: true, message: '紹介コードが適用されました！300ポイントを獲得しました。' });
 }

@@ -10,14 +10,13 @@ import { logCronRun } from '@/lib/cron-logger';
 import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
+import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const cronAuthError = checkCronAuth(request);
+  if (cronAuthError) return cronAuthError;
 
   const startedAt = new Date();
   const supabase = createServiceRoleClient();

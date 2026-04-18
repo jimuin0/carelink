@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -21,7 +23,7 @@ async function getAdminAndVerifyPackage(request: NextRequest, packageId: string)
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { data: pkg } = await admin.from('service_packages').select('facility_id').eq('id', packageId).single();
   if (!pkg) return null;
 
@@ -37,25 +39,31 @@ async function getAdminAndVerifyPackage(request: NextRequest, packageId: string)
 }
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getAdminAndVerifyPackage(request, params.id);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { data, error } = await admin.from('service_packages').update(parsed.data).eq('id', params.id).select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ package: data });
 }
 
 export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+  if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const auth = await getAdminAndVerifyPackage(request, params.id);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   // 購入済みユーザーがいる場合は無効化のみ（削除しない）
   const { count } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
@@ -65,6 +73,6 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
   }
 
   const { error } = await admin.from('service_packages').delete().eq('id', params.id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ message: 'deleted' });
 }

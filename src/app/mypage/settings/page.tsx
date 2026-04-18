@@ -3,6 +3,8 @@
 import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
+import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -10,12 +12,23 @@ function SettingsContent() {
 
   const [gcal, setGcal] = useState<{ connected: boolean; updatedAt?: string } | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [lineLinked, setLineLinked] = useState<boolean | null>(null);
+  const [lineUnlinking, setLineUnlinking] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showGcalDisconnect, setShowGcalDisconnect] = useState(false);
+  const [showLineUnlink, setShowLineUnlink] = useState(false);
 
   useEffect(() => {
     fetch('/api/google-calendar')
-      .then((r) => r.json())
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then(setGcal)
       .catch(() => setGcal({ connected: false }));
+
+    // LINE連携状態を確認
+    fetch('/api/profile')
+      .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
+      .then((d) => setLineLinked(!!d.profile?.line_user_id))
+      .catch(() => setLineLinked(false));
   }, []);
 
   const handleConnect = async () => {
@@ -30,7 +43,7 @@ function SettingsContent() {
       if (data.authUrl) {
         window.location.href = data.authUrl;
       } else {
-        alert(data.error || '接続できませんでした');
+        setToast({ type: 'error', message: data.error || '接続できませんでした' });
         setConnecting(false);
       }
     } catch {
@@ -39,13 +52,22 @@ function SettingsContent() {
   };
 
   const handleDisconnect = async () => {
-    if (!confirm('Googleカレンダー連携を解除しますか？')) return;
     await fetch('/api/google-calendar', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'disconnect' }),
     });
     setGcal({ connected: false });
+  };
+
+  const handleLineUnlink = async () => {
+    setLineUnlinking(true);
+    try {
+      await fetch('/api/liff/link', { method: 'DELETE' });
+      setLineLinked(false);
+    } finally {
+      setLineUnlinking(false);
+    }
   };
 
   return (
@@ -81,7 +103,7 @@ function SettingsContent() {
             </div>
             <button
               type="button"
-              onClick={handleDisconnect}
+              onClick={() => setShowGcalDisconnect(true)}
               className="text-sm text-red-600 hover:text-red-700 underline"
             >
               連携を解除する
@@ -105,6 +127,38 @@ function SettingsContent() {
         )}
       </div>
 
+      {/* LINE連携 */}
+      <div className="bg-white rounded-2xl shadow-sm p-6">
+        <h2 className="font-semibold text-gray-900 mb-1">LINE連携</h2>
+        <p className="text-sm text-gray-500 mb-4">
+          LINEアプリからの予約確認・ポイント確認・クーポン閲覧ができるようになります。
+        </p>
+        {lineLinked === null ? (
+          <div className="h-10 bg-gray-100 rounded-lg animate-pulse" />
+        ) : lineLinked ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2 text-green-600 text-sm">
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              </svg>
+              LINEと連携中
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowLineUnlink(true)}
+              disabled={lineUnlinking}
+              className="text-sm text-red-600 hover:text-red-700 underline disabled:opacity-50"
+            >
+              {lineUnlinking ? '解除中...' : '連携を解除する'}
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500">
+            LINE連携はLINEアプリのリッチメニューから行えます。施設からQRコードをご案内します。
+          </p>
+        )}
+      </div>
+
       {/* Notifications */}
       <div className="bg-white rounded-2xl shadow-sm p-6">
         <h2 className="font-semibold text-gray-900 mb-1">通知設定</h2>
@@ -123,11 +177,31 @@ function SettingsContent() {
           <Link href="/mypage/profile" className="block text-sm text-gray-700 hover:text-sky-600 transition-colors">
             プロフィール編集 →
           </Link>
-          <Link href="/account/delete" className="block text-sm text-red-600 hover:text-red-700 transition-colors">
+          <Link href="/mypage/profile#delete" className="block text-sm text-red-600 hover:text-red-700 transition-colors">
             アカウントを削除する →
           </Link>
         </div>
       </div>
+
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={showGcalDisconnect}
+        title="Googleカレンダー連携を解除"
+        message="Googleカレンダーとの連携を解除しますか？予約の同期ができなくなります。"
+        confirmLabel="解除する"
+        cancelLabel="キャンセル"
+        onConfirm={() => { setShowGcalDisconnect(false); handleDisconnect(); }}
+        onCancel={() => setShowGcalDisconnect(false)}
+      />
+      <ConfirmDialog
+        open={showLineUnlink}
+        title="LINE連携を解除"
+        message="LINE連携を解除しますか？LINEからの通知が届かなくなります。"
+        confirmLabel="解除する"
+        cancelLabel="キャンセル"
+        onConfirm={() => { setShowLineUnlink(false); handleLineUnlink(); }}
+        onCancel={() => setShowLineUnlink(false)}
+      />
     </div>
   );
 }

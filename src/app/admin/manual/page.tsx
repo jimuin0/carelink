@@ -119,6 +119,7 @@ export default function ManualPage() {
           <p className="text-sm text-gray-500 mt-1">CareLink管理画面の操作方法をご確認いただけます</p>
         </div>
         <button
+          type="button"
           onClick={() => window.print()}
           className="flex items-center gap-2 text-sm border px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors"
         >

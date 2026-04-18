@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
+import { UUID_REGEX } from '@/lib/constants';
+import { checkCsrf } from '@/lib/csrf';
 
 const grantSchema = z.object({
   facility_id: z.string().uuid(),
@@ -40,11 +42,13 @@ export async function GET(request: NextRequest) {
   const facilityId = request.nextUrl.searchParams.get('facility_id');
   const userId = request.nextUrl.searchParams.get('user_id');
   if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
+  if (userId && !UUID_REGEX.test(userId)) return NextResponse.json({ error: 'Invalid user_id' }, { status: 400 });
 
   const isAdmin = await checkAdminMembership(supabase, user.id, facilityId);
   if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   let query = admin
     .from('user_subscriptions')
     .select('*, subscription_plans(name, price, sessions_per_month), profiles(display_name, email)')
@@ -54,24 +58,26 @@ export async function GET(request: NextRequest) {
   if (userId) query = query.eq('user_id', userId);
 
   const { data, error } = await query.limit(200);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ subscriptions: data });
 }
 
 // 管理者がユーザーにサブスクを付与
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = grantSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 });
+  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const isAdmin = await checkAdminMembership(supabase, user.id, parsed.data.facility_id);
   if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
 
   const { data: plan } = await admin.from('subscription_plans')
     .select('valid_months')
@@ -91,12 +97,14 @@ export async function POST(request: NextRequest) {
     notes: parsed.data.notes,
   }).select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ subscription: data }, { status: 201 });
 }
 
 // 1回セッション使用
 export async function PATCH(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -106,7 +114,7 @@ export async function PATCH(request: NextRequest) {
   // ステータス変更
   const statusParsed = updateStatusSchema.safeParse(body);
   if (statusParsed.success && body.status) {
-    const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+    const admin = createServiceRoleClient();
     const { data: sub } = await admin.from('user_subscriptions').select('facility_id').eq('id', statusParsed.data.subscription_id).single();
     if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
@@ -117,15 +125,15 @@ export async function PATCH(request: NextRequest) {
       .update({ status: statusParsed.data.status })
       .eq('id', statusParsed.data.subscription_id)
       .select().single();
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     return NextResponse.json({ subscription: data });
   }
 
   // セッション使用
   const useParsed = useSchema.safeParse(body);
-  if (!useParsed.success) return NextResponse.json({ error: useParsed.error.issues[0].message }, { status: 400 });
+  if (!useParsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
-  const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  const admin = createServiceRoleClient();
   const { data: sub } = await admin
     .from('user_subscriptions')
     .select('*, subscription_plans(sessions_per_month, facility_id)')
@@ -163,7 +171,7 @@ export async function PATCH(request: NextRequest) {
     .eq('id', useParsed.data.subscription_id)
     .select().single();
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   await admin.from('subscription_usage_logs').insert({
     subscription_id: useParsed.data.subscription_id,
