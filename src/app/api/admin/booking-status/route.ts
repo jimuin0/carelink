@@ -12,6 +12,17 @@ export const dynamic = 'force-dynamic';
 
 const validStatuses = ['confirmed', 'completed', 'cancelled', 'no_show'];
 
+// State machine: defines which transitions are permitted per current status.
+// Prevents: cancelled → confirmed (re-activating cancelled bookings to extort customers)
+// Prevents: completed → confirmed (which would allow re-awarding completion points)
+const allowedTransitions: Record<string, string[]> = {
+  pending:    ['confirmed', 'cancelled'],
+  confirmed:  ['completed', 'cancelled', 'no_show'],
+  completed:  ['no_show'],          // only admin correction; cannot go back to confirmed
+  cancelled:  [],                   // terminal state — no transitions allowed
+  no_show:    ['cancelled'],        // allow correcting a no_show to cancelled
+};
+
 export async function POST(request: Request) {
   try {
     const csrfError = checkCsrf(request);
@@ -81,6 +92,15 @@ export async function POST(request: Request) {
 
     if (booking.status === status) {
       return NextResponse.json({ error: '既にそのステータスです' }, { status: 400 });
+    }
+
+    // State machine validation: only permit defined transitions
+    const permitted = allowedTransitions[booking.status] ?? [];
+    if (!permitted.includes(status)) {
+      return NextResponse.json(
+        { error: `このステータス変更は許可されていません（${booking.status} → ${status}）` },
+        { status: 400 }
+      );
     }
 
     // Update status

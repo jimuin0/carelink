@@ -150,6 +150,26 @@ export async function PATCH(request: NextRequest) {
   if (sub.status !== 'active') return NextResponse.json({ error: 'サブスクリプションが有効ではありません' }, { status: 400 });
   if (sub.ends_at && new Date(sub.ends_at) < new Date()) return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
 
+  // If a booking_id is supplied, verify it belongs to this subscription's user and facility.
+  // This prevents a user from "burning" a session without an actual booking.
+  if (useParsed.data.booking_id) {
+    const { data: bk } = await admin
+      .from('bookings')
+      .select('id, user_id, facility_id')
+      .eq('id', useParsed.data.booking_id)
+      .maybeSingle();
+    if (!bk) {
+      return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+    }
+    // Booking must belong to the subscription's user (self) or the same facility (admin recording)
+    const subFacilityId = (sub.subscription_plans as { facility_id: string } | null)?.facility_id;
+    const bookingOwnsUser = bk.user_id === sub.user_id;
+    const bookingInFacility = subFacilityId ? bk.facility_id === subFacilityId : false;
+    if (!bookingOwnsUser && !bookingInFacility) {
+      return NextResponse.json({ error: '予約がサブスクリプションと一致しません' }, { status: 400 });
+    }
+  }
+
   // 月リセット確認
   const now = new Date();
   const resetAt = new Date(sub.month_reset_at);
@@ -165,13 +185,19 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: `今月の利用回数上限（${sessionsPerMonth}回）に達しています` }, { status: 400 });
   }
 
+  // Optimistic-lock (CAS): only increment if sessions_used_this_month hasn't changed since our read.
+  // This prevents a race condition where two concurrent requests both see usedThisMonth < limit
+  // and both succeed, exceeding the monthly cap.
   const { data: updated, error } = await admin
     .from('user_subscriptions')
     .update({ sessions_used_this_month: usedThisMonth + 1 })
     .eq('id', useParsed.data.subscription_id)
+    .eq('sessions_used_this_month', usedThisMonth)   // CAS guard
     .select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  // CAS miss: concurrent request updated sessions_used_this_month between our read and write
+  if (!updated) return NextResponse.json({ error: '同時リクエストが競合しました。再度お試しください。' }, { status: 409 });
 
   await admin.from('subscription_usage_logs').insert({
     subscription_id: useParsed.data.subscription_id,

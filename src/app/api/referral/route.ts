@@ -95,18 +95,34 @@ export async function POST(request: NextRequest) {
 
   if (existingUse) return NextResponse.json({ error: '既に紹介コードを使用済みです' }, { status: 400 });
 
-  // 使用記録
-  await adminSupabase.from('referral_uses').insert({
+  // 使用記録（UNIQUE(referred_user_id) でDB側の二重使用を防ぐ）
+  const { error: useInsertError } = await adminSupabase.from('referral_uses').insert({
     code: code.toUpperCase(),
     referred_user_id: user.id,
     referrer_user_id: referralCode.user_id,
   });
+  // Handle race: another concurrent request may have inserted first (unique constraint violation)
+  if (useInsertError) {
+    if (useInsertError.code === '23505') {
+      return NextResponse.json({ error: '既に紹介コードを使用済みです' }, { status: 400 });
+    }
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 
   // 双方にポイント付与（紹介者500pt、被紹介者300pt）
-  await Promise.all([
+  // Both inserts must succeed; if either fails the referral_use row already exists
+  // so the user cannot retry — log the error prominently so ops can manually correct.
+  const [refResult, selfResult] = await Promise.all([
     adminSupabase.from('user_points').insert({ user_id: referralCode.user_id, points: 500, reason: '紹介ボーナス' }),
     adminSupabase.from('user_points').insert({ user_id: user.id, points: 300, reason: '紹介コード利用ボーナス' }),
   ]);
+  if (refResult.error || selfResult.error) {
+    // referral_uses row is committed; points could not be awarded.
+    // Surface as 500 so the client knows and ops can investigate via Sentry.
+    const err = refResult.error ?? selfResult.error;
+    console.error('[referral] ポイント付与失敗 (referral_uses行は挿入済み):', err);
+    return NextResponse.json({ error: 'ポイントの付与に失敗しました。サポートにお問い合わせください。' }, { status: 500 });
+  }
 
   // 使用回数をDB側でアトミックにインクリメント（read-then-writeのrace conditionを排除）
   // used_count + 1 はDBが計算することでCAS（Compare-And-Swap）的な安全性を確保

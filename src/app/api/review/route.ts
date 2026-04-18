@@ -130,13 +130,24 @@ export async function POST(request: Request) {
   }
 
   // ポイント付与（fire-and-forget）
+  // Only award once per user per facility to prevent farming by repeated reviews.
   if (user) {
-    supabase.from('user_points').insert({
-      user_id: user.id,
-      facility_id: parsed.data.facility_id,
-      points: 50,
-      reason: 'review',
-    }).then(() => null, () => null);
+    supabase.from('user_points')
+      .select('id')
+      .eq('user_id', user.id)
+      .eq('facility_id', parsed.data.facility_id)
+      .eq('reason', 'review')
+      .limit(1)
+      .then(({ data: existing }) => {
+        if (!existing || existing.length === 0) {
+          supabase.from('user_points').insert({
+            user_id: user.id,
+            facility_id: parsed.data.facility_id,
+            points: 50,
+            reason: 'review',
+          }).then(() => null, () => null);
+        }
+      }, () => null);
   }
 
   return NextResponse.json({ success: true, id: review.id });
