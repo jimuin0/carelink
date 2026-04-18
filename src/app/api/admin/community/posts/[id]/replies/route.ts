@@ -17,7 +17,8 @@ async function requireFacilityMember(userId: string) {
   return !!data;
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -39,7 +40,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ replies: replies || [] });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 20, 60_000, 'community-replies')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });

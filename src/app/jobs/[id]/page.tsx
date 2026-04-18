@@ -7,7 +7,7 @@ import { SITE_URL } from '@/lib/constants';
 export const revalidate = 3600;
 
 interface Props {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }
 
 interface JobRow {
@@ -71,7 +71,8 @@ function formatSalary(min: number | null, max: number | null, note: string | nul
   return note || '応相談';
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const job = await getJob(params.id);
   if (!job || !job.facility_profiles) return { title: '求人が見つかりません | CareLink' };
   const f = job.facility_profiles;
@@ -101,7 +102,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function JobDetailPage({ params }: Props) {
+export default async function JobDetailPage(props: Props) {
+  const params = await props.params;
   const job = await getJob(params.id);
   if (!job || !job.facility_profiles) notFound();
   const f = job.facility_profiles;
@@ -187,7 +189,7 @@ export default async function JobDetailPage({ params }: Props) {
           <div className="flex items-start gap-4">
             {f.main_photo_url && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={f.main_photo_url} alt={f.name} className="w-20 h-20 object-cover rounded-xl shrink-0" />
+              (<img src={f.main_photo_url} alt={f.name} className="w-20 h-20 object-cover rounded-xl shrink-0" />)
             )}
             <div className="flex-1 min-w-0">
               <div className="flex flex-wrap gap-2 mb-2">
@@ -268,7 +270,6 @@ export default async function JobDetailPage({ params }: Props) {
           </p>
         </div>
       </div>
-
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jobPostingLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }}

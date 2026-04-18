@@ -31,10 +31,8 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
   return data?.facility_id ?? null;
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -71,10 +69,8 @@ export async function PATCH(
   return NextResponse.json({ post: data });
 }
 
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 

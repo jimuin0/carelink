@@ -61,10 +61,8 @@ async function getAdminFacilityIdAndVerifyStaff(
 }
 
 // PUT: Replace all weekly schedules for a staff member
-export async function PUT(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -104,10 +102,8 @@ export async function PUT(
 }
 
 // POST: Add or update a schedule override
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -143,10 +139,8 @@ export async function POST(
 }
 
 // DELETE: Remove a schedule override
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 

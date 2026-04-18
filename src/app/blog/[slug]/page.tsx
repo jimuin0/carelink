@@ -80,7 +80,8 @@ export async function generateStaticParams() {
   return articles.map((a) => ({ slug: a.slug }));
 }
 
-export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+export async function generateMetadata(props: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const params = await props.params;
   const post = await getPost(params.slug);
   if (!post) return {};
   const publishedAt = post.published_at?.split('T')[0] ?? '';
@@ -127,7 +128,8 @@ function renderSection(section: ArticleSection, i: number) {
   }
 }
 
-export default async function ArticlePage({ params }: { params: { slug: string } }) {
+export default async function ArticlePage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const post = await getPost(params.slug);
   if (!post) notFound();
 
@@ -152,7 +154,6 @@ export default async function ArticlePage({ params }: { params: { slug: string }
     <div className="section-container">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
       <Breadcrumb items={[{ label: 'ホーム', href: '/' }, { label: 'コラム', href: '/blog' }, { label: post.title }]} />
-
       <article className="max-w-3xl mx-auto">
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-3 flex-wrap">

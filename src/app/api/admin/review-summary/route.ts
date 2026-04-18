@@ -31,7 +31,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'AI機能は設定されていません' }, { status: 503 });
   }
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

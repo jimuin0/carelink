@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
   const nonce = crypto.randomBytes(32).toString('hex');
   const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now(), nonce })).toString('base64url');
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   cookieStore.set('google_oauth_state', nonce, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

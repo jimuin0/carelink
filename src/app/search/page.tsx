@@ -15,14 +15,15 @@ export const dynamic = 'force-dynamic';
 import { SITE_URL } from '@/lib/constants';
 
 interface Props {
-  searchParams: {
+  searchParams: Promise<{
     keyword?: string; type?: string; area?: string; sort?: string; page?: string;
     rating_min?: string; price_min?: string; price_max?: string; features?: string;
     lat?: string; lng?: string; available_date?: string; available_time?: string;
-  };
+  }>;
 }
 
-export async function generateMetadata({ searchParams }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const searchParams = await props.searchParams;
   const parts: string[] = [];
   if (searchParams.area) parts.push(searchParams.area);
   if (searchParams.type) parts.push(searchParams.type);
@@ -53,7 +54,8 @@ export async function generateMetadata({ searchParams }: Props): Promise<Metadat
   };
 }
 
-export default async function SearchPage({ searchParams }: Props) {
+export default async function SearchPage(props: Props) {
+  const searchParams = await props.searchParams;
   const validSorts = ['rating', 'newest', 'popular'] as const;
   const sort = validSorts.includes(searchParams.sort as typeof validSorts[number])
     ? (searchParams.sort as typeof validSorts[number])
@@ -128,7 +130,6 @@ export default async function SearchPage({ searchParams }: Props) {
   return (
     <div className="bg-gray-50 min-h-screen">
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
-
       {/* Hero */}
       <section className="bg-gradient-to-br from-sky-50 to-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
@@ -150,7 +151,6 @@ export default async function SearchPage({ searchParams }: Props) {
           <Suspense fallback={null}><SearchBar /></Suspense>
         </div>
       </section>
-
       {/* Main Content */}
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="flex gap-8">
@@ -273,7 +273,6 @@ export default async function SearchPage({ searchParams }: Props) {
           </div>
         </div>
       </div>
-
       {/* モバイル: フィルターボタン */}
       <MobileFilterButton filterCount={filterCount} />
     </div>

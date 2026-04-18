@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -21,7 +21,8 @@ function formatDate(dateStr: string): string {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日（${days[d.getDay()]}）`;
 }
 
-export default function AdminBookingDetailPage({ params }: { params: { id: string } }) {
+export default function AdminBookingDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [booking, setBooking] = useState<Booking | null>(null);
   const [menuName, setMenuName] = useState<string | null>(null);
   const [staffName, setStaffName] = useState<string | null>(null);

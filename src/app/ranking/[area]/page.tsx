@@ -11,10 +11,11 @@ export function generateStaticParams() {
 }
 
 interface Props {
-  params: { area: string };
+  params: Promise<{ area: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const area = decodeURIComponent(params.area);
   const title = `${area}の人気ランキング | CareLink`;
   const description = `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`;
@@ -26,7 +27,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function AreaRankingPage({ params }: Props) {
+export default async function AreaRankingPage(props: Props) {
+  const params = await props.params;
   const area = decodeURIComponent(params.area);
   const facilities = await getRankedFacilities(area);
 

@@ -55,10 +55,11 @@ function renderMarkdown(text: string): string {
 }
 
 interface Props {
-  params: { slug: string; postSlug: string };
+  params: Promise<{ slug: string; postSlug: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
   const post = await getBlogPost(facility.id, params.postSlug);
@@ -73,7 +74,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function BlogDetailPage({ params }: Props) {
+export default async function BlogDetailPage(props: Props) {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 

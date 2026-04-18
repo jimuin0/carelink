@@ -3,10 +3,11 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCustomerVisits } from '@/lib/admin';
 
 interface Props {
-  params: { email: string };
+  params: Promise<{ email: string }>;
 }
 
-export default async function CustomerDetailPage({ params }: Props) {
+export default async function CustomerDetailPage(props: Props) {
+  const params = await props.params;
   let email: string;
   try {
     email = decodeURIComponent(params.email);

@@ -8,10 +8,11 @@ import { getBlogsByFacility } from '@/lib/blog';
 export const revalidate = 3600;
 
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
   const title = `ブログ | ${facility.name} | CareLink`;
@@ -24,7 +25,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function FacilityBlogPage({ params }: Props) {
+export default async function FacilityBlogPage(props: Props) {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 

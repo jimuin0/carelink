@@ -2,8 +2,8 @@ import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 
 interface Props {
-  params: { slug: string };
-  searchParams: { id?: string; date?: string; time?: string; end_time?: string; facility?: string; has_intake?: string };
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ id?: string; date?: string; time?: string; end_time?: string; facility?: string; has_intake?: string }>;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,7 +62,9 @@ function buildIcsContent(date?: string, time?: string, endTime?: string, facilit
   ].join('\r\n');
 }
 
-export default function BookingCompletePage({ params, searchParams }: Props) {
+export default async function BookingCompletePage(props: Props) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   const bookingId = searchParams.id;
   const hasIntakeForm = searchParams.has_intake === '1';
   const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);

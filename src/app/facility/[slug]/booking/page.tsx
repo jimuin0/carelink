@@ -6,10 +6,11 @@ import { getCouponsByFacility } from '@/lib/coupons';
 import BookingFlow from '@/components/booking/BookingFlow';
 
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
   const title = `予約 | ${facility.name} | CareLink`;
@@ -22,7 +23,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function BookingPage({ params }: Props) {
+export default async function BookingPage(props: Props) {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 

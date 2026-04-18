@@ -17,7 +17,8 @@ async function requireFacilityMember(userId: string): Promise<boolean> {
   return !!data;
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 30, 60_000, 'community-likes')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
@@ -55,7 +56,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json({ like_count: post?.like_count ?? 0 }, { status: 201 });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });

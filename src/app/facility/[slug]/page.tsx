@@ -46,10 +46,11 @@ export async function generateStaticParams() {
 }
 
 interface Props {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return { title: 'ページが見つかりません | CareLink' };
 
@@ -83,7 +84,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function FacilityPage({ params }: Props) {
+export default async function FacilityPage(props: Props) {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
@@ -519,7 +521,6 @@ export default async function FacilityPage({ params }: Props) {
           />
         )}
       </div>
-
       <ViewCount facilityId={facility.id} facilityName={facility.name} facilitySlug={params.slug} mainPhotoUrl={facility.main_photo_url} businessType={facility.business_type} />
       <StickyBookingBar phone={facility.phone} facilityName={facility.name} facilitySlug={params.slug} facilityId={facility.id} />
     </div>
@@ -539,7 +540,6 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           <p className="text-gray-600 text-sm leading-relaxed whitespace-pre-line">{facility.description}</p>
         </div>
       )}
-
       {/* おすすめメニュー */}
       {featuredMenus.length > 0 && (
         <div>
@@ -567,7 +567,6 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           </div>
         </div>
       )}
-
       {/* 特徴タグ */}
       {facility.features && facility.features.length > 0 && (
         <div>
@@ -584,7 +583,6 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           </div>
         </div>
       )}
-
       {/* 基本情報（簡易） */}
       <div>
         <h2 className="text-lg font-bold mb-3 flex items-center gap-2">

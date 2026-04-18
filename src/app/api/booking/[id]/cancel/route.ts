@@ -13,7 +13,8 @@ import { notifyCancellationLineWorks, isLineWorksConfigured } from '@/lib/integr
 
 export const dynamic = 'force-dynamic';
 
-export async function POST(_request: Request, { params }: { params: { id: string } }) {
+export async function POST(_request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
   const csrfError = checkCsrf(_request);
   if (csrfError) return csrfError;
@@ -26,7 +27,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
   if (!uuidRegex.test(params.id)) {
     return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
   }
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

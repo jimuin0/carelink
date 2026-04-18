@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -16,7 +16,8 @@ const statusLabels: Record<string, { label: string; color: string }> = {
   no_show: { label: '無断キャンセル', color: 'bg-red-100 text-red-800' },
 };
 
-export default function BookingDetailPage({ params }: { params: { id: string } }) {
+export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const router = useRouter();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
@@ -94,7 +95,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
   return (
     <div>
       <h1 className="text-xl font-bold mb-4">予約詳細</h1>
-
       <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-500">ステータス</span>
@@ -127,7 +127,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
           </div>
         )}
       </div>
-
       {/* カレンダー追加 */}
       {booking && booking.booking_date && booking.start_time && (
         <div className="flex gap-2 mt-4">
@@ -183,7 +182,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
           </a>
         </div>
       )}
-
       {canCancel && (
         <button
           type="button"
@@ -194,7 +192,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
           {cancelling ? 'キャンセル中...' : 'この予約をキャンセル'}
         </button>
       )}
-
       {/* リピート予約（v8.6） */}
       {booking && ['completed', 'cancelled'].includes(booking.status) && booking.facility_id && (
         <button
@@ -210,7 +207,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
           同じ内容で再予約する
         </button>
       )}
-
       <button
         type="button"
         onClick={() => router.push('/mypage/bookings')}
@@ -218,7 +214,6 @@ export default function BookingDetailPage({ params }: { params: { id: string } }
       >
         予約一覧に戻る
       </button>
-
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       <ConfirmDialog
         open={showCancelConfirm}

@@ -98,7 +98,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {};
 }
 
-export default async function SecondSlugPage({ params, searchParams }: Props) {
+export default async function SecondSlugPage(props: Props) {
+  const searchParams = await props.searchParams;
   const { prefectureSlug, secondSlug } = await params;
   const prefName = getPrefectureName(prefectureSlug);
   if (!prefName) notFound();

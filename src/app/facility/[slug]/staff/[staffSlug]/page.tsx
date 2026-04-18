@@ -22,10 +22,11 @@ export async function generateStaticParams() {
 }
 
 interface Props {
-  params: { slug: string; staffSlug: string };
+  params: Promise<{ slug: string; staffSlug: string }>;
 }
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
+export async function generateMetadata(props: Props): Promise<Metadata> {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
   const staff = await getStaffBySlug(facility.id, params.staffSlug);
@@ -40,7 +41,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   };
 }
 
-export default async function StaffDetailPage({ params }: Props) {
+export default async function StaffDetailPage(props: Props) {
+  const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 

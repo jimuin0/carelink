@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
     }
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

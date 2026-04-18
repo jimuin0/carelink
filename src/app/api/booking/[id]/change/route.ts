@@ -17,7 +17,8 @@ const changeSchema = z.object({
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
 });
 
-export async function POST(request: Request, { params }: { params: { id: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
@@ -37,7 +38,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
       return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
     }
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

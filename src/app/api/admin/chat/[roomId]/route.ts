@@ -42,10 +42,8 @@ async function getAdminUserAndVerifyRoom(
 }
 
 // POST: Send a message to a chat room
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { roomId: string } }
-) {
+export async function POST(request: NextRequest, props: { params: Promise<{ roomId: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
@@ -81,10 +79,8 @@ export async function POST(
 }
 
 // PATCH: Mark messages as read
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { roomId: string } }
-) {
+export async function PATCH(request: NextRequest, props: { params: Promise<{ roomId: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 

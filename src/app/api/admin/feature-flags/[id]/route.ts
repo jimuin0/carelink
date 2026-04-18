@@ -27,10 +27,8 @@ async function getAdminUser(): Promise<string | null> {
   return profile?.is_platform_admin ? user.id : null;
 }
 
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 

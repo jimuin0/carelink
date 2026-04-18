@@ -22,7 +22,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Read and immediately clear the server-side nonce cookie
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const savedNonce = cookieStore.get('google_oauth_state')?.value;
   cookieStore.delete('google_oauth_state');
 

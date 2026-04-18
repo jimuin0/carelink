@@ -38,7 +38,8 @@ export const metadata: Metadata = {
   alternates: { canonical: `${SITE_URL}/jobs` },
 };
 
-export default async function JobsListPage({ searchParams }: { searchParams: SearchParams }) {
+export default async function JobsListPage(props: { searchParams: Promise<SearchParams> }) {
+  const searchParams = await props.searchParams;
   const supabase = createServerSupabaseClient();
   const page = Math.max(1, parseInt(searchParams.page || '1', 10));
   const from = (page - 1) * PAGE_SIZE;
@@ -128,7 +129,7 @@ export default async function JobsListPage({ searchParams }: { searchParams: Sea
                 <div className="flex gap-4">
                   {f.main_photo_url && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={f.main_photo_url} alt={f.name} className="w-16 h-16 object-cover rounded-lg shrink-0" />
+                    (<img src={f.main_photo_url} alt={f.name} className="w-16 h-16 object-cover rounded-lg shrink-0" />)
                   )}
                   <div className="flex-1 min-w-0">
                     <div className="flex flex-wrap gap-1.5 mb-1">

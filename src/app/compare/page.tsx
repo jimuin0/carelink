@@ -11,10 +11,11 @@ export const metadata: Metadata = {
 };
 
 interface Props {
-  searchParams: { ids?: string };
+  searchParams: Promise<{ ids?: string }>;
 }
 
-export default async function ComparePage({ searchParams }: Props) {
+export default async function ComparePage(props: Props) {
+  const searchParams = await props.searchParams;
   const ids = searchParams.ids?.split(',').filter(Boolean).slice(0, 3) || [];
   if (ids.length === 0) {
     return (

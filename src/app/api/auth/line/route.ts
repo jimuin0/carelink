@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
     const state = crypto.randomUUID();
 
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const cookieOptions = {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',

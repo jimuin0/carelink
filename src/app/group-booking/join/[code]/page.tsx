@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, use } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
@@ -20,7 +20,8 @@ interface GroupInfo {
   members: { id: string; guest_name: string | null; status: string; is_organizer: boolean }[];
 }
 
-export default function JoinGroupBookingPage({ params }: { params: { code: string } }) {
+export default function JoinGroupBookingPage(props: { params: Promise<{ code: string }> }) {
+  const params = use(props.params);
   const router = useRouter();
   const [info, setInfo] = useState<GroupInfo | null>(null);
   const [loading, setLoading] = useState(true);

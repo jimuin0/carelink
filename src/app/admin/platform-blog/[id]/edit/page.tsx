@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -15,9 +15,10 @@ const SECTION_TEMPLATES = {
   callout_warning: '{"type":"callout","calloutType":"warning","text":"注意内容"}',
 };
 
-interface Props { params: { id: string } }
+interface Props { params: Promise<{ id: string }> }
 
-export default function EditPlatformBlogPage({ params }: Props) {
+export default function EditPlatformBlogPage(props: Props) {
+  const params = use(props.params);
   const router = useRouter();
   const [title, setTitle] = useState('');
   const [slug, setSlug] = useState('');

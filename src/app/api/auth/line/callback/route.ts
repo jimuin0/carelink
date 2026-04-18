@@ -12,7 +12,7 @@ export async function GET(request: Request) {
   const state = searchParams.get('state');
   const lineError = searchParams.get('error');
 
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const savedState = cookieStore.get('line_oauth_state')?.value;
   const redirect = cookieStore.get('line_oauth_redirect')?.value || '/mypage';
   const safeRedirect = redirect.startsWith('/') && !redirect.startsWith('//') ? redirect : '/mypage';

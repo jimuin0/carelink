@@ -20,7 +20,7 @@ export async function PATCH(request: NextRequest) {
   if (inMemoryRateLimit(ip, 10, 60_000, 'facility-verify')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const cookieStore = cookies();
+  const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,

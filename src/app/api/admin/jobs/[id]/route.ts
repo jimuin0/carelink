@@ -35,7 +35,8 @@ async function authorize(jobId: string) {
   return { supabase, job };
 }
 
-export async function GET(_req: Request, { params }: { params: { id: string } }) {
+export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const result = await authorize(params.id);
     if ('error' in result) return result.error;
@@ -46,7 +47,8 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
   }
 }
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
@@ -97,7 +99,8 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(request: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;

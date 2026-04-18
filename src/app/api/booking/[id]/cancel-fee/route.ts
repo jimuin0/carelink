@@ -18,7 +18,8 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY ?? '', {
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://carelink-jp.com';
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;

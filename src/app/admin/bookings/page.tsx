@@ -15,10 +15,11 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 };
 
 interface Props {
-  searchParams: { status?: string; date?: string; page?: string };
+  searchParams: Promise<{ status?: string; date?: string; page?: string }>;
 }
 
-export default async function AdminBookingsPage({ searchParams }: Props) {
+export default async function AdminBookingsPage(props: Props) {
+  const searchParams = await props.searchParams;
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();

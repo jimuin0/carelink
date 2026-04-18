@@ -20,10 +20,8 @@ async function requirePlatformAdmin() {
   return user;
 }
 
-export async function PATCH(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
