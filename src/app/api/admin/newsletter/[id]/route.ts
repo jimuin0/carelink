@@ -78,11 +78,18 @@ export async function PATCH(
       return NextResponse.json({ error: 'Cannot send campaign in current status' }, { status: 400 });
     }
 
-    // Mark as sending
-    await admin
+    // Atomically claim the send slot: only update if status is still draft/scheduled.
+    // This prevents double-sends if two requests race through the status check above.
+    const { data: claimed } = await admin
       .from('newsletter_campaigns')
       .update({ status: 'sending', updated_at: new Date().toISOString() })
-      .eq('id', params.id);
+      .eq('id', params.id)
+      .in('status', ['draft', 'scheduled'])
+      .select('id');
+
+    if (!claimed || claimed.length === 0) {
+      return NextResponse.json({ error: 'Campaign is already being sent or has been sent' }, { status: 409 });
+    }
 
     // Determine subscription_type filter
     const subType = campaign.campaign_type === 'owner_monthly' ? 'owner_monthly' : 'user_digest';
