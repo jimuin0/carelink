@@ -16,7 +16,7 @@ const SCOPES = [
 
 // GET /api/google-calendar — check connection status
 export async function GET() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -37,7 +37,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

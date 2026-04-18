@@ -19,7 +19,7 @@ const updateSchema = z.object({
 });
 
 async function getAdminAndVerifyPackage(request: NextRequest, packageId: string): Promise<{ facilityId: string } | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

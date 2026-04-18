@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic';
 export const metadata = { title: '求人管理' };
 
 export default async function AdminJobsPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/login?redirect=/admin/jobs');
 

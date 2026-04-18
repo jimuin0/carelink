@@ -4,7 +4,7 @@ import Link from 'next/link';
 import type { BlogPost } from '@/types';
 
 export default async function AdminBlogPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

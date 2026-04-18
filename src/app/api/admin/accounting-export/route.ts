@@ -26,7 +26,7 @@ function toCsvRow(cols: (string | number | null | undefined)[]): string {
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

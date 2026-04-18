@@ -13,7 +13,7 @@ const flagUpdateSchema = z.object({
 });
 
 async function getAdminUser(): Promise<string | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

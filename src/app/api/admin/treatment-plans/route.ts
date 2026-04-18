@@ -19,7 +19,7 @@ const treatmentPlanSchema = z.object({
 });
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

@@ -2,7 +2,7 @@ import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import type { CustomerVisit } from '@/types';
 
 export async function getCustomerVisits(facilityId: string, email?: string): Promise<CustomerVisit[]> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   let query = supabase
     .from('customer_visits')
     .select('*')
@@ -16,7 +16,7 @@ export async function getCustomerVisits(facilityId: string, email?: string): Pro
 }
 
 export async function getUniqueCustomers(facilityId: string): Promise<{ email: string; name: string; visit_count: number; last_visit: string }[]> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data } = await supabase
     .from('customer_visits')
     .select('customer_email, customer_name, visit_date')

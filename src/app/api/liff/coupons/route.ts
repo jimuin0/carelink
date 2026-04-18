@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Authenticate the caller — never trust a client-supplied user_id.
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

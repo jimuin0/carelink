@@ -25,7 +25,7 @@ async function getFacilityId(userId: string) {
 }
 
 export async function GET() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
   if (inMemoryRateLimit(ip, 10, 60_000, 'featured-ads')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

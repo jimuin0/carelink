@@ -8,7 +8,7 @@ import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { escSubject } from '@/lib/email';
 
 async function requirePlatformAdmin() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
   const { data: profile } = await supabase

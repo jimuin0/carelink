@@ -19,7 +19,7 @@ const bodySchema = z.object({
 });
 
 async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

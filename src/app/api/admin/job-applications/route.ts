@@ -14,7 +14,7 @@ async function getFacilityIds(userId: string): Promise<string[]> {
 }
 
 export async function GET() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Check if user is logged in
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   const { data: application, error } = await admin

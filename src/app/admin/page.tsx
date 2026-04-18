@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 export default async function AdminDashboard() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
@@ -148,7 +148,7 @@ export default async function AdminDashboard() {
 }
 
 async function RecentBookings({ facilityId }: { facilityId: string }) {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data } = await supabase
     .from('bookings')
     .select('id, customer_name, booking_date, start_time, status')

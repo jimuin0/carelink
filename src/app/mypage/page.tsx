@@ -4,7 +4,7 @@ import Link from 'next/link';
 import RecentlyViewed from '@/components/facility/RecentlyViewed';
 
 export default async function MyPageDashboard() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

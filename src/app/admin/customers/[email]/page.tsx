@@ -16,7 +16,7 @@ export default async function CustomerDetailPage(props: Props) {
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) notFound();
 
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

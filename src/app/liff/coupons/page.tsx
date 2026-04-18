@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useLiff } from '@/hooks/useLiff';
 
 type Coupon = {
@@ -31,7 +32,7 @@ function LiffNotLinked() {
       <div className="text-center space-y-4">
         <p className="text-2xl">🔗</p>
         <p className="font-bold text-gray-900">LINE連携が必要です</p>
-        <a href="/mypage/settings" className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold">設定ページへ</a>
+        <Link href="/mypage/settings" className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold">設定ページへ</Link>
       </div>
     </div>
   );

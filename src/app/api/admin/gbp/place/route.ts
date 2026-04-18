@@ -5,7 +5,7 @@ import { checkCsrf } from '@/lib/csrf';
 
 export async function GET(req: NextRequest) {
   try {
-    const supabase = createServerSupabaseAuthClient();
+    const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   // place_id を facility_profiles に保存
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

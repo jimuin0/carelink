@@ -24,7 +24,7 @@ const updateStatusSchema = z.object({
   status: z.enum(['active', 'cancelled', 'paused', 'expired']),
 });
 
-async function checkAdminMembership(supabase: ReturnType<typeof createServerSupabaseAuthClient>, userId: string, facilityId: string) {
+async function checkAdminMembership(supabase: Awaited<ReturnType<typeof createServerSupabaseAuthClient>>, userId: string, facilityId: string) {
   const { data } = await supabase
     .from('facility_members')
     .select('role')
@@ -36,7 +36,7 @@ async function checkAdminMembership(supabase: ReturnType<typeof createServerSupa
 }
 
 export async function GET(request: NextRequest) {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

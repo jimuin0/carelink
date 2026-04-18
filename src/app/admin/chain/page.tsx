@@ -23,7 +23,7 @@ interface FacilityStat {
 }
 
 export default async function ChainManagementPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/auth/login?redirect=/admin/chain');
 

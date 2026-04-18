@@ -21,7 +21,7 @@ async function verifyAdmin(planId: string, userId: string): Promise<string | nul
   const { data: plan } = await admin.from('subscription_plans').select('facility_id').eq('id', planId).single();
   if (!plan) return null;
 
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: mem } = await supabase
     .from('facility_members')
     .select('facility_id')
@@ -38,7 +38,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -61,7 +61,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

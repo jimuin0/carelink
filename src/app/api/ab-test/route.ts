@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ ok: true }); // サイレント無視
 
   // user_id はセッションから取得（リクエストボディの値は使わない）
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   const admin = createClient(
@@ -48,7 +48,7 @@ export async function POST(request: NextRequest) {
 
 // A/Bテスト結果の取得（プラットフォーム管理者専用）
 export async function GET(request: NextRequest) {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();

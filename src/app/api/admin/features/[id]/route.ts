@@ -27,7 +27,7 @@ function getSuperAdminIds(): Set<string> {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 async function getAdminUser(request: NextRequest): Promise<string | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

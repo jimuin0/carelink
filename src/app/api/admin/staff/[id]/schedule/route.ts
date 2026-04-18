@@ -30,7 +30,7 @@ async function getAdminFacilityIdAndVerifyStaff(
   request: NextRequest,
   staffId: string
 ): Promise<string | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

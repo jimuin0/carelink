@@ -5,7 +5,7 @@ import Link from 'next/link';
 import CouponBadge from '@/components/facility/CouponBadge';
 
 export default async function AdminCouponsPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

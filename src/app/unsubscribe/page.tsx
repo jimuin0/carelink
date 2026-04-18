@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 
@@ -55,12 +56,12 @@ function UnsubscribeContent() {
           {status === 'already' && '既にメール配信停止済みです。再度受信するにはマイページから設定を変更してください。'}
           {status === 'error' && 'リンクが無効か期限切れです。マイページから設定を変更してください。'}
         </p>
-        <a
+        <Link
           href="/"
           className="mt-6 inline-block text-sky-500 hover:underline text-sm"
         >
           トップページへ
-        </a>
+        </Link>
       </div>
     </div>
   );

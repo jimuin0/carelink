@@ -20,7 +20,7 @@ interface Props {
 
 export default async function AdminBookingsPage(props: Props) {
   const searchParams = await props.searchParams;
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

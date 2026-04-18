@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
 async function authorize(jobId: string) {
   if (!UUID_REGEX.test(jobId)) return { error: NextResponse.json({ error: '不正なIDです' }, { status: 400 }) };
 
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: '認証が必要です' }, { status: 401 }) };
 

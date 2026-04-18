@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 };
 
 export default async function CouponNotebookPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

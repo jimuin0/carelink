@@ -2,7 +2,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import type { Profile, Favorite, FacilityCardData } from '@/types';
 
 export async function getUserProfile(): Promise<Profile | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
@@ -18,7 +18,7 @@ export async function getUserProfile(): Promise<Profile | null> {
 export async function updateUserProfile(
   updates: Partial<Pick<Profile, 'display_name' | 'phone' | 'prefecture' | 'city' | 'birth_date' | 'gender'>>
 ): Promise<{ error: string | null }> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: '認証が必要です' };
 
@@ -31,7 +31,7 @@ export async function updateUserProfile(
 }
 
 export async function getUserFavorites(): Promise<(Favorite & { facility: FacilityCardData })[]> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
 
@@ -52,7 +52,7 @@ export async function getUserFavorites(): Promise<(Favorite & { facility: Facili
 }
 
 export async function toggleFavorite(facilityId: string): Promise<{ isFavorited: boolean; error: string | null }> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { isFavorited: false, error: '認証が必要です' };
 
@@ -78,7 +78,7 @@ export async function toggleFavorite(facilityId: string): Promise<{ isFavorited:
 }
 
 export async function checkFavorite(facilityId: string): Promise<boolean> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 

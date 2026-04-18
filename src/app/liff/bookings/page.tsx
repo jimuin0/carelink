@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { useLiff } from '@/hooks/useLiff';
 
 type Booking = {
@@ -57,12 +58,12 @@ export default function LiffBookingsPage() {
       ) : bookings.length === 0 ? (
         <div className="text-center py-12">
           <p className="text-gray-400 text-sm">予約はありません</p>
-          <a
+          <Link
             href="/search"
             className="mt-4 inline-block bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-bold"
           >
             施設を探す
-          </a>
+          </Link>
         </div>
       ) : (
         <div className="space-y-3">
@@ -126,12 +127,12 @@ function LiffNotLinked() {
         <p className="text-2xl">🔗</p>
         <p className="font-bold text-gray-900">LINE連携が必要です</p>
         <p className="text-sm text-gray-500">CareLinkアカウントとLINEを連携するには、マイページの設定から行ってください。</p>
-        <a
+        <Link
           href="/mypage/settings"
           className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold"
         >
           設定ページへ
-        </a>
+        </Link>
       </div>
     </div>
   );

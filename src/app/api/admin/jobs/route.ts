@@ -8,7 +8,7 @@ import { jobFormSchema } from '@/lib/jobs';
 export const dynamic = 'force-dynamic';
 
 async function getOwnerFacilityIds() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { supabase, user: null, facilityIds: [] as string[] };
 

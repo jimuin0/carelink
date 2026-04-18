@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   try {
-    const supabase = createServerSupabaseAuthClient();
+    const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -60,7 +60,7 @@ export async function DELETE(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   try {
-    const supabase = createServerSupabaseAuthClient();
+    const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

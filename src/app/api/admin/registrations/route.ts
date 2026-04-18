@@ -12,7 +12,7 @@ import { inMemoryRateLimit } from '@/lib/rate-limit';
 export const dynamic = 'force-dynamic';
 
 async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

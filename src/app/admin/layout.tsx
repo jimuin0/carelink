@@ -66,7 +66,7 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
 export { navItems };
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) {

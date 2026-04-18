@@ -14,7 +14,7 @@ async function getAdminUserAndVerifyRoom(
   request: NextRequest,
   roomId: string
 ): Promise<{ userId: string; facilityId: string } | null> {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 

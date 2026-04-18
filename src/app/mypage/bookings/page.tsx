@@ -12,7 +12,7 @@ const statusLabels: Record<string, { label: string; color: string }> = {
 };
 
 export default async function BookingsPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

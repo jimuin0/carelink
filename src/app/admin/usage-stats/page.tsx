@@ -23,7 +23,7 @@ function monthsAgo(n: number) {
 }
 
 export default async function UsageStatsPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

@@ -38,7 +38,7 @@ const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
 };
 
 export default async function MySubscriptionsPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

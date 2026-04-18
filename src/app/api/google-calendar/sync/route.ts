@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   if (inMemoryRateLimit(ip, 20, 60_000, 'gcal-sync')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
@@ -158,7 +158,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const csrfError = checkCsrf(req);
     if (csrfError) return csrfError;
-    const supabase = createServerSupabaseAuthClient();
+    const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

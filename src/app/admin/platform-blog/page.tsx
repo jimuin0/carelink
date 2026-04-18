@@ -15,7 +15,7 @@ interface PlatformPost {
 }
 
 export default async function PlatformBlogPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

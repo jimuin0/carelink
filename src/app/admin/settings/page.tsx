@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
 import Toast from '@/components/Toast';
@@ -507,7 +508,7 @@ export default function AdminSettingsPage() {
       <section className="bg-white rounded-xl shadow-sm p-6 mt-6">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-lg font-bold">GBP連携（Googleビジネスプロフィール）</h2>
-          <a href="/admin/gbp" className="text-sm text-sky-500 underline">GBP管理画面へ →</a>
+          <Link href="/admin/gbp" className="text-sm text-sky-500 underline">GBP管理画面へ →</Link>
         </div>
         <p className="text-sm text-gray-500 mb-4">
           Google Place ID を登録すると、Googleマップの診断スコア・クチコミ・投稿管理が使えます。
@@ -518,9 +519,9 @@ export default function AdminSettingsPage() {
              target="_blank" rel="noopener noreferrer" className="underline">Place ID Finder</a>
           {' '}で自店舗を検索して取得できます（「ChIJ...」から始まる文字列）
         </div>
-        <a href="/admin/gbp" className="inline-block bg-sky-500 text-white text-sm px-5 py-2 rounded-lg hover:bg-sky-600 transition-colors">
+        <Link href="/admin/gbp" className="inline-block bg-sky-500 text-white text-sm px-5 py-2 rounded-lg hover:bg-sky-600 transition-colors">
           GBP設定・診断を開く
-        </a>
+        </Link>
       </section>
 
       {/* LINE Works連携 */}

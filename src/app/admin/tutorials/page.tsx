@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 export const metadata: Metadata = { title: 'ビデオチュートリアル | 管理画面 | CareLink' };
 
@@ -78,12 +79,12 @@ export default function TutorialsPage() {
           「この機能の使い方が分からない」というご要望があればお知らせください。
           優先的に動画を制作いたします。
         </p>
-        <a
+        <Link
           href="/admin/inquiries"
           className="inline-block mt-3 text-sm text-sky-600 hover:text-sky-700 underline"
         >
           リクエストを送る →
-        </a>
+        </Link>
       </div>
     </div>
   );

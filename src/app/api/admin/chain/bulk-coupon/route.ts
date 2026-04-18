@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
   if (inMemoryRateLimit(ip, 10, 60_000, 'bulk-coupon')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

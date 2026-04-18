@@ -15,7 +15,7 @@ function monthsAgo(n: number) {
 }
 
 export default async function FunnelPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 

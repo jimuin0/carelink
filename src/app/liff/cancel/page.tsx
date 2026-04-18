@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useLiff } from '@/hooks/useLiff';
@@ -30,7 +31,7 @@ function LiffNotLinked() {
       <div className="text-center space-y-4">
         <p className="text-2xl">🔗</p>
         <p className="font-bold text-gray-900">LINE連携が必要です</p>
-        <a href="/mypage/settings" className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold">設定ページへ</a>
+        <Link href="/mypage/settings" className="inline-block bg-[#06C755] text-white px-6 py-2.5 rounded-full text-sm font-bold">設定ページへ</Link>
       </div>
     </div>
   );
@@ -88,7 +89,7 @@ function CancelContent() {
         <div className="text-center space-y-4">
           <p className="text-4xl">✅</p>
           <p className="font-bold text-gray-900">キャンセルが完了しました</p>
-          <a href="/liff/bookings" className="inline-block bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-bold">予約一覧へ</a>
+          <Link href="/liff/bookings" className="inline-block bg-sky-500 text-white px-6 py-2.5 rounded-full text-sm font-bold">予約一覧へ</Link>
         </div>
       </div>
     );
@@ -114,7 +115,7 @@ function CancelContent() {
       {!bookingId ? (
         <div className="text-center py-12">
           <p className="text-gray-400 text-sm">予約IDが指定されていません</p>
-          <a href="/liff/bookings" className="mt-4 inline-block text-sky-500 text-sm">予約一覧から選択する</a>
+          <Link href="/liff/bookings" className="mt-4 inline-block text-sky-500 text-sm">予約一覧から選択する</Link>
         </div>
       ) : loading ? (
         <div className="text-center py-12 text-gray-400 text-sm">読み込み中...</div>
@@ -144,7 +145,7 @@ function CancelContent() {
               >
                 {cancelling ? 'キャンセル中...' : 'この予約をキャンセルする'}
               </button>
-              <a href="/liff/bookings" className="block text-center text-sm text-gray-400 py-2">戻る</a>
+              <Link href="/liff/bookings" className="block text-center text-sm text-gray-400 py-2">戻る</Link>
             </div>
           ) : (
             <div className="text-center py-8 text-gray-400 text-sm">

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import type { UserPoint } from '@/types';
 
 export default async function PointsPage() {
-  const supabase = createServerSupabaseAuthClient();
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
