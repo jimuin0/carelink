@@ -64,7 +64,7 @@ function base64url(str: string): string {
 }
 
 function base64urlUint8(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+  return btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join('')).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
 
 async function buildJwt(clientId: string, serviceAccount: string): Promise<string> {
