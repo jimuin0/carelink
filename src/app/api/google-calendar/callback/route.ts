@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
+import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
@@ -19,7 +21,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
 
-  // Decode state to get userId
+  // Read and immediately clear the server-side nonce cookie
+  const cookieStore = cookies();
+  const savedNonce = cookieStore.get('google_oauth_state')?.value;
+  cookieStore.delete('google_oauth_state');
+
+  // Decode state to get userId and verify nonce (CSRF protection)
   const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   let userId: string;
   try {
@@ -28,6 +35,17 @@ export async function GET(req: NextRequest) {
     if (!UUID_RE.test(userId)) throw new Error('Invalid userId');
     // Reject stale states (> 10 min)
     if (Date.now() - decoded.ts > 10 * 60 * 1000) throw new Error('State expired');
+
+    // Verify nonce against stored cookie using timing-safe comparison
+    const nonce: string = decoded.nonce ?? '';
+    if (!savedNonce || nonce.length === 0 || savedNonce.length !== nonce.length) {
+      throw new Error('Nonce mismatch');
+    }
+    const nonceMatch = crypto.timingSafeEqual(
+      Buffer.from(savedNonce, 'hex'),
+      Buffer.from(nonce, 'hex'),
+    );
+    if (!nonceMatch) throw new Error('Nonce mismatch');
   } catch {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }

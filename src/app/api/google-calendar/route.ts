@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { cookies } from 'next/headers';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
+import crypto from 'crypto';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -51,8 +53,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Generate OAuth2 authorization URL
-  const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now() })).toString('base64url');
+  // Generate OAuth2 authorization URL with CSRF-safe state
+  const nonce = crypto.randomBytes(32).toString('hex');
+  const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now(), nonce })).toString('base64url');
+
+  const cookieStore = cookies();
+  cookieStore.set('google_oauth_state', nonce, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 600,
+    path: '/',
+  });
+
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
   authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
   authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
