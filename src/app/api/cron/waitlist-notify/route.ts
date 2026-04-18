@@ -69,15 +69,22 @@ export async function GET(request: Request) {
           .single();
 
         for (const waiter of waiters) {
-          // 通知済みに更新
-          await supabase
+          // Atomic claim: only send if we win the status transition (CAS guard).
+          // Two concurrent invocations seeing the same cancellation window will
+          // each try to claim; only the first UPDATE matching .eq('status','waiting')
+          // will return a row — the second finds status already 'notified' and skips.
+          const { data: claimed } = await supabase
             .from('booking_waitlist')
             .update({
               status: 'notified',
               notified_at: now.toISOString(),
               expires_at: new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString(),
             })
-            .eq('id', waiter.id);
+            .eq('id', waiter.id)
+            .eq('status', 'waiting')
+            .select('id');
+
+          if (!claimed || claimed.length === 0) continue;
 
           // メール通知
           if (waiter.email && resend && facility) {

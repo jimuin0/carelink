@@ -1,6 +1,6 @@
 import { logCronRun } from '@/lib/cron-logger';
 /**
- * 顧客セグメント分析 Cron（v8.1）
+ * 顧客セグメント分析 Cron（v8.2）
  * GET /api/cron/customer-segment
  * 週次でRFM分析を実行しcustomer_segmentsを更新
  */
@@ -34,18 +34,21 @@ export async function GET(request: Request) {
   try {
     const { data: facilities } = await supabase
       .from('facility_profiles')
-      .select('id')
+      .select('id, name, slug')
       .eq('status', 'published')
       .limit(200);
 
     if (!facilities) return NextResponse.json({ status: 'ok', count: 0 });
 
+    // Build facility lookup map once (avoids per-facility re-fetch in email section)
+    const facilityMap = new Map(facilities.map((f) => [f.id, f]));
+
     const now = new Date();
+    const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     let count = 0;
 
     for (const facility of facilities) {
       // 完了済み予約からメール別に集計（直近2年分、最大2000件）
-      const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       const { data: bookings } = await supabase
         .from('bookings')
         .select('email, customer_name, booking_date, total_price, status')
@@ -85,58 +88,64 @@ export async function GET(request: Request) {
         }
       }
 
-      // セグメント分類してupsert
       const entries = Array.from(customerMap.entries());
-      for (const [email, data] of entries) {
-        const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-        const segment = classifySegment(data.visits, daysSince);
 
+      // Batch upsert to customer_segments (up to 500 per call to avoid payload limits)
+      const upsertRows = entries.map(([email, data]) => {
+        const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+        return {
+          facility_id: facility.id,
+          customer_email: email,
+          customer_name: data.name,
+          first_visit_date: data.firstVisit,
+          last_visit_date: data.lastVisit,
+          total_visits: data.visits,
+          total_spent: data.spent,
+          segment: classifySegment(data.visits, daysSince),
+          updated_at: now.toISOString(),
+        };
+      });
+
+      const CHUNK = 500;
+      for (let i = 0; i < upsertRows.length; i += CHUNK) {
         await supabase
           .from('customer_segments')
-          .upsert({
-            facility_id: facility.id,
-            customer_email: email,
-            customer_name: data.name,
-            first_visit_date: data.firstVisit,
-            last_visit_date: data.lastVisit,
-            total_visits: data.visits,
-            total_spent: data.spent,
-            segment,
-            updated_at: new Date().toISOString(),
-          }, { onConflict: 'facility_id,customer_email' });
+          .upsert(upsertRows.slice(i, i + CHUNK), { onConflict: 'facility_id,customer_email' });
       }
 
       // 離脱リスク顧客に自動フォローメール
       if (process.env.RESEND_API_KEY) {
-        const { data: facilityInfo } = await supabase
-          .from('facility_profiles')
-          .select('name, slug')
-          .eq('id', facility.id)
-          .maybeSingle();
-
+        const facilityInfo = facilityMap.get(facility.id);
         if (facilityInfo) {
           const resend = new Resend(process.env.RESEND_API_KEY);
-          for (const [email, data] of entries) {
-            const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-            const segment = classifySegment(data.visits, daysSince);
 
-            if (segment === 'at_risk' && daysSince >= 60 && daysSince <= 65) {
-              // 60-65日の間のみ送信（重複防止）
-              // 個別クーポンコードを生成（500円引き、30日有効）
+          // Collect at-risk candidates first
+          const atRiskCandidates = entries.filter(([, data]) => {
+            const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
+            return classifySegment(data.visits, daysSince) === 'at_risk' && daysSince >= 60 && daysSince <= 65;
+          });
+
+          if (atRiskCandidates.length > 0) {
+            const atRiskEmails = atRiskCandidates.map(([email]) => email);
+
+            // Batch check for existing coupons (one query instead of N)
+            const cutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+            const { data: existingCoupons } = await supabase
+              .from('user_coupon_codes')
+              .select('email')
+              .eq('facility_id', facility.id)
+              .in('email', atRiskEmails)
+              .eq('reason', 'at_risk')
+              .gte('created_at', cutoff30d);
+
+            const alreadySentEmails = new Set((existingCoupons || []).map((c) => c.email));
+
+            for (const [email, data] of atRiskCandidates) {
+              if (alreadySentEmails.has(email)) continue;
+
+              const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
               const couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
               const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-              // 重複送信チェック（既存クーポンがあればスキップ）
-              const { data: existingCoupon } = await supabase
-                .from('user_coupon_codes')
-                .select('id')
-                .eq('facility_id', facility.id)
-                .eq('email', email)
-                .eq('reason', 'at_risk')
-                .gte('created_at', new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString())
-                .maybeSingle();
-
-              if (existingCoupon) continue;
 
               await supabase.from('user_coupon_codes').insert({
                 facility_id: facility.id,
