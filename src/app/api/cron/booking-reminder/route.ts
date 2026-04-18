@@ -28,7 +28,7 @@ export async function GET(request: Request) {
       .from('bookings')
       .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price')
       .eq('booking_date', tomorrowStr)
-      .in('status', ['pending', 'confirmed'])
+      .eq('status', 'confirmed')
       .limit(200);
 
     if (!bookings || bookings.length === 0) {

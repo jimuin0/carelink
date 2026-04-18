@@ -3,16 +3,14 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
-async function getFacilityId(userId: string) {
+async function getFacilityIds(userId: string): Promise<string[]> {
   const admin = createServiceRoleClient();
   const { data } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  return data?.facility_id;
+    .in('role', ['owner', 'admin']);
+  return (data ?? []).map((m) => m.facility_id as string);
 }
 
 export async function GET() {
@@ -20,14 +18,14 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const facilityId = await getFacilityId(user.id);
-  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const facilityIds = await getFacilityIds(user.id);
+  if (facilityIds.length === 0) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   const { data: applications } = await admin
     .from('job_applications')
     .select('*, job_postings(title)')
-    .eq('facility_id', facilityId)
+    .in('facility_id', facilityIds)
     .order('created_at', { ascending: false });
 
   return NextResponse.json({ applications: applications || [] });

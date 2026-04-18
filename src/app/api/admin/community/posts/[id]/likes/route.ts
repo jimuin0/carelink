@@ -5,6 +5,18 @@ import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
+async function requireFacilityMember(userId: string): Promise<boolean> {
+  const admin = createServiceRoleClient();
+  const { data } = await admin
+    .from('facility_members')
+    .select('facility_id')
+    .eq('user_id', userId)
+    .in('role', ['owner', 'admin'])
+    .limit(1)
+    .single();
+  return !!data;
+}
+
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 30, 60_000, 'community-likes')) {
@@ -16,6 +28,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const isMember = await requireFacilityMember(user.id);
+  if (!isMember) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const admin = createServiceRoleClient();
 
@@ -47,6 +62,9 @@ export async function DELETE(req: NextRequest, { params }: { params: { id: strin
   const supabase = createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const isMember = await requireFacilityMember(user.id);
+  if (!isMember) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const admin = createServiceRoleClient();
 

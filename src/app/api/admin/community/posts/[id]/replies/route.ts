@@ -23,6 +23,9 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const isMember = await requireFacilityMember(user.id);
+  if (!isMember) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+
   const admin = createServiceRoleClient();
 
   const { data: replies, error } = await admin
