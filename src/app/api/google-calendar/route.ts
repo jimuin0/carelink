@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 import crypto from 'crypto';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -35,6 +36,10 @@ export async function GET() {
 
 // POST /api/google-calendar — generate OAuth URL
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'google-calendar')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
