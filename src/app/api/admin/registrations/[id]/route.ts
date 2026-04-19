@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,17 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (error) {
     return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
   }
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId,
+    action: parsed.data.status === 'approved' ? 'approve' : parsed.data.status === 'rejected' ? 'reject' : 'update',
+    tableName: 'salons',
+    recordId: params.id,
+    newValues: { status: parsed.data.status },
+    ipAddress: ip,
+    userAgent: ua,
+  });
 
   return NextResponse.json({ success: true, status: parsed.data.status });
 }

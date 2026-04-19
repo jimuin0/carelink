@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { escSubject } from '@/lib/email';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 async function requirePlatformAdmin() {
   const supabase = await createServerSupabaseAuthClient();
@@ -153,6 +154,17 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       .eq('id', params.id)
       .select()
       .single();
+
+    const { ua } = getRequestContext(req);
+    void writeAuditLog({
+      userId: user.id,
+      action: 'create',
+      tableName: 'newsletter_campaigns',
+      recordId: params.id,
+      newValues: { action: 'send', campaign_type: campaign.campaign_type, subject: campaign.subject, sent_count: sentCount, bounced_count: bouncedCount },
+      ipAddress: ip,
+      userAgent: ua,
+    });
 
     return NextResponse.json({ campaign: updated, sentCount, bouncedCount });
   }
