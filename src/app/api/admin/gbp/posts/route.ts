@@ -4,14 +4,17 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function GET(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'gbp-posts-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const { data, error } = await supabase
@@ -37,7 +40,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
@@ -69,6 +72,10 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'gbp-posts-patch')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
@@ -76,7 +83,7 @@ export async function PATCH(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
@@ -110,6 +117,10 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'gbp-posts-delete')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
@@ -117,7 +128,7 @@ export async function DELETE(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const id = req.nextUrl.searchParams.get('id');

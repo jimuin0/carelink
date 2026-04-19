@@ -1,13 +1,13 @@
 /**
- * AIレビュー要約 API（v8.28）
+ * AIレビュー要約 API（v8.29）
  * GET /api/admin/review-summary?facility_id=xxx
  * Claude Haiku でレビューを要約して施設ページに表示する
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX } from '@/lib/constants';
 
@@ -31,31 +31,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'AI機能は設定されていません' }, { status: 503 });
   }
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
-  // 施設メンバーまたはプラットフォーム管理者のみ許可
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') {
+  // Platform admin or facility member (owner/admin) only
+  const { data: profile } = await supabase.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+  if (!profile?.is_platform_admin) {
     const { data: mem } = await supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .eq('facility_id', facilityId)
+      .in('role', ['owner', 'admin'])
       .limit(1)
       .maybeSingle();
     if (!mem) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   }
 
-  // レビューを最新20件取得
-  const { data: reviews } = await supabase
+  const admin = createServiceRoleClient();
+  const { data: reviews } = await admin
     .from('facility_reviews')
     .select('rating, comment, rating_skill, rating_service, rating_atmosphere')
     .eq('facility_id', facilityId)
@@ -79,9 +74,7 @@ export async function GET(request: Request) {
       max_tokens: 300,
       messages: [{
         role: 'user',
-        content: `以下は施設への口コミです。主な特徴・長所・注意点を日本語で3文以内に要約してください。「この施設は」で始めてください。
-
-${reviewText}`,
+        content: `以下は施設への口コミです。主な特徴・長所・注意点を日本語で3文以内に要約してください。「この施設は」で始めてください。\n\n${reviewText}`,
       }],
     });
 
