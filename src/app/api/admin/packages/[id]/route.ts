@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -19,7 +20,7 @@ const updateSchema = z.object({
   sort_order: z.number().int().optional(),
 });
 
-async function getAdminAndVerifyPackage(request: NextRequest, packageId: string): Promise<{ facilityId: string } | null> {
+async function getAdminAndVerifyPackage(request: NextRequest, packageId: string): Promise<{ facilityId: string; userId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -36,7 +37,7 @@ async function getAdminAndVerifyPackage(request: NextRequest, packageId: string)
     .in('role', ['owner', 'admin'])
     .single();
 
-  return membership ? { facilityId: pkg.facility_id } : null;
+  return membership ? { facilityId: pkg.facility_id, userId: user.id } : null;
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -59,6 +60,17 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const { data, error } = await admin.from('service_packages').update(parsed.data).eq('id', params.id).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'service_packages',
+    recordId: params.id,
+    newValues: parsed.data,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ package: data });
 }
 
@@ -85,5 +97,15 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const { error } = await admin.from('service_packages').delete().eq('id', params.id);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'delete',
+    tableName: 'service_packages',
+    recordId: params.id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ message: 'deleted' });
 }

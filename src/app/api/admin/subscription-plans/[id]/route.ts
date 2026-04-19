@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -58,6 +59,17 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'update',
+    tableName: 'subscription_plans',
+    recordId: params.id,
+    newValues: parsed.data,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ plan: data });
 }
 
@@ -88,5 +100,15 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   const { error } = await admin.from('subscription_plans').delete().eq('id', params.id);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'delete',
+    tableName: 'subscription_plans',
+    recordId: params.id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ message: 'deleted' });
 }
