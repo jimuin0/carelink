@@ -67,11 +67,28 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden', message: '別施設のデータにはアクセスできません' }, { status: 403 });
   }
 
-  const from = sp.get('from');
-  const to = sp.get('to');
-  const status = sp.get('status');
+  const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+  const VALID_STATUSES = ['pending', 'confirmed', 'completed', 'cancelled'];
+
+  const fromRaw = sp.get('from');
+  const toRaw = sp.get('to');
+  const statusRaw = sp.get('status');
+
+  if (fromRaw && !ISO_DATE_RE.test(fromRaw)) {
+    return NextResponse.json({ error: 'from は YYYY-MM-DD 形式で指定してください' }, { status: 400 });
+  }
+  if (toRaw && !ISO_DATE_RE.test(toRaw)) {
+    return NextResponse.json({ error: 'to は YYYY-MM-DD 形式で指定してください' }, { status: 400 });
+  }
+  if (statusRaw && !VALID_STATUSES.includes(statusRaw)) {
+    return NextResponse.json({ error: `status は ${VALID_STATUSES.join('|')} のいずれかです` }, { status: 400 });
+  }
+
+  const from = fromRaw;
+  const to = toRaw;
+  const status = statusRaw;
   const limit = Math.min(parseInt(sp.get('limit') ?? '50') || 50, 100);
-  const page = Math.max(parseInt(sp.get('page') ?? '1') || 1, 1);
+  const page = Math.min(Math.max(parseInt(sp.get('page') ?? '1') || 1, 1), 10000);
   const offset = (page - 1) * limit;
 
   const admin = createServiceRoleClient();
