@@ -36,6 +36,10 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
 }
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'subscription-plans-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const facilityId = await getAdminFacilityId(request);
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
