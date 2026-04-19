@@ -7,6 +7,17 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { escSubject } from '@/lib/email';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { createHmac } from 'crypto';
+
+function makeUnsubToken(email: string): string {
+  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+  if (!secret) throw new Error('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
+  return createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
+}
+
+function unsubUrl(email: string): string {
+  return `https://carelink-jp.com/unsubscribe?email=${encodeURIComponent(email)}&hmac=${makeUnsubToken(email)}`;
+}
 
 async function requirePlatformAdmin() {
   const supabase = await createServerSupabaseAuthClient();
@@ -125,21 +136,24 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     let sentCount = 0;
     let bouncedCount = 0;
 
-    // Send in batches of 50
-    const BATCH_SIZE = 50;
+    // Send individually (personalized unsubscribe URL per recipient).
+    // Use resend.batch.send() in chunks of 100 (Resend batch limit).
+    const BATCH_SIZE = 100;
+    const subject = escSubject(campaign.subject);
     for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-      const batch = emails.slice(i, i + BATCH_SIZE);
+      const chunk = emails.slice(i, i + BATCH_SIZE);
+      const messages = chunk.map((email) => ({
+        from: 'CareLink <newsletter@carelink-jp.com>',
+        to: [email],
+        subject,
+        html: campaign.html_content + `<br><br><hr><p style="font-size:11px;color:#999">配信停止は<a href="${unsubUrl(email)}">こちら</a></p>`,
+        text: campaign.text_content || undefined,
+      }));
       try {
-        await resend.emails.send({
-          from: 'CareLink <newsletter@carelink-jp.com>',
-          to: batch,
-          subject: escSubject(campaign.subject),
-          html: campaign.html_content + `<br><br><hr><p style="font-size:11px;color:#999">配信停止は<a href="https://carelink-jp.com/unsubscribe?id=${campaign.id}">こちら</a></p>`,
-          text: campaign.text_content || undefined,
-        });
-        sentCount += batch.length;
+        await resend.batch.send(messages);
+        sentCount += chunk.length;
       } catch {
-        bouncedCount += batch.length;
+        bouncedCount += chunk.length;
       }
     }
 

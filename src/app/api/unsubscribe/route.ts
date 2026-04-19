@@ -1,20 +1,42 @@
 /**
- * メール配信停止 API（v8.17）
+ * メール配信停止 API
  * POST /api/unsubscribe
- * トークンを検証してprofilesのemail_unsubscribedをtrueに設定する
+ *
+ * 方式A（既存: アカウント登録ユーザー向け）:
+ *   { token: "<64-char hex>" }  — email_unsubscribe_tokens テーブルで検索
+ *
+ * 方式B（ニュースレター向け）:
+ *   { email: "...", hmac: "<64-char hex>" }  — HMAC-SHA256 で検証（ステートレス）
  */
 
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
-const schema = z.object({
+const tokenSchema = z.object({
   token: z.string().length(64).regex(/^[0-9a-f]+$/),
 });
+
+const hmacSchema = z.object({
+  email: z.string().email().max(254),
+  hmac: z.string().length(64).regex(/^[0-9a-f]+$/),
+});
+
+function verifyUnsubHmac(email: string, hmac: string): boolean {
+  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+  if (!secret) return false;
+  const expected = createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
+  try {
+    return timingSafeEqual(Buffer.from(hmac, 'hex'), Buffer.from(expected, 'hex'));
+  } catch {
+    return false;
+  }
+}
 
 export async function POST(request: Request) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
@@ -23,10 +45,6 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => null);
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'トークンが不正です' }, { status: 400 });
-  }
 
   const cookieStore = await cookies();
   const supabase = createServerClient(
@@ -35,11 +53,53 @@ export async function POST(request: Request) {
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
 
+  // 方式B: HMAC ベースのニュースレター配信停止
+  const hmacParsed = hmacSchema.safeParse(body);
+  if (hmacParsed.success) {
+    const { email, hmac } = hmacParsed.data;
+    if (!verifyUnsubHmac(email, hmac)) {
+      // HMACが不正でも成功扱い（列挙攻撃防止）
+      return NextResponse.json({ success: true, already: true });
+    }
+
+    const normalizedEmail = email.toLowerCase();
+
+    // newsletter_subscriptions を非アクティブ化
+    const { data: sub } = await supabase
+      .from('newsletter_subscriptions')
+      .select('is_active')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+
+    if (sub?.is_active === false) {
+      return NextResponse.json({ success: true, already: true });
+    }
+
+    await supabase
+      .from('newsletter_subscriptions')
+      .update({ is_active: false })
+      .eq('email', normalizedEmail);
+
+    // profiles に一致するアカウントがあれば email_unsubscribed もセット
+    await supabase
+      .from('profiles')
+      .update({ email_unsubscribed: true })
+      .eq('email', normalizedEmail);
+
+    return NextResponse.json({ success: true, already: false });
+  }
+
+  // 方式A: DB トークンベース
+  const tokenParsed = tokenSchema.safeParse(body);
+  if (!tokenParsed.success) {
+    return NextResponse.json({ error: 'トークンが不正です' }, { status: 400 });
+  }
+
   // トークン検索（未使用のもののみ）
   const { data: tokenRow, error: tokenErr } = await supabase
     .from('email_unsubscribe_tokens')
     .select('user_id, used_at')
-    .eq('token', parsed.data.token)
+    .eq('token', tokenParsed.data.token)
     .single();
 
   if (tokenErr || !tokenRow) {
@@ -60,11 +120,10 @@ export async function POST(request: Request) {
     .single();
 
   if (profile?.email_unsubscribed) {
-    // プロフィールが既に停止済み → トークンも使用済みにマーク
     await supabase
       .from('email_unsubscribe_tokens')
       .update({ used_at: new Date().toISOString() })
-      .eq('token', parsed.data.token);
+      .eq('token', tokenParsed.data.token);
     return NextResponse.json({ success: true, already: true });
   }
 
@@ -78,7 +137,7 @@ export async function POST(request: Request) {
   await supabase
     .from('email_unsubscribe_tokens')
     .update({ used_at: new Date().toISOString() })
-    .eq('token', parsed.data.token);
+    .eq('token', tokenParsed.data.token);
 
   return NextResponse.json({ success: true, already: false });
 }

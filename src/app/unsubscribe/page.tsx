@@ -8,10 +8,18 @@ import { Suspense } from 'react';
 function UnsubscribeContent() {
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
+  const email = searchParams.get('email');
+  const hmac = searchParams.get('hmac');
   const [status, setStatus] = useState<'loading' | 'success' | 'already' | 'error'>('loading');
 
   useEffect(() => {
-    if (!token) {
+    const payload = token
+      ? { token }
+      : email && hmac
+        ? { email, hmac }
+        : null;
+
+    if (!payload) {
       setStatus('error');
       return;
     }
@@ -20,7 +28,7 @@ function UnsubscribeContent() {
         const res = await fetch('/api/unsubscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ token }),
+          body: JSON.stringify(payload),
         });
         if (res.ok) {
           const body = await res.json();
@@ -33,7 +41,7 @@ function UnsubscribeContent() {
       }
     };
     run();
-  }, [token]);
+  }, [token, email, hmac]);
 
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
