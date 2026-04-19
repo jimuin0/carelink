@@ -5,6 +5,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import * as Sentry from '@sentry/nextjs';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,6 +88,17 @@ export async function POST(request: Request) {
     if (updateError) {
       return NextResponse.json({ error: 'ステータスの更新に失敗しました' }, { status: 500 });
     }
+
+    void writeAuditLog({
+      userId: user.id,
+      facilityId: booking.facility_id,
+      action: 'confirm',
+      tableName: 'bookings',
+      recordId: bookingId,
+      oldValues: { status: 'confirmed' },
+      newValues: { status: 'completed' },
+      ipAddress: ip,
+    });
 
     // Fetch menu name and staff name for customer_visits
     let menuName: string | null = null;

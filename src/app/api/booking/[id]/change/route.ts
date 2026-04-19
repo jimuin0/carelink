@@ -8,6 +8,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createClient } from '@supabase/supabase-js';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,16 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     if (error) {
       return NextResponse.json({ error: '変更に失敗しました' }, { status: 500 });
     }
+
+    void writeAuditLog({
+      userId: user.id,
+      facilityId: booking.facility_id,
+      action: 'update',
+      tableName: 'bookings',
+      recordId: params.id,
+      newValues: { booking_date: parsed.data.booking_date, start_time: parsed.data.start_time, end_time: parsed.data.end_time },
+      ipAddress: ip,
+    });
 
     // LINE Works change notification (non-blocking)
     if (isLineWorksConfigured()) {

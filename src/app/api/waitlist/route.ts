@@ -104,6 +104,10 @@ export async function POST(request: Request) {
 export async function DELETE(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'waitlist-delete')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id が必要です' }, { status: 400 });
