@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const VALID_STATUSES = ['active', 'completed', 'discontinued', 'paused'] as const;
 
@@ -13,7 +14,7 @@ const updateSchema = z.object({
   completed_sessions: z.number().int().min(0).max(9999).optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminContext(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -29,7 +30,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { facilityId: data.facility_id, userId: user.id } : null;
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -44,8 +45,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const ctx = await getAdminContext(request);
+  if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = updateSchema.safeParse(body);
@@ -56,11 +57,22 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .from('treatment_plans')
     .update({ ...parsed.data, updated_at: new Date().toISOString() })
     .eq('id', params.id)
-    .eq('facility_id', facilityId)
+    .eq('facility_id', ctx.facilityId)
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '治療計画が見つかりません' }, { status: 404 });
+
+  void writeAuditLog({
+    userId: ctx.userId,
+    facilityId: ctx.facilityId,
+    action: 'update',
+    tableName: 'treatment_plans',
+    recordId: params.id,
+    newValues: parsed.data,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ plan: data });
 }

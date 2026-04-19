@@ -1,8 +1,8 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
 import { jobFormSchema } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -22,7 +22,11 @@ async function getOwnerFacilityIds() {
   return { supabase, user, facilityIds };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-jobs-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   try {
     const { supabase, user, facilityIds } = await getOwnerFacilityIds();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });

@@ -101,6 +101,10 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'group-booking-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const code = request.nextUrl.searchParams.get('code');
   if (!code || code.length > 20) return NextResponse.json({ error: 'code required' }, { status: 400 });
 

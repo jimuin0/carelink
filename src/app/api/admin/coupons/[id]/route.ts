@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -66,6 +67,17 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'update',
+    tableName: 'coupons',
+    recordId: params.id,
+    newValues: parsed.data,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ coupon: data });
 }
 
@@ -89,5 +101,15 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const admin = createServiceRoleClient();
   const { error } = await admin.from('coupons').delete().eq('id', params.id);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'delete',
+    tableName: 'coupons',
+    recordId: params.id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ message: 'deleted' });
 }

@@ -1,10 +1,11 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX } from '@/lib/constants';
 import { jobFormSchema } from '@/lib/jobs';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,10 +33,14 @@ async function authorize(jobId: string) {
     .single();
 
   if (!job) return { error: NextResponse.json({ error: '求人が見つかりません' }, { status: 404 }) };
-  return { supabase, job };
+  return { supabase, job, userId: user.id };
 }
 
-export async function GET(_req: Request, props: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-jobs-id-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const params = await props.params;
   try {
     const result = await authorize(params.id);
@@ -66,7 +71,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     const result = await authorize(params.id);
     if ('error' in result) return result.error;
-    const { supabase, job } = result;
+    const { supabase, job, userId } = result;
 
     const v = parsed.data;
     const { data, error } = await supabase
@@ -92,6 +97,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       Sentry.captureException(error, { tags: { feature: 'admin-jobs-update' } });
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
     }
+
+    void writeAuditLog({
+      userId,
+      facilityId: job.facility_id,
+      action: 'update',
+      tableName: 'facility_jobs',
+      recordId: job.id,
+      newValues: { title: v.title, job_type: v.job_type, employment_type: v.employment_type },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ job: data });
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'admin-jobs-update' } });
@@ -112,7 +128,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
 
     const result = await authorize(params.id);
     if ('error' in result) return result.error;
-    const { supabase, job } = result;
+    const { supabase, job, userId } = result;
 
     const { error } = await supabase
       .from('facility_jobs')
@@ -124,6 +140,16 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
       Sentry.captureException(error, { tags: { feature: 'admin-jobs-delete' } });
       return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
     }
+
+    void writeAuditLog({
+      userId,
+      facilityId: job.facility_id,
+      action: 'delete',
+      tableName: 'facility_jobs',
+      recordId: job.id,
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ success: true });
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'admin-jobs-delete' } });
