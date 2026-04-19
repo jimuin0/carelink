@@ -64,6 +64,10 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
+  const deleteIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(deleteIp, 5, 60_000, 'liff-link-delete')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   try {
     const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
