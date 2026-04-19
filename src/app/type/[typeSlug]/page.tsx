@@ -9,6 +9,7 @@ import {
   prefectureSlugs,
 } from '@/lib/seo-constants';
 import { SITE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/json-ld';
 import { searchFacilities } from '@/lib/facilities';
 import { getBusinessTypeContext } from '@/lib/seo-snippets';
 import Breadcrumb from '@/components/Breadcrumb';
@@ -74,9 +75,9 @@ export default async function BusinessTypePage({ params }: Props) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }} />
       {faqJsonLd && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqJsonLd) }} />
       )}
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

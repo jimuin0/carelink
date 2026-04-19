@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/json-ld';
 
 export const revalidate = 3600;
 
@@ -270,11 +271,11 @@ export default async function JobDetailPage(props: Props) {
       </div>
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jobPostingLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(jobPostingLd) }}
       />
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }}
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbLd) }}
       />
     </div>
   );

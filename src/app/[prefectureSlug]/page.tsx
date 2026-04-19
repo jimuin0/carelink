@@ -8,6 +8,7 @@ import {
   getPrefectureName,
 } from '@/lib/seo-constants';
 import { regionGroups, SITE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/json-ld';
 import { getCitiesForPrefecture } from '@/data/city-slugs';
 import SafeHtmlContent from '@/components/seo/SafeHtmlContent';
 import { searchFacilities } from '@/lib/facilities';
@@ -83,7 +84,7 @@ export default async function PrefecturePage({ params }: Props) {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }} />
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb
@@ -210,7 +211,7 @@ export default async function PrefecturePage({ params }: Props) {
           <script
             type="application/ld+json"
             dangerouslySetInnerHTML={{
-              __html: JSON.stringify({
+              __html: safeJsonLd({
                 '@context': 'https://schema.org',
                 '@type': 'FAQPage',
                 mainEntity: effectiveFaqs.map((faq) => ({
@@ -218,7 +219,7 @@ export default async function PrefecturePage({ params }: Props) {
                   name: faq.question,
                   acceptedAnswer: { '@type': 'Answer', text: faq.answer },
                 })),
-              }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+              }),
             }}
           />
         )}

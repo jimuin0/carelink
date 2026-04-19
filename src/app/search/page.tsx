@@ -11,6 +11,7 @@ import ViewToggle from '@/components/search/ViewToggle';
 export const dynamic = 'force-dynamic';
 
 import { SITE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/json-ld';
 
 interface Props {
   searchParams: Promise<{
@@ -127,7 +128,7 @@ export default async function SearchPage(props: Props) {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbJsonLd) }} />
       {/* Hero */}
       <section className="bg-gradient-to-br from-sky-50 to-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">

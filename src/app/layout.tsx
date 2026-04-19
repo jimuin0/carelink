@@ -5,6 +5,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
+import { safeJsonLd } from "@/lib/json-ld";
 
 const notoSansJp = Noto_Sans_JP({
   subsets: ["latin"],
@@ -77,7 +78,7 @@ export default function RootLayout({
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify([
+            __html: safeJsonLd([
               {
                 "@context": "https://schema.org",
                 "@type": "WebSite",
@@ -154,7 +155,7 @@ export default function RootLayout({
                   },
                 ],
               },
-            ]).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+            ]),
           }}
         />
         <LayoutSwitch>{children}</LayoutSwitch>

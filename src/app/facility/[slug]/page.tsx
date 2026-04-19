@@ -33,6 +33,7 @@ import NearbyFacilities from '@/components/facility/NearbyFacilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
+import { safeJsonLd } from '@/lib/json-ld';
 
 export const revalidate = 3600;
 
@@ -323,7 +324,7 @@ export default async function FacilityPage(props: Props) {
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
+            __html: safeJsonLd({
               '@context': 'https://schema.org',
               '@type': (() => {
                 const bt = facility.business_type || '';
@@ -424,7 +425,7 @@ export default async function FacilityPage(props: Props) {
                   datePublished: r.created_at.split('T')[0],
                 })),
               }),
-            }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+            }),
           }}
         />
         {/* JSON-LD: BreadcrumbList */}
@@ -450,11 +451,11 @@ export default async function FacilityPage(props: Props) {
             <script
               type="application/ld+json"
               dangerouslySetInnerHTML={{
-                __html: JSON.stringify({
+                __html: safeJsonLd({
                   '@context': 'https://schema.org',
                   '@type': 'BreadcrumbList',
                   itemListElement: items,
-                }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+                }),
               }}
             />
           );
@@ -464,7 +465,7 @@ export default async function FacilityPage(props: Props) {
           <script
             type="application/ld+json"
             dangerouslySetInnerHTML={{
-              __html: JSON.stringify(
+              __html: safeJsonLd(
                 reviews.slice(0, 10).map((r) => ({
                   '@context': 'https://schema.org',
                   '@type': 'Review',
@@ -474,7 +475,7 @@ export default async function FacilityPage(props: Props) {
                   reviewBody: r.comment,
                   datePublished: r.created_at?.split('T')[0],
                 }))
-              ).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+              ),
             }}
           />
         )}
@@ -483,7 +484,7 @@ export default async function FacilityPage(props: Props) {
           <script
             type="application/ld+json"
             dangerouslySetInnerHTML={{
-              __html: JSON.stringify({
+              __html: safeJsonLd({
                 '@context': 'https://schema.org',
                 '@type': 'OfferCatalog',
                 name: `${facility.name}のメニュー`,
@@ -497,7 +498,7 @@ export default async function FacilityPage(props: Props) {
                   }),
                   availability: 'https://schema.org/InStock',
                 })),
-              }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+              }),
             }}
           />
         )}
@@ -506,7 +507,7 @@ export default async function FacilityPage(props: Props) {
           <script
             type="application/ld+json"
             dangerouslySetInnerHTML={{
-              __html: JSON.stringify(
+              __html: safeJsonLd(
                 staff.map((s) => ({
                   '@context': 'https://schema.org',
                   '@type': 'Person',
@@ -516,7 +517,7 @@ export default async function FacilityPage(props: Props) {
                   ...(s.photo_url && { image: s.photo_url }),
                   ...(s.bio && { description: s.bio }),
                 }))
-              ).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+              ),
             }}
           />
         )}

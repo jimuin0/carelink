@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { safeJsonLd } from '@/lib/json-ld';
 
 export const metadata: Metadata = {
   title: '【無料掲載】医療・福祉・美容の集客サイト',
@@ -20,14 +21,14 @@ export default function SalonLayout({ children }: { children: React.ReactNode })
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
+          __html: safeJsonLd({
             "@context": "https://schema.org",
             "@type": "BreadcrumbList",
             itemListElement: [
               { "@type": "ListItem", position: 1, name: "トップ", item: "https://carelink-jp.com" },
               { "@type": "ListItem", position: 2, name: "施設・サロンの方", item: "https://carelink-jp.com/salon" },
             ],
-          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+          }),
         }}
       />
       {children}

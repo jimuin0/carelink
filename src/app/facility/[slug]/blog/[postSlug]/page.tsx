@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { getFacilityBySlug } from '@/lib/facilities';
 import { getBlogPost } from '@/lib/blog';
+import { safeJsonLd } from '@/lib/json-ld';
 
 export const revalidate = 3600;
 
@@ -97,7 +98,7 @@ export default async function BlogDetailPage(props: Props) {
 
   return (
     <div className="bg-gray-50 min-h-screen">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       <div className="max-w-4xl mx-auto bg-white shadow-sm">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
           <ol className="flex items-center gap-1.5 text-xs text-gray-400">

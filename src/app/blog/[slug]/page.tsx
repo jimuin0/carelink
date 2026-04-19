@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import Breadcrumb from '@/components/Breadcrumb';
 import { articles, type ArticleSection } from '@/data/articles';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { safeJsonLd } from '@/lib/json-ld';
 
 export const revalidate = 3600;
 
@@ -152,7 +153,7 @@ export default async function ArticlePage(props: { params: Promise<{ slug: strin
 
   return (
     <div className="section-container">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(jsonLd) }} />
       <Breadcrumb items={[{ label: 'ホーム', href: '/' }, { label: 'コラム', href: '/blog' }, { label: post.title }]} />
       <article className="max-w-3xl mx-auto">
         <div className="mb-8">

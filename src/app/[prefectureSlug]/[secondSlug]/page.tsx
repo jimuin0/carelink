@@ -9,6 +9,7 @@ import {
   isValidBusinessTypeSlug,
 } from '@/lib/seo-constants';
 import { regionGroups, facilityFeatures, SITE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/json-ld';
 import { searchFacilities } from '@/lib/facilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { getAreaSeoContent } from '@/lib/area-seo';
@@ -145,7 +146,7 @@ async function TypePage({ prefectureSlug, prefName, typeSlug, searchParams }: {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: prefName, href: `/${prefectureSlug}` }, { label: typeName }]} />
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{prefName}の{typeName}</h1>
@@ -211,7 +212,7 @@ async function CityPage({ prefectureSlug, prefName, citySlug, cityName, searchPa
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(itemListJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(itemListJsonLd) }} />
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <Breadcrumb items={[{ label: 'トップ', href: '/' }, { label: prefName, href: `/${prefectureSlug}` }, { label: cityName }]} />
         <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-2">{cityName}のサロン・クリニック</h1>
@@ -317,13 +318,13 @@ function SeoTextSection({ seoContent, generated, fallbackTitle, fallbackBody }: 
       </section>
       {effectiveFaqs.length > 0 && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
+          __html: safeJsonLd({
             '@context': 'https://schema.org', '@type': 'FAQPage',
             mainEntity: effectiveFaqs.map((faq) => ({
               '@type': 'Question', name: faq.question,
               acceptedAnswer: { '@type': 'Answer', text: faq.answer },
             })),
-          }).replace(/</g, '\\u003c').replace(/>/g, '\\u003e'),
+          }),
         }} />
       )}
     </>

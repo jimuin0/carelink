@@ -5,6 +5,7 @@ import { createClient } from '@supabase/supabase-js';
 import FacilityCard from '@/components/search/FacilityCard';
 import { getSymptomSeo } from '@/data/symptom-seo';
 import { SITE_URL } from '@/lib/constants';
+import { safeJsonLd } from '@/lib/json-ld';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -101,9 +102,9 @@ export default async function SymptomPage({ params }: Props) {
 
   return (
     <div className="min-h-screen bg-white">
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(breadcrumbJsonLd) }} />
       {faqJsonLd && (
-        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqJsonLd).replace(/</g, '\\u003c').replace(/>/g, '\\u003e') }} />
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: safeJsonLd(faqJsonLd) }} />
       )}
       <div className="max-w-[1040px] mx-auto px-4 sm:px-6 py-8">
         {/* パンくず */}
