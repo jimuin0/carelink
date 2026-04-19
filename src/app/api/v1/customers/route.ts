@@ -58,7 +58,7 @@ export async function GET(request: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (search) {
-    const safeSearch = search.replace(/[%_\\]/g, '\\$&').slice(0, 100);
+    const safeSearch = search.replace(/[%_\\]/g, '\\$&').replace(/[,()]/g, '').slice(0, 100);
     query = query.or(`customer_name.ilike.%${safeSearch}%,customer_phone.ilike.%${safeSearch}%`);
   }
 
