@@ -158,6 +158,10 @@ export async function DELETE(req: NextRequest) {
   try {
     const csrfError = checkCsrf(req);
     if (csrfError) return csrfError;
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    if (inMemoryRateLimit(ip, 20, 60_000, 'gcal-sync-delete')) {
+      return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+    }
     const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
