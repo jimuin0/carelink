@@ -35,8 +35,11 @@ async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient
   return count ?? 0;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export async function GET(_request: Request) {
+export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 10, 60_000, 'backup-get')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   // 管理者権限チェック
   const user = await requirePlatformAdmin();
   if (!user) return NextResponse.json({ error: '管理者権限が必要です' }, { status: 403 });

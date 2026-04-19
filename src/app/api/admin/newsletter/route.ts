@@ -18,7 +18,11 @@ async function requirePlatformAdmin() {
   return user;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'newsletter-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const user = await requirePlatformAdmin();
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 

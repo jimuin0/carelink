@@ -5,6 +5,10 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export async function GET(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'gbp-place-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   try {
     const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -14,6 +18,7 @@ export async function GET(req: NextRequest) {
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
+      .in('role', ['owner', 'admin'])
       .limit(1)
       .single();
     if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
@@ -69,6 +74,7 @@ export async function POST(req: NextRequest) {
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
+    .in('role', ['owner', 'admin'])
     .limit(1)
     .single();
   if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });

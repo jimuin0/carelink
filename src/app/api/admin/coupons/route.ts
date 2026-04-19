@@ -45,6 +45,10 @@ async function getAdminInfo(request: NextRequest): Promise<{ userId: string; fac
 }
 
 export async function GET(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 30, 60_000, 'coupons-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const auth = await getAdminInfo(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
