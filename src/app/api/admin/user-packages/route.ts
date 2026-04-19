@@ -174,15 +174,18 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
   }
 
-  // デクリメント
+  // Atomic decrement: require sessions_remaining matches what we read (optimistic lock)
+  // Prevents double-debit if two concurrent requests race past the > 0 check above.
   const { data: updated, error } = await admin
     .from('user_packages')
     .update({ sessions_remaining: userPkg.sessions_remaining - 1 })
     .eq('id', parsed.data.user_package_id)
+    .eq('sessions_remaining', userPkg.sessions_remaining)
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!updated) return NextResponse.json({ error: '残り回数がありません（同時更新が発生しました）' }, { status: 409 });
 
   // ログ記録
   await admin.from('package_usage_logs').insert({
