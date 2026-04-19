@@ -48,6 +48,10 @@ export async function POST(request: NextRequest) {
 
 // A/Bテスト結果の取得（プラットフォーム管理者専用）
 export async function GET(request: NextRequest) {
+  const getIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(getIp, 20, 60_000, 'ab-test-get')) {
+    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  }
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
