@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { createHmac } from 'crypto';
+
+function makeUnsubToken(email: string): string {
+  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+  if (!secret) throw new Error('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
+  return createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
+}
+
+function unsubUrl(email: string): string {
+  return `https://carelink-jp.com/unsubscribe?email=${encodeURIComponent(email)}&hmac=${makeUnsubToken(email)}`;
+}
 
 // Monthly newsletter cron — runs on 1st of each month
 // Sends owner_monthly digest to all facility owners
@@ -51,8 +62,8 @@ export async function GET(req: NextRequest) {
     .gte('created_at', startOfLastMonth)
     .lte('created_at', endOfLastMonth);
 
-  // Build HTML
-  const html = `
+  // Build HTML body (unsubscribe URL is per-recipient, appended at send time)
+  const htmlBody = `
 <!DOCTYPE html>
 <html lang="ja">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -103,12 +114,7 @@ export async function GET(req: NextRequest) {
         <a href="https://carelink-jp.com/admin" style="background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;font-size:15px">管理画面を確認する</a>
       </div>
     </div>
-    <div style="background:#f9fafb;padding:24px 32px;text-align:center">
-      <p style="color:#9ca3af;font-size:12px;margin:0">
-        CareLink | carelink-jp.com<br>
-        <a href="https://carelink-jp.com/unsubscribe" style="color:#9ca3af">配信停止はこちら</a>
-      </p>
-    </div>
+    __UNSUB_FOOTER__
   </div>
 </body>
 </html>`;
@@ -148,20 +154,26 @@ export async function GET(req: NextRequest) {
   const resend = new Resend(process.env.RESEND_API_KEY);
   let sentCount = 0;
   let bouncedCount = 0;
+  const subject = `【CareLink】${month}号 施設オーナー向けニュースレター`;
 
-  const BATCH_SIZE = 50;
+  // Send individually with personalized unsubscribe URLs (batch of 100 = Resend limit)
+  const BATCH_SIZE = 100;
   for (let i = 0; i < uniqueEmails.length; i += BATCH_SIZE) {
-    const batch = uniqueEmails.slice(i, i + BATCH_SIZE);
-    try {
-      await resend.emails.send({
+    const chunk = uniqueEmails.slice(i, i + BATCH_SIZE);
+    const messages = chunk.map((email) => {
+      const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
+      return {
         from: 'CareLink <newsletter@carelink-jp.com>',
-        to: batch,
-        subject: `【CareLink】${month}号 施設オーナー向けニュースレター`,
-        html,
-      });
-      sentCount += batch.length;
+        to: [email],
+        subject,
+        html: htmlBody.replace('__UNSUB_FOOTER__', footer),
+      };
+    });
+    try {
+      await resend.batch.send(messages);
+      sentCount += chunk.length;
     } catch {
-      bouncedCount += batch.length;
+      bouncedCount += chunk.length;
     }
   }
 
