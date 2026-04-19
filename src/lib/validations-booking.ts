@@ -19,6 +19,16 @@ function getTodayString() {
   return `${y}-${m}-${d}`;
 }
 
+function getMaxDateString() {
+  const now = new Date();
+  const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  jst.setUTCFullYear(jst.getUTCFullYear() + 1);
+  const y = jst.getUTCFullYear();
+  const m = String(jst.getUTCMonth() + 1).padStart(2, '0');
+  const d = String(jst.getUTCDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
 export const bookingSchema = z.object({
   facility_id: z.string().uuid(),
   staff_id: z.string().uuid().nullable(),
@@ -28,7 +38,8 @@ export const bookingSchema = z.object({
   coupon_id: z.string().uuid().nullable(),
   booking_date: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, '正しい日付形式で入力してください')
-    .refine((date) => date >= getTodayString(), '過去の日付は指定できません'),
+    .refine((date) => date >= getTodayString(), '過去の日付は指定できません')
+    .refine((date) => date <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: timeString,
   end_time: timeString,
   customer_name: z.string().min(1, 'お名前は必須です').max(100),

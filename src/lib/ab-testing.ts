@@ -61,7 +61,7 @@ function getSessionId(): string {
   try {
     let sid = localStorage.getItem('_carelink_sid');
     if (!sid) {
-      sid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+      sid = crypto.randomUUID();
       localStorage.setItem('_carelink_sid', sid);
     }
     return sid;
