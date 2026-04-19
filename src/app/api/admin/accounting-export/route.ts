@@ -8,6 +8,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 function toJST(isoString: string) {
   const d = new Date(isoString);
@@ -145,6 +146,17 @@ export async function GET(request: NextRequest) {
       ]) + '\n';
     }
   }
+
+  const { ip: auditIp, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'export',
+    tableName: 'bookings',
+    newValues: { format, from: from ?? null, to: to ?? null, row_count: (bookings ?? []).length },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
 
   return new NextResponse(csv, {
     headers: {

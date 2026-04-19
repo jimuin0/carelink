@@ -8,6 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX } from '@/lib/constants';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -52,5 +53,16 @@ export async function POST(req: NextRequest) {
     .in('id', facility_ids);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ip: auditIp, ua } = getRequestContext(req);
+  void writeAuditLog({
+    userId: user.id,
+    action: 'update',
+    tableName: 'facility_profiles',
+    newValues: { is_published, facility_ids, count: facility_ids.length },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ ok: true, updated: facility_ids.length });
 }

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -41,7 +42,7 @@ const statusSchema = z.object({
   status: z.enum(['draft', 'published', 'suspended']),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -57,7 +58,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 // PATCH: Update facility settings
@@ -70,8 +71,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
 
@@ -85,9 +86,21 @@ export async function PATCH(request: NextRequest) {
     const { error } = await admin
       .from('facility_profiles')
       .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
-      .eq('id', facilityId);
+      .eq('id', auth.facilityId);
 
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+    const { ua } = getRequestContext(request);
+    void writeAuditLog({
+      userId: auth.userId,
+      facilityId: auth.facilityId,
+      action: parsed.data.status === 'suspended' ? 'suspend' : parsed.data.status === 'published' ? 'publish' : 'update',
+      tableName: 'facility_profiles',
+      recordId: auth.facilityId,
+      newValues: { status: parsed.data.status },
+      ipAddress: ip,
+      userAgent: ua,
+    });
     return NextResponse.json({ ok: true });
   }
 
@@ -111,8 +124,20 @@ export async function PATCH(request: NextRequest) {
       website_url: parsed.data.website_url || null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', facilityId);
+    .eq('id', auth.facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'facility_profiles',
+    recordId: auth.facilityId,
+    newValues: { name: parsed.data.name, booking_auto_confirm: parsed.data.booking_auto_confirm },
+    ipAddress: ip,
+    userAgent: ua,
+  });
   return NextResponse.json({ ok: true });
 }

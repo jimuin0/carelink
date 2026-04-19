@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const staffSchema = z.object({
   name: z.string().min(1).max(50),
@@ -18,7 +19,7 @@ const staffSchema = z.object({
   line_works_notify_all: z.boolean().optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -34,7 +35,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -46,8 +47,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = staffSchema.safeParse(body);
@@ -55,7 +56,7 @@ export async function POST(request: NextRequest) {
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('staff_profiles').insert({
-    facility_id: facilityId,
+    facility_id: auth.facilityId,
     name: parsed.data.name,
     position: parsed.data.position ?? null,
     bio: parsed.data.bio ?? null,
@@ -69,5 +70,17 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'create',
+    tableName: 'staff_profiles',
+    recordId: data.id,
+    newValues: { name: parsed.data.name, position: parsed.data.position ?? null, nomination_fee: parsed.data.nomination_fee ?? 0 },
+    ipAddress: ip,
+    userAgent: ua,
+  });
   return NextResponse.json({ staff: data }, { status: 201 });
 }

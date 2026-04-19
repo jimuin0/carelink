@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const staffUpdateSchema = z.object({
   name: z.string().min(1).max(50),
@@ -17,7 +18,7 @@ const staffUpdateSchema = z.object({
   line_works_notify_all: z.boolean().optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -33,7 +34,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -48,8 +49,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = staffUpdateSchema.safeParse(body);
@@ -70,11 +71,23 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       updated_at: new Date().toISOString(),
     })
     .eq('id', params.id)
-    .eq('facility_id', facilityId)
+    .eq('facility_id', auth.facilityId)
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 404 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'staff_profiles',
+    recordId: params.id,
+    newValues: { name: parsed.data.name, position: parsed.data.position ?? null },
+    ipAddress: ip,
+    userAgent: ua,
+  });
   return NextResponse.json({ staff: data });
 }
