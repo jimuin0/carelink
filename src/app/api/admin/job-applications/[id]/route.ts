@@ -34,6 +34,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         .select('role')
         .eq('facility_id', existing.facility_id)
         .eq('user_id', user.id)
+        .in('role', ['owner', 'admin'])
         .single()
     : { data: null };
 
