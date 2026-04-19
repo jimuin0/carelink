@@ -51,8 +51,8 @@ export async function GET(request: NextRequest) {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const { data: profile } = await supabase.from('profiles').select('is_platform_admin').eq('id', user.id).single();
+  if (!profile?.is_platform_admin) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const key = request.nextUrl.searchParams.get('key');
   if (!key || key.length > 100) return NextResponse.json({ error: 'key required' }, { status: 400 });
