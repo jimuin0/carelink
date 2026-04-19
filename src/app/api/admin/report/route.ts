@@ -1,11 +1,11 @@
 /**
- * 売上レポートCSVエクスポート（v8.1）
+ * 売上レポートCSVエクスポート（v8.2）
  * GET /api/admin/report?facility_id=xxx&from=2026-01-01&to=2026-01-31
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
@@ -31,7 +31,6 @@ export async function GET(request: NextRequest) {
   if (!dateRegex.test(from) || !dateRegex.test(to)) {
     return NextResponse.json({ error: 'from, to must be YYYY-MM-DD' }, { status: 400 });
   }
-  // 最大366日の範囲制限（DoS防止）
   const fromDate = new Date(from);
   const toDate = new Date(to);
   if (isNaN(fromDate.getTime()) || isNaN(toDate.getTime())) {
@@ -45,28 +44,23 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '期間は最大366日までです' }, { status: 400 });
   }
 
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  // 認証+権限チェック
+  const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // Revenue data is restricted to owner/admin only
   const { data: member } = await supabase
     .from('facility_members')
     .select('role')
     .eq('facility_id', facilityId)
     .eq('user_id', user.id)
+    .in('role', ['owner', 'admin'])
     .maybeSingle();
 
   if (!member) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
-  // データ取得
-  const { data: rows } = await supabase
+  const admin = createServiceRoleClient();
+  const { data: rows } = await admin
     .from('daily_revenue_summary')
     .select('*')
     .eq('facility_id', facilityId)
@@ -78,7 +72,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'No data' }, { status: 404 });
   }
 
-  // CSV生成
   const headers = ['日付', '売上', '予約数', '完了', 'キャンセル', '無断キャンセル', '新規', 'リピート'];
   const csvRows = rows.map(r =>
     [r.date, r.total_revenue, r.booking_count, r.completed_count, r.cancelled_count, r.no_show_count, r.new_customer_count, r.repeat_customer_count].join(',')

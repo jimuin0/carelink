@@ -24,7 +24,11 @@ async function getFacilityId(userId: string) {
   return data?.facility_id;
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  if (inMemoryRateLimit(ip, 20, 60_000, 'featured-ads-get')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
