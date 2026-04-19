@@ -125,7 +125,7 @@ export async function GET(req: NextRequest) {
     .insert({
       campaign_type: 'owner_monthly',
       subject: `【CareLink】${month}号 施設オーナー向けニュースレター`,
-      html_content: html,
+      html_content: htmlBody,
       status: 'sending',
     })
     .select()

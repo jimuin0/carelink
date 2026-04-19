@@ -5,9 +5,39 @@ const PROTECTED_PATHS = ['/mypage', '/admin'];
 
 // 管理者メンバーシップのクッキーキャッシュ
 // キー: _cm_mbr_{userId_first8chars}
-// 値: "1" (有効) または "0" (無効)
+// 値: "{0|1}.{HMAC-SHA256 hex}"  — userId+値をHMACで署名し改ざん防止
 // TTL: 5分（頻繁なDB問い合わせを防ぐ）
 const MEMBERSHIP_CACHE_TTL_SECONDS = 300;
+
+async function signCacheValue(userId: string, val: '0' | '1'): Promise<string> {
+  const secret = process.env.ADMIN_COOKIE_SECRET;
+  if (!secret) return val;
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${userId}:${val}`));
+  const sigHex = [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('');
+  return `${val}.${sigHex}`;
+}
+
+async function verifyCacheValue(userId: string, cookieVal: string): Promise<boolean | null> {
+  const secret = process.env.ADMIN_COOKIE_SECRET;
+  if (!secret) return null;
+  const dot = cookieVal.indexOf('.');
+  if (dot < 0) return null;
+  const val = cookieVal.slice(0, dot);
+  const sigHex = cookieVal.slice(dot + 1);
+  if (val !== '0' && val !== '1') return null;
+  try {
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    const sigBytes = Uint8Array.from((sigHex.match(/.{2}/g) ?? []).map(h => parseInt(h, 16)));
+    if (sigBytes.length !== 32) return null;
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(`${userId}:${val}`));
+    return valid ? val === '1' : null;
+  } catch {
+    return null;
+  }
+}
 
 function getMembershipCacheKey(userId: string): string {
   return `_cm_mbr_${userId.slice(0, 8)}`;
@@ -69,13 +99,13 @@ export async function middleware(request: NextRequest) {
     const cacheKey = getMembershipCacheKey(user.id);
     const cached = request.cookies.get(cacheKey)?.value;
 
-    let hasAccess: boolean;
+    // キャッシュヒット: HMAC署名を検証してから信頼（署名なし/不正な値はDB再確認）
+    let hasAccess: boolean | null = cached !== undefined
+      ? await verifyCacheValue(user.id, cached)
+      : null;
 
-    if (cached !== undefined) {
-      // キャッシュヒット: DB問い合わせをスキップ
-      hasAccess = cached === '1';
-    } else {
-      // キャッシュミス: DBで確認してクッキーにキャッシュ
+    if (hasAccess === null) {
+      // キャッシュミス or 署名検証失敗: DBで確認してクッキーにキャッシュ
       const { data: membership } = await supabase
         .from('facility_members')
         .select('role')
@@ -84,8 +114,9 @@ export async function middleware(request: NextRequest) {
         .single();
       hasAccess = !!(membership && ['owner', 'admin'].includes(membership.role));
 
-      // キャッシュを設定（5分TTL、HttpOnly・SameSite=Strict）
-      supabaseResponse.cookies.set(cacheKey, hasAccess ? '1' : '0', {
+      // キャッシュを設定（5分TTL、HttpOnly + HMAC署名）
+      const signedVal = await signCacheValue(user.id, hasAccess ? '1' : '0');
+      supabaseResponse.cookies.set(cacheKey, signedVal, {
         httpOnly: true,
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
