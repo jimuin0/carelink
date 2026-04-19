@@ -78,15 +78,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'この予約は来店完了にできません（確定済みの予約のみ対応）' }, { status: 400 });
     }
 
-    // Update booking status to completed
-    const { error: updateError } = await supabase
+    // Atomic status transition: require status='confirmed' in WHERE clause (optimistic lock).
+    // Prevents double point awards if two concurrent requests both read 'confirmed'.
+    const { data: updatedBooking, error: updateError } = await supabase
       .from('bookings')
       .update({ status: 'completed', updated_at: new Date().toISOString() })
       .eq('id', bookingId)
-      .eq('facility_id', membership.facility_id);
+      .eq('facility_id', membership.facility_id)
+      .eq('status', 'confirmed')
+      .select('id')
+      .maybeSingle();
 
     if (updateError) {
       return NextResponse.json({ error: 'ステータスの更新に失敗しました' }, { status: 500 });
+    }
+    if (!updatedBooking) {
+      // Zero rows updated: status was already changed by another request
+      return NextResponse.json({ error: 'この予約は来店完了にできません（既に処理済みの可能性があります）' }, { status: 409 });
     }
 
     void writeAuditLog({
