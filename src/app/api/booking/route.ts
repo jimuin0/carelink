@@ -204,6 +204,10 @@ export async function POST(request: Request) {
   }
 
   const newBookingId: string = rpcResult || '';
+  if (!newBookingId) {
+    console.error('[booking] create_booking_atomic returned null with no error');
+    return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
+  }
 
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:
   // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
