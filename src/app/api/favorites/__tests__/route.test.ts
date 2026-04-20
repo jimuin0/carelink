@@ -59,7 +59,8 @@ describe('POST /api/favorites', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return fluent({ data: null }); // existing check
+      if (callNum === 1) return fluent({ data: { id: validFacilityId } }); // facility published check
+      if (callNum === 2) return fluent({ data: null }); // existing favorites check
       // insert chain: from('favorites').insert({...})
       return { insert: jest.fn(() => Promise.resolve({ error: null })) };
     });
@@ -76,7 +77,8 @@ describe('POST /api/favorites', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return fluent({ data: { id: 'fav-1' } }); // existing check
+      if (callNum === 1) return fluent({ data: { id: validFacilityId } }); // facility published check
+      if (callNum === 2) return fluent({ data: { id: 'fav-1' } }); // existing favorites check
       // delete chain: from('favorites').delete().eq('id', existing.id)
       return { delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
     });

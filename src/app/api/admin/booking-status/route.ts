@@ -105,15 +105,21 @@ export async function POST(request: Request) {
       );
     }
 
-    // Update status
-    const { error } = await supabase
+    // Update status — include current status in WHERE clause (CAS) so concurrent updates
+    // cannot bypass the state machine by updating a stale read.
+    const { data: updated, error } = await supabase
       .from('bookings')
       .update({ status, updated_at: new Date().toISOString() })
       .eq('id', bookingId)
-      .eq('facility_id', booking.facility_id);
+      .eq('facility_id', booking.facility_id)
+      .eq('status', booking.status)  // atomic guard: fail if status changed since we read it
+      .select('id');
 
     if (error) {
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+    }
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
     }
 
     void writeAuditLog({

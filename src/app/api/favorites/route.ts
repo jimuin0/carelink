@@ -46,6 +46,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
+    // Verify facility exists and is published before toggling favorite
+    const { data: facility } = await supabase
+      .from('facility_profiles')
+      .select('id')
+      .eq('id', facilityId)
+      .eq('status', 'published')
+      .maybeSingle();
+    if (!facility) {
+      return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
+    }
+
     const { data: existing } = await supabase
       .from('favorites')
       .select('id')
