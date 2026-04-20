@@ -17,9 +17,17 @@ const config = {
     'src/app/api/**/*.ts',
     '!src/**/*.d.ts',
   ],
-  transformIgnorePatterns: [
-    '/node_modules/(?!(uncrypto)/)',
-  ],
 };
 
-module.exports = createJestConfig(config);
+// nextJest overwrites transformIgnorePatterns; merge it here
+async function jestConfig() {
+  const base = await createJestConfig(config)();
+  return {
+    ...base,
+    transformIgnorePatterns: [
+      '/node_modules/(?!(uncrypto|@upstash)/)',
+    ],
+  };
+}
+
+module.exports = jestConfig;

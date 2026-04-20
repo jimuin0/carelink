@@ -1,4 +1,5 @@
 const mockFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('react', () => ({
   ...jest.requireActual('react'),
@@ -6,7 +7,7 @@ jest.mock('react', () => ({
 }));
 
 jest.mock('../supabase-server', () => ({
-  createServerSupabaseClient: () => ({ from: mockFrom }),
+  createServerSupabaseClient: () => ({ from: mockFrom, rpc: mockRpc }),
 }));
 
 import {
@@ -23,6 +24,7 @@ import {
 
 beforeEach(() => {
   mockFrom.mockReset();
+  mockRpc.mockReset();
 });
 
 /** Build a fluent chain; every method returns self, terminal resolves with given value */
@@ -101,19 +103,22 @@ describe('searchFacilities', () => {
     expect(chain.range).toHaveBeenCalledWith(20, 39);
   });
 
-  test('geo検索で10km以内のみ返す', async () => {
-    const facilities = [
-      { id: 'f-1', latitude: 35.6812, longitude: 139.7671 },
-      { id: 'f-2', latitude: 35.69, longitude: 139.77 },
-      { id: 'f-3', latitude: 36.0, longitude: 140.0 },
+  test('geo検索でRPC search_facilities_nearbyを呼ぶ', async () => {
+    const nearbyFacilities = [
+      { id: 'f-1', distance_km: 0.5 },
+      { id: 'f-2', distance_km: 3.2 },
     ];
-    const chain = fluent({ data: facilities, error: null });
-    mockFrom.mockReturnValue(chain);
+    // searchFacilities calls from() first to build a query, then rpc() for geo path
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: nearbyFacilities, error: null });
 
     const result = await searchFacilities({ lat: 35.6812, lng: 139.7671 });
-    // f-3 is ~40km away, should be filtered out
-    expect(result.facilities.length).toBeLessThanOrEqual(2);
-    expect(result.facilities.every((f) => f.id !== 'f-3')).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      user_lat: 35.6812,
+      user_lng: 139.7671,
+      radius_km: 10,
+    }));
+    expect(result.facilities).toHaveLength(2);
   });
 });
 
