@@ -31,11 +31,13 @@ export async function GET(request: Request) {
     // 1. 同一IPから24時間以内に3件以上 → スパム疑い
     const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
 
-    const rpcResult = await supabase.rpc('find_bulk_review_ips', {
+    const { data: bulkSpam, error: rpcError } = await supabase.rpc('find_bulk_review_ips', {
       p_since: since24h,
       p_threshold: 3,
-    }).then((r) => r, () => ({ data: null }));
-    const bulkSpam = rpcResult?.data ?? null;
+    });
+    if (rpcError) {
+      console.error('[flag-reviews] find_bulk_review_ips RPC failed:', rpcError);
+    }
 
     if (bulkSpam && Array.isArray(bulkSpam)) {
       for (const row of bulkSpam as { reviewer_ip: string }[]) {
@@ -47,11 +49,15 @@ export async function GET(request: Request) {
           .eq('is_flagged', false);
 
         if (reviews && reviews.length > 0) {
-          await supabase
+          const { error: updateErr } = await supabase
             .from('facility_reviews')
             .update({ is_flagged: true, flag_reason: `bulk_submission: ${reviews.length} reviews in 24h from same IP` })
             .in('id', reviews.map((r) => r.id));
-          flagged += reviews.length;
+          if (updateErr) {
+            console.error('[flag-reviews] bulk_submission update failed:', updateErr);
+          } else {
+            flagged += reviews.length;
+          }
         }
       }
     }
@@ -75,11 +81,15 @@ export async function GET(request: Request) {
 
       for (const [, ids] of Array.from(ipFacilityMap)) {
         if (ids.length >= 2) {
-          await supabase
+          const { error: updateErr } = await supabase
             .from('facility_reviews')
             .update({ is_flagged: true, flag_reason: `duplicate_facility: ${ids.length} reviews from same IP for same facility` })
             .in('id', ids);
-          flagged += ids.length;
+          if (updateErr) {
+            console.error('[flag-reviews] duplicate_facility update failed:', updateErr);
+          } else {
+            flagged += ids.length;
+          }
         }
       }
     }

@@ -44,60 +44,67 @@ export async function GET(request: Request) {
 
     let sent = 0;
     for (const facility of facilities) {
-      // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
-      const { data: claimed } = await supabase
-        .from('facility_profiles')
-        .update({ onboarding_email_sent_at: new Date().toISOString() })
-        .eq('id', facility.id)
-        .is('onboarding_email_sent_at', null)
-        .select('id');
+      try {
+        // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
+        const { data: claimed } = await supabase
+          .from('facility_profiles')
+          .update({ onboarding_email_sent_at: new Date().toISOString() })
+          .eq('id', facility.id)
+          .is('onboarding_email_sent_at', null)
+          .select('id');
 
-      if (!claimed || claimed.length === 0) continue;
+        if (!claimed || claimed.length === 0) continue;
 
-      // 未完了ステップを特定
-      const [
-        { count: menuCount },
-        { count: staffCount },
-        { count: photoCount },
-        { count: scheduleCount },
-      ] = await Promise.all([
-        supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
-        supabase.from('staff_profiles').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
-        supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
-        supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
-      ]);
+        // 未完了ステップを特定
+        // staff_schedules has no facility_id column — query staff IDs first, then schedules
+        const [
+          { count: menuCount },
+          { data: staffData },
+          { count: photoCount },
+          { data: member },
+        ] = await Promise.all([
+          supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
+          supabase.from('staff_profiles').select('id').eq('facility_id', facility.id),
+          supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
+          supabase.from('facility_members').select('user_id').eq('facility_id', facility.id).eq('role', 'owner').maybeSingle(),
+        ]);
 
-      const missingSteps: string[] = [];
-      if ((menuCount ?? 0) === 0) missingSteps.push('メニュー・料金の登録');
-      if ((staffCount ?? 0) === 0) missingSteps.push('スタッフの登録');
-      if ((photoCount ?? 0) === 0) missingSteps.push('施設写真のアップロード');
-      if ((scheduleCount ?? 0) === 0) missingSteps.push('スケジュールの設定');
-      missingSteps.push('施設を「公開」にする');
+        const staffIds = (staffData ?? []).map((s: { id: string }) => s.id);
+        let scheduleCount = 0;
+        if (staffIds.length > 0) {
+          const { count } = await supabase
+            .from('staff_schedules')
+            .select('id', { count: 'exact', head: true })
+            .in('staff_id', staffIds);
+          scheduleCount = count ?? 0;
+        }
 
-      // オーナーのメールアドレスを取得
-      const { data: member } = await supabase
-        .from('facility_members')
-        .select('user_id')
-        .eq('facility_id', facility.id)
-        .eq('role', 'owner')
-        .maybeSingle();
+        const missingSteps: string[] = [];
+        if ((menuCount ?? 0) === 0) missingSteps.push('メニュー・料金の登録');
+        if (staffIds.length === 0) missingSteps.push('スタッフの登録');
+        if ((photoCount ?? 0) === 0) missingSteps.push('施設写真のアップロード');
+        if (scheduleCount === 0) missingSteps.push('スケジュールの設定');
+        missingSteps.push('施設を「公開」にする');
 
-      if (!member) continue;
+        if (!member) continue;
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('id', member.user_id)
-        .maybeSingle();
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('id', member.user_id)
+          .maybeSingle();
 
-      if (!profile?.email) continue;
+        if (!profile?.email) continue;
 
-      await sendOnboardingFollowEmail({
-        ownerEmail: profile.email,
-        facilityName: facility.name,
-        missingSteps,
-      });
-      sent++;
+        await sendOnboardingFollowEmail({
+          ownerEmail: profile.email,
+          facilityName: facility.name,
+          missingSteps,
+        });
+        sent++;
+      } catch (facilityErr) {
+        console.error('[onboarding-followup] facility processing error', { facilityId: facility.id, err: facilityErr });
+      }
     }
 
     await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent });
