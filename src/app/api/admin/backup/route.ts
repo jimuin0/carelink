@@ -95,8 +95,12 @@ export async function POST(request: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(10000);
 
-  if (error || !data || data.length === 0) {
+  if (error) {
+    console.error('[backup] export query failed', { table, err: error });
     return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+  }
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
   }
 
   // JSONをCSVに変換

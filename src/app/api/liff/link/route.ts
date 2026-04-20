@@ -74,10 +74,14 @@ export async function DELETE(req: NextRequest) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const admin = createServiceRoleClient();
-    await admin
+    const { error: unlinkErr } = await admin
       .from('profiles')
       .update({ line_user_id: null, updated_at: new Date().toISOString() })
       .eq('id', user.id);
+    if (unlinkErr) {
+      console.error('[liff/link] LINE unlink update failed', { userId: user.id, err: unlinkErr });
+      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch {
