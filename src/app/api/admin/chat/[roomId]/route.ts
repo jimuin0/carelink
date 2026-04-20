@@ -72,8 +72,9 @@ export async function POST(request: NextRequest, props: { params: Promise<{ room
 
   if (msgError) return NextResponse.json({ error: 'メッセージの送信に失敗しました' }, { status: 500 });
 
-  // Update room last_message_at
-  await admin.from('chat_rooms').update({ last_message_at: new Date().toISOString() }).eq('id', params.roomId);
+  // Update room last_message_at (non-critical; message was already inserted)
+  const { error: roomUpdateErr } = await admin.from('chat_rooms').update({ last_message_at: new Date().toISOString() }).eq('id', params.roomId);
+  if (roomUpdateErr) console.error('[admin/chat] last_message_at update failed', { roomId: params.roomId, err: roomUpdateErr });
 
   return NextResponse.json({ message }, { status: 201 });
 }
@@ -95,11 +96,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ roo
   if (!result) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
-  await admin
+  const { error: readErr } = await admin
     .from('chat_messages')
     .update({ is_read: true })
     .eq('room_id', params.roomId)
     .neq('sender_id', result.userId);
+  if (readErr) {
+    console.error('[admin/chat] mark-read update failed', { roomId: params.roomId, err: readErr });
+    return NextResponse.json({ error: '既読更新に失敗しました' }, { status: 500 });
+  }
 
   return NextResponse.json({ ok: true });
 }

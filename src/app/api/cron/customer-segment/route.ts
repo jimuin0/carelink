@@ -108,9 +108,12 @@ export async function GET(request: Request) {
 
       const CHUNK = 500;
       for (let i = 0; i < upsertRows.length; i += CHUNK) {
-        await supabase
+        const { error: upsertErr } = await supabase
           .from('customer_segments')
           .upsert(upsertRows.slice(i, i + CHUNK), { onConflict: 'facility_id,customer_email' });
+        if (upsertErr) {
+          console.error('[customer-segment] upsert chunk failed', { facilityId: facility.id, chunkStart: i, err: upsertErr });
+        }
       }
 
       // 離脱リスク顧客に自動フォローメール
@@ -179,7 +182,7 @@ export async function GET(request: Request) {
                   </p>
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
-              }).catch(() => {});
+              }).catch((err) => console.error('[customer-segment] email send failed', { email, err }));
             }
           }
         }

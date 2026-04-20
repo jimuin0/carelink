@@ -82,10 +82,13 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
 
   const admin = createServiceRoleClient();
 
-  await admin.from('community_likes')
+  const { error: deleteErr } = await admin.from('community_likes')
     .delete()
     .eq('post_id', params.id)
     .eq('user_id', user.id);
+  if (deleteErr) {
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 
   const { data: post } = await admin
     .from('community_posts')

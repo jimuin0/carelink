@@ -188,11 +188,14 @@ export async function PATCH(request: NextRequest) {
   if (!updated) return NextResponse.json({ error: '残り回数がありません（同時更新が発生しました）' }, { status: 409 });
 
   // ログ記録
-  await admin.from('package_usage_logs').insert({
+  const { error: logErr } = await admin.from('package_usage_logs').insert({
     user_package_id: parsed.data.user_package_id,
     booking_id: parsed.data.booking_id ?? null,
     notes: parsed.data.notes,
   });
+  if (logErr) {
+    console.error('[user-packages] usage log insert failed', { userPackageId: parsed.data.user_package_id, err: logErr });
+  }
 
   return NextResponse.json({ user_package: updated });
 }
