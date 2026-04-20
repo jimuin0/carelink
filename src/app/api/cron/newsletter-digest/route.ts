@@ -22,6 +22,13 @@ export async function GET(req: NextRequest) {
   const cronAuthError = checkCronAuth(req);
   if (cronAuthError) return cronAuthError;
 
+  if (!process.env.NEWSLETTER_UNSUBSCRIBE_SECRET) {
+    return NextResponse.json({ error: 'NEWSLETTER_UNSUBSCRIBE_SECRET is not configured' }, { status: 503 });
+  }
+  if (!process.env.RESEND_API_KEY) {
+    return NextResponse.json({ error: 'RESEND_API_KEY is not configured' }, { status: 503 });
+  }
+
   const admin = createServiceRoleClient();
   const now = new Date();
   const month = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
@@ -153,7 +160,7 @@ export async function GET(req: NextRequest) {
 
   const resend = new Resend(process.env.RESEND_API_KEY);
   let sentCount = 0;
-  let bouncedCount = 0;
+  let failedCount = 0;
   const subject = `【CareLink】${month}号 施設オーナー向けニュースレター`;
 
   // Send individually with personalized unsubscribe URLs (batch of 100 = Resend limit)
@@ -172,8 +179,9 @@ export async function GET(req: NextRequest) {
     try {
       await resend.batch.send(messages);
       sentCount += chunk.length;
-    } catch {
-      bouncedCount += chunk.length;
+    } catch (err) {
+      console.error('[newsletter-digest] batch send failed:', err);
+      failedCount += chunk.length;
     }
   }
 
@@ -182,7 +190,7 @@ export async function GET(req: NextRequest) {
     .update({
       status: 'sent',
       sent_at: new Date().toISOString(),
-      stats: { sent: sentCount, opened: 0, clicked: 0, bounced: bouncedCount },
+      stats: { sent: sentCount, opened: 0, clicked: 0, bounced: 0, failed: failedCount },
       updated_at: new Date().toISOString(),
     })
     .eq('id', campaign.id);
@@ -191,8 +199,8 @@ export async function GET(req: NextRequest) {
   await admin.from('cron_logs').insert({
     job_name: 'newsletter-digest',
     status: 'success',
-    message: `Sent ${sentCount} newsletters (${bouncedCount} bounced)`,
+    message: `Sent ${sentCount} newsletters (${failedCount} send failures)`,
   }).then(() => null, () => null);
 
-  return NextResponse.json({ ok: true, sentCount, bouncedCount, campaignId: campaign.id });
+  return NextResponse.json({ ok: true, sentCount, failedCount, campaignId: campaign.id });
 }
