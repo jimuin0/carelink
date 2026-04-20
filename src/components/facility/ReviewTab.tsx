@@ -34,13 +34,12 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
 
   const refreshReviews = async () => {
     const { data } = await supabase
-      .from('facility_reviews')
+      .from('public_reviews' as 'facility_reviews')
       .select('*')
       .eq('facility_id', facilityId)
-      .eq('status', 'published')
       .order('created_at', { ascending: false })
       .limit(50);
-    if (data) setReviews(data);
+    if (data) setReviews(data as FacilityReview[]);
   };
 
   const avg = reviews.length > 0

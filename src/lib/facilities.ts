@@ -166,10 +166,9 @@ export async function getFacilityPhotos(facilityId: string) {
 export async function getFacilityReviews(facilityId: string) {
   const supabase = createServerSupabaseClient();
   const { data, error } = await supabase
-    .from('facility_reviews')
+    .from('public_reviews' as 'facility_reviews')
     .select('*')
     .eq('facility_id', facilityId)
-    .eq('status', 'published')
     .order('created_at', { ascending: false });
   return { reviews: (data || []) as FacilityReview[], error };
 }
