@@ -299,7 +299,7 @@ export async function sendFavoritesDigest(data: {
   await safeSend(resend, {
     from: FROM,
     to: data.userEmail,
-    subject: `【CareLink】お気に入り施設の新着情報があります`,
+    subject: escSubject(`【CareLink】お気に入り施設の新着情報があります`),
     html: wrapHtml(`
       <p>${name} 様</p>
       <p>お気に入り施設に新着情報があります。</p>

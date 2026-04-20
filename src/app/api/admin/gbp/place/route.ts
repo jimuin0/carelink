@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
     const audit = calculateGbpScore(placeData, facility);
 
     if (placeData) {
-      await Promise.all([
+      const [cacheResult, ratingResult] = await Promise.allSettled([
         supabase.from('gbp_audit_cache').upsert({
           facility_id: membership.facility_id,
           score: audit.score,
@@ -49,6 +49,12 @@ export async function GET(req: NextRequest) {
           google_review_count: placeData.user_ratings_total ?? 0,
         }).eq('id', membership.facility_id),
       ]);
+      if (cacheResult.status === 'rejected' || (cacheResult.status === 'fulfilled' && cacheResult.value.error)) {
+        console.error('[gbp/place] audit cache upsert failed', { facilityId: membership.facility_id });
+      }
+      if (ratingResult.status === 'rejected' || (ratingResult.status === 'fulfilled' && ratingResult.value.error)) {
+        console.error('[gbp/place] google_rating update failed', { facilityId: membership.facility_id });
+      }
     }
 
     return NextResponse.json({ placeData, audit, facilityId: membership.facility_id });

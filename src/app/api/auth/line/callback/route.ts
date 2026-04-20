@@ -115,16 +115,23 @@ export async function GET(request: NextRequest) {
     const adminSupabase = createServiceRoleClient();
 
     if (!email) {
-      // LINE user_idで既存ユーザーを検索（アカウント重複防止）
-      const { data: existingUsers } = await adminSupabase.auth.admin.listUsers();
-      const existingUser = existingUsers?.users?.find(
-        (u) => u.user_metadata?.line_user_id === lineProfile.userId
-      );
-      email = existingUser?.email || `line_${lineProfile.userId}@line.carelink.local`;
+      // line_user_links テーブルで既存ユーザーを直接検索（O(1)、listUsers全件取得を回避）
+      // listUsers() はデフォルト50件しか返さないため50人超で重複アカウントが発生していた
+      const { data: linkRow } = await adminSupabase
+        .from('line_user_links')
+        .select('user_id')
+        .eq('line_user_id', lineProfile.userId)
+        .maybeSingle();
+      if (linkRow?.user_id) {
+        const { data: { user: existingUser } } = await adminSupabase.auth.admin.getUserById(linkRow.user_id);
+        email = existingUser?.email || `line_${lineProfile.userId}@line.carelink.local`;
+      } else {
+        email = `line_${lineProfile.userId}@line.carelink.local`;
+      }
     }
 
     // Create user if not exists (ignore "already registered" error)
-    await adminSupabase.auth.admin.createUser({
+    const { error: createErr } = await adminSupabase.auth.admin.createUser({
       email,
       email_confirm: true,
       user_metadata: {
@@ -133,6 +140,9 @@ export async function GET(request: NextRequest) {
         line_user_id: lineProfile.userId,
       },
     });
+    if (createErr && !createErr.message?.includes('already registered')) {
+      console.error('[line-callback] createUser failed', { lineUserId: lineProfile.userId, err: createErr });
+    }
 
     // Generate magic link token (works for both new and existing users)
     const { data: linkData, error: linkError } =
