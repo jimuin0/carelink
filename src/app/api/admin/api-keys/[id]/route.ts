@@ -36,7 +36,11 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     : { data: null };
   if (!key || !mem) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  await admin.from('api_keys').update({ is_active: false }).eq('id', params.id);
+  const { error: deactivateErr } = await admin.from('api_keys').update({ is_active: false }).eq('id', params.id).eq('facility_id', key.facility_id);
+  if (deactivateErr) {
+    console.error('[api-keys/delete] deactivate failed', { id: params.id, err: deactivateErr });
+    return NextResponse.json({ error: 'Failed to deactivate key' }, { status: 500 });
+  }
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

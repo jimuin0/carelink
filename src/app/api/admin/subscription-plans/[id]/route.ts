@@ -56,7 +56,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).select().single();
+  const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
@@ -94,7 +94,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 契約中ユーザーがいる場合は無効化のみ
   const { count } = await admin.from('user_subscriptions').select('id', { count: 'exact', head: true }).eq('plan_id', params.id).eq('status', 'active');
   if (count && count > 0) {
-    await admin.from('subscription_plans').update({ is_active: false }).eq('id', params.id);
+    const { error: deactivateErr } = await admin.from('subscription_plans').update({ is_active: false }).eq('id', params.id).eq('facility_id', facilityId);
+    if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     return NextResponse.json({ message: '契約中ユーザーがいるため非公開にしました' });
   }
 
