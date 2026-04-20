@@ -64,9 +64,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).select().single();
+  // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
+  const { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: user.id,
@@ -99,7 +101,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
-  const { error } = await admin.from('coupons').delete().eq('id', params.id);
+  // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
+  const { error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   void writeAuditLog({
