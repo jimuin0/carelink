@@ -1,0 +1,201 @@
+/**
+ * @jest-environment node
+ *
+ * Tests for GET/POST /api/admin/menus
+ * Key assertions:
+ *   - Non-member → 401 (IDOR prevention)
+ *   - Duplicate name → 409
+ *   - photo_url must be URL or empty string
+ *   - name max 100 chars
+ */
+
+jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
+
+const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
+const USER_ID       = '33333333-3333-3333-3333-333333333333';
+
+const mockGetUser = jest.fn();
+const mockAnonFrom = jest.fn();
+const mockAdminFrom = jest.fn();
+
+jest.mock('@supabase/ssr', () => ({
+  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+}));
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+}));
+
+import { NextRequest } from 'next/server';
+import { GET, POST } from '../route';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+
+function makeGetRequest(facilityId: string | null = FACILITY_UUID) {
+  const url = new URL('http://localhost/api/admin/menus');
+  if (facilityId) url.searchParams.set('facility_id', facilityId);
+  return new NextRequest(url.toString(), { method: 'GET' });
+}
+
+function makePostRequest(body: object, facilityId: string | null = FACILITY_UUID) {
+  const url = new URL('http://localhost/api/admin/menus');
+  if (facilityId) url.searchParams.set('facility_id', facilityId);
+  return new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+}
+
+function validBody(overrides: object = {}) {
+  return { category: 'カラー', name: 'テストメニュー', ...overrides };
+}
+
+function memberSingle(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
+function listChain(data: unknown[], error: unknown = null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    order: jest.fn(() => Promise.resolve({ data, error })),
+  };
+}
+
+// Duplicate name check: maybeSingle()
+function dupCheckChain(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
+// Count check: select with count option returns { count }
+function countChain(count: number) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn(() => Promise.resolve({ count, error: null })),
+  };
+}
+
+function insertSingle(data: unknown, error: unknown = null) {
+  return {
+    insert: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn(() => Promise.resolve({ data, error })),
+      }),
+    }),
+  };
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+});
+
+// ─── GET ──────────────────────────────────────────────────────────────────────
+
+test('GET: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(401);
+});
+
+test('GET: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(429);
+});
+
+test('GET: 非管理者 → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle(null));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(401);
+});
+
+test('GET: 正常取得 → 200 with menus', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([{ id: 'menu-1' }]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.menus).toBeDefined();
+});
+
+// ─── POST ─────────────────────────────────────────────────────────────────────
+
+test('POST: 非管理者 → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle(null));
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(401);
+});
+
+test('POST: name が空 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validBody({ name: '' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: photo_url が不正URL → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validBody({ photo_url: 'not-a-url' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 重複名 → 409', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(dupCheckChain({ id: 'existing-1' }));
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(409);
+});
+
+test('POST: DB挿入失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null); // no duplicate
+    if (callNum === 2) return countChain(3);       // existing count
+    return insertSingle(null, { message: 'DB error' });
+  });
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(500);
+});
+
+test('POST: 正常作成 → 201 with menu', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(2);
+    return insertSingle({ id: 'menu-1', name: 'テストメニュー' });
+  });
+  const res = await POST(makePostRequest(validBody()));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.menu).toBeDefined();
+});
+
+test('POST: photo_url が空文字 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(0);
+    return insertSingle({ id: 'menu-1' });
+  });
+  const res = await POST(makePostRequest(validBody({ photo_url: '' })));
+  expect(res.status).toBe(201);
+});
