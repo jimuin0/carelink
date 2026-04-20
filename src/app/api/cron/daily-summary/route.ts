@@ -36,56 +36,58 @@ export async function GET(request: Request) {
     let count = 0;
 
     for (const facility of facilities) {
-      // 前日の予約データ集計
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select('status, total_price, email')
-        .eq('facility_id', facility.id)
-        .eq('booking_date', dateStr);
-
-      if (!bookings || bookings.length === 0) continue;
-
-      const completed = bookings.filter(b => b.status === 'completed');
-      const cancelled = bookings.filter(b => b.status === 'cancelled');
-      const noShow = bookings.filter(b => b.status === 'no_show');
-
-      // 新規/リピート判定（過去に予約があるかで判定）
-      const emails = Array.from(new Set(bookings.map(b => b.email).filter(Boolean)));
-      let newCount = 0;
-      let repeatCount = 0;
-
-      for (const email of emails) {
-        const { count: pastCount } = await supabase
+      try {
+        // 前日の予約データ集計
+        const { data: bookings } = await supabase
           .from('bookings')
-          .select('id', { count: 'exact', head: true })
+          .select('status, total_price, email')
           .eq('facility_id', facility.id)
-          .eq('email', email)
-          .lt('booking_date', dateStr);
+          .eq('booking_date', dateStr);
 
-        if ((pastCount ?? 0) > 0) {
-          repeatCount++;
-        } else {
-          newCount++;
+        if (!bookings || bookings.length === 0) continue;
+
+        const completed = bookings.filter(b => b.status === 'completed');
+        const cancelled = bookings.filter(b => b.status === 'cancelled');
+        const noShow = bookings.filter(b => b.status === 'no_show');
+
+        // 新規/リピート判定: 1クエリで全メールの過去予約の有無を取得（N+1回避）
+        const emails = Array.from(new Set(bookings.map(b => b.email).filter(Boolean)));
+        let newCount = 0;
+        let repeatCount = 0;
+
+        if (emails.length > 0) {
+          const { data: pastRows } = await supabase
+            .from('bookings')
+            .select('email')
+            .eq('facility_id', facility.id)
+            .in('email', emails)
+            .lt('booking_date', dateStr);
+
+          const repeatEmails = new Set((pastRows ?? []).map(b => b.email));
+          newCount = emails.filter(e => !repeatEmails.has(e)).length;
+          repeatCount = emails.filter(e => repeatEmails.has(e)).length;
         }
+
+        const totalRevenue = completed.reduce((sum, b) => sum + (b.total_price || 0), 0);
+
+        await supabase
+          .from('daily_revenue_summary')
+          .upsert({
+            facility_id: facility.id,
+            date: dateStr,
+            total_revenue: totalRevenue,
+            booking_count: bookings.length,
+            completed_count: completed.length,
+            cancelled_count: cancelled.length,
+            no_show_count: noShow.length,
+            new_customer_count: newCount,
+            repeat_customer_count: repeatCount,
+          }, { onConflict: 'facility_id,date' });
+
+        count++;
+      } catch (facilityErr) {
+        console.error('[daily-summary] facility processing error', { facilityId: facility.id, err: facilityErr });
       }
-
-      const totalRevenue = completed.reduce((sum, b) => sum + (b.total_price || 0), 0);
-
-      await supabase
-        .from('daily_revenue_summary')
-        .upsert({
-          facility_id: facility.id,
-          date: dateStr,
-          total_revenue: totalRevenue,
-          booking_count: bookings.length,
-          completed_count: completed.length,
-          cancelled_count: cancelled.length,
-          no_show_count: noShow.length,
-          new_customer_count: newCount,
-          repeat_customer_count: repeatCount,
-        }, { onConflict: 'facility_id,date' });
-
-      count++;
     }
 
     await logCronRun('daily-summary', 'success', startedAt, { processed: count, meta: { date: dateStr } });
