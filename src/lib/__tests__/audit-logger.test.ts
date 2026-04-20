@@ -1,0 +1,166 @@
+import { getRequestContext, diffValues } from '../audit-logger';
+
+function createMockRequest(headers: Record<string, string> = {}): Request {
+  return {
+    headers: {
+      get: (key: string) => headers[key.toLowerCase()] ?? null,
+    },
+  } as unknown as Request;
+}
+
+describe('getRequestContext', () => {
+  test('extracts IP from x-forwarded-for header', () => {
+    const req = createMockRequest({ 'x-forwarded-for': '192.168.1.1' });
+    const { ip } = getRequestContext(req);
+    expect(ip).toBe('192.168.1.1');
+  });
+
+  test('extracts first IP from x-forwarded-for with multiple IPs', () => {
+    const req = createMockRequest({ 'x-forwarded-for': '192.168.1.1, 10.0.0.1, 172.16.0.1' });
+    const { ip } = getRequestContext(req);
+    expect(ip).toBe('192.168.1.1');
+  });
+
+  test('handles x-forwarded-for with whitespace', () => {
+    const req = createMockRequest({ 'x-forwarded-for': '  192.168.1.1  , 10.0.0.1' });
+    const { ip } = getRequestContext(req);
+    expect(ip).toBe('  192.168.1.1  ');
+  });
+
+  test('returns null for missing x-forwarded-for', () => {
+    const req = createMockRequest({});
+    const { ip } = getRequestContext(req);
+    expect(ip).toBeNull();
+  });
+
+  test('extracts user-agent header', () => {
+    const ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)';
+    const req = createMockRequest({ 'user-agent': ua });
+    const { ua: extractedUA } = getRequestContext(req);
+    expect(extractedUA).toBe(ua);
+  });
+
+  test('returns null for missing user-agent', () => {
+    const req = createMockRequest({});
+    const { ua } = getRequestContext(req);
+    expect(ua).toBeNull();
+  });
+
+  test('extracts both IP and user-agent together', () => {
+    const req = createMockRequest({
+      'x-forwarded-for': '203.0.113.42',
+      'user-agent': 'CustomBot/1.0',
+    });
+    const { ip, ua } = getRequestContext(req);
+    expect(ip).toBe('203.0.113.42');
+    expect(ua).toBe('CustomBot/1.0');
+  });
+
+  test('handles IPv6 addresses', () => {
+    const req = createMockRequest({ 'x-forwarded-for': '2001:0db8:85a3:0000:0000:8a2e:0370:7334' });
+    const { ip } = getRequestContext(req);
+    expect(ip).toBe('2001:0db8:85a3:0000:0000:8a2e:0370:7334');
+  });
+});
+
+describe('diffValues', () => {
+  test('returns empty diff when objects are identical', () => {
+    const obj = { name: 'test', value: 123 };
+    const diff = diffValues(obj, obj);
+    expect(diff.old).toEqual({});
+    expect(diff.new).toEqual({});
+  });
+
+  test('detects changed primitive values', () => {
+    const old = { name: 'old', value: 100 };
+    const new_obj = { name: 'new', value: 100 };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ name: 'old' });
+    expect(diff.new).toEqual({ name: 'new' });
+  });
+
+  test('detects changed numeric values', () => {
+    const old = { price: 1000 };
+    const new_obj = { price: 2000 };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ price: 1000 });
+    expect(diff.new).toEqual({ price: 2000 });
+  });
+
+  test('detects changed boolean values', () => {
+    const old = { active: true };
+    const new_obj = { active: false };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ active: true });
+    expect(diff.new).toEqual({ active: false });
+  });
+
+  test('detects null to value change', () => {
+    const old = { description: null };
+    const new_obj = { description: 'New description' };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ description: null });
+    expect(diff.new).toEqual({ description: 'New description' });
+  });
+
+  test('detects value to null change', () => {
+    const old = { description: 'Old description' };
+    const new_obj = { description: null };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ description: 'Old description' });
+    expect(diff.new).toEqual({ description: null });
+  });
+
+  test('detects object changes (JSON comparison)', () => {
+    const old = { meta: { type: 'A' } };
+    const new_obj = { meta: { type: 'B' } };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ meta: { type: 'A' } });
+    expect(diff.new).toEqual({ meta: { type: 'B' } });
+  });
+
+  test('detects array changes', () => {
+    const old = { tags: ['a', 'b'] };
+    const new_obj = { tags: ['a', 'b', 'c'] };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ tags: ['a', 'b'] });
+    expect(diff.new).toEqual({ tags: ['a', 'b', 'c'] });
+  });
+
+  test('only includes changed fields', () => {
+    const old = { id: '1', name: 'old', status: 'active', email: 'test@example.com' };
+    const new_obj = { id: '1', name: 'new', status: 'active', email: 'test@example.com' };
+    const diff = diffValues(old, new_obj);
+    expect(Object.keys(diff.old)).toEqual(['name']);
+    expect(Object.keys(diff.new)).toEqual(['name']);
+    expect(diff.old.name).toBe('old');
+    expect(diff.new.name).toBe('new');
+  });
+
+  test('handles multiple changes', () => {
+    const old = { a: 1, b: 2, c: 3 };
+    const new_obj = { a: 10, b: 2, c: 30 };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ a: 1, c: 3 });
+    expect(diff.new).toEqual({ a: 10, c: 30 });
+  });
+
+  test('handles deeply nested objects', () => {
+    const old = { data: { nested: { value: 'old' } } };
+    const new_obj = { data: { nested: { value: 'new' } } };
+    const diff = diffValues(old, new_obj);
+    expect(diff.old).toEqual({ data: { nested: { value: 'old' } } });
+    expect(diff.new).toEqual({ data: { nested: { value: 'new' } } });
+  });
+
+  test('compares objects by JSON stringify (not reference)', () => {
+    const a = { x: 1 };
+    const b = { x: 1 };
+    const old = { obj: a };
+    const new_obj = { obj: b };
+    const diff = diffValues(old, new_obj);
+    // Should be equal since JSON stringified values are the same
+    expect(diff.old).toEqual({});
+    expect(diff.new).toEqual({});
+  });
+});
