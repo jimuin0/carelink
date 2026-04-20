@@ -60,9 +60,17 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
+  // Wrap the final user message in XML delimiters and strip angle brackets
+  // from all user turns so injected instructions cannot escape the message boundary.
+  const safeHistory = (parsed.data.history ?? []).map((m) =>
+    m.role === 'user'
+      ? { ...m, content: `<message>${m.content.replace(/[<>]/g, '')}</message>` }
+      : m
+  );
+  const safeMessage = `<message>${parsed.data.message.replace(/[<>]/g, '')}</message>`;
   const messages: Array<{ role: 'user' | 'assistant'; content: string }> = [
-    ...(parsed.data.history ?? []),
-    { role: 'user', content: parsed.data.message },
+    ...safeHistory,
+    { role: 'user', content: safeMessage },
   ];
 
   try {

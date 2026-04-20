@@ -38,10 +38,15 @@ export async function GET(request: Request) {
 
     // processing に変更（二重実行防止）
     const jobIds = jobs.map((j) => j.id);
-    await supabase
+    const { error: claimErr } = await supabase
       .from('webhook_retry_queue')
       .update({ status: 'processing' })
       .in('id', jobIds);
+    if (claimErr) {
+      console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', { err: claimErr });
+      await logCronRun('webhook-retry', 'error', startedAt, { error_msg: claimErr.message });
+      return NextResponse.json({ error: 'claim failed' }, { status: 500 });
+    }
 
     let success = 0;
     let failed = 0;
