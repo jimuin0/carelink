@@ -50,29 +50,25 @@ export async function GET(request: Request) {
 
     let sent = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
+    const birthdayYear = jstNow.getUTCFullYear();
+    // Reason includes the year so the partial unique index (user_id, reason WHERE reason LIKE 'birthday_%')
+    // atomically prevents double-awarding even if two cron instances run concurrently.
+    const birthdayReason = `birthday_${birthdayYear}`;
 
     for (const profile of profiles) {
       const name = profile.display_name || 'お客様';
 
-      // 重複送信防止: 今日既にポイント付与済みか確認
-      const todayStart = new Date(jstNow);
-      todayStart.setUTCHours(0, 0, 0, 0);
-      const todayStartStr = new Date(todayStart.getTime() - 9 * 60 * 60 * 1000).toISOString();
-      const { data: existing } = await supabase
-        .from('user_points')
-        .select('id')
-        .eq('user_id', profile.id)
-        .eq('reason', 'birthday')
-        .gte('created_at', todayStartStr)
-        .limit(1);
-      if (existing && existing.length > 0) continue;
-
-      // 誕生日ポイント付与
-      await supabase.from('user_points').insert({
+      // 誕生日ポイント付与（unique index が 23505 を返せばスキップ — TOCTOU対策）
+      const { error: insertErr } = await supabase.from('user_points').insert({
         user_id: profile.id,
         points: BIRTHDAY_POINTS,
-        reason: 'birthday',
+        reason: birthdayReason,
       });
+      if (insertErr) {
+        if ((insertErr as { code?: string }).code === '23505') continue; // 既付与済み
+        console.error('[birthday-coupon] points insert error:', insertErr);
+        continue;
+      }
 
       // メール送信
       if (resend && profile.email) {

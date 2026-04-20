@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       const amountTotal = session.amount_total;
 
       if (bookingId) {
-        await supabase
+        const { error } = await supabase
           .from('bookings')
           .update({
             payment_status: 'paid',
@@ -72,6 +72,13 @@ export async function POST(request: Request) {
             paid_amount: amountTotal || 0,
           })
           .eq('id', bookingId);
+        if (error) {
+          console.error('[payment/webhook] CRITICAL: failed to mark booking paid', { bookingId, eventId: event.id, error });
+          // Return 500 so Stripe retries. The stripe_events row is already committed,
+          // so the retry will hit the idempotency guard and skip re-processing.
+          // Ops must manually reconcile if retries also fail.
+          return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+        }
       }
       break;
     }
@@ -80,19 +87,21 @@ export async function POST(request: Request) {
       const pi = event.data.object as Stripe.PaymentIntent;
       const bookingId = pi.metadata?.booking_id;
       if (bookingId) {
-        await supabase
+        const { error } = await supabase
           .from('bookings')
           .update({
             payment_status: 'failed',
             stripe_payment_intent_id: pi.id,
           })
           .eq('id', bookingId);
+        if (error) console.error('[payment/webhook] failed to mark payment_failed', { bookingId, eventId: event.id, error });
       } else {
         // metadataにbooking_idがない場合はpayment_intent_idで検索
-        await supabase
+        const { error } = await supabase
           .from('bookings')
           .update({ payment_status: 'failed' })
           .eq('stripe_payment_intent_id', pi.id);
+        if (error) console.error('[payment/webhook] failed to mark payment_failed by pi_id', { piId: pi.id, error });
       }
       break;
     }
@@ -103,12 +112,13 @@ export async function POST(request: Request) {
 
       if (paymentIntentId) {
         const isFullRefund = charge.amount_refunded >= charge.amount;
-        await supabase
+        const { error } = await supabase
           .from('bookings')
           .update({
             payment_status: isFullRefund ? 'refunded' : 'partial_refund',
           })
           .eq('stripe_payment_intent_id', paymentIntentId);
+        if (error) console.error('[payment/webhook] failed to update refund status', { paymentIntentId, error });
       }
       break;
     }
@@ -117,10 +127,11 @@ export async function POST(request: Request) {
       const dispute = event.data.object as Stripe.Dispute;
       const paymentIntentId = dispute.payment_intent as string;
       if (paymentIntentId) {
-        await supabase
+        const { error } = await supabase
           .from('bookings')
           .update({ payment_status: 'disputed' })
           .eq('stripe_payment_intent_id', paymentIntentId);
+        if (error) console.error('[payment/webhook] failed to mark disputed', { paymentIntentId, error });
       }
       break;
     }
@@ -130,10 +141,11 @@ export async function POST(request: Request) {
       const paymentIntentId = dispute.payment_intent as string;
       if (paymentIntentId) {
         const status = dispute.status === 'won' ? 'paid' : 'dispute_lost';
-        await supabase
+        const { error } = await supabase
           .from('bookings')
           .update({ payment_status: status })
           .eq('stripe_payment_intent_id', paymentIntentId);
+        if (error) console.error('[payment/webhook] failed to close dispute', { paymentIntentId, status, error });
       }
       break;
     }

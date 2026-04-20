@@ -147,7 +147,7 @@ export async function GET(request: Request) {
               const couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
               const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-              await supabase.from('user_coupon_codes').insert({
+              const { error: couponErr } = await supabase.from('user_coupon_codes').insert({
                 facility_id: facility.id,
                 email,
                 code: couponCode,
@@ -155,7 +155,11 @@ export async function GET(request: Request) {
                 discount_value: 500,
                 reason: 'at_risk',
                 valid_until: validUntil,
-              }).then(() => null, () => null);
+              });
+              if (couponErr) {
+                console.error('[customer-segment] coupon insert failed, skipping email', { email, error: couponErr });
+                continue;
+              }
 
               await resend.emails.send({
                 from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
