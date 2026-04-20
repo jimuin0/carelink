@@ -18,14 +18,20 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
 jest.mock('@/lib/line', () => ({
   sendBookingConfirmation: jest.fn(() => Promise.resolve(true)),
 }));
+jest.mock('@/lib/integrations/line-works', () => ({
+  isLineWorksConfigured: jest.fn(() => false),
+  notifyNewBookingLineWorks: jest.fn(),
+}));
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
     auth: { getUser: mockGetUser },
     from: mockFrom,
+    rpc: mockRpc,
   }),
 }));
 jest.mock('@supabase/supabase-js', () => ({
@@ -33,6 +39,7 @@ jest.mock('@supabase/supabase-js', () => ({
     from: jest.fn(() => ({
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      not: jest.fn().mockReturnThis(),
       maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
     })),
   }),
@@ -45,18 +52,29 @@ import { POST } from '../route';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 
+// Dynamic date: 6 months in the future (always within the 1-year booking limit)
+function futureBookingDate(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() + 6);
+  return d.toISOString().slice(0, 10);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  // Default: RPC succeeds
+  mockRpc.mockResolvedValue({ data: 'new-booking-id', error: null });
 });
+
+const FUTURE_DATE = futureBookingDate();
 
 const validBooking = {
   facility_id: '123e4567-e89b-12d3-a456-426614174000',
   staff_id: null,
   menu_id: null,
   coupon_id: null,
-  booking_date: '2030-01-15',
+  booking_date: FUTURE_DATE,
   start_time: '10:00',
   end_time: '11:00',
   customer_name: 'テスト太郎',
@@ -73,12 +91,16 @@ function makeRequest(body: unknown) {
   });
 }
 
+// Fluent Supabase chain builder.
+// Returns a chainable object; the terminal call (single / maybeSingle / the last chainable method)
+// resolves to `resolvedValue`.
 function fluent(resolvedValue: unknown) {
   const self: Record<string, jest.Mock> = {};
   const handler = jest.fn(() => self);
   self.select = handler;
   self.insert = handler;
   self.update = handler;
+  self.delete = handler;
   self.eq = handler;
   self.neq = handler;
   self.not = handler;
@@ -92,27 +114,31 @@ function fluent(resolvedValue: unknown) {
   return self;
 }
 
+// Route call sequence (no menu/coupon/staff/points):
+// call 1: conflict check   (bookings select)
+// call 2: facility_profiles (auto-confirm setting)
+// then: supabase.rpc('create_booking_atomic')
+// subsequent calls: notification lookups (all in try/catch — failures are suppressed)
+
 describe('POST /api/booking', () => {
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
-    // 競合チェック→結果なし、INSERT→成功、その他→null
+
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    const insertChain = fluent({ data: { id: 'new-booking-1' }, error: null });
-    const lookupChain = fluent({ data: null });
+    const nullChain = fluent({ data: null });
 
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain; // 競合チェック
-      if (callNum === 2) return insertChain;   // INSERT
-      return lookupChain;                       // lookups
+      if (callNum === 1) return conflictChain; // conflict check
+      return nullChain;                         // facility_profiles + notification lookups
     });
 
     const res = await POST(makeRequest(validBooking));
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(json.bookingId).toBe('new-booking-1');
+    expect(json.bookingId).toBe('new-booking-id');
   });
 
   test('バリデーション失敗→400', async () => {
@@ -122,6 +148,10 @@ describe('POST /api/booking', () => {
 
   test('開始時間>=終了時間→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockReturnValue(conflictChain);
 
     const res = await POST(makeRequest({ ...validBooking, start_time: '11:00', end_time: '10:00' }));
     expect(res.status).toBe(400);
@@ -148,18 +178,15 @@ describe('POST /api/booking', () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const staffId = '223e4567-e89b-12d3-a456-426614174000';
 
-    // conflictQuery chainの最後がawait（Promiseを返す）
-    // .from().select().eq().eq().not().lt().gt().eq() → staff_id追加
+    const conflictChain = fluent(null);
+    // After eq(staff_id) the chain resolves with a conflict
     const conflictResult = Promise.resolve({ data: [{ id: 'existing' }] });
     const chainEnd: Record<string, unknown> = {};
     chainEnd.eq = jest.fn(() => conflictResult);
     chainEnd.then = conflictResult.then.bind(conflictResult);
-
-    const conflictChain = fluent(null);
-    // gt()の後にeq(staff_id)が呼ばれる
     conflictChain.gt = jest.fn(() => chainEnd);
 
-    mockFrom.mockImplementation(() => conflictChain);
+    mockFrom.mockReturnValue(conflictChain);
 
     const res = await POST(makeRequest({ ...validBooking, staff_id: staffId }));
     expect(res.status).toBe(409);
@@ -167,16 +194,19 @@ describe('POST /api/booking', () => {
 
   test('DB挿入失敗→500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    const insertChain = fluent({ data: null, error: { message: 'db error', code: '99999' } });
+    const nullChain = fluent({ data: null });
 
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      return insertChain;
+      return nullChain;
     });
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'db error', code: '99999' } });
 
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(500);
@@ -184,16 +214,19 @@ describe('POST /api/booking', () => {
 
   test('DB制約違反（23505）→409', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    const insertChain = fluent({ data: null, error: { message: 'duplicate', code: '23505' } });
+    const nullChain = fluent({ data: null });
 
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      return insertChain;
+      return nullChain;
     });
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_CONFLICT duplicate', code: '23505' } });
 
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(409);
@@ -201,7 +234,7 @@ describe('POST /api/booking', () => {
 
   test('ポイント残高不足→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    // 競合チェック→OK、user_points→残高100
+
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     const pointsChain = fluent(null);
@@ -210,8 +243,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      return pointsChain;
+      if (callNum === 1) return conflictChain; // conflict check
+      return pointsChain;                       // user_points balance (100 < 500 → insufficient)
     });
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 500 }));
@@ -222,6 +255,7 @@ describe('POST /api/booking', () => {
 
   test('未認証ユーザーがポイント利用→401', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
+
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     mockFrom.mockReturnValue(conflictChain);
@@ -235,100 +269,142 @@ describe('POST /api/booking', () => {
   test('menu_idありでサーバー側価格計算', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
+
+    // Route call order with menu_id:
+    // 1: conflict check (bookings)
+    // 2: facility_menus price lookup — returns { data: [{ id: menuId, price: 8000 }] }
+    // 3: facility_profiles (auto-confirm)
+    // rpc: create_booking_atomic → success
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    // facility_menus lookup: the route uses .in('id', [...]).eq('facility_id', ...)
+    // fluent() chains resolve through single() or maybeSingle(); for this query the
+    // route uses await directly on the chain object, so we need a thenable
+    const menuLookupResult = { data: [{ id: menuId, price: 8000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuLookupResult));
+    menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
+
+    const nullChain = fluent({ data: null });
+
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) {
-        // facility_menus price lookup
-        return fluent({ data: { price: 8000 }, error: null });
-      }
-      if (callNum === 2) {
-        // insert chain
-        return fluent({ data: { id: 'booking-price-1' }, error: null });
-      }
-      return fluent({ data: null });
+      if (callNum === 1) return conflictChain; // conflict check
+      if (callNum === 2) return menuChain;     // facility_menus price lookup
+      return nullChain;                        // facility_profiles + notification lookups
     });
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, total_price: 1 }));
     const json = await res.json();
     expect(json.success).toBe(true);
-    // Verify insert was called — total_price should be server-calculated (8000), not client (1)
-    const insertCall = mockFrom.mock.calls.find(
-      (c: string[]) => c.length === 0 || true
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: 8000 })
     );
-    expect(insertCall).toBeDefined();
   });
 
   test('coupon_id + percentage割引でサーバー側価格計算', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
     const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+    // Route call order with menu_id + coupon_id:
+    // 1: conflict check (bookings)
+    // 2: facility_menus price lookup → price: 10000
+    // 3: coupons discount lookup → 20% off → 8000
+    // 4: facility_profiles (auto-confirm)
+    // rpc: create_booking_atomic with total_price: 8000
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    const couponChain = fluent({ data: { discount_type: 'percentage', discount_value: 20, is_active: true, valid_from: null, valid_until: null }, error: null });
+
+    const nullChain = fluent({ data: null });
+
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) {
-        // facility_menus price lookup
-        return fluent({ data: { price: 10000 }, error: null });
-      }
-      if (callNum === 2) {
-        // coupons discount lookup
-        return fluent({ data: { discount_type: 'percentage', discount_value: 20 }, error: null });
-      }
-      if (callNum === 3) {
-        // insert chain
-        return fluent({ data: { id: 'booking-coupon-1' }, error: null });
-      }
-      return fluent({ data: null });
+      if (callNum === 1) return conflictChain;  // conflict check
+      if (callNum === 2) return menuChain;      // facility_menus lookup
+      if (callNum === 3) return couponChain;    // coupons discount lookup
+      return nullChain;                         // facility_profiles + notification lookups
     });
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
     const json = await res.json();
     expect(json.success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: 8000 })
+    );
   });
 
   test('ポイント競合→rollback→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
-    let callNum = 0;
-    const mockDelete = jest.fn(() => ({ eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) }));
-    const mockUpdate = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
 
-    mockFrom.mockImplementation(() => {
+    // Route call order with points_used > 0 and user:
+    // 1: conflict check → ok
+    // 2: user_points balance check → 200 (sufficient for 150)
+    // 3: facility_profiles (auto-confirm)
+    // rpc: returns booking-race-1
+    // 4: user_points insert (deduction) → deductionRow.id = 'deduction-1'
+    // 5: user_points select re-verify → balance -50 (race detected)
+    // 6: user_points delete deduction row
+    // 7: bookings update cancel
+    // → return 400 with "競合"
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
+
+    const nullChain = fluent({ data: null });
+
+    // Point deduction insert chain: .insert().select('id').single()
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' } })),
+      })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -50 }] }));
+
+    const deleteChain: Record<string, unknown> = {};
+    deleteChain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+
+    const cancelChain: Record<string, unknown> = {};
+    cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-race-1', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) {
-        // 競合チェック → 空（OK）
-        const chain = fluent(null);
-        chain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-        return chain;
-      }
-      if (callNum === 2) {
-        // user_points balance check → sufficient (200 points)
-        const chain = fluent(null);
-        chain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
-        return chain;
-      }
-      if (callNum === 3) {
-        // insert booking → success
-        return fluent({ data: { id: 'booking-race-1' }, error: null });
-      }
-      if (callNum === 4) {
-        // insert point deduction
-        return { insert: jest.fn(() => Promise.resolve({ error: null })) };
-      }
-      if (callNum === 5) {
-        // re-verify balance → negative (race condition detected)
-        const chain = fluent(null);
-        chain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -50 }] }));
-        return chain;
-      }
-      if (callNum === 6) {
-        // delete point deduction (rollback)
-        return { delete: mockDelete };
-      }
-      if (callNum === 7) {
-        // cancel booking (rollback)
-        return { update: mockUpdate };
-      }
-      return fluent({ data: null });
+      if (callNum === 1) return conflictChain;   // conflict check (bookings)
+      if (callNum === 2) return balanceChain;    // user_points balance snapshot
+      if (callNum === 3) return nullChain;       // facility_profiles (auto-confirm)
+      // After RPC success:
+      if (table === 'user_points' && callNum === 4) return deductionChain; // insert deduction
+      if (table === 'user_points' && callNum === 5) return recheckChain;   // re-verify balance
+      if (table === 'user_points') return deleteChain;                     // rollback deduction
+      if (table === 'bookings') return cancelChain;                        // cancel booking
+      return nullChain;
     });
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
