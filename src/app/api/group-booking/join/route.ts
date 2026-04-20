@@ -76,13 +76,23 @@ export async function POST(request: NextRequest) {
   }
 
   // Add user as member (capacity slot is already secured above)
-  await admin.from('group_booking_members').insert({
+  const { error: memberErr } = await admin.from('group_booking_members').insert({
     group_booking_id: group.id,
     user_id: user.id,
     status: 'confirmed',
     is_organizer: false,
     joined_at: new Date().toISOString(),
   });
+
+  if (memberErr) {
+    // Capacity was incremented but member row failed — roll back the count.
+    console.error('[group-booking/join] member insert failed, rolling back confirmed_members', { groupId: group.id, err: memberErr });
+    await admin
+      .from('group_bookings')
+      .update({ confirmed_members: group.confirmed_members })
+      .eq('id', group.id);
+    return NextResponse.json({ error: 'グループへの参加に失敗しました。もう一度お試しください。' }, { status: 500 });
+  }
 
   return NextResponse.json({ group_id: group.id, joined: true });
 }

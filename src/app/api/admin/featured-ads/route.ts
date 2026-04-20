@@ -110,7 +110,11 @@ export async function POST(req: NextRequest) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     // No Stripe configured: activate immediately (development/demo mode)
-    await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
+    const { error: activateErr } = await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
+    if (activateErr) {
+      console.error('[featured-ads] dev-mode activate failed', { slotId: slot.id, err: activateErr });
+      return NextResponse.json({ error: 'スロットの有効化に失敗しました' }, { status: 500 });
+    }
     return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
   }
 

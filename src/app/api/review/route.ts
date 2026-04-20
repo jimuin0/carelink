@@ -131,7 +131,6 @@ export async function POST(request: Request) {
 
   // ポイント付与（fire-and-forget）
   // Keyed on review ID so one award per review submission.
-  // user_points has no facility_id column; dedup via reason string.
   if (user && review) {
     const reviewReason = `口コミポイント (${review.id.slice(0, 8)})`;
     supabase.from('user_points')
@@ -139,15 +138,21 @@ export async function POST(request: Request) {
       .eq('user_id', user.id)
       .eq('reason', reviewReason)
       .limit(1)
-      .then(({ data: existing }) => {
+      .then(({ data: existing, error: selectErr }) => {
+        if (selectErr) {
+          console.error('[review] points dedup check failed', { userId: user.id, reviewId: review.id, err: selectErr });
+          return;
+        }
         if (!existing || existing.length === 0) {
           supabase.from('user_points').insert({
             user_id: user.id,
             points: 50,
             reason: reviewReason,
-          }).then(() => null, () => null);
+          }).then(({ error: insertErr }) => {
+            if (insertErr) console.error('[review] points insert failed', { userId: user.id, reviewId: review.id, err: insertErr });
+          });
         }
-      }, () => null);
+      });
   }
 
   return NextResponse.json({ success: true, id: review.id });

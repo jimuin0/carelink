@@ -71,17 +71,21 @@ export async function POST(request: NextRequest) {
   }
 
   // Add organizer as first member
-  await admin.from('group_booking_members').insert({
+  const { error: organizerErr } = await admin.from('group_booking_members').insert({
     group_booking_id: groupBooking.id,
     user_id: user.id,
     status: 'confirmed',
     is_organizer: true,
     joined_at: new Date().toISOString(),
   });
+  if (organizerErr) {
+    console.error('[group-booking] organizer member insert failed', { groupId: groupBooking.id, err: organizerErr });
+    return NextResponse.json({ error: 'グループ予約の作成に失敗しました' }, { status: 500 });
+  }
 
   // Add guest members if provided
   if (data.guest_members && data.guest_members.length > 0) {
-    await admin.from('group_booking_members').insert(
+    const { error: guestErr } = await admin.from('group_booking_members').insert(
       data.guest_members.map((g) => ({
         group_booking_id: groupBooking.id,
         guest_name: g.name,
@@ -91,6 +95,9 @@ export async function POST(request: NextRequest) {
         is_organizer: false,
       }))
     );
+    if (guestErr) {
+      console.error('[group-booking] guest members insert failed', { groupId: groupBooking.id, err: guestErr });
+    }
   }
 
   return NextResponse.json({

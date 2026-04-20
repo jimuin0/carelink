@@ -95,7 +95,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   // 却下の場合: facility_reviews を非表示にする
   // content_id は上でUUID検証済み
   if (decision === 'rejected' && item.content_type === 'review') {
-    await admin
+    const { error: hideErr } = await admin
       .from('facility_reviews')
       .update({
         status: 'hidden',
@@ -103,6 +103,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
         flag_reason: review_note || '管理者による非承認',
       })
       .eq('id', item.content_id);
+    if (hideErr) {
+      console.error('[moderation] review hide failed — review remains visible', { reviewId: item.content_id, err: hideErr });
+    }
   }
 
   const { ua } = getRequestContext(request);
