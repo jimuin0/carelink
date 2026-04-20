@@ -130,21 +130,21 @@ export async function POST(request: Request) {
   }
 
   // ポイント付与（fire-and-forget）
-  // Only award once per user per facility to prevent farming by repeated reviews.
-  if (user) {
+  // Keyed on review ID so one award per review submission.
+  // user_points has no facility_id column; dedup via reason string.
+  if (user && review) {
+    const reviewReason = `口コミポイント (${review.id.slice(0, 8)})`;
     supabase.from('user_points')
       .select('id')
       .eq('user_id', user.id)
-      .eq('facility_id', parsed.data.facility_id)
-      .eq('reason', 'review')
+      .eq('reason', reviewReason)
       .limit(1)
       .then(({ data: existing }) => {
         if (!existing || existing.length === 0) {
           supabase.from('user_points').insert({
             user_id: user.id,
-            facility_id: parsed.data.facility_id,
             points: 50,
-            reason: 'review',
+            reason: reviewReason,
           }).then(() => null, () => null);
         }
       }, () => null);
