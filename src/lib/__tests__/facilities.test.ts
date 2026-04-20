@@ -187,7 +187,8 @@ describe('getFacilityReviews', () => {
 
     const result = await getFacilityReviews('fac-1');
     expect(result.reviews).toEqual(reviews);
-    expect(chain.eq).toHaveBeenCalledWith('status', 'published');
+    // status filter removed — public_reviews view already filters to published
+    expect(mockFrom).toHaveBeenCalledWith('public_reviews');
   });
 });
 
