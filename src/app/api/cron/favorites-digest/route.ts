@@ -146,7 +146,7 @@ export async function GET(request: Request) {
         userName: profile.display_name,
         facilities: updatedFacilities,
         unsubscribeToken: token,
-      }).catch(() => {});
+      }).catch((err) => console.error('[favorites-digest] email send failed', { userId: profile.id, err }));
 
       sent++;
     }

@@ -97,7 +97,7 @@ export async function GET(request: Request) {
 <p>キャンセル待ちしていた<strong>${esc(facility.name)}</strong>の<strong>${esc(waiter.date)} ${esc(waiter.start_time)}〜</strong>に空きが出ました！</p>
 <p>お早めにご予約ください。（この通知から48時間以内に予約されない場合、次の方へ順番が移ります）</p>
 <p><a href="${bookingUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">今すぐ予約する</a></p>`,
-            }).catch(() => {});
+            }).catch((err) => console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err }));
           }
 
           notified++;

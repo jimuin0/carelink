@@ -77,7 +77,7 @@ export async function GET(request: Request) {
           to: booking.email,
           subject: escSubject(`【${facility.name}】ご来店ありがとうございました`),
           html: `<p>${esc(booking.customer_name || 'お客')}様</p><p>先日は<strong>${esc(facility.name)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
-        }).catch(() => {});
+        }).catch((err) => console.error('[review-request] email send failed', { bookingId: booking.id, err }));
       }
 
       // LINE通知
