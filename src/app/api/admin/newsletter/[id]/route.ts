@@ -114,10 +114,11 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // For owner_monthly: also pull facility owner emails if no subscription record
     let emails: string[] = [];
     if (campaign.campaign_type === 'owner_monthly') {
-      const { data: owners } = await admin
+      const { data: owners, error: ownersErr } = await admin
         .from('facility_members')
         .select('profiles(email)')
         .eq('role', 'owner');
+      if (ownersErr) console.error('[newsletter/send] owner email fetch failed — some owners may be skipped', { campaignId: params.id, err: ownersErr });
       const ownerEmails = (owners || [])
         .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
           const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
