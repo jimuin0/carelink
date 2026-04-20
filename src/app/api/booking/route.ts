@@ -206,11 +206,13 @@ export async function POST(request: Request) {
   const newBookingId: string = rpcResult || '';
 
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:
-  // Insert the deduction row, then verify the running balance is still non-negative.
+  // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
+  // then verify the running balance is still non-negative.
   // If another concurrent request already deducted points (balance changed since snapshot),
   // roll back and cancel the booking.
   if (pointsUsed > 0 && user && newBookingId) {
-    const { data: deductionRow } = await supabase
+    const serviceSupabase = createServiceRoleClient();
+    const { data: deductionRow } = await serviceSupabase
       .from('user_points')
       .insert({
         user_id: user.id,
@@ -221,16 +223,16 @@ export async function POST(request: Request) {
       .single();
 
     // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck } = await supabase.from('user_points').select('points').eq('user_id', user.id);
+    const { data: recheck } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (newBalance < 0) {
       // CAS failed: another concurrent request deducted points between our read and write.
       // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
       if (deductionRow?.id) {
-        await supabase.from('user_points').delete().eq('id', deductionRow.id);
+        await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
       }
-      // Cancel the booking
-      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      // Cancel the booking (service_role bypasses booking RLS for reliable rollback)
+      await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
       return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
     }
   }

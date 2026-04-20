@@ -34,6 +34,11 @@ jest.mock('@supabase/ssr', () => ({
     rpc: mockRpc,
   }),
 }));
+// Service-role client (createServiceRoleClient) must share mockFrom so CAS tests work
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({ from: mockFrom }),
+}));
+
 jest.mock('@supabase/supabase-js', () => ({
   createClient: () => ({
     from: jest.fn(() => ({
