@@ -110,8 +110,10 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     },
   });
 
-  // Record in stripe_sessions
-  await admin.from('stripe_sessions').insert({
+  // Record in stripe_sessions — must succeed before returning the URL.
+  // If this fails, we have an orphaned Stripe session with no DB record;
+  // the webhook would find no matching row and silently drop the payment.
+  const { error: sessionInsertErr } = await admin.from('stripe_sessions').insert({
     booking_id: booking.id,
     facility_id: booking.facility_id,
     user_id: user.id,
@@ -121,6 +123,12 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     status: 'pending',
     payment_type: 'cancel_fee',
   });
+  if (sessionInsertErr) {
+    console.error('[cancel-fee] stripe_sessions insert failed — expiring Stripe session', { sessionId: session.id, err: sessionInsertErr });
+    // Best-effort: expire the Stripe session so the user cannot pay an untracked charge.
+    await getStripe().checkout.sessions.expire(session.id).catch(() => {});
+    return NextResponse.json({ error: '決済セッションの作成に失敗しました。しばらく後に再度お試しください。' }, { status: 500 });
+  }
 
   return NextResponse.json({
     url: session.url,

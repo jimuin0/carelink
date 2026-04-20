@@ -68,10 +68,13 @@ export async function POST(req: NextRequest) {
     const refreshed = await refreshAccessToken(tokenRow.refresh_token);
     accessToken = refreshed.access_token;
     const expiresAt = new Date(Date.now() + refreshed.expires_in * 1000).toISOString();
-    await admin
+    const { error: tokenUpdateErr } = await admin
       .from('google_calendar_tokens')
       .update({ access_token: accessToken, expires_at: expiresAt, updated_at: new Date().toISOString() })
       .eq('user_id', user.id);
+    if (tokenUpdateErr) {
+      console.error('[gcal-sync] token refresh persist failed', { userId: user.id, err: tokenUpdateErr });
+    }
   }
 
   // Build calendar event
