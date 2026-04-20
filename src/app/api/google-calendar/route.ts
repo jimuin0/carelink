@@ -58,7 +58,11 @@ export async function POST(req: NextRequest) {
 
   if (action === 'disconnect') {
     const admin = createServiceRoleClient();
-    await admin.from('google_calendar_tokens').delete().eq('user_id', user.id);
+    const { error: disconnectErr } = await admin.from('google_calendar_tokens').delete().eq('user_id', user.id);
+    if (disconnectErr) {
+      console.error('[google-calendar] disconnect failed', { userId: user.id, err: disconnectErr });
+      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
     return NextResponse.json({ ok: true });
   }
 

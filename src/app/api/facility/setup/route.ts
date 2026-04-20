@@ -134,7 +134,8 @@ export async function POST(request: NextRequest) {
     if (memberError) {
       console.error('[facility/setup] Member error:', memberError);
       // ロールバック
-      await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
+      const { error: rollbackErr } = await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
+      if (rollbackErr) console.error('[facility/setup] rollback failed — orphaned facility_profile', { facilityId: facility.id, err: rollbackErr });
       return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
     }
 

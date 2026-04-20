@@ -217,7 +217,8 @@ export async function PATCH(request: NextRequest) {
   if (now >= resetAt) {
     usedThisMonth = 0;
     const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    await admin.from('user_subscriptions').update({ sessions_used_this_month: 0, month_reset_at: nextReset.toISOString() }).eq('id', sub.id);
+    const { error: resetErr } = await admin.from('user_subscriptions').update({ sessions_used_this_month: 0, month_reset_at: nextReset.toISOString() }).eq('id', sub.id);
+    if (resetErr) console.error('[user-subscriptions] monthly reset failed', { subId: sub.id, err: resetErr });
   }
 
   const sessionsPerMonth = (sub.subscription_plans as { sessions_per_month: number } | null)?.sessions_per_month ?? 4;
