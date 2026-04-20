@@ -6,6 +6,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import * as Sentry from '@sentry/nextjs';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -141,7 +142,9 @@ export async function POST(request: Request) {
     if (booking.user_id && booking.total_price && booking.total_price > 0) {
       pointsEarned = Math.floor(booking.total_price / 100);
       if (pointsEarned > 0) {
-        const { error: pointError } = await supabase.from('user_points').insert({
+        // user_points has no INSERT policy for authenticated clients; use service_role
+        const serviceSupabase = createServiceRoleClient();
+        const { error: pointError } = await serviceSupabase.from('user_points').insert({
           user_id: booking.user_id,
           points: pointsEarned,
           reason: '来店ポイント',
