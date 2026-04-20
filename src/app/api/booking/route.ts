@@ -233,10 +233,12 @@ export async function POST(request: Request) {
       // CAS failed: another concurrent request deducted points between our read and write.
       // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
       if (deductionRow?.id) {
-        await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
+        const { error: rollbackPointsErr } = await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
+        if (rollbackPointsErr) console.error('[booking] point deduction rollback failed — manual cleanup needed', { deductionId: deductionRow.id, err: rollbackPointsErr });
       }
       // Cancel the booking (service_role bypasses booking RLS for reliable rollback)
-      await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      const { error: rollbackBookingErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      if (rollbackBookingErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rollbackBookingErr });
       return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
     }
   }

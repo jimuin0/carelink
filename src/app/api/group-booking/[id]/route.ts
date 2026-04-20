@@ -94,6 +94,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!group) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (group.organizer_id !== user.id) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
-  await admin.from('group_bookings').update({ status: 'cancelled' }).eq('id', params.id);
+  const { error: cancelErr } = await admin.from('group_bookings').update({ status: 'cancelled' }).eq('id', params.id).eq('organizer_id', user.id);
+  if (cancelErr) return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
   return NextResponse.json({ success: true });
 }

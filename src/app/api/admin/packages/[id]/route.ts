@@ -91,7 +91,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 購入済みユーザーがいる場合は無効化のみ（削除しない）
   const { count } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
   if (count && count > 0) {
-    await admin.from('service_packages').update({ is_active: false }).eq('id', params.id);
+    const { error: deactivateErr } = await admin.from('service_packages').update({ is_active: false }).eq('id', params.id);
+    if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     return NextResponse.json({ message: '購入済みユーザーがいるため非公開にしました' });
   }
 

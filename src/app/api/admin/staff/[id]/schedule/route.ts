@@ -90,7 +90,8 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
   }
 
   // Delete then insert
-  await admin.from('staff_schedules').delete().eq('staff_id', params.id);
+  const { error: deleteErr } = await admin.from('staff_schedules').delete().eq('staff_id', params.id);
+  if (deleteErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   if (parsed.data.schedules.length > 0) {
     const rows = parsed.data.schedules.map((s) => ({
