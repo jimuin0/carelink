@@ -123,8 +123,8 @@ export async function POST(request: NextRequest) {
     ...(paymentIntentData ? { payment_intent_data: paymentIntentData } : {}),
   });
 
-  // Record session in DB
-  await admin.from('stripe_sessions').insert({
+  // Record session in DB; expire Stripe session on failure to prevent orphaned charges
+  const { error: sessionInsertErr } = await admin.from('stripe_sessions').insert({
     booking_id: booking_id ?? null,
     facility_id,
     user_id: user.id,
@@ -135,6 +135,12 @@ export async function POST(request: NextRequest) {
     payment_type,
     expires_at: new Date((Math.floor(Date.now() / 1000) + 30 * 60) * 1000).toISOString(),
   });
+
+  if (sessionInsertErr) {
+    await getStripe().checkout.sessions.expire(session.id).catch(() => {});
+    console.error('[stripe/checkout] stripe_sessions insert failed — Stripe session expired', { sessionId: session.id, err: sessionInsertErr });
+    return NextResponse.json({ error: '決済セッションの作成に失敗しました。' }, { status: 500 });
+  }
 
   return NextResponse.json({ url: session.url, session_id: session.id });
   } catch (e) {

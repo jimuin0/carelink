@@ -50,10 +50,14 @@ export async function POST(request: NextRequest) {
   if (existing) {
     // Update status to confirmed if was invited
     if (existing.status === 'invited') {
-      await admin.from('group_booking_members').update({
+      const { error: confirmErr } = await admin.from('group_booking_members').update({
         status: 'confirmed',
         joined_at: new Date().toISOString(),
       }).eq('id', existing.id);
+      if (confirmErr) {
+        console.error('[group-booking/join] invited member confirm failed', { memberId: existing.id, err: confirmErr });
+        return NextResponse.json({ error: 'グループへの参加に失敗しました。' }, { status: 500 });
+      }
     }
     return NextResponse.json({ group_id: group.id, already_joined: true });
   }

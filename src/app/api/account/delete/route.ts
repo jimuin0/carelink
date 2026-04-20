@@ -98,7 +98,8 @@ export async function POST(request: NextRequest) {
           .neq('user_id', user.id);
 
         if ((count ?? 0) === 0) {
-          await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', m.facility_id);
+          const { error: suspendErr } = await adminSupabase.from('facility_profiles').update({ status: 'suspended' }).eq('id', m.facility_id);
+          if (suspendErr) console.error('[account/delete] facility suspend failed — manual cleanup required', { facilityId: m.facility_id, err: suspendErr });
         }
       }
     }

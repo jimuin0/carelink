@@ -203,8 +203,12 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    await admin.from('booking_calendar_events').delete()
+    const { error: calEventDeleteErr } = await admin.from('booking_calendar_events').delete()
       .eq('booking_id', bookingId).eq('user_id', user.id);
+    if (calEventDeleteErr) {
+      console.error('[google-calendar/sync] calendar event record delete failed', { bookingId, userId: user.id, err: calEventDeleteErr });
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
     return NextResponse.json({ ok: true });
   } catch (e) {
