@@ -93,35 +93,39 @@ async function handleEvent(event: Stripe.Event, admin: any) {
       const session = event.data.object as Stripe.Checkout.Session;
       const meta = session.metadata ?? {};
 
-      // Update payment status
-      await admin.from('stripe_sessions')
+      // Update payment status — throw on failure so outer handler returns 500 → Stripe retries
+      const { error: sessionErr } = await admin.from('stripe_sessions')
         .update({
           status: 'paid',
           stripe_payment_intent_id: typeof session.payment_intent === 'string' ? session.payment_intent : null,
           updated_at: new Date().toISOString(),
         })
         .eq('stripe_session_id', session.id);
+      if (sessionErr) throw new Error(`stripe_sessions update failed: ${sessionErr.message}`);
 
       // Update booking status to confirmed if deposit was paid
       if (meta.booking_id && meta.payment_type === 'deposit') {
-        await admin.from('bookings')
+        const { error: bookingErr } = await admin.from('bookings')
           .update({ status: 'confirmed', updated_at: new Date().toISOString() })
           .eq('id', meta.booking_id)
           .eq('status', 'pending');
+        if (bookingErr) throw new Error(`bookings deposit confirm failed: ${bookingErr.message}`);
       }
 
       // Mark cancel fee as paid on the booking
       if (meta.booking_id && meta.payment_type === 'cancel_fee') {
-        await admin.from('bookings')
+        const { error: cancelErr } = await admin.from('bookings')
           .update({ status: 'cancel_fee_paid', updated_at: new Date().toISOString() })
           .eq('id', meta.booking_id);
+        if (cancelErr) throw new Error(`bookings cancel_fee update failed: ${cancelErr.message}`);
       }
 
       // Activate featured slot if ad payment completed
       if (meta.slot_id) {
-        await admin.from('featured_slots')
+        const { error: slotErr } = await admin.from('featured_slots')
           .update({ is_active: true })
           .eq('id', meta.slot_id);
+        if (slotErr) console.error('[stripe/webhook] featured_slot activate failed:', slotErr);
       }
       break;
     }
