@@ -55,22 +55,24 @@ export async function scheduleRetry(
 
   if (attempt >= 3) {
     // 最大リトライ回数超過 → failed
-    await supabase.from('webhook_retry_queue').update({
+    const { error: failErr } = await supabase.from('webhook_retry_queue').update({
       status: 'failed',
       last_error: errorMsg,
       attempt_count: attempt,
       processed_at: new Date().toISOString(),
     }).eq('id', jobId);
+    if (failErr) console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: failErr });
     return;
   }
 
   const delayMs = RETRY_DELAYS_MS[attempt] ?? 30 * 60 * 1000;
   const scheduledAt = new Date(Date.now() + delayMs).toISOString();
 
-  await supabase.from('webhook_retry_queue').update({
+  const { error: retryErr } = await supabase.from('webhook_retry_queue').update({
     status: 'pending',
     attempt_count: attempt,
     last_error: errorMsg,
     scheduled_at: scheduledAt,
   }).eq('id', jobId);
+  if (retryErr) console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: retryErr });
 }
