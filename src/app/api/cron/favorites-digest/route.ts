@@ -136,10 +136,11 @@ export async function GET(request: Request) {
 
       // 配信停止トークン生成・保存
       const token = generateUnsubscribeToken();
-      await supabase.from('email_unsubscribe_tokens').insert({
+      const { error: tokenErr } = await supabase.from('email_unsubscribe_tokens').insert({
         token,
         user_id: profile.id,
-      }).then(() => null, () => null);
+      });
+      if (tokenErr) console.error('[favorites-digest] unsubscribe token insert failed', { userId: profile.id, err: tokenErr });
 
       await sendFavoritesDigest({
         userEmail: email,
