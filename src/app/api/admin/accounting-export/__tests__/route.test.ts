@@ -1,0 +1,195 @@
+/**
+ * @jest-environment node
+ *
+ * Tests for GET /api/admin/accounting-export
+ * Key assertions:
+ *   - Non-member → 401 (IDOR prevention)
+ *   - Invalid format → 400
+ *   - Date range > 366 days → 400 (DoS prevention)
+ *   - to < from → 400
+ *   - CSV injection prevention (= prefix with ')
+ *   - Success → 200 text/csv with BOM
+ */
+
+jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/audit-logger', () => ({
+  writeAuditLog: jest.fn(),
+  getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
+}));
+jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
+
+const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
+const USER_ID = '33333333-3333-3333-3333-333333333333';
+
+const mockAdminFrom = jest.fn();
+const mockAnonFrom = jest.fn();
+const mockGetUser = jest.fn();
+
+jest.mock('@supabase/ssr', () => ({
+  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+}));
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+}));
+
+import { NextRequest } from 'next/server';
+import { GET } from '../route';
+import { inMemoryRateLimit } from '@/lib/rate-limit';
+
+function makeGetRequest(params: Record<string, string> = { facility_id: FACILITY_UUID }) {
+  const url = new URL('http://localhost/api/admin/accounting-export');
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  return new NextRequest(url.toString(), { method: 'GET' });
+}
+
+function memberChain(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
+function bookingQueryChain(data: unknown[], error: unknown = null) {
+  const chain: Record<string, jest.Mock> = {};
+  const self = () => chain;
+  chain.select = jest.fn(self);
+  chain.eq = jest.fn(self);
+  chain.in = jest.fn(self);
+  chain.order = jest.fn(self);
+  chain.gte = jest.fn(self);
+  chain.lte = jest.fn(self);
+  chain.limit = jest.fn(() => Promise.resolve({ data, error }));
+  return chain;
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+});
+
+// ─── Guards ───────────────────────────────────────────────────────────────────
+
+test('GET: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(401);
+});
+
+test('GET: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(429);
+});
+
+test('GET: facility_id なし → 400', async () => {
+  const res = await GET(makeGetRequest({}));
+  expect(res.status).toBe(400);
+});
+
+test('GET: 不正なfacility_id → 400', async () => {
+  const res = await GET(makeGetRequest({ facility_id: 'bad-id' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: 非管理者 → 401 (IDOR防止)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain(null));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(401);
+});
+
+// ─── Parameter validation ──────────────────────────────────────────────────────
+
+test('GET: 不正なformat → 400', async () => {
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'quickbooks' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: 日付範囲 > 366日 → 400 (DoS防止)', async () => {
+  const res = await GET(makeGetRequest({
+    facility_id: FACILITY_UUID,
+    from: '2024-01-01',
+    to: '2025-12-31', // 731 days
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: to < from → 400', async () => {
+  const res = await GET(makeGetRequest({
+    facility_id: FACILITY_UUID,
+    from: '2026-06-01',
+    to: '2026-01-01',
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: DB失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([], { message: 'DB error' }));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee' }));
+  expect(res.status).toBe(500);
+});
+
+// ─── CSV injection prevention ─────────────────────────────────────────────────
+
+test('GET: CSVインジェクション防止 (= で始まる値は引用符付き)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: '=SUM(A1)',
+    created_at: '2026-01-01T10:00:00Z',
+    menu_name: '=CMD|"calc"!A0',
+    total_amount: 5000,
+    status: 'completed',
+    profiles: { display_name: '=EVIL', email: 'test@example.com' },
+  }]));
+
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain("'=SUM");
+  expect(csv).toContain("'=CMD");
+  expect(csv).toContain("'=EVIL");
+});
+
+// ─── Happy path ───────────────────────────────────────────────────────────────
+
+test('GET: freee形式 → 200 text/csv + BOM', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'booking-1',
+    created_at: '2026-01-15T10:00:00Z',
+    menu_name: 'カット',
+    total_amount: 3300,
+    status: 'completed',
+    profiles: { display_name: '田中花子', email: null },
+  }]));
+
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee', from: '2026-01-01', to: '2026-01-31' }));
+  expect(res.status).toBe(200);
+  expect(res.headers.get('Content-Type')).toContain('text/csv');
+  expect(res.headers.get('Content-Disposition')).toContain('freee');
+  const csv = await res.text();
+  expect(csv).toContain('取引日'); // freee header
+  expect(csv).toContain('収支区分'); // freee-specific column
+});
+
+test('GET: mf形式 → 200 text/csv', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'booking-1',
+    created_at: '2026-01-15T10:00:00Z',
+    menu_name: 'カラー',
+    total_amount: 8800,
+    status: 'confirmed',
+    profiles: null,
+  }]));
+
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'mf' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('借方勘定科目'); // MF header
+});
