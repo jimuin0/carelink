@@ -20,21 +20,26 @@ export default async function AdminDashboard() {
   const today = new Date().toISOString().split('T')[0];
 
   // オンボーディング進捗チェック
+  // staff_profiles IDs are fetched with data (not head-only) so we can reuse
+  // them for the staff_schedules query without a second sequential round-trip.
   const [
     { count: menuCount },
-    { count: staffCount },
+    { data: staffData },
     { count: photoCount },
-    { count: scheduleCount },
     { data: facilityData },
   ] = await Promise.all([
     supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
-    supabase.from('staff_profiles').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+    supabase.from('staff_profiles').select('id').eq('facility_id', facilityId),
     supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
-    supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id',
-      (await supabase.from('staff_profiles').select('id').eq('facility_id', facilityId)).data?.map(s => s.id) || []
-    ),
     supabase.from('facility_profiles').select('status').eq('id', facilityId).single(),
   ]);
+
+  const staffIds = staffData?.map((s: { id: string }) => s.id) ?? [];
+  const staffCount = staffIds.length;
+
+  const scheduleCount = staffIds.length > 0
+    ? (await supabase.from('staff_schedules').select('id', { count: 'exact', head: true }).in('staff_id', staffIds)).count ?? 0
+    : 0;
 
   const isPublished = facilityData?.status === 'published';
   const onboardingSteps = [
