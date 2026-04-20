@@ -70,7 +70,7 @@ export async function GET(request: Request) {
 
         const totalRevenue = completed.reduce((sum, b) => sum + (b.total_price || 0), 0);
 
-        await supabase
+        const { error: upsertErr } = await supabase
           .from('daily_revenue_summary')
           .upsert({
             facility_id: facility.id,
@@ -83,6 +83,10 @@ export async function GET(request: Request) {
             new_customer_count: newCount,
             repeat_customer_count: repeatCount,
           }, { onConflict: 'facility_id,date' });
+        if (upsertErr) {
+          console.error('[daily-summary] revenue summary upsert failed', { facilityId: facility.id, err: upsertErr });
+          continue;
+        }
 
         count++;
       } catch (facilityErr) {
