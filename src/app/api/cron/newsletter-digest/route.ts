@@ -185,7 +185,7 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  await admin
+  const { error: campaignUpdateErr } = await admin
     .from('newsletter_campaigns')
     .update({
       status: 'sent',
@@ -194,13 +194,16 @@ export async function GET(req: NextRequest) {
       updated_at: new Date().toISOString(),
     })
     .eq('id', campaign.id);
+  if (campaignUpdateErr) {
+    console.error('[newsletter-digest] campaign status update failed — next run may re-send', { campaignId: campaign.id, err: campaignUpdateErr });
+  }
 
   // Log cron execution
   await admin.from('cron_logs').insert({
     job_name: 'newsletter-digest',
     status: 'success',
     message: `Sent ${sentCount} newsletters (${failedCount} send failures)`,
-  }).then(() => null, () => null);
+  }).then(() => null, (err) => console.error('[newsletter-digest] cron_logs insert failed', err));
 
   return NextResponse.json({ ok: true, sentCount, failedCount, campaignId: campaign.id });
 }
