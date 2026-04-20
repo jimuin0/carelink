@@ -47,10 +47,14 @@ export async function POST(req: NextRequest) {
     const verified = flatRecords.some((r) => r === config.txt_record);
 
     if (verified) {
-      await admin
+      const { error: verifyUpdateErr } = await admin
         .from('white_label_domains')
         .update({ is_verified: true, verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
         .eq('facility_id', facilityId);
+      if (verifyUpdateErr) {
+        console.error('[white-label/verify] domain verify update failed', { facilityId, err: verifyUpdateErr });
+        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ verified });

@@ -75,16 +75,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, already: true });
     }
 
-    await supabase
+    const { error: unsubErr } = await supabase
       .from('newsletter_subscriptions')
       .update({ is_active: false })
       .eq('email', normalizedEmail);
+    if (unsubErr) {
+      console.error('[unsubscribe] newsletter_subscriptions update failed', { err: unsubErr });
+      return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+    }
 
     // profiles に一致するアカウントがあれば email_unsubscribed もセット
-    await supabase
+    const { error: profileUnsubErr } = await supabase
       .from('profiles')
       .update({ email_unsubscribed: true })
       .eq('email', normalizedEmail);
+    if (profileUnsubErr) console.error('[unsubscribe] profiles email_unsubscribed update failed', { err: profileUnsubErr });
 
     return NextResponse.json({ success: true, already: false });
   }
@@ -128,16 +133,21 @@ export async function POST(request: Request) {
   }
 
   // 配信停止フラグをセット
-  await supabase
+  const { error: profileFlagErr } = await supabase
     .from('profiles')
     .update({ email_unsubscribed: true })
     .eq('id', tokenRow.user_id);
+  if (profileFlagErr) {
+    console.error('[unsubscribe] profile flag update failed', { userId: tokenRow.user_id, err: profileFlagErr });
+    return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+  }
 
   // トークンを使用済みにマーク
-  await supabase
+  const { error: tokenMarkErr } = await supabase
     .from('email_unsubscribe_tokens')
     .update({ used_at: new Date().toISOString() })
     .eq('token', tokenParsed.data.token);
+  if (tokenMarkErr) console.error('[unsubscribe] token mark-used failed — token may be reused', { err: tokenMarkErr });
 
   return NextResponse.json({ success: true, already: false });
 }
