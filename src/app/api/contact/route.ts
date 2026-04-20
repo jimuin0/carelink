@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         message: parsed.data.message,
       },
     }),
-  }).catch(() => {});
+  }).catch((err) => console.error('[contact] Slack notification failed', { err }));
 
   return NextResponse.json({ success: true });
 }

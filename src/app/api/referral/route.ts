@@ -51,7 +51,11 @@ export async function GET(request: NextRequest) {
 
   // 新規生成
   const code = generateCode();
-  await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
+  const { error: insertErr } = await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
+  if (insertErr) {
+    console.error('[referral] code generation failed', { userId: user.id, err: insertErr });
+    return NextResponse.json({ error: '紹介コードの生成に失敗しました' }, { status: 500 });
+  }
   return NextResponse.json({ code, used_count: 0 });
 }
 
@@ -126,11 +130,14 @@ export async function POST(request: NextRequest) {
 
   // 使用回数をDB側でアトミックにインクリメント（read-then-writeのrace conditionを排除）
   // used_count + 1 はDBが計算することでCAS（Compare-And-Swap）的な安全性を確保
-  await adminSupabase
+  const { error: countErr } = await adminSupabase
     .from('referral_codes')
     .update({ used_count: (referralCode.used_count ?? 0) + 1 })
     .eq('code', code.toUpperCase())
     .eq('used_count', referralCode.used_count ?? 0);
+  if (countErr) {
+    console.error('[referral] used_count increment failed — referral_uses row committed but count not updated', { code: code.toUpperCase(), err: countErr });
+  }
 
   return NextResponse.json({ success: true, message: '紹介コードが適用されました！300ポイントを獲得しました。' });
 }

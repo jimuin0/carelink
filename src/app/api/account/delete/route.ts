@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     );
 
     // 関連データ削除（CASCADE設定されていないテーブル + SET NULL で残存するPIIテーブル）
-    await Promise.all([
+    const deleteResults = await Promise.allSettled([
       // CASCADE なし → 明示削除必須
       adminSupabase.from('line_user_links').delete().eq('user_id', user.id),
       adminSupabase.from('favorites').delete().eq('user_id', user.id),
@@ -66,6 +66,19 @@ export async function POST(request: NextRequest) {
       // profiles は最後に削除
       adminSupabase.from('profiles').delete().eq('id', user.id),
     ]);
+
+    const failedOps = deleteResults
+      .map((r, i) => ({ i, r }))
+      .filter(({ r }) => r.status === 'rejected' || (r.status === 'fulfilled' && (r.value as { error?: unknown }).error));
+    if (failedOps.length > 0) {
+      console.error('[account/delete] PII deletion partial failure — manual GDPR cleanup required', {
+        userId: user.id,
+        failures: failedOps.map(({ i, r }) => ({
+          opIndex: i,
+          reason: r.status === 'rejected' ? r.reason : (r.status === 'fulfilled' ? (r.value as { error?: unknown }).error : null),
+        })),
+      });
+    }
 
     // 施設オーナーの場合、施設も削除
     const { data: memberships } = await adminSupabase
@@ -90,10 +103,17 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    await adminSupabase.from('facility_members').delete().eq('user_id', user.id);
+    const { error: memberDeleteErr } = await adminSupabase.from('facility_members').delete().eq('user_id', user.id);
+    if (memberDeleteErr) {
+      console.error('[account/delete] facility_members deletion failed — manual cleanup required', { userId: user.id, err: memberDeleteErr });
+    }
 
     // auth.usersから削除
-    await adminSupabase.auth.admin.deleteUser(user.id);
+    const { error: authDeleteErr } = await adminSupabase.auth.admin.deleteUser(user.id);
+    if (authDeleteErr) {
+      console.error('[account/delete] auth.users deletion failed', { userId: user.id, err: authDeleteErr });
+      return NextResponse.json({ error: 'アカウント削除に失敗しました' }, { status: 500 });
+    }
 
     const { ua } = getRequestContext(request);
     void writeAuditLog({

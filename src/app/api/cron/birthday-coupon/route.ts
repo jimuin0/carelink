@@ -90,7 +90,7 @@ export async function GET(request: Request) {
             <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;" />
             <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
           </body></html>`,
-        }).catch(() => {});
+        }).catch((err) => console.error('[birthday-coupon] email send failed', { userId: profile.id, err }));
       }
 
       // LINE通知
@@ -105,7 +105,7 @@ export async function GET(request: Request) {
           await sendLineText(
             lineLink.line_user_id,
             `🎂 ${name}様、お誕生日おめでとうございます！\n\n本日のお誕生日を記念して、${BIRTHDAY_POINTS}ポイントをプレゼントしました🎁\n\n次回の予約にぜひご利用ください！\n${SITE_URL}/mypage/points`
-          ).catch(() => {});
+          ).catch((err) => console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err }));
         }
       }
 
