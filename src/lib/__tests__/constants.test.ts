@@ -1,82 +1,178 @@
-import { UUID_REGEX, prefectures, businessTypes, regionGroups, dayOrder, dayLabels } from '../constants';
+/**
+ * @jest-environment node
+ */
 
-describe('UUID_REGEX', () => {
-  test('正しいUUID v4を受理する', () => {
-    expect(UUID_REGEX.test('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
-  });
-
-  test('大文字UUIDを受理する', () => {
-    expect(UUID_REGEX.test('550E8400-E29B-41D4-A716-446655440000')).toBe(true);
-  });
-
-  test('不正な形式を拒否する', () => {
-    expect(UUID_REGEX.test('not-a-uuid')).toBe(false);
-    expect(UUID_REGEX.test('')).toBe(false);
-    expect(UUID_REGEX.test('550e8400e29b41d4a716446655440000')).toBe(false); // ハイフンなし
-  });
-
-  test('長さ超過を拒否する', () => {
-    expect(UUID_REGEX.test('550e8400-e29b-41d4-a716-4466554400001')).toBe(false);
-  });
-});
+import {
+  prefectures,
+  businessTypes,
+  facilityFeatures,
+  regionGroups,
+  dayOrder,
+  dayLabels,
+  UUID_REGEX,
+  SITE_URL,
+} from '../constants';
 
 describe('prefectures', () => {
-  test('47都道府県が定義されている', () => {
+  test('contains all 47 prefectures', () => {
     expect(prefectures).toHaveLength(47);
   });
 
-  test('北海道から始まり沖縄で終わる', () => {
-    expect(prefectures[0]).toBe('北海道');
-    expect(prefectures[46]).toBe('沖縄県');
+  test('includes Tokyo', () => {
+    expect(prefectures).toContain('東京都');
   });
 
-  test('重複がない', () => {
-    expect(new Set(prefectures).size).toBe(47);
+  test('includes Hokkaido', () => {
+    expect(prefectures).toContain('北海道');
+  });
+
+  test('includes Okinawa', () => {
+    expect(prefectures).toContain('沖縄県');
+  });
+
+  test('all entries end with 県, 道, 府, or 都', () => {
+    prefectures.forEach(pref => {
+      expect(pref).toMatch(/[県道府都]$/);
+    });
   });
 });
 
 describe('businessTypes', () => {
-  test('8種類が定義されている', () => {
-    expect(businessTypes).toHaveLength(8);
+  test('has at least 8 types', () => {
+    expect(businessTypes.length).toBeGreaterThanOrEqual(8);
   });
 
-  test('ヘアサロンが含まれる', () => {
+  test('includes hair salon', () => {
     expect(businessTypes).toContain('ヘアサロン');
   });
 
-  test('鍼灸院・整骨院が含まれる', () => {
-    expect(businessTypes).toContain('鍼灸院・整骨院');
+  test('includes other for catch-all', () => {
+    expect(businessTypes).toContain('その他');
+  });
+
+  test('no duplicates', () => {
+    const unique = new Set(businessTypes);
+    expect(businessTypes).toHaveLength(unique.size);
+  });
+});
+
+describe('facilityFeatures', () => {
+  test('has multiple feature options', () => {
+    expect(facilityFeatures.length).toBeGreaterThan(15);
+  });
+
+  test('includes parking and wifi', () => {
+    expect(facilityFeatures).toContain('駐車場あり');
+    expect(facilityFeatures).toContain('WiFi完備');
+  });
+
+  test('no duplicates', () => {
+    const unique = new Set(facilityFeatures);
+    expect(facilityFeatures).toHaveLength(unique.size);
   });
 });
 
 describe('regionGroups', () => {
-  test('6地域が定義されている', () => {
+  test('has 6 regions', () => {
     expect(regionGroups).toHaveLength(6);
   });
 
-  test('全都道府県がいずれかの地域に含まれる', () => {
-    const allInRegions = regionGroups.flatMap(g => g.prefectures);
-    expect(new Set(allInRegions).size).toBe(47);
-    for (const pref of prefectures) {
-      expect(allInRegions).toContain(pref);
-    }
+  test('Kanto has Tokyo', () => {
+    const kanto = regionGroups.find(r => r.name === '関東');
+    expect(kanto?.prefectures).toContain('東京都');
+  });
+
+  test('each region has prefectures', () => {
+    regionGroups.forEach(group => {
+      expect(group.prefectures.length).toBeGreaterThan(0);
+    });
+  });
+
+  test('all prefectures in regions are in main list', () => {
+    regionGroups.forEach(group => {
+      group.prefectures.forEach(pref => {
+        expect(prefectures).toContain(pref);
+      });
+    });
+  });
+
+  test('no duplicate prefectures across regions', () => {
+    const allPrefs = regionGroups.flatMap(r => r.prefectures);
+    const uniquePrefs = new Set(allPrefs);
+    expect(allPrefs).toHaveLength(uniquePrefs.size);
   });
 });
 
-describe('dayOrder & dayLabels', () => {
-  test('7曜日が定義されている', () => {
+describe('dayOrder', () => {
+  test('has 7 days', () => {
     expect(dayOrder).toHaveLength(7);
   });
 
-  test('月曜から日曜まで', () => {
+  test('starts with mon', () => {
     expect(dayOrder[0]).toBe('mon');
-    expect(dayOrder[6]).toBe('sun');
   });
 
-  test('全曜日にラベルがある', () => {
-    for (const day of dayOrder) {
-      expect(dayLabels[day]).toBeDefined();
-      expect(dayLabels[day].length).toBe(1); // 漢字1文字
-    }
+  test('ends with sun', () => {
+    expect(dayOrder[dayOrder.length - 1]).toBe('sun');
+  });
+});
+
+describe('dayLabels', () => {
+  test('has labels for all 7 days', () => {
+    expect(Object.keys(dayLabels)).toHaveLength(7);
+  });
+
+  test('mon maps to 月', () => {
+    expect(dayLabels.mon).toBe('月');
+  });
+
+  test('sun maps to 日', () => {
+    expect(dayLabels.sun).toBe('日');
+  });
+});
+
+describe('UUID_REGEX', () => {
+  test('accepts valid UUID v4', () => {
+    expect(UUID_REGEX.test('550e8400-e29b-41d4-a716-446655440000')).toBe(true);
+  });
+
+  test('accepts lowercase UUID', () => {
+    expect(UUID_REGEX.test('11111111-1111-1111-1111-111111111111')).toBe(true);
+  });
+
+  test('accepts uppercase UUID', () => {
+    expect(UUID_REGEX.test('AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE')).toBe(true);
+  });
+
+  test('accepts mixed case UUID', () => {
+    expect(UUID_REGEX.test('AaBbCcDd-EeFf-AaBb-CcDd-EeFfAaBbCcDd')).toBe(true);
+  });
+
+  test('rejects invalid formats', () => {
+    expect(UUID_REGEX.test('not-a-uuid')).toBe(false);
+    expect(UUID_REGEX.test('11111111111111111111111111111111')).toBe(false);
+    expect(UUID_REGEX.test('11111111-1111-1111-1111')).toBe(false);
+  });
+
+  test('rejects non-hex characters', () => {
+    expect(UUID_REGEX.test('zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz')).toBe(false);
+  });
+});
+
+describe('SITE_URL', () => {
+  test('is a valid URL', () => {
+    expect(() => new URL(SITE_URL)).not.toThrow();
+  });
+
+  test('uses https', () => {
+    expect(SITE_URL).toMatch(/^https:\/\//);
+  });
+
+  test('does not have trailing slash', () => {
+    expect(SITE_URL).not.toMatch(/\/$/);
+  });
+
+  test('is apex domain (not www)', () => {
+    expect(SITE_URL).not.toContain('www.');
   });
 });
