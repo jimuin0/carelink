@@ -311,4 +311,138 @@ describe('POST /api/stripe/webhook', () => {
     // Should call select to verify ownership
     expect(mockSelect).toHaveBeenCalled();
   });
+
+  describe('handleEvent — specific event types', () => {
+    function setupEventMock(eventType: string, dataObject: Record<string, unknown>) {
+      const Stripe = require('stripe');
+      Stripe.mockImplementation(() => ({
+        webhooks: {
+          constructEvent: jest.fn().mockReturnValue({
+            id: `evt_${eventType.replace(/\./g, '_')}`,
+            type: eventType,
+            data: { object: dataObject },
+          }),
+        },
+      }));
+    }
+
+    const mockStripeSessionsUpdate = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null }),
+      }),
+    });
+    const mockBookingsUpdate = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null }),
+      }),
+    });
+
+    beforeEach(() => {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') {
+            return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          }
+          if (table === 'stripe_sessions') {
+            return { update: mockStripeSessionsUpdate };
+          }
+          if (table === 'bookings') {
+            return { update: mockBookingsUpdate };
+          }
+          if (table === 'featured_slots') {
+            return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+          }
+          return {
+            update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+            select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [], error: null }) }),
+          };
+        }),
+      });
+    });
+
+    test('checkout.session.completed with deposit payment_type → confirms booking', async () => {
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_test_123',
+        payment_intent: 'pi_123',
+        metadata: { booking_id: 'bk_001', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockBookingsUpdate).toHaveBeenCalled();
+    });
+
+    test('checkout.session.completed with cancel_fee payment_type → marks cancel_fee_paid', async () => {
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_test_456',
+        payment_intent: 'pi_456',
+        metadata: { booking_id: 'bk_002', payment_type: 'cancel_fee' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockBookingsUpdate).toHaveBeenCalled();
+    });
+
+    test('checkout.session.expired → marks session expired', async () => {
+      setupEventMock('checkout.session.expired', {
+        id: 'cs_expired_789',
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalled();
+    });
+
+    test('charge.refunded → marks session refunded', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_refund_001',
+        amount: 5000,
+        amount_refunded: 5000,
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalled();
+    });
+
+    test('charge.refunded without payment_intent → no DB update', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: null,
+        amount: 5000,
+        amount_refunded: 2500,
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).not.toHaveBeenCalled();
+    });
+
+    test('charge.dispute.created → marks session disputed', async () => {
+      setupEventMock('charge.dispute.created', {
+        payment_intent: 'pi_dispute_001',
+        status: 'needs_response',
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalled();
+      expect(mockBookingsUpdate).toHaveBeenCalled();
+    });
+
+    test('charge.dispute.closed with won status → marks session paid', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dispute_won',
+        status: 'won',
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalled();
+    });
+
+    test('charge.dispute.closed with lost status → marks session dispute_lost', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dispute_lost',
+        status: 'lost',
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalled();
+    });
+  });
 });
