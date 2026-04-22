@@ -211,3 +211,103 @@ test('Stripe非対応施設 → 400', async () => {
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(400);
 });
+
+test('当日キャンセル（same_day_fee_percent）→ 50% 料金', async () => {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayBooking = { ...PAST_BOOKING, booking_date: todayStr, status: 'cancelled' };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(todayBooking);
+    if (callNum === 2) return singleChain(POLICY);
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee_percent).toBe(50);
+});
+
+test('1日前キャンセル（one_day_fee_percent）→ 30% 料金', async () => {
+  const tomorrowStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const oneDayBooking = { ...PAST_BOOKING, booking_date: tomorrowStr, status: 'cancelled' };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(oneDayBooking);
+    if (callNum === 2) return singleChain(POLICY);
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee_percent).toBe(30);
+});
+
+test('2日前キャンセル（three_day_fee_percent > 0）→ 10% 料金', async () => {
+  const twoDaysStr = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const twoDayBooking = { ...PAST_BOOKING, booking_date: twoDaysStr, status: 'cancelled' };
+  const policyWithThreeDay = { ...POLICY, three_day_fee_percent: 10 };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(twoDayBooking);
+    if (callNum === 2) return singleChain(policyWithThreeDay);
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee_percent).toBe(10);
+});
+
+test('キャンセル料が最小金額（50円）未満 → 200 fee返却', async () => {
+  // total_price: 100, no_show_fee_percent: 10 → fee: 10円 < 50
+  const cheapBooking = { ...PAST_BOOKING, total_price: 100 };
+  const lowPolicy = { ...POLICY, no_show_fee_percent: 10 };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(cheapBooking);
+    return singleChain(lowPolicy);
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee).toBe(10);
+  expect(json.error).toContain('最小金額');
+});
+
+test('ポリシーなし → feePercent=0 → キャンセル料なし', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(PAST_BOOKING);
+    return singleChain(null); // no policy
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee).toBe(0);
+});
+
+test('CSRF エラー → 403', async () => {
+  const { checkCsrf: mockCheckCsrf } = require('@/lib/csrf');
+  (mockCheckCsrf as jest.Mock).mockReturnValueOnce(
+    new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 })
+  );
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});

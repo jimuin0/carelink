@@ -258,3 +258,67 @@ test('GET: レスポンスが { placeData, audit } 形式', async () => {
   expect('placeData' in json).toBe(true);
   expect('audit' in json).toBe(true);
 });
+
+test('GET: fetchPlaceDetails がデータを返す → キャッシュ・評価更新', async () => {
+  const mockPlaceData = {
+    name: 'テスト施設',
+    rating: 4.5,
+    user_ratings_total: 100,
+    formatted_address: '東京都',
+  };
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
+
+  const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ123' };
+
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
+    if (table === 'gbp_audit_cache') return upsertChain(null);
+    if (table === 'facility_profiles') return updateEq(null);
+    return upsertChain(null);
+  });
+
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.placeData).toEqual(mockPlaceData);
+});
+
+test('GET: クエリパラメータの placeId を使う', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(FACILITY_DATA); // no gbp_place_id
+    return upsertChain(null);
+  });
+
+  // placeId from query params should take priority
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(null);
+
+  const url = new URL('http://localhost/api/admin/gbp/place');
+  url.searchParams.set('placeId', 'ChIJ_from_query');
+
+  const res = await GET(new NextRequest(url.toString(), { method: 'GET' }));
+  expect(res.status).toBe(200);
+  // fetchPlaceDetails should be called with the query param placeId
+  expect(fetchPlaceDetails).toHaveBeenCalledWith('ChIJ_from_query');
+});
+
+test('POST: gbp_place_id なし → クリア（null保存）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return updateEq(null);
+  });
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: '', gbp_cid: 'cid123' }),
+  }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.ok).toBe(true);
+});
