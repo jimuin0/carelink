@@ -184,3 +184,22 @@ test('ネストしたTXTレコード配列も正しく照合される', async ()
   expect(res.status).toBe(200);
   expect(json.verified).toBe(true);
 });
+
+test('レートリミット params', async () => {
+  setupOwnershipAndDomain(null);
+  (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBeGreaterThan(0);
+  expect(call[2]).toBe(60_000);
+});
+
+test('レスポンスが { verified: true } 形式', async () => {
+  setupOwnershipAndDomain(null);
+  (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+  const res = await POST(makeRequest());
+  const json = await res.json();
+  expect(json.verified).toBe(true);
+});

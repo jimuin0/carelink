@@ -79,3 +79,83 @@ describe('bookingSchema', () => {
     expect(result.success).toBe(false);
   });
 });
+
+describe('bookingSchema — deep tests', () => {
+  test('total_price が 9999999 → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, total_price: 9999999 }).success).toBe(true);
+  });
+
+  test('total_price が 10000000 → エラー', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, total_price: 10000000 }).success).toBe(false);
+  });
+
+  test('points_used が 0 → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, points_used: 0 }).success).toBe(true);
+  });
+
+  test('points_used が 9999999 → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, points_used: 9999999 }).success).toBe(true);
+  });
+
+  test('points_used が -1 → エラー', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, points_used: -1 }).success).toBe(false);
+  });
+
+  test('customer_name が 100文字 → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, customer_name: 'あ'.repeat(100) }).success).toBe(true);
+  });
+
+  test('customer_name が 101文字 → エラー', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, customer_name: 'あ'.repeat(101) }).success).toBe(false);
+  });
+
+  test('email が 254文字 → 通過', () => {
+    const localPart = 'a'.repeat(242);
+    const email = `${localPart}@example.com`; // 242+12=254
+    expect(bookingSchema.safeParse({ ...validBooking, email }).success).toBe(true);
+  });
+
+  test('end_time が不正 (24:00) → エラー', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, end_time: '24:00' }).success).toBe(false);
+  });
+
+  test('end_time が 00:00 → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, end_time: '00:00' }).success).toBe(true);
+  });
+
+  test('booking_date が 1年先 → 通過', () => {
+    const future = new Date();
+    future.setFullYear(future.getFullYear() + 1);
+    const dateStr = future.toISOString().split('T')[0];
+    expect(bookingSchema.safeParse({ ...validBooking, booking_date: dateStr }).success).toBe(true);
+  });
+
+  test('phone が null → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, phone: null }).success).toBe(true);
+  });
+
+  test('phone が undefined → 通過', () => {
+    const { phone, ...rest } = validBooking;
+    expect(bookingSchema.safeParse(rest).success).toBe(true);
+  });
+
+  test('note が 500文字 → 通過', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, note: 'a'.repeat(500) }).success).toBe(true);
+  });
+
+  test('menu_ids が UUID 配列 → 通過', () => {
+    expect(bookingSchema.safeParse({
+      ...validBooking,
+      menu_ids: ['550e8400-e29b-41d4-a716-446655440001', '550e8400-e29b-41d4-a716-446655440002'],
+    }).success).toBe(true);
+  });
+
+  test('menu_ids が 21 件 → エラー', () => {
+    const uuids = Array.from({ length: 21 }, (_, i) => `550e8400-e29b-41d4-a716-44665544${String(i).padStart(4, '0')}`);
+    expect(bookingSchema.safeParse({ ...validBooking, menu_ids: uuids }).success).toBe(false);
+  });
+
+  test('start_time の分が 60 → エラー', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, start_time: '10:60' }).success).toBe(false);
+  });
+});

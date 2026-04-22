@@ -178,3 +178,66 @@ test('GET: 管理者 → 200 key一覧（key_hashなし）', async () => {
   expect(res.status).toBe(200);
   expect(Array.isArray(json)).toBe(true);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest() as any);
+  expect(res.status).toBe(403);
+});
+
+test('POST: reviews:read スコープ → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'test', key_prefix: 'ck_live_abcd' }));
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: 'test', scopes: ['reviews:read'] }) as any);
+  expect(res.status).toBe(201);
+});
+
+test('POST: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'テストキー', key_prefix: 'ck_live_abcd' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await POST(makePostRequest() as any);
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'create', tableName: 'api_keys' }));
+});
+
+test('POST: facility_id が不正UUID → 400', async () => {
+  const res = await POST(makePostRequest({ facility_id: 'not-uuid', name: 'test', scopes: ['bookings:read'] }) as any);
+  expect(res.status).toBe(400);
+});
+
+test('POST: name が空白のみ → 400', async () => {
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: '   ', scopes: ['bookings:read'] }) as any);
+  expect(res.status).toBe(400);
+});
+
+test('POST: レートリミット params (10/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'テストキー', key_prefix: 'ck_live_abcd' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest() as any);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: レスポンスが配列形式', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(adminListChain([]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(Array.isArray(json)).toBe(true);
+});
+
+test('GET: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'admin' }));
+  mockAdminFrom.mockReturnValue(adminListChain([]));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});

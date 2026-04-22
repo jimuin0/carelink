@@ -150,3 +150,81 @@ test('PATCH: 正常更新 → 200 with record', async () => {
   expect(res.status).toBe(200);
   expect(json.record).toBeDefined();
 });
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: objective が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ objective: 'a'.repeat(2001) }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: assessment が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ assessment: 'a'.repeat(2001) }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: plan が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ plan: 'a'.repeat(2001) }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: next_visit_note が 501文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ next_visit_note: 'a'.repeat(501) }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: menu_name が 101文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ menu_name: 'a'.repeat(101) }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: facility_id が不正UUID → 401', async () => {
+  const url = new URL(`http://localhost/api/admin/treatment-records/${RECORD_UUID}`);
+  url.searchParams.set('facility_id', 'bad-uuid');
+  const req = new (require('next/server').NextRequest)(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ subjective: 'test' }),
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityIdChain({ id: RECORD_UUID, subjective: 'updated' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ subjective: 'updated' }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('PATCH: レスポンスが { record: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityIdChain({ id: RECORD_UUID, subjective: 'updated' }));
+  const res = await PATCH(makeRequest({ subjective: 'updated' }), makeProps());
+  const json = await res.json();
+  expect(json.record).toBeDefined();
+  expect(json.record.id).toBe(RECORD_UUID);
+});
+
+test('PATCH: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityIdChain({ id: RECORD_UUID }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest(), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});

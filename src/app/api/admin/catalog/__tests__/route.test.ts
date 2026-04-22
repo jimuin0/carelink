@@ -142,3 +142,71 @@ test('POST: duration_minutes=1440 → 201', async () => {
   const res = await POST(makeRequest(validBody({ duration_minutes: 1440 })));
   expect(res.status).toBe(201);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: name が 100文字 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1' }));
+  const res = await POST(makeRequest(validBody({ name: 'あ'.repeat(100) })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: name が 101文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ name: 'a'.repeat(101) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: description が 1001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ description: 'a'.repeat(1001) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: price が 9999999 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1' }));
+  const res = await POST(makeRequest(validBody({ price: 9999999 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: duration_minutes が 0 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1' }));
+  const res = await POST(makeRequest(validBody({ duration_minutes: 0 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: facility_id が不正UUID → 401', async () => {
+  const url = new URL('http://localhost/api/admin/catalog');
+  url.searchParams.set('facility_id', 'bad-uuid');
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(validBody()),
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(401);
+});
+
+test('POST: is_published=true → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1', is_published: true }));
+  const res = await POST(makeRequest(validBody({ is_published: true })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: レスポンスが { item: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1', name: 'テストカタログ' }));
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(json.item).toBeDefined();
+  expect(json.item.id).toBe('c1');
+});

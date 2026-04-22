@@ -173,3 +173,36 @@ test('DELETE: 正常削除 → 200', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makePatchRequest({ title: 'test' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateSingle({ id: POST_UUID, title: 'test' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makePatchRequest({ title: 'test' }), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('DELETE: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await DELETE(makeDeleteRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: レスポンスが { post } 形式', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateSingle({ id: POST_UUID, title: 'Updated' }));
+  const res = await PATCH(makePatchRequest({ title: 'Updated' }), makeProps());
+  const json = await res.json();
+  expect(json.post.id).toBe(POST_UUID);
+});

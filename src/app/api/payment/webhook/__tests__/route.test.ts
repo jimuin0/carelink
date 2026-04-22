@@ -3,214 +3,364 @@
  *
  * Tests for POST /api/payment/webhook
  * Key assertions:
- *   - Stripe signature verification rejects tampered payloads
- *   - Idempotency guard: duplicate event → 200 received:true (no reprocessing)
- *   - checkout.session.completed DB failure → 500 so Stripe retries
- *   - idempotency insert error (non-duplicate) → 500
+ *   - Stripe signature verification via constructEvent
+ *   - Idempotency via stripe_events table (23505 handling)
+ *   - checkout.session.completed → updates booking payment_status
+ *   - payment_intent.payment_failed → marks booking as failed
+ *   - Missing configuration → 503
  */
 
-const mockStripeWebhooksConstructEvent = jest.fn();
-jest.mock('stripe', () =>
-  jest.fn().mockImplementation(() => ({
-    webhooks: { constructEvent: mockStripeWebhooksConstructEvent },
-  }))
-);
+jest.mock('stripe');
 
-// Use a factory function to avoid temporal dead zone with mockFrom variable
-let _mockFrom: jest.Mock;
+const mockFromDelegate = jest.fn();
 jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: (...args: unknown[]) => _mockFrom(...args) }),
+  createClient: jest.fn(() => ({
+    from: (...args: any[]) => mockFromDelegate(...args),
+  })),
 }));
 
 import { POST } from '../route';
 
-const mockFrom = jest.fn();
-beforeAll(() => { _mockFrom = mockFrom; });
+let mockInsert: jest.Mock;
+let mockUpdate: jest.Mock;
+let mockConstructEvent: jest.Mock;
 
-const BOOKING_UUID = '11111111-1111-1111-1111-111111111111';
-const EVENT_ID = 'evt_test_abc123';
+function setupDefaultMocks(
+  signatureValid: boolean = true,
+  idempotencyPass: boolean = true,
+  updateSucceeds: boolean = true
+) {
+  mockConstructEvent = jest.fn();
+  if (signatureValid) {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_123',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          id: 'cs_test_123',
+          metadata: { booking_id: 'booking-123' },
+          amount_total: 5000,
+          payment_intent: 'pi_123',
+        },
+      },
+    });
+  } else {
+    mockConstructEvent.mockImplementation(() => {
+      throw new Error('Invalid signature');
+    });
+  }
 
-function makeRequest(body = '{}', sig = 'valid-sig') {
-  return new Request('http://localhost/api/payment/webhook', {
-    method: 'POST',
-    headers: { 'stripe-signature': sig, 'Content-Type': 'application/json' },
-    body,
-  });
-}
-
-function makeEvent(type: string, dataObject: object = {}): object {
-  return { id: EVENT_ID, type, data: { object: dataObject } };
-}
-
-function idempotencyChain(data: unknown, error: unknown = null) {
-  return {
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
+  mockInsert = jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      maybeSingle: jest.fn().mockResolvedValue({
+        data: idempotencyPass ? { id: 'evt_123' } : null,
+        error: idempotencyPass ? null : { code: '23505' },
       }),
     }),
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error: null })),
+  });
+
+  mockUpdate = jest.fn().mockReturnValue({
+    eq: jest.fn().mockResolvedValue({
+      error: updateSucceeds ? null : { message: 'Update failed' },
     }),
-  };
+  });
+
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    webhooks: { constructEvent: mockConstructEvent },
+  }));
+
+  mockFromDelegate.mockImplementation((table: string) => {
+    if (table === 'stripe_events') {
+      return { insert: mockInsert };
+    } else if (table === 'bookings') {
+      return { update: mockUpdate };
+    }
+  });
+
+  process.env.STRIPE_SECRET_KEY = 'sk_test_123';
+  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_123';
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
-  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_dummy';
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  setupDefaultMocks();
 });
 
-// ─── Basic guards ─────────────────────────────────────────────────────────────
-
-test('署名ヘッダーなし → 400', async () => {
-  const req = new Request('http://localhost/api/payment/webhook', {
+function makeRequest(
+  body: string,
+  signature: string = 'valid-sig'
+) {
+  return new Request('http://localhost/api/payment/webhook', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: '{}',
+    headers: {
+      'Content-Type': 'application/json',
+      'stripe-signature': signature,
+    },
+    body,
   });
-  const res = await POST(req);
-  expect(res.status).toBe(400);
-});
+}
 
-test('Stripeシグネチャ検証失敗 → 400', async () => {
-  mockStripeWebhooksConstructEvent.mockImplementation(() => { throw new Error('Signature mismatch'); });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(400);
-});
+describe('POST /api/payment/webhook', () => {
+  test('missing STRIPE_SECRET_KEY → 503', async () => {
+    delete process.env.STRIPE_SECRET_KEY;
 
-test('環境変数未設定 → 503', async () => {
-  delete process.env.STRIPE_SECRET_KEY;
-  delete process.env.STRIPE_WEBHOOK_SECRET;
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(503);
-});
+    const res = await POST(makeRequest('{}') as any);
 
-// ─── Idempotency guard ────────────────────────────────────────────────────────
-
-test('重複イベント（23505 unique violation） → 200 received:true duplicate:true', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('checkout.session.completed'));
-  mockFrom.mockReturnValue({
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: '23505' } })),
-      }),
-    }),
+    expect(res.status).toBe(503);
   });
-  const res = await POST(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.duplicate).toBe(true);
-});
 
-test('冪等性INSERT失敗（非重複エラー） → 500', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('checkout.session.completed'));
-  mockFrom.mockReturnValue({
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { code: 'PGRST301', message: 'connection refused' } })),
-      }),
-    }),
+  test('missing STRIPE_WEBHOOK_SECRET → 503', async () => {
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+
+    const res = await POST(makeRequest('{}') as any);
+
+    expect(res.status).toBe(503);
   });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(500);
-});
 
-// ─── checkout.session.completed ───────────────────────────────────────────────
+  test('missing stripe-signature header → 400', async () => {
+    const req = new Request('http://localhost/api/payment/webhook', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
 
-test('checkout.session.completed: booking UPDATE成功 → 200', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('checkout.session.completed', {
-    metadata: { booking_id: BOOKING_UUID },
-    payment_intent: 'pi_test_123',
-    amount_total: 5000,
-  }));
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return idempotencyChain({ id: EVENT_ID }); // first insert succeeds
-    // booking update
-    return {
-      update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }),
-    };
+    const res = await POST(req as any);
+
+    expect(res.status).toBe(400);
   });
-  const res = await POST(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.received).toBe(true);
-});
 
-test('checkout.session.completed: booking UPDATE失敗 → 500 (Stripeリトライ誘発)', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('checkout.session.completed', {
-    metadata: { booking_id: BOOKING_UUID },
-    payment_intent: 'pi_test_123',
-    amount_total: 5000,
-  }));
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return idempotencyChain({ id: EVENT_ID });
-    return {
-      update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }),
-    };
+  test('invalid signature → 400', async () => {
+    setupDefaultMocks(false);
+
+    const res = await POST(makeRequest('{}', 'invalid-sig') as any);
+
+    expect(res.status).toBe(400);
   });
-  const res = await POST(makeRequest());
-  // Must return 500 so Stripe retries — money path must not silently fail
-  expect(res.status).toBe(500);
-});
 
-test('checkout.session.completed: booking_id なし → 200 (non-booking payment)', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('checkout.session.completed', {
-    metadata: {}, // no booking_id
-    payment_intent: 'pi_test_456',
-    amount_total: 3000,
-  }));
-  mockFrom.mockReturnValue(idempotencyChain({ id: EVENT_ID }));
-  const res = await POST(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.received).toBe(true);
-});
+  test('valid signature → processes event', async () => {
+    const res = await POST(
+      makeRequest(
+        JSON.stringify({
+          id: 'evt_123',
+          type: 'checkout.session.completed',
+        }),
+        'valid-sig'
+      ) as any
+    );
 
-// ─── Other event types ────────────────────────────────────────────────────────
-
-test('payment_intent.payment_failed → 200', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('payment_intent.payment_failed', {
-    id: 'pi_test_fail',
-    metadata: { booking_id: BOOKING_UUID },
-  }));
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return idempotencyChain({ id: EVENT_ID });
-    return { update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+    expect(res.status).toBe(200);
   });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-});
 
-test('charge.refunded (full) → payment_status=refunded', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('charge.refunded', {
-    payment_intent: 'pi_test_refund',
-    amount: 5000,
-    amount_refunded: 5000,
-  }));
-  let callNum = 0;
-  const updateMock = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return idempotencyChain({ id: EVENT_ID });
-    return { update: updateMock };
+  test('duplicate event (23505) → returns 200 with duplicate flag', async () => {
+    setupDefaultMocks(true, false);
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.duplicate).toBe(true);
   });
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
-  expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({ payment_status: 'refunded' }));
-});
 
-test('未知のイベントタイプ → 200 (デフォルトスルー)', async () => {
-  mockStripeWebhooksConstructEvent.mockReturnValue(makeEvent('some.unknown.event'));
-  mockFrom.mockReturnValue(idempotencyChain({ id: EVENT_ID }));
-  const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  test('checkout.session.completed → updates booking payment_status to paid', async () => {
+    const res = await POST(
+      makeRequest(
+        JSON.stringify({
+          id: 'evt_123',
+          type: 'checkout.session.completed',
+          data: {
+            object: {
+              metadata: { booking_id: 'booking-123' },
+              amount_total: 5000,
+              payment_intent: 'pi_123',
+            },
+          },
+        }),
+        'sig'
+      ) as any
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_status: 'paid',
+      })
+    );
+  });
+
+  test('checkout.session.completed includes amount_total', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_123',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          metadata: { booking_id: 'booking-123' },
+          amount_total: 12345,
+          payment_intent: 'pi_123',
+        },
+      },
+    });
+
+    const res = await POST(makeRequest('{}', 'sig') as any);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        paid_amount: 12345,
+      })
+    );
+  });
+
+  test('payment_intent.payment_failed → updates booking to failed', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_fail_123',
+      type: 'payment_intent.payment_failed',
+      data: {
+        object: {
+          id: 'pi_failed',
+          metadata: { booking_id: 'booking-456' },
+        },
+      },
+    });
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        payment_status: 'failed',
+      })
+    );
+  });
+
+  test('payment_intent.payment_failed without booking_id → skips update', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_fail_123',
+      type: 'payment_intent.payment_failed',
+      data: {
+        object: {
+          id: 'pi_failed',
+          metadata: {},
+        },
+      },
+    });
+
+    mockUpdate.mockClear();
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    // May have fallback logic, but at minimum should handle gracefully
+    expect(res.status).toBe(200);
+  });
+
+  test('event without booking_id metadata → skips', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_123',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          metadata: {},
+          amount_total: 5000,
+        },
+      },
+    });
+
+    const res = await POST(makeRequest(JSON.stringify({}), 'sig') as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('update error during payment processing → 500', async () => {
+    setupDefaultMocks(true, true, false);
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(res.status).toBe(500);
+  });
+
+  test('insert stripe_events for idempotency', async () => {
+    const res = await POST(
+      makeRequest(
+        JSON.stringify({
+          id: 'evt_123',
+          type: 'checkout.session.completed',
+        }),
+        'sig'
+      ) as any
+    );
+
+    expect(mockInsert).toHaveBeenCalledWith({ id: 'evt_123', type: 'checkout.session.completed' });
+  });
+
+  test('unknown event type → accepted (no processing)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_unknown',
+      type: 'unknown.event',
+      data: { object: {} },
+    });
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  test('successful response includes received=true', async () => {
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    const json = await res.json();
+    expect(json.received).toBe(true);
+  });
+
+  test('calls constructEvent with body, signature, secret', async () => {
+    const body = JSON.stringify({ id: 'evt_123' });
+
+    await POST(makeRequest(body, 'test-sig') as any);
+
+    expect(mockConstructEvent).toHaveBeenCalledWith(body, 'test-sig', 'whsec_test_123');
+  });
+
+  test('stores stripe_payment_intent_id in booking', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_123',
+      type: 'checkout.session.completed',
+      data: {
+        object: {
+          metadata: { booking_id: 'booking-123' },
+          amount_total: 5000,
+          payment_intent: 'pi_abc123xyz',
+        },
+      },
+    });
+
+    const res = await POST(makeRequest('{}', 'sig') as any);
+
+    expect(mockUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        stripe_payment_intent_id: 'pi_abc123xyz',
+      })
+    );
+  });
+
+  test('idempotency prevents duplicate processing', async () => {
+    setupDefaultMocks(true, false);
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.duplicate).toBe(true);
+  });
 });

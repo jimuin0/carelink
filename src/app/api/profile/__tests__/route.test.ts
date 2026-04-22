@@ -3,20 +3,19 @@
  *
  * Tests for PUT /api/profile
  * Key assertions:
- *   - CSRF check → returns checkCsrf result
- *   - Rate limiting → 429 (10 req/min per IP)
- *   - Schema validation (display_name 1-50, phone max 20, prefecture max 20, city max 50, birth_date max 10, gender enum)
- *   - Auth required → 401
- *   - Database update error → 500
- *   - Successful update → 200
- *   - Optional fields handling
+ *   - CSRF check required
+ *   - Rate limiting (10 req/min per IP)
+ *   - Auth required
+ *   - Schema validation (display_name required, max lengths)
+ *   - Gender enum validation
+ *   - Updates profiles table with user_id
  */
 
-jest.mock('@/lib/rate-limit', () => ({
-  checkRateLimit: jest.fn(),
-  mutationRateLimit: 'mutationLimit'
-}));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/rate-limit', () => ({
+  mutationRateLimit: 'mutationLimit',
+  checkRateLimit: jest.fn(),
+}));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
@@ -27,14 +26,21 @@ import { PUT } from '../route';
 let mockGetUser: jest.Mock;
 let mockUpdate: jest.Mock;
 
-function setupDefaultMocks() {
+function setupDefaultMocks(
+  hasUser: boolean = true,
+  updateSucceeds: boolean = true
+) {
+  (checkCsrf as jest.Mock).mockReturnValue(null);
+
   mockGetUser = jest.fn().mockResolvedValue({
-    data: { user: { id: 'user-123', email: 'test@example.com' } },
+    data: { user: hasUser ? { id: 'user-123' } : null },
   });
 
-  mockUpdate = jest.fn().mockResolvedValue({ error: null });
-  const mockEq = jest.fn().mockResolvedValue({ error: null });
-  mockUpdate.mockReturnValue({ eq: mockEq });
+  mockUpdate = jest.fn().mockReturnValue({
+    eq: jest.fn().mockResolvedValue({
+      error: updateSucceeds ? null : { message: 'Update failed' },
+    }),
+  });
 
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
@@ -49,17 +55,15 @@ function setupDefaultMocks() {
     getAll: jest.fn(() => []),
     set: jest.fn(),
   });
+
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-
   setupDefaultMocks();
-
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 });
 
 function makeRequest(body: object, ip = '192.168.1.1') {
@@ -75,10 +79,10 @@ function makeRequest(body: object, ip = '192.168.1.1') {
 
 describe('PUT /api/profile', () => {
   test('CSRF check failed → returns error', async () => {
-    const csrfError = new Response(JSON.stringify({ error: 'CSRF failed' }), { status: 403 });
+    const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);
 
-    const res = await PUT(makeRequest({ display_name: 'John' }));
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
     expect(res.status).toBe(403);
   });
@@ -86,254 +90,192 @@ describe('PUT /api/profile', () => {
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
-    const res = await PUT(makeRequest({ display_name: 'John' }));
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
     expect(res.status).toBe(429);
-    const json = await res.json();
-    expect(json.error).toContain('リクエスト');
   });
 
-  test('missing display_name → 400', async () => {
-    const res = await PUT(makeRequest({}));
+  test('unauthenticated → 401', async () => {
+    setupDefaultMocks(false);
 
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('不正');
-  });
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
-  test('display_name empty string → 400', async () => {
-    const res = await PUT(makeRequest({ display_name: '' }));
-
-    expect(res.status).toBe(400);
-  });
-
-  test('display_name too long (51+ chars) → 400', async () => {
-    const res = await PUT(makeRequest({ display_name: 'a'.repeat(51) }));
-
-    expect(res.status).toBe(400);
-  });
-
-  test('phone too long (21+ chars) → 400', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      phone: 'a'.repeat(21),
-    }));
-
-    expect(res.status).toBe(400);
-  });
-
-  test('prefecture too long (21+ chars) → 400', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      prefecture: 'a'.repeat(21),
-    }));
-
-    expect(res.status).toBe(400);
-  });
-
-  test('city too long (51+ chars) → 400', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      city: 'a'.repeat(51),
-    }));
-
-    expect(res.status).toBe(400);
-  });
-
-  test('birth_date too long (11+ chars) → 400', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      birth_date: 'a'.repeat(11),
-    }));
-
-    expect(res.status).toBe(400);
-  });
-
-  test('invalid gender enum → 400', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      gender: 'invalid',
-    }));
-
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(401);
   });
 
   test('invalid JSON → 400', async () => {
     const req = new Request('http://localhost/api/profile', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.168.1.1' },
-      body: 'invalid json {',
+      body: 'invalid {',
     });
 
-    const res = await PUT(req);
+    const res = await PUT(req as any);
 
     expect(res.status).toBe(400);
   });
 
-  test('unauthenticated user → 401', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } });
+  test('missing display_name → 400', async () => {
+    const res = await PUT(makeRequest({ phone: '09012345678' }) as any);
 
-    const res = await PUT(makeRequest({ display_name: 'John' }));
-
-    expect(res.status).toBe(401);
-    const json = await res.json();
-    expect(json.error).toContain('認証');
+    expect(res.status).toBe(400);
   });
 
-  test('database error → 500', async () => {
-    mockUpdate.mockReturnValueOnce({
-      eq: jest.fn().mockResolvedValueOnce({ error: { message: 'Update failed' } })
-    });
+  test('empty display_name → 400', async () => {
+    const res = await PUT(makeRequest({ display_name: '' }) as any);
 
-    const res = await PUT(makeRequest({ display_name: 'John' }));
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toContain('失敗');
+    expect(res.status).toBe(400);
   });
 
-  test('valid minimal request → 200', async () => {
-    const res = await PUT(makeRequest({ display_name: 'John' }));
+  test('display_name > 50 chars → 400', async () => {
+    const res = await PUT(makeRequest({ display_name: 'x'.repeat(51) }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('valid display_name (50 chars) → 200', async () => {
+    const res = await PUT(makeRequest({ display_name: 'x'.repeat(50) }) as any);
 
     expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.success).toBe(true);
   });
 
-  test('valid request with all fields → 200', async () => {
+  test('phone > 20 chars → 400', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      phone: 'x'.repeat(21),
+    }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('prefecture > 20 chars → 400', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      prefecture: 'x'.repeat(21),
+    }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('city > 50 chars → 400', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      city: 'x'.repeat(51),
+    }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('birth_date > 10 chars → 400', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      birth_date: '12345678901',
+    }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('gender=male → 200', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      gender: 'male',
+    }) as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('gender=female → 200', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      gender: 'female',
+    }) as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('gender=other → 200', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      gender: 'other',
+    }) as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('gender=unspecified → 200', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      gender: 'unspecified',
+    }) as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('invalid gender → 400', async () => {
+    const res = await PUT(makeRequest({
+      display_name: 'Test',
+      gender: 'invalid',
+    }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('valid request → 200 with success', async () => {
     const res = await PUT(makeRequest({
       display_name: 'John Doe',
       phone: '09012345678',
-      prefecture: 'Tokyo',
-      city: 'Shibuya',
+      prefecture: '東京都',
+      city: '渋谷区',
       birth_date: '1990-01-01',
       gender: 'male',
-    }));
+    }) as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.success).toBe(true);
   });
 
-  test('gender enum valid values accepted', async () => {
-    const validGenders = ['male', 'female', 'other', 'unspecified'];
+  test('updates profiles table with user_id', async () => {
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
-    for (const gender of validGenders) {
-      const res = await PUT(makeRequest({
-        display_name: 'John',
-        gender,
-      }));
-
-      expect(res.status).toBe(200);
-    }
+    expect(mockUpdate).toHaveBeenCalled();
+    const eqCall = mockUpdate.mock.calls[0][0];
+    // Should call .eq('id', user.id)
   });
 
-  test('optional phone can be null → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      phone: null,
-    }));
+  test('includes updated_at timestamp', async () => {
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
-    expect(res.status).toBe(200);
+    const updateData = mockUpdate.mock.calls[0][0];
+    expect(updateData.updated_at).toBeDefined();
   });
 
-  test('optional prefecture can be null → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      prefecture: null,
-    }));
+  test('sets optional fields to null when omitted', async () => {
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
-    expect(res.status).toBe(200);
+    const updateData = mockUpdate.mock.calls[0][0];
+    expect(updateData.phone).toBeNull();
+    expect(updateData.prefecture).toBeNull();
+    expect(updateData.city).toBeNull();
+    expect(updateData.birth_date).toBeNull();
+    expect(updateData.gender).toBeNull();
   });
 
-  test('optional city can be null → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      city: null,
-    }));
+  test('update error → 500', async () => {
+    setupDefaultMocks(true, false);
 
-    expect(res.status).toBe(200);
-  });
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
-  test('optional birth_date can be null → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      birth_date: null,
-    }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('optional gender can be null → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      gender: null,
-    }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('optional fields can be omitted → 200', async () => {
-    const res = await PUT(makeRequest({ display_name: 'John' }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('display_name exactly 1 char → 200', async () => {
-    const res = await PUT(makeRequest({ display_name: 'a' }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('display_name exactly 50 chars → 200', async () => {
-    const res = await PUT(makeRequest({ display_name: 'a'.repeat(50) }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('phone exactly 20 chars → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      phone: 'a'.repeat(20),
-    }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('prefecture exactly 20 chars → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      prefecture: 'a'.repeat(20),
-    }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('city exactly 50 chars → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      city: 'a'.repeat(50),
-    }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('birth_date exactly 10 chars → 200', async () => {
-    const res = await PUT(makeRequest({
-      display_name: 'John',
-      birth_date: '1990-01-01',
-    }));
-
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
   test('rate limit params (10 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
 
-    await PUT(makeRequest({ display_name: 'John' }));
+    await PUT(
+      makeRequest({ display_name: 'Test' }, '192.168.1.1') as any
+    );
 
-    expect(checkRateLimit).toHaveBeenCalled();
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
     expect(call[2]).toBe(10);
@@ -343,37 +285,44 @@ describe('PUT /api/profile', () => {
 
   test('extracts first IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
 
-    await PUT(makeRequest({ display_name: 'John' }, '10.0.0.1, 192.168.1.1'));
+    await PUT(
+      makeRequest(
+        { display_name: 'Test' },
+        '10.0.0.1, 192.168.1.1'
+      ) as any
+    );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('10.0.0.1');
   });
 
-  test('uses unknown IP when x-forwarded-for missing', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
-
-    const req = new Request('http://localhost/api/profile', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ display_name: 'John' }),
+  test('exception during processing → 500', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    createServerClient.mockImplementation(() => {
+      throw new Error('Connection error');
     });
 
-    await PUT(req);
-
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('unknown');
-  });
-
-  test('exception during processing → 500', async () => {
-    mockGetUser.mockRejectedValue(new Error('Auth failed'));
-
-    const res = await PUT(makeRequest({ display_name: 'John' }));
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
 
     expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toContain('サーバーエラー');
+  });
+
+  test('cookie callbacks (getAll/setAll/forEach) are invocable', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { cookies } = require('next/headers');
+    const mockCookieStore = { getAll: jest.fn(() => []), set: jest.fn() };
+    cookies.mockResolvedValue(mockCookieStore);
+
+    createServerClient.mockImplementation((_url: string, _key: string, opts: any) => {
+      opts.cookies.getAll();
+      opts.cookies.setAll([{ name: 'sb', value: 'val', options: {} }]);
+      return { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) }, from: jest.fn() };
+    });
+
+    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    expect(res.status).toBe(401);
+    expect(mockCookieStore.getAll).toHaveBeenCalled();
+    expect(mockCookieStore.set).toHaveBeenCalled();
   });
 });

@@ -144,3 +144,73 @@ test('GET: 正常取得 → 200 CSV', async () => {
   expect(text).toContain('日付');
   expect(text).toContain('2026-01-01');
 });
+
+test('GET: CSV に BOM が含まれる（先頭バイト 0xEF 0xBB 0xBF）', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));
+  const res = await GET(makeRequest());
+  const buf = await res.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  // UTF-8 BOM = EF BB BF
+  expect(bytes[0]).toBe(0xEF);
+  expect(bytes[1]).toBe(0xBB);
+  expect(bytes[2]).toBe(0xBF);
+});
+
+test('GET: Content-Disposition ヘッダーが filename 付き', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));
+  const res = await GET(makeRequest());
+  const cd = res.headers.get('Content-Disposition');
+  expect(cd).toContain('attachment');
+  expect(cd).toContain('report_2026-01-01_2026-01-31.csv');
+});
+
+test('GET: to === from（1日範囲）→ 200', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));
+  const res = await GET(makeRequest({ from: '2026-01-01', to: '2026-01-01' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: 366日範囲 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));
+  const res = await GET(makeRequest({ from: '2025-01-01', to: '2026-01-01' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: CSVに全ヘッダー列が含まれる', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));
+  const res = await GET(makeRequest());
+  const text = await res.text();
+  const firstLine = text.split('\n')[0];
+  expect(firstLine).toContain('売上');
+  expect(firstLine).toContain('予約数');
+  expect(firstLine).toContain('新規');
+  expect(firstLine).toContain('リピート');
+});
+
+test('GET: レートリミット params (10/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: to なし → 400', async () => {
+  const url = new URL('http://localhost/api/admin/report');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  url.searchParams.set('from', '2026-01-01');
+  const res = await GET(new NextRequest(url.toString(), { method: 'GET' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: to の形式が不正 → 400', async () => {
+  const res = await GET(makeRequest({ to: '2026/01/31' }));
+  expect(res.status).toBe(400);
+});

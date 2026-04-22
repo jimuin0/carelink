@@ -135,3 +135,76 @@ test('POST: treated_at が YYYY-MM-DDTHH:MM 形式 → 201', async () => {
   const res = await POST(makeRequest(validBody({ treated_at: '2026-06-01T10:00' })));
   expect(res.status).toBe(201);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: objective が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ objective: 'a'.repeat(2001) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: assessment が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ assessment: 'a'.repeat(2001) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: plan が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ plan: 'a'.repeat(2001) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: next_visit_note が 501文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ next_visit_note: 'a'.repeat(501) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: menu_name が 101文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ menu_name: 'a'.repeat(101) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_id が不正UUID → 401', async () => {
+  const url = new URL('http://localhost/api/admin/treatment-records');
+  url.searchParams.set('facility_id', 'bad-uuid');
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(validBody()),
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(401);
+});
+
+test('POST: 全フィールド指定でも 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'rec-full' }));
+  const res = await POST(makeRequest(validBody({
+    user_id: '550e8400-e29b-41d4-a716-446655440099',
+    menu_name: '鍼灸',
+    subjective: '腰痛',
+    objective: '圧痛あり',
+    assessment: '腰椎症',
+    plan: '週1鍼灸',
+    notes: 'テスト',
+    next_visit_note: '再診',
+  })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: レスポンスが { record: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'rec-1' }));
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(json.record).toBeDefined();
+});

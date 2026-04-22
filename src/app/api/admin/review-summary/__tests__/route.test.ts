@@ -168,3 +168,42 @@ test('GET: Anthropic API 失敗 → 500', async () => {
   const res = await GET(makeRequest());
   expect(res.status).toBe(500);
 });
+
+test('GET: 不正な facility_id (UUID形式でない) → 400', async () => {
+  const url = new URL('http://localhost/api/admin/review-summary');
+  url.searchParams.set('facility_id', 'not-a-uuid');
+  const req = new NextRequest(url.toString(), { method: 'GET' });
+  const res = await GET(req);
+  expect(res.status).toBe(400);
+});
+
+test('GET: レートリミット params (5/60s)', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(reviewsChain(SAMPLE_REVIEWS));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(5);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: summary レスポンスが文字列 → string型', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(reviewsChain(SAMPLE_REVIEWS));
+  const res = await GET(makeRequest());
+  const json = await res.json();
+  expect(typeof json.summary).toBe('string');
+});
+
+test('GET: 施設メンバー（owner/admin）でもアクセス可能', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return profileSingle(false);
+    return memberMaybeSingle({ facility_id: FACILITY_UUID });
+  });
+  mockAdminFrom.mockReturnValue(reviewsChain(SAMPLE_REVIEWS));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(200);
+});

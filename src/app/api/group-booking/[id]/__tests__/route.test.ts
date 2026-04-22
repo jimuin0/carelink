@@ -202,3 +202,53 @@ test('DELETE: 正常キャンセル → 200 success:true, organizer_idをWHERE�
   // organizer_id defence-in-depth in WHERE clause
   expect(secondEq).toHaveBeenCalledWith('organizer_id', ORGANIZER_ID);
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('PATCH: CSRF エラー → 403', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { status: 'confirmed' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('DELETE: CSRF エラー → 403', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('GET: rate limit → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await GET(makeRequest('GET'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('GET: rate limit params (30/60s)', async () => {
+  mockAdminFrom.mockReturnValue(singleChain(OPEN_GROUP));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeRequest('GET'), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(30);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: rate limit → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { status: 'confirmed' }), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: rate limit → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('GET: レスポンスが group オブジェクト直接返却', async () => {
+  mockAdminFrom.mockReturnValue(singleChain(OPEN_GROUP));
+  const res = await GET(makeRequest('GET'), makeProps());
+  const json = await res.json();
+  expect(json.id).toBe(GROUP_UUID);
+  expect(json.organizer_id).toBe(ORGANIZER_ID);
+});

@@ -185,3 +185,72 @@ test('POST: 正常投稿 → 201 with reply', async () => {
   expect(res.status).toBe(201);
   expect(json.reply).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest('POST', { body: 'Reply' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('POST: body が 2001文字 → 2000文字に切り詰めて 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return postSingle({ id: POST_UUID, is_locked: false });
+    return insertReplySingle({ id: 'r', body: 'a'.repeat(2000) });
+  });
+  const res = await POST(makeRequest('POST', { body: 'a'.repeat(2001) }), makeProps());
+  expect(res.status).toBe(201);
+});
+
+test('POST: DB挿入失敗 → 500', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return postSingle({ id: POST_UUID, is_locked: false });
+    return insertReplySingle(null, { message: 'DB error' });
+  });
+  const res = await POST(makeRequest('POST', { body: 'Reply text' }), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('GET: 正常取得 → レスポンスが { replies: [...] } 形式', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return replyListChain([{ id: 'reply-1', body: 'Hello' }]);
+  });
+  const res = await GET(makeRequest('GET'), makeProps());
+  const json = await res.json();
+  expect(json.replies).toBeDefined();
+  expect(Array.isArray(json.replies)).toBe(true);
+});
+
+test('GET: DB エラー → 500', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return replyListChain([], { message: 'DB error' });
+  });
+  const res = await GET(makeRequest('GET'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('POST: レスポンスが { reply: ... } 形式', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return postSingle({ id: POST_UUID, is_locked: false });
+    return insertReplySingle({ id: 'reply-1', body: 'Reply text' });
+  });
+  const res = await POST(makeRequest('POST', { body: 'Reply text' }), makeProps());
+  const json = await res.json();
+  expect(json.reply).toBeDefined();
+  expect(json.reply.id).toBe('reply-1');
+});

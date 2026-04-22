@@ -97,3 +97,50 @@ test('GET: データなし → 200 with empty array', async () => {
   expect(res.status).toBe(200);
   expect(json.salons).toEqual([]);
 });
+
+test('GET: レートリミットのIPが x-forwarded-for 先頭から取得', () => {
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/registrations', {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
+  });
+  GET(req);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[0]).toBe('10.0.0.1');
+});
+
+test('GET: x-forwarded-for なしの場合は unknown', () => {
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/registrations');
+  GET(req);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[0]).toBe('unknown');
+});
+
+test('GET: レートリミットが 30req/60s で呼ばれる', () => {
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  GET(makeRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(30);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: salons に複数件が含まれても 200', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(listChain([
+    { id: 's1', name: 'サロン1', status: 'active' },
+    { id: 's2', name: 'サロン2', status: 'pending' },
+  ]));
+  const res = await GET(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.salons).toHaveLength(2);
+});
+
+test('GET: レスポンスが { salons: [] } 形式', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  const res = await GET(makeRequest());
+  const json = await res.json();
+  expect(Array.isArray(json.salons)).toBe(true);
+});

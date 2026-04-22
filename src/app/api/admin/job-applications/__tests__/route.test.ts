@@ -202,3 +202,57 @@ test('POST: job_posting_id 付き応募 → 201', async () => {
   const res = await POST(makePostRequest(validPostBody({ job_posting_id: JOB_POSTING_UUID })));
   expect(res.status).toBe(201);
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('GET: rate limit params (20/60s)', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') return membersChain([FACILITY_UUID]);
+    return listChain([]);
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: rate limit params (5/60s)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain([]);
+    return insertSingle({ id: 'app-1' });
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest(validPostBody()));
+  const postCall = (inMemoryRateLimit as jest.Mock).mock.calls.find((c: unknown[]) => c[3] === 'job-apply');
+  expect(postCall).toBeDefined();
+  expect(postCall[1]).toBe(5);
+  expect(postCall[2]).toBe(60_000);
+});
+
+test('GET: レスポンスが { applications: [] } 形式', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') return membersChain([FACILITY_UUID]);
+    return listChain([]);
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(Array.isArray(json.applications)).toBe(true);
+});
+
+test('POST: レスポンスが { application.id } 形式', async () => {
+  const APP_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain([]);
+    return insertSingle({ id: APP_UUID, applicant_name: '山田太郎' });
+  });
+  const res = await POST(makePostRequest(validPostBody()));
+  const json = await res.json();
+  expect(json.application.id).toBe(APP_UUID);
+});

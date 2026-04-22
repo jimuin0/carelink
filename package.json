@@ -12,8 +12,17 @@
     "lint": "next lint",
     "test": "jest",
     "test:ci": "jest --ci",
+    "test:coverage": "jest --coverage",
+    "test:coverage:ci": "jest --ci --coverage --coverageReporters=lcov --coverageReporters=text-summary --coverageReporters=json-summary",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:security": "playwright test e2e/security.spec.ts",
+    "test:e2e:perf": "playwright test e2e/performance.spec.ts",
+    "test:e2e:a11y": "playwright test e2e/accessibility.spec.ts",
+    "test:load": "k6 run load-tests/search-load.js",
+    "test:load:soak": "k6 run load-tests/soak-test.js",
+    "test:load:booking": "k6 run load-tests/concurrent-booking.js",
+    "test:all": "npm run test:ci && npm run test:e2e"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",

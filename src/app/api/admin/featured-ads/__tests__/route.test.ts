@@ -202,3 +202,56 @@ test('POST: Stripeなし→devモード→201 checkout_url=null', async () => {
   expect(json.checkout_url).toBeNull();
   expect(json.slot).toBeDefined();
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(403);
+});
+
+test('GET: rate limit params (20/60s)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return listChain([]);
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: rate limit params (10/60s)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID });
+    return updateEq(null);
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest(validPostBody()));
+  const postCall = (inMemoryRateLimit as jest.Mock).mock.calls.find((c: unknown[]) => c[3] === 'featured-ads');
+  expect(postCall).toBeDefined();
+  expect(postCall[1]).toBe(10);
+  expect(postCall[2]).toBe(60_000);
+});
+
+test('GET: レスポンスが { slots: [] } 形式', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return listChain([]);
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(Array.isArray(json.slots)).toBe(true);
+});

@@ -176,3 +176,70 @@ test('POST: 正常登録 → 201 with config', async () => {
   expect(res.status).toBe(201);
   expect(json.config).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest({ domain: 'example.com' }));
+  expect(res.status).toBe(403);
+});
+
+test('POST: primary_color が不正形式 → デフォルト色で 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return upsertSingle({ id: 'wl-x', domain: 'my.salon.jp', primary_color: '#0ea5e9' });
+  });
+  const res = await POST(makePostRequest({ domain: 'my.salon.jp', primary_color: 'red' }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: logo_url が http:// → null として保存されて 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return upsertSingle({ id: 'wl-y', domain: 'my.salon.jp', logo_url: null });
+  });
+  const res = await POST(makePostRequest({ domain: 'my.salon.jp', logo_url: 'http://example.com/logo.png' }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: primary_color が #RRGGBB 形式 → 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return upsertSingle({ id: 'wl-2', domain: 'my.salon.jp', primary_color: '#FF5733' });
+  });
+  const res = await POST(makePostRequest({ domain: 'my.salon.jp', primary_color: '#FF5733' }));
+  expect(res.status).toBe(201);
+});
+
+test('GET: 設定あり → 200 with config', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return configSingle({ id: 'wl-1', domain: 'my.salon.jp' });
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.config).toBeDefined();
+  expect(json.config.id).toBe('wl-1');
+});
+
+test('POST: レスポンスが { config: ... } 形式', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return upsertSingle({ id: 'wl-3', domain: 'my.salon.jp' });
+  });
+  const res = await POST(makePostRequest({ domain: 'my.salon.jp' }));
+  const json = await res.json();
+  expect(json.config).toBeDefined();
+  expect(json.config.id).toBe('wl-3');
+});

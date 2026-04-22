@@ -157,3 +157,35 @@ test('正常フロー → 200 with Stripe URL', async () => {
   expect(res.status).toBe(200);
   expect(json.url).toContain('checkout.stripe.com');
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('CSRF エラー → 403', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(403);
+});
+
+test('rate limit params (5/60s)', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  (checkRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  await POST(makeRequest());
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(5);
+  expect(call[3]).toBe(60_000);
+});
+
+test('Stripe API エラー → 500', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStripeCreate.mockRejectedValue(new Error('Stripe error'));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+});
+
+test('レスポンスが { url } 形式', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  const res = await POST(makeRequest());
+  const json = await res.json();
+  expect(json.url).toBeDefined();
+});

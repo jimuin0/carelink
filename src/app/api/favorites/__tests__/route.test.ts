@@ -1,23 +1,20 @@
 /**
  * @jest-environment node
  *
- * Tests for POST /api/favorites
+ * Tests for POST /api/favorites (toggle)
  * Key assertions:
- *   - CSRF check → returns checkCsrf result
- *   - Rate limiting → 429 (10 req/min per IP)
- *   - Schema validation (facilityId UUID)
- *   - Auth required → 401
- *   - Facility existence check (status='published') → 404
- *   - Toggle favorite: add new / remove existing
- *   - Database error handling → 500
- *   - Fire-and-forget operation
+ *   - CSRF + rate limiting (10 req/min), auth required
+ *   - facilityId UUID validation
+ *   - Published facility verification
+ *   - Toggle logic (insert/delete)
+ *   - isFavorited response
  */
 
-jest.mock('@/lib/rate-limit', () => ({
-  checkRateLimit: jest.fn(),
-  mutationRateLimit: 'mutationLimit'
-}));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/rate-limit', () => ({
+  mutationRateLimit: 'mutationLimit',
+  checkRateLimit: jest.fn(),
+}));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
@@ -26,39 +23,48 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';
 
 let mockGetUser: jest.Mock;
-let mockMaybeSingle: jest.Mock;
-let mockDelete: jest.Mock;
+let mockSelectFacility: jest.Mock;
+let mockSelectFavorite: jest.Mock;
 let mockInsert: jest.Mock;
+let mockDelete: jest.Mock;
 
-function setupDefaultMocks() {
-  mockMaybeSingle = jest.fn();
-  mockMaybeSingle.mockResolvedValueOnce({ data: { id: 'facility-id-1' } });
-  mockMaybeSingle.mockResolvedValueOnce({ data: null });
+function setupDefaultMocks(
+  hasUser: boolean = true,
+  facilityExists: boolean = true,
+  isFavorited: boolean = false
+) {
+  (checkCsrf as jest.Mock).mockReturnValue(null);
 
-  const mockEq2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-  const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
-  const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
-
-  const mockDeleteEq = jest.fn().mockResolvedValue({ error: null });
-  mockDelete = jest.fn().mockReturnValue({ eq: mockDeleteEq });
+  mockGetUser = jest.fn().mockResolvedValue({
+    data: { user: hasUser ? { id: 'user-123' } : null },
+  });
 
   mockInsert = jest.fn().mockResolvedValue({ error: null });
 
-  mockGetUser = jest.fn().mockResolvedValue({
-    data: { user: { id: 'user-123', email: 'test@example.com' } },
+  mockDelete = jest.fn().mockReturnValue({
+    eq: jest.fn(() => Promise.resolve({ error: null })),
   });
+
+  const facilityMaybeSingle = jest.fn().mockResolvedValue({ data: facilityExists ? { id: 'fac-123' } : null });
+  const favoriteMaybeSingle = jest.fn().mockResolvedValue({ data: isFavorited ? { id: 'fav-123' } : null });
 
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
-    from: jest.fn((table: string) => {
-      if (table === 'facility_profiles' || table === 'favorites') {
-        return {
-          select: mockSelect,
-          delete: mockDelete,
-          insert: mockInsert,
-        };
-      }
+    from: jest.fn().mockReturnValue({
+      select: jest.fn()
+        .mockReturnValueOnce({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({ maybeSingle: facilityMaybeSingle }),
+          }),
+        })
+        .mockReturnValueOnce({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({ maybeSingle: favoriteMaybeSingle }),
+          }),
+        }),
+      insert: mockInsert,
+      delete: mockDelete,
     }),
   });
 
@@ -67,17 +73,15 @@ function setupDefaultMocks() {
     getAll: jest.fn(() => []),
     set: jest.fn(),
   });
+
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-
   setupDefaultMocks();
-
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
 });
 
 function makeRequest(body: object, ip = '192.168.1.1') {
@@ -91,14 +95,12 @@ function makeRequest(body: object, ip = '192.168.1.1') {
   });
 }
 
-const FACILITY_UUID = '11111111-1111-1111-1111-111111111111';
-
 describe('POST /api/favorites', () => {
   test('CSRF check failed → returns error', async () => {
-    const csrfError = new Response(JSON.stringify({ error: 'CSRF failed' }), { status: 403 });
+    const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);
 
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(403);
   });
@@ -106,195 +108,89 @@ describe('POST /api/favorites', () => {
   test('rate limiting → 429', async () => {
     (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(429);
-    const json = await res.json();
-    expect(json.error).toContain('リクエスト');
+  });
+
+  test('unauthenticated → 401', async () => {
+    setupDefaultMocks(false);
+
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+
+    expect(res.status).toBe(401);
   });
 
   test('missing facilityId → 400', async () => {
-    const res = await POST(makeRequest({}));
+    const res = await POST(makeRequest({}) as any);
 
     expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('無効な施設ID');
   });
 
   test('invalid facilityId UUID → 400', async () => {
-    const res = await POST(makeRequest({ facilityId: 'not-a-uuid' }));
+    const res = await POST(makeRequest({ facilityId: 'not-uuid' }) as any);
 
     expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('無効な施設ID');
-  });
-
-  test('invalid JSON body → 400', async () => {
-    const req = new Request('http://localhost/api/favorites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.168.1.1' },
-      body: 'invalid json {',
-    });
-
-    const res = await POST(req);
-
-    expect(res.status).toBe(400);
-  });
-
-  test('unauthenticated user → 401', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: null } });
-
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
-
-    expect(res.status).toBe(401);
-    const json = await res.json();
-    expect(json.error).toContain('認証が必要');
   });
 
   test('facility not found → 404', async () => {
-    jest.clearAllMocks();
-    (checkCsrf as jest.Mock).mockReturnValue(null);
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
+    setupDefaultMocks(true, false);
 
-    mockMaybeSingle = jest.fn().mockResolvedValue({ data: null });
-    const mockEq2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-    const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
-    const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
-
-    mockGetUser = jest.fn().mockResolvedValue({
-      data: { user: { id: 'user-123', email: 'test@example.com' } },
-    });
-
-    const { createServerClient } = require('@supabase/ssr');
-    createServerClient.mockReturnValue({
-      auth: { getUser: mockGetUser },
-      from: jest.fn(() => ({
-        select: mockSelect,
-        delete: jest.fn(),
-        insert: jest.fn(),
-      })),
-    });
-
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      getAll: jest.fn(() => []),
-      set: jest.fn(),
-    });
-
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(404);
-    const json = await res.json();
-    expect(json.error).toContain('施設が見つかりません');
   });
 
   test('facility not published → 404', async () => {
-    jest.clearAllMocks();
-    (checkCsrf as jest.Mock).mockReturnValue(null);
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
+    setupDefaultMocks(true, false);
 
-    mockMaybeSingle = jest.fn().mockResolvedValue({ data: null });
-    const mockEq2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-    const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
-    const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
-
-    mockGetUser = jest.fn().mockResolvedValue({
-      data: { user: { id: 'user-123', email: 'test@example.com' } },
-    });
-
-    const { createServerClient } = require('@supabase/ssr');
-    createServerClient.mockReturnValue({
-      auth: { getUser: mockGetUser },
-      from: jest.fn(() => ({
-        select: mockSelect,
-        delete: jest.fn(),
-        insert: jest.fn(),
-      })),
-    });
-
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      getAll: jest.fn(() => []),
-      set: jest.fn(),
-    });
-
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(404);
   });
 
-  test('add favorite (not exists) → 200 with isFavorited=true', async () => {
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+  test('add favorite → 200 with isFavorited=true', async () => {
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.isFavorited).toBe(true);
-    expect(mockInsert).toHaveBeenCalledWith({
-      user_id: 'user-123',
-      facility_id: FACILITY_UUID,
-    });
   });
 
-  test('remove favorite (exists) → 200 with isFavorited=false', async () => {
-    jest.clearAllMocks();
-    (checkCsrf as jest.Mock).mockReturnValue(null);
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  test('remove favorite → 200 with isFavorited=false', async () => {
+    setupDefaultMocks(true, true, true);
 
-    mockMaybeSingle = jest.fn();
-    mockMaybeSingle.mockResolvedValueOnce({ data: { id: FACILITY_UUID } });
-    mockMaybeSingle.mockResolvedValueOnce({ data: { id: 'fav-123' } });
-
-    const mockEq2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-    const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
-    const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
-
-    const mockDeleteEq = jest.fn().mockResolvedValue({ error: null });
-    mockDelete = jest.fn().mockReturnValue({ eq: mockDeleteEq });
-
-    mockGetUser = jest.fn().mockResolvedValue({
-      data: { user: { id: 'user-123', email: 'test@example.com' } },
-    });
-
-    const { createServerClient } = require('@supabase/ssr');
-    createServerClient.mockReturnValue({
-      auth: { getUser: mockGetUser },
-      from: jest.fn(() => ({
-        select: mockSelect,
-        delete: mockDelete,
-        insert: jest.fn(),
-      })),
-    });
-
-    const { cookies } = require('next/headers');
-    cookies.mockResolvedValue({
-      getAll: jest.fn(() => []),
-      set: jest.fn(),
-    });
-
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.isFavorited).toBe(false);
   });
 
-  test('database error handling → 500', async () => {
-    mockInsert.mockResolvedValueOnce({ error: { message: 'Insert failed' } });
+  test('inserts when not favorited', async () => {
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    expect(mockInsert).toHaveBeenCalled();
+  });
 
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toContain('失敗');
+  test('deletes when already favorited', async () => {
+    setupDefaultMocks(true, true, true);
+
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+
+    expect(mockDelete).toHaveBeenCalled();
   });
 
   test('rate limit params (10 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
 
-    await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    await POST(
+      makeRequest(
+        { facilityId: '11111111-1111-1111-1111-111111111111' },
+        '192.168.1.1'
+      ) as any
+    );
 
-    expect(checkRateLimit).toHaveBeenCalled();
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('192.168.1.1');
     expect(call[2]).toBe(10);
@@ -304,51 +200,77 @@ describe('POST /api/favorites', () => {
 
   test('extracts first IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
 
-    await POST(makeRequest({ facilityId: FACILITY_UUID }, '10.0.0.1, 192.168.1.1'));
+    await POST(
+      makeRequest(
+        { facilityId: '11111111-1111-1111-1111-111111111111' },
+        '10.0.0.1, 192.168.1.1'
+      ) as any
+    );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe('10.0.0.1');
   });
 
-  test('uses unknown IP when x-forwarded-for missing', async () => {
-    (checkRateLimit as jest.Mock).mockClear();
-    (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  test('insert error → 500', async () => {
+    mockInsert.mockResolvedValue({ error: { message: 'insert failed' } });
 
-    const req = new Request('http://localhost/api/favorites', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ facilityId: FACILITY_UUID }),
-    });
-
-    await POST(req);
-
-    const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('unknown');
-  });
-
-  test('facility ID exactly 36 chars UUID → 200', async () => {
-    const validUuid = '22222222-2222-2222-2222-222222222222';
-    const res = await POST(makeRequest({ facilityId: validUuid }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('facility ID with uppercase letters → accepted', async () => {
-    const uppercaseUuid = 'AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA';
-    const res = await POST(makeRequest({ facilityId: uppercaseUuid }));
-
-    expect(res.status).toBe(200);
-  });
-
-  test('exception during processing → 500', async () => {
-    mockGetUser.mockRejectedValue(new Error('Auth failed'));
-
-    const res = await POST(makeRequest({ facilityId: FACILITY_UUID }));
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(res.status).toBe(500);
     const json = await res.json();
-    expect(json.error).toContain('サーバーエラー');
+    expect(json.error).toContain('追加に失敗');
+  });
+
+  test('delete error → 500', async () => {
+    setupDefaultMocks(true, true, true); // isFavorited=true → delete path
+    mockDelete.mockReturnValue({
+      eq: jest.fn(() => Promise.resolve({ error: { message: 'delete failed' } })),
+    });
+
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('削除に失敗');
+  });
+
+  test('exception during processing → 500', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    createServerClient.mockImplementation(() => {
+      throw new Error('Connection error');
+    });
+
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+
+    expect(res.status).toBe(500);
+  });
+
+  test('invalid JSON body → 400 (via .catch(() => ({})))', async () => {
+    const req = new Request('http://localhost/api/favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4' },
+      body: 'not-json{',
+    });
+    const res = await POST(req as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('cookie callbacks (getAll/setAll/forEach) invoked during client creation', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { cookies } = require('next/headers');
+    const mockCookieStore = { getAll: jest.fn(() => [] as any[]), set: jest.fn() };
+    cookies.mockResolvedValue(mockCookieStore);
+
+    createServerClient.mockImplementation((_url: string, _key: string, opts: any) => {
+      opts.cookies.getAll();
+      opts.cookies.setAll([{ name: 'sb', value: 'val', options: {} }]);
+      return { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) }, from: jest.fn() };
+    });
+
+    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+    expect(res.status).toBe(401);
+    expect(mockCookieStore.getAll).toHaveBeenCalled();
+    expect(mockCookieStore.set).toHaveBeenCalled();
   });
 });

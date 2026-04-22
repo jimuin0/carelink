@@ -77,3 +77,91 @@ describe('getStaffPhotos', () => {
     expect(result).toEqual([]);
   });
 });
+
+describe('getStaffByFacility — deep tests', () => {
+  test('sort_order で order が呼ばれる', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getStaffByFacility('fac-1');
+    expect(chain.order).toHaveBeenCalledWith('sort_order');
+  });
+
+  test('staff_profiles テーブルが使われる', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [] }));
+    await getStaffByFacility('fac-1');
+    expect(mockFrom).toHaveBeenCalledWith('staff_profiles');
+  });
+
+  test('is_active=true フィルターが適用される', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getStaffByFacility('fac-1');
+    expect(chain.eq).toHaveBeenCalledWith('is_active', true);
+  });
+
+  test('複数スタッフが配列で返る', async () => {
+    const staff = [
+      { id: 's-1', staff_name: '田中' },
+      { id: 's-2', staff_name: '佐藤' },
+      { id: 's-3', staff_name: '鈴木' },
+    ];
+    mockFrom.mockReturnValue(fluent({ data: staff }));
+    const result = await getStaffByFacility('fac-1');
+    expect(result).toHaveLength(3);
+  });
+});
+
+describe('getStaffBySlug — deep tests', () => {
+  test('facility_id フィルターが適用される', async () => {
+    const chain = fluent({ data: null });
+    mockFrom.mockReturnValue(chain);
+    await getStaffBySlug('fac-xyz', 'slug-1');
+    expect(chain.eq).toHaveBeenCalledWith('facility_id', 'fac-xyz');
+  });
+
+  test('is_active=true フィルターが適用される', async () => {
+    const chain = fluent({ data: null });
+    mockFrom.mockReturnValue(chain);
+    await getStaffBySlug('fac-1', 'slug-1');
+    expect(chain.eq).toHaveBeenCalledWith('is_active', true);
+  });
+
+  test('slug が一致するスタッフを返す', async () => {
+    const staff = { id: 's-2', staff_name: '佐藤', slug: 'sato' };
+    mockFrom.mockReturnValue(fluent({ data: staff }));
+    const result = await getStaffBySlug('fac-1', 'sato');
+    expect(result?.slug).toBe('sato');
+  });
+});
+
+describe('getStaffPhotos — deep tests', () => {
+  test('staff_photos テーブルが使われる', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [] }));
+    await getStaffPhotos('s-1');
+    expect(mockFrom).toHaveBeenCalledWith('staff_photos');
+  });
+
+  test('staff_id フィルターが適用される', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getStaffPhotos('s-abc');
+    expect(chain.eq).toHaveBeenCalledWith('staff_id', 's-abc');
+  });
+
+  test('sort_order で order が呼ばれる', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getStaffPhotos('s-1');
+    expect(chain.order).toHaveBeenCalledWith('sort_order');
+  });
+
+  test('複数写真が配列で返る', async () => {
+    const photos = [
+      { id: 'p-1', url: 'https://cdn.example.com/1.jpg' },
+      { id: 'p-2', url: 'https://cdn.example.com/2.jpg' },
+    ];
+    mockFrom.mockReturnValue(fluent({ data: photos }));
+    const result = await getStaffPhotos('s-1');
+    expect(result).toHaveLength(2);
+  });
+});

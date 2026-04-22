@@ -1,4 +1,4 @@
-import { getVariant } from '../ab-testing';
+import { getVariant, trackAbEvent } from '../ab-testing';
 
 describe('getVariant', () => {
   test('0% rollout always returns control', () => {
@@ -116,5 +116,68 @@ describe('getVariant', () => {
     Object.values(results).forEach(variants => {
       expect(['control', 'treatment']).toContain(variants[0]);
     });
+  });
+});
+
+describe('trackAbEvent()', () => {
+  let mockFetch: jest.Mock;
+
+  beforeEach(() => {
+    mockFetch = jest.fn().mockResolvedValue({ ok: true });
+    global.fetch = mockFetch;
+    try { localStorage.removeItem('_carelink_sid'); } catch {}
+  });
+
+  test('calls fetch with correct payload', async () => {
+    await trackAbEvent('exp-1', 'control', 'impression', {
+      userId: 'u-1',
+      sessionId: 'sess-1',
+      pagePath: '/test',
+      metadata: { foo: 'bar' },
+    });
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe('/api/ab-test');
+    expect(opts.method).toBe('POST');
+    const body = JSON.parse(opts.body);
+    expect(body.experiment_key).toBe('exp-1');
+    expect(body.variant).toBe('control');
+    expect(body.event_type).toBe('impression');
+    expect(body.user_id).toBe('u-1');
+    expect(body.session_id).toBe('sess-1');
+    expect(body.page_path).toBe('/test');
+    expect(body.metadata).toEqual({ foo: 'bar' });
+  });
+
+  test('uses window.location.pathname when pagePath not provided', async () => {
+    await trackAbEvent('exp-2', 'treatment', 'conversion');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(typeof body.page_path).toBe('string');
+  });
+
+  test('generates session ID from localStorage when not provided', async () => {
+    await trackAbEvent('exp-3', 'treatment', 'click');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(typeof body.session_id).toBe('string');
+    expect(body.session_id.length).toBeGreaterThan(0);
+  });
+
+  test('reuses existing session ID from localStorage', async () => {
+    localStorage.setItem('_carelink_sid', 'existing-sid-xyz');
+    await trackAbEvent('exp-4', 'control', 'booking');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.session_id).toBe('existing-sid-xyz');
+  });
+
+  test('silently fails when fetch throws', async () => {
+    mockFetch.mockRejectedValue(new Error('network error'));
+    await expect(trackAbEvent('exp-5', 'control', 'impression')).resolves.toBeUndefined();
+  });
+
+  test('empty metadata when not provided', async () => {
+    await trackAbEvent('exp-6', 'control', 'impression');
+    const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+    expect(body.metadata).toEqual({});
   });
 });

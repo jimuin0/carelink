@@ -193,3 +193,49 @@ test('GET: mf形式 → 200 text/csv', async () => {
   const csv = await res.text();
   expect(csv).toContain('借方勘定科目'); // MF header
 });
+
+test('GET: レートリミット params', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([]));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBeGreaterThan(0);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: generic形式 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b1',
+    created_at: '2026-01-01T10:00:00Z',
+    menu_name: 'カット',
+    total_amount: 3300,
+    status: 'completed',
+    profiles: { display_name: '山田太郎', email: 'yamada@example.com' },
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: 366日範囲 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([]));
+  const res = await GET(makeGetRequest({
+    facility_id: FACILITY_UUID,
+    format: 'generic',
+    from: '2025-01-01',
+    to: '2026-01-01',
+  }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([]));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});

@@ -169,3 +169,39 @@ test('POST: delete, 正常 → 200', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }));
+  expect(res.status).toBe(403);
+});
+
+test('POST: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEqEq(null));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: answer が 2001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'a'.repeat(2001) }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: answer が 2000文字 → 200 (上限ぴったり)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEqEq(null));
+  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'a'.repeat(2000) }));
+  expect(res.status).toBe(200);
+});
+
+test('POST: facility_id なし → 401', async () => {
+  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }, null, null));
+  expect(res.status).toBe(401);
+});

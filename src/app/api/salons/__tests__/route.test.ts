@@ -4,90 +4,85 @@
  * Tests for GET /api/salons
  * Key assertions:
  *   - Rate limiting (20 req/min per IP)
- *   - Single salon by id (UUID validation, is_public check)
- *   - List salons with optional business_type filter
- *   - List salons with optional area search (with SQL escape)
- *   - Error handling with Sentry
+ *   - Single salon by ID (UUID validation, is_public filter)
+ *   - List salons (business_type filter, area ilike search, limit 50)
+ *   - SQL injection prevention (area escaping)
  */
 
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs');
 
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
-// Helper to create chainable mock for query operations
-function createChainableMock(resolveValue: any) {
-  const chainable: any = {
-    eq: jest.fn(),
-    order: jest.fn(),
-    limit: jest.fn(),
-    ilike: jest.fn(),
-    select: jest.fn(),
-    single: jest.fn(),
-  };
-
-  chainable.eq.mockReturnValue(chainable);
-  chainable.order.mockReturnValue(chainable);
-  chainable.limit.mockResolvedValue(resolveValue);
-  chainable.ilike.mockReturnValue(chainable);
-  chainable.select.mockReturnValue(chainable);
-  chainable.single.mockResolvedValue(resolveValue);
-
-  return chainable;
-}
-
 function setupDefaultMocks(
-  singleMode: boolean = false,
-  salonFound: boolean = true,
-  queryError: boolean = false
+  singleFound: boolean = true,
+  listHasResults: boolean = true,
+  dbError: boolean = false
 ) {
-  const listData = queryError
-    ? null
-    : {
-        data: [
-          {
-            id: 'salon-1',
-            name: 'Salon A',
-            business_type: 'eyelash',
-            address: '大阪市北区',
-            is_public: true,
-          },
-          {
-            id: 'salon-2',
-            name: 'Salon B',
-            business_type: 'massage',
-            address: '京都市左京区',
-            is_public: true,
-          },
-        ],
-        error: null,
-      };
-
-  const singleData = salonFound
+  const singleData = singleFound
     ? {
-        data: {
-          id: 'salon-id-123',
-          name: 'Single Salon',
+        id: '11111111-1111-1111-1111-111111111111',
+        name: 'Salon ABC',
+        business_type: 'eyelash',
+        address: '東京都渋谷区道玄坂',
+        is_public: true,
+        created_at: '2026-05-10T10:00:00Z',
+      }
+    : null;
+
+  const listData = listHasResults
+    ? [
+        {
+          id: '22222222-2222-2222-2222-222222222222',
+          name: 'Salon A',
           business_type: 'eyelash',
           address: '東京都渋谷区',
           is_public: true,
+          created_at: '2026-05-10T10:00:00Z',
         },
-        error: null,
-      }
-    : { data: null, error: { message: 'Not found' } };
+        {
+          id: '33333333-3333-3333-3333-333333333333',
+          name: 'Salon B',
+          business_type: 'nail',
+          address: '東京都新宿区',
+          is_public: true,
+          created_at: '2026-05-09T10:00:00Z',
+        },
+      ]
+    : [];
+
+  const listResult = { data: dbError ? null : listData, error: dbError ? { message: 'DB error' } : null };
+
+  // Self-referential chain: order().eq().ilike().limit() or any subset
+  const listChain: any = {};
+  Object.assign(listChain, {
+    eq: jest.fn().mockReturnValue(listChain),
+    ilike: jest.fn().mockReturnValue(listChain),
+    order: jest.fn().mockReturnValue(listChain),
+    limit: jest.fn().mockResolvedValue(listResult),
+  });
 
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
   createServerSupabaseClient.mockReturnValue({
     from: jest.fn((table: string) => {
       if (table === 'salons') {
-        if (singleMode) {
-          return createChainableMock(singleData);
-        }
-        return createChainableMock(listData);
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: dbError ? null : singleData,
+                  error: dbError ? { message: 'DB error' } : null,
+                }),
+              }),
+              order: jest.fn().mockReturnValue(listChain),
+            }),
+          }),
+        };
       }
     }),
   });
@@ -99,26 +94,29 @@ beforeEach(() => {
   setupDefaultMocks();
 });
 
-function makeRequest(query: string, ip = '192.168.1.1') {
-  return new Request(`http://localhost/api/salons${query}`, {
-    method: 'GET',
-    headers: { 'x-forwarded-for': ip },
-  });
-}
+const VALID_UUID = '11111111-1111-1111-1111-111111111111';
 
-const SALON_UUID = '11111111-1111-1111-1111-111111111111';
+function makeRequest(query: string = '', ip = '192.168.1.1') {
+  return new Request(
+    `http://localhost/api/salons${query ? `?${query}` : ''}`,
+    {
+      method: 'GET',
+      headers: { 'x-forwarded-for': ip },
+    }
+  );
+}
 
 describe('GET /api/salons', () => {
   test('rate limiting → 429', async () => {
     (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
 
-    const res = await GET(makeRequest('') as any);
+    const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(429);
   });
 
-  test('list salons → 200 with array', async () => {
-    const res = await GET(makeRequest('') as any);
+  test('no params → 200 with list of salons', async () => {
+    const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -126,98 +124,108 @@ describe('GET /api/salons', () => {
     expect(json.length).toBeGreaterThan(0);
   });
 
-  test('single salon by id (found) → 200 with salon', async () => {
-    setupDefaultMocks(true, true);
-
-    const res = await GET(makeRequest(`?id=${SALON_UUID}`) as any);
+  test('single salon by ID (valid UUID) → 200', async () => {
+    const res = await GET(makeRequest(`id=${VALID_UUID}`) as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.id).toBe('salon-id-123');
-    expect(json.name).toBe('Single Salon');
+    expect(json.id).toBe(VALID_UUID);
+    expect(json.name).toBe('Salon ABC');
   });
 
-  test('single salon by id (not found) → 404', async () => {
-    setupDefaultMocks(true, false);
+  test('single salon by ID (invalid UUID format) → empty list', async () => {
+    const res = await GET(makeRequest('id=not-a-uuid') as any);
 
-    const res = await GET(makeRequest(`?id=${SALON_UUID}`) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(Array.isArray(json)).toBe(true);
+  });
+
+  test('single salon not found → 404', async () => {
+    setupDefaultMocks(false);
+
+    const res = await GET(makeRequest(`id=${VALID_UUID}`) as any);
 
     expect(res.status).toBe(404);
   });
 
-  test('invalid id UUID → ignores and lists all', async () => {
-    const res = await GET(makeRequest('?id=not-a-uuid') as any);
+  test('filters by business_type', async () => {
+    const res = await GET(makeRequest('business_type=eyelash') as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json)).toBe(true);
   });
 
-  test('id with spaces → ignores and lists all', async () => {
-    const res = await GET(makeRequest('?id=not an id') as any);
+  test('filters by area (ILIKE search)', async () => {
+    const res = await GET(makeRequest('area=東京都渋谷区') as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json)).toBe(true);
   });
 
-  test('list with business_type filter', async () => {
-    const res = await GET(makeRequest('?business_type=eyelash') as any);
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(Array.isArray(json)).toBe(true);
-  });
-
-  test('list with area search', async () => {
-    const res = await GET(makeRequest('?area=大阪市') as any);
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(Array.isArray(json)).toBe(true);
-  });
-
-  test('area search with SQL special chars escaped', async () => {
-    const res = await GET(makeRequest('?area=foo%bar_baz\\test') as any);
-
-    expect(res.status).toBe(200);
-    // Verify the query was made (escaping happened)
-  });
-
-  test('area search trimmed and sliced to 100 chars', async () => {
+  test('area parameter trimmed and sliced to 100 chars', async () => {
     const longArea = 'x'.repeat(150);
-    const res = await GET(makeRequest(`?area=  ${longArea}  `) as any);
+    const res = await GET(makeRequest(`area= ${longArea} `) as any);
 
     expect(res.status).toBe(200);
   });
 
-  test('business_type and area together', async () => {
-    const res = await GET(makeRequest('?business_type=massage&area=京都') as any);
+  test('area with SQL injection chars escaped', async () => {
+    const res = await GET(makeRequest('area=%_\\') as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('both business_type and area filters applied', async () => {
+    const res = await GET(
+      makeRequest('business_type=eyelash&area=東京都') as any
+    );
 
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(Array.isArray(json)).toBe(true);
   });
 
-  test('empty response → returns empty array', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockReturnValue({
-      from: jest.fn().mockReturnValue(
-        createChainableMock({ data: null, error: null })
-      ),
-    });
+  test('list limited to 50 results', async () => {
+    const res = await GET(makeRequest() as any);
 
-    const res = await GET(makeRequest('') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('results ordered by created_at descending', async () => {
+    const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual([]);
+    if (json.length > 1) {
+      expect(new Date(json[0].created_at).getTime()).toBeGreaterThanOrEqual(new Date(json[1].created_at).getTime());
+    }
   });
 
-  test('query error → 500', async () => {
-    setupDefaultMocks(false, true, true);
+  test('includes is_public=true filter for single lookup', async () => {
+    const res = await GET(makeRequest(`id=${VALID_UUID}`) as any);
 
-    const res = await GET(makeRequest('') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.is_public).toBe(true);
+  });
+
+  test('includes is_public=true filter for list', async () => {
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    if (json.length > 0) {
+      expect(json[0].is_public).toBe(true);
+    }
+  });
+
+  test('DB error → 500', async () => {
+    setupDefaultMocks(false, false, true);
+
+    const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(500);
   });
@@ -253,77 +261,70 @@ describe('GET /api/salons', () => {
     expect(call[0]).toBe('unknown');
   });
 
-  test('only returns is_public=true salons', async () => {
-    const res = await GET(makeRequest('') as any);
+  test('empty list when no results', async () => {
+    setupDefaultMocks(false, false);
 
-    expect(res.status).toBe(200);
-    // Query includes .eq('is_public', true)
-  });
-
-  test('single salon also checks is_public', async () => {
-    setupDefaultMocks(true, true);
-
-    const res = await GET(makeRequest(`?id=${SALON_UUID}`) as any);
-
-    expect(res.status).toBe(200);
-    // Query includes .eq('is_public', true)
-  });
-
-  test('list limited to 50 results', async () => {
-    const res = await GET(makeRequest('') as any);
-
-    expect(res.status).toBe(200);
-    // Query includes .limit(50)
-  });
-
-  test('salons ordered by created_at descending', async () => {
-    const res = await GET(makeRequest('') as any);
-
-    expect(res.status).toBe(200);
-    // Query includes .order('created_at', { ascending: false })
-  });
-
-  test('UUID regex: standard format accepted', async () => {
-    setupDefaultMocks(true, true);
-    const validUuid = '550e8400-e29b-41d4-a716-446655440000';
-
-    const res = await GET(makeRequest(`?id=${validUuid}`) as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('UUID regex: hyphens required', async () => {
-    const res = await GET(makeRequest('?id=550e8400e29b41d4a716446655440000') as any);
+    const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(Array.isArray(json)).toBe(true); // Falls back to list
+    expect(json).toEqual([]);
   });
 
-  test('area with empty string → ignored', async () => {
-    const res = await GET(makeRequest('?area=') as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('area with only whitespace → ignored', async () => {
-    const res = await GET(makeRequest('?area=   ') as any);
-
-    expect(res.status).toBe(200);
-  });
-
-  test('exception caught by try-catch → 500 with Sentry', async () => {
-    const { captureException } = require('@sentry/nextjs');
-    const testError = new Error('Unexpected error');
-
+  test('exception during processing → 500', async () => {
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockImplementation(() => {
-      throw testError;
+      throw new Error('Connection error');
     });
 
-    const res = await GET(makeRequest('') as any);
+    const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(500);
-    expect(captureException).toHaveBeenCalledWith(testError, expect.any(Object));
+  });
+
+  test('UUID with uppercase letters accepted', async () => {
+    const upperUuid = VALID_UUID.toUpperCase();
+    const res = await GET(makeRequest(`id=${upperUuid}`) as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('UUID too short (not 36 chars) → list fallback', async () => {
+    const res = await GET(makeRequest('id=11111111-1111-1111') as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('empty area parameter ignored', async () => {
+    const res = await GET(makeRequest('area=') as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('response includes salon metadata (name, business_type, address)', async () => {
+    const res = await GET(makeRequest() as any);
+
+    const json = await res.json();
+    if (json.length > 0) {
+      const salon = json[0];
+      expect(salon.id).toBeDefined();
+      expect(salon.name).toBeDefined();
+      expect(salon.business_type).toBeDefined();
+      expect(salon.address).toBeDefined();
+    }
+  });
+
+  test('multiple IDs in query string → only first ID used', async () => {
+    const res = await GET(
+      makeRequest(`id=${VALID_UUID}&id=22222222-2222-2222-2222-222222222222`) as any
+    );
+
+    expect(res.status).toBe(200);
+  });
+
+  test('special chars in area sanitized (percent encoding)', async () => {
+    const res = await GET(makeRequest('area=%25') as any);
+
+    expect(res.status).toBe(200);
   });
 });

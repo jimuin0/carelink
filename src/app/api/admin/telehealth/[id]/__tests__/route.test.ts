@@ -141,3 +141,54 @@ test('PATCH: status が no_show → 200', async () => {
   const res = await PATCH(makeRequest({ status: 'no_show' }), makeProps());
   expect(res.status).toBe(200);
 });
+
+test('PATCH: status=scheduled → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: SESSION_UUID, status: 'scheduled' }));
+  const res = await PATCH(makeRequest({ status: 'scheduled' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: status=in_progress → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: SESSION_UUID, status: 'in_progress' }));
+  const res = await PATCH(makeRequest({ status: 'in_progress' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest({ status: 'completed' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: SESSION_UUID, status: 'completed' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ status: 'completed' }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('PATCH: レスポンスが { session: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: SESSION_UUID, status: 'completed' }));
+  const res = await PATCH(makeRequest({ status: 'completed' }), makeProps());
+  const json = await res.json();
+  expect(json.session).toBeDefined();
+  expect(json.session.id).toBe(SESSION_UUID);
+});
+
+test('PATCH: facility_id が不正UUID → 401', async () => {
+  const url = new URL(`http://localhost/api/admin/telehealth/${SESSION_UUID}`);
+  url.searchParams.set('facility_id', 'bad-uuid');
+  const req = new NextRequest(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status: 'completed' }),
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(401);
+});

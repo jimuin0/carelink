@@ -161,3 +161,58 @@ test('PATCH: DB更新失敗 → 500', async () => {
   const res = await PATCH(makePatchRequest({ name: 'test' }));
   expect(res.status).toBe(500);
 });
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makePatchRequest());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makePatchRequest({ name: '施設名' }));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('PATCH: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makePatchRequest({ name: '施設名' }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: ?action=status suspended → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({ status: 'suspended' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: ?action=status draft → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({ status: 'draft' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: website_url が有効URL → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({ name: '施設', website_url: 'https://example.com' }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: booking_buffer_minutes が 120 (上限ぴったり) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({ name: '施設', booking_buffer_minutes: 120 }));
+  expect(res.status).toBe(200);
+});

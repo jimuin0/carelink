@@ -185,3 +185,62 @@ test('POST: 正常作成 → 201 with coupon', async () => {
   expect(res.status).toBe(201);
   expect(json.coupon).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: discount_type=fixed で discount_value が 100000 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res = await POST(makePostRequest(validPostBody({ discount_value: 100000 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: coupon_type=new_customer → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res = await POST(makePostRequest(validPostBody({ coupon_type: 'new_customer' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: name が 1文字 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res = await POST(makePostRequest(validPostBody({ name: 'A' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: name が空 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ name: '' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', name: 'テストクーポン' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await POST(makePostRequest(validPostBody()));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('GET: DB エラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([], { message: 'DB error' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('POST: レスポンスが { coupon: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', name: 'テストクーポン' }));
+  const res = await POST(makePostRequest(validPostBody()));
+  const json = await res.json();
+  expect(json.coupon).toBeDefined();
+  expect(json.coupon.id).toBe('aaa');
+});

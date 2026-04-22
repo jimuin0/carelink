@@ -196,3 +196,38 @@ test('正常更新 → 200 with staff data', async () => {
   expect(res.status).toBe(200);
   expect(json.staff).toBeDefined();
 });
+
+test('CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain({ id: STAFF_UUID, name: 'test' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest(), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain({ id: STAFF_UUID, name: 'test' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ name: 'test' }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('レスポンスが { staff: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain({ id: STAFF_UUID, name: 'テスト' }));
+  const res = await PATCH(makeRequest({ name: 'テスト' }), makeProps());
+  const json = await res.json();
+  expect(json.staff.id).toBe(STAFF_UUID);
+});

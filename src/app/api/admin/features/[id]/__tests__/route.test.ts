@@ -165,3 +165,42 @@ test('DELETE: 正常削除 → 200 ok:true', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('DELETE: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: rate limit params (20/60s)', async () => {
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('DELETE: rate limit → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('PATCH: レスポンスが { feature.id } 形式', async () => {
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
+  const json = await res.json();
+  expect(json.feature.id).toBe(FEATURE_UUID);
+});

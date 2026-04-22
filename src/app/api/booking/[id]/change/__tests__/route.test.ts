@@ -44,8 +44,14 @@ const mockGetUser = jest.fn();
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }),
 }));
+const mockAdminFrom = jest.fn().mockReturnValue({
+  select: jest.fn().mockReturnThis(),
+  eq: jest.fn().mockReturnThis(),
+  not: jest.fn().mockReturnThis(),
+  maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
+});
 jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), not: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data: null })) }) }),
+  createClient: () => ({ from: (...args: unknown[]) => mockAdminFrom(...args) }),
 }));
 
 import { POST } from '../route';
@@ -227,4 +233,286 @@ test('正常変更 → 200 success:true, user_idをWHEREに含む（IDOR defence
   expect(json.success).toBe(true);
   // user_id must be in WHERE clause for IDOR defence-in-depth
   expect(innerEq).toHaveBeenCalledWith('user_id', USER_ID);
+});
+
+// ─── 深掘りテスト: 境界値・エッジケース ─────────────────────────────────────
+
+test('CSRF 失敗 → 403', async () => {
+  const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValue(csrfError);
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('無効な JSON ボディ → 200 (空オブジェクト扱いでスキーマ検証失敗400)', async () => {
+  const req = new Request('http://localhost/api/booking/1/change', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{invalid',
+  });
+  const res = await POST(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('pending 予約も変更可能', async () => {
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ ...CONFIRMED_BOOKING, status: 'pending' });
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('no_show 予約は変更不可 → 400', async () => {
+  mockFrom.mockReturnValue(singleChain({ ...CONFIRMED_BOOKING, status: 'no_show' }));
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('staff_id なしの予約は競合チェックをスキップ → 200', async () => {
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ ...CONFIRMED_BOOKING, staff_id: null });
+    // 競合チェック呼ばれないのでそのまま update
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('HH:MM:SS 形式の start_time も受け付ける', async () => {
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(
+    makeRequest({ booking_date: '2026-12-01', start_time: '14:00:00', end_time: '15:00:00' }),
+    makeProps()
+  );
+  expect(res.status).toBe(200);
+});
+
+test('booking_date のみが不正 (月が 13) → 400', async () => {
+  const res = await POST(
+    makeRequest({ booking_date: '2026-13-01', start_time: '14:00', end_time: '15:00' }),
+    makeProps()
+  );
+  expect(res.status).toBe(400);
+});
+
+test('レートリミットパラメーター確認', async () => {
+  (checkRateLimit as jest.Mock).mockClear();
+  const req = new Request('http://localhost/api/booking/1/change', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-forwarded-for': '192.168.1.1',
+    },
+    body: JSON.stringify(VALID_BODY),
+  });
+  await POST(req, makeProps());
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(10);   // max 10 req
+  expect(call[3]).toBe(60_000); // per minute
+  expect(call[4]).toBe('booking-change');
+});
+
+test('先頭 IP を x-forwarded-for から抽出', async () => {
+  (checkRateLimit as jest.Mock).mockClear();
+  const req = new Request('http://localhost/api/booking/1/change', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-forwarded-for': '10.0.0.1, 192.168.1.1',
+    },
+    body: JSON.stringify(VALID_BODY),
+  });
+  await POST(req, makeProps());
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe('10.0.0.1');
+});
+
+test('writeAuditLog が変更成功時に呼ばれる', async () => {
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  (writeAuditLog as jest.Mock).mockClear();
+
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+
+  await POST(makeRequest(), makeProps());
+  expect(writeAuditLog).toHaveBeenCalledWith(
+    expect.objectContaining({
+      action: 'update',
+      tableName: 'bookings',
+      recordId: BOOKING_UUID,
+    })
+  );
+});
+
+test('時間重複チェック: 隣接時間（重複なし）は予約可能', async () => {
+  // 既存予約: 12:00-13:00、新規: 13:00-14:00 → 重複なし
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })), // 競合なし
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(
+    makeRequest({ booking_date: '2026-12-01', start_time: '13:00', end_time: '14:00' }),
+    makeProps()
+  );
+  expect(res.status).toBe(200);
+});
+
+test('例外発生時 → 500', async () => {
+  mockFrom.mockImplementation(() => { throw new Error('Unexpected error'); });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('LINE Works通知パス (isLineWorksConfigured=true, staffList有)', async () => {
+  const { isLineWorksConfigured, sendLineWorksMessage } = jest.requireMock('@/lib/integrations/line-works') as {
+    isLineWorksConfigured: jest.Mock;
+    sendLineWorksMessage: jest.Mock;
+  };
+  isLineWorksConfigured.mockReturnValue(true);
+  sendLineWorksMessage.mockResolvedValue(true);
+
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'staff_profiles') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn(() => Promise.resolve({
+          data: [{ id: STAFF_ID, line_works_channel_id: 'ch-1', line_works_notify_all: true }],
+        })),
+      };
+    }
+    if (table === 'bookings') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn(() => Promise.resolve({ data: { customer_name: 'テスト', menu_id: null } })),
+      };
+    }
+    return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data: null })) };
+  });
+
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  isLineWorksConfigured.mockReturnValue(false);
+});
+
+test('LINE Works通知パス (isLineWorksConfigured=true, menu_id あり)', async () => {
+  const { isLineWorksConfigured, sendLineWorksMessage } = jest.requireMock('@/lib/integrations/line-works') as {
+    isLineWorksConfigured: jest.Mock;
+    sendLineWorksMessage: jest.Mock;
+  };
+  isLineWorksConfigured.mockReturnValue(true);
+  sendLineWorksMessage.mockResolvedValue(true);
+
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'staff_profiles') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        not: jest.fn(() => Promise.resolve({
+          data: [{ id: STAFF_ID, line_works_channel_id: 'ch-2', line_works_notify_all: false }],
+        })),
+      };
+    }
+    if (table === 'bookings') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn(() => Promise.resolve({ data: { customer_name: 'テスト', menu_id: 'menu-1' } })),
+      };
+    }
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { name: 'カット' } })),
+    };
+  });
+
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  isLineWorksConfigured.mockReturnValue(false);
 });

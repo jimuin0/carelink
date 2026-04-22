@@ -138,3 +138,73 @@ test('POST: is_published=true → 201', async () => {
   const res = await POST(makeRequest(validBody({ is_published: true })));
   expect(res.status).toBe(201);
 });
+
+test('POST: slug に日本語 → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const res = await POST(makeRequest(validBody({ slug: 'テスト記事' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: reading_time が 999 → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'p1' }));
+  const res = await POST(makeRequest(validBody({ reading_time: 999 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: reading_time が 1 → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'p1' }));
+  const res = await POST(makeRequest(validBody({ reading_time: 1 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: tags が 21件 → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const tags = Array.from({ length: 21 }, (_, i) => `tag${i}`);
+  const res = await POST(makeRequest(validBody({ tags })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: tags が 20件 → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'p1' }));
+  const tags = Array.from({ length: 20 }, (_, i) => `tag${i}`);
+  const res = await POST(makeRequest(validBody({ tags })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: title が空 → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const res = await POST(makeRequest(validBody({ title: '' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: description が 501文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const res = await POST(makeRequest(validBody({ description: 'a'.repeat(501) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: content が配列 → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'p1' }));
+  const res = await POST(makeRequest(validBody({ content: [{ type: 'paragraph', text: 'hello' }] })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: レスポンスが { post: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'p1', slug: 'test-post' }));
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(json.post).toBeDefined();
+  expect(json.post.id).toBe('p1');
+});

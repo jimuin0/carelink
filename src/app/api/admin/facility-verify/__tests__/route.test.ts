@@ -132,3 +132,63 @@ test('PATCH: verified_type=site_visit → 200', async () => {
   const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true, verified_type: 'site_visit' }));
   expect(res.status).toBe(200);
 });
+
+test('PATCH: identity タイプ → 200', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true, verified_type: 'identity' }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.verified_type).toBe('identity');
+});
+
+test('PATCH: is_verified=false → verified_type が null', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: false }));
+  const json = await res.json();
+  expect(json.verified_type).toBeNull();
+});
+
+test('PATCH: verified_type 省略時は phone がデフォルト', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
+  const json = await res.json();
+  expect(json.verified_type).toBe('phone');
+});
+
+test('PATCH: レートリミット params (10/60s)', () => {
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: writeAuditLog が verify アクションで呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true, verified_type: 'phone' }));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'verify' }));
+});
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(
+    new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 })
+  );
+  const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: レスポンスに facility_id と is_verified が含まれる', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
+  const json = await res.json();
+  expect(json.facility_id).toBe(FACILITY_UUID);
+  expect(json.is_verified).toBe(true);
+});

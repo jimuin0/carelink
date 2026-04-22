@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingStatusUpdate } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -130,5 +130,99 @@ describe('送信エラー時', () => {
     mockSend.mockRejectedValueOnce(new Error('network error'));
     await sendBookingConfirmation(baseData);
     expect(mockCaptureException).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('generateUnsubscribeToken', () => {
+  test('32バイトのhex文字列を返す（64文字）', () => {
+    const token = generateUnsubscribeToken();
+    expect(typeof token).toBe('string');
+    expect(token).toHaveLength(64);
+    expect(/^[0-9a-f]+$/.test(token)).toBe(true);
+  });
+
+  test('毎回異なるトークンを生成する', () => {
+    const t1 = generateUnsubscribeToken();
+    const t2 = generateUnsubscribeToken();
+    expect(t1).not.toBe(t2);
+  });
+});
+
+describe('sendWelcomeEmail', () => {
+  test('オーナーメールに送信する', async () => {
+    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', ownerName: 'テストオーナー', facilityName: 'テストサロン' });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].to).toBe('owner@example.com');
+    expect(mockSend.mock.calls[0][0].subject).toContain('テストサロン');
+  });
+
+  test('ownerNameが省略された場合はデフォルト名を使う', async () => {
+    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'サロン' });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('オーナー');
+  });
+});
+
+describe('sendOnboardingFollowEmail', () => {
+  test('未設定項目をリスト化してメール送信', async () => {
+    await sendOnboardingFollowEmail({
+      ownerEmail: 'owner@example.com',
+      facilityName: 'テストサロン',
+      missingSteps: ['メニューを登録してください', 'スタッフを追加してください'],
+    });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('メニューを登録してください');
+    expect(html).toContain('スタッフを追加してください');
+  });
+
+  test('XSS防止: facilityNameがエスケープされる', async () => {
+    await sendOnboardingFollowEmail({
+      ownerEmail: 'owner@example.com',
+      facilityName: '<script>alert(1)</script>',
+      missingSteps: ['項目A'],
+    });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
+describe('sendFavoritesDigest', () => {
+  test('お気に入りサロンの更新を送信する', async () => {
+    await sendFavoritesDigest({
+      userEmail: 'user@example.com',
+      userName: 'テストユーザー',
+      facilities: [
+        { name: 'サロンA', slug: 'salon-a', newCoupons: 2, hasNewMenus: true },
+        { name: 'サロンB', slug: 'salon-b', newCoupons: 0, hasNewMenus: false },
+      ],
+    });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('サロンA');
+    expect(html).toContain('新着クーポン 2件');
+    expect(html).toContain('新メニュー追加');
+  });
+
+  test('userNameが省略された場合はデフォルト名を使う', async () => {
+    await sendFavoritesDigest({
+      userEmail: 'user@example.com',
+      facilities: [{ name: 'サロンA', slug: 'salon-a', newCoupons: 1, hasNewMenus: false }],
+    });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('お客様');
+  });
+
+  test('unsubscribeTokenが含まれる場合はリンクを追加', async () => {
+    await sendFavoritesDigest({
+      userEmail: 'user@example.com',
+      facilities: [],
+      unsubscribeToken: 'test-token-abc',
+    });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('test-token-abc');
+    expect(html).toContain('メールの受信を停止する');
   });
 });

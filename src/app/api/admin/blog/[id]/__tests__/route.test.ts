@@ -180,3 +180,68 @@ test('DELETE: 正常削除 → 200 ok:true', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: content が 50001文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { content: 'a'.repeat(50001) }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: is_published=false → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, is_published: false }));
+  const res = await PATCH(makeRequest('PATCH', { is_published: false }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: facility_id が不正UUID → 401', async () => {
+  const url = new URL(`http://localhost/api/admin/blog/${POST_UUID}`);
+  url.searchParams.set('facility_id', 'bad-uuid');
+  const req = new NextRequest(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title: 'New' }),
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, title: 'New' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: レスポンスが { post: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, title: 'New' }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'New' }), makeProps());
+  const json = await res.json();
+  expect(json.post).toBeDefined();
+  expect(json.post.id).toBe(POST_UUID);
+});
+
+test('DELETE: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});

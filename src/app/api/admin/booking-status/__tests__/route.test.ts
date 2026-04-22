@@ -34,6 +34,8 @@ jest.mock('next/headers', () => ({
 import { POST } from '../route';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
+import { sendPushToUser } from '@/lib/push';
 
 const validBookingId = '123e4567-e89b-12d3-a456-426614174000';
 const facilityId = 'fac00000-0000-0000-0000-000000000001';
@@ -68,12 +70,75 @@ function fluent(resolvedValue: unknown) {
   return chain;
 }
 
-const bookingPending = {
+/** Build the membership fluent chain that responds to `.maybeSingle().then(r => r.data)` */
+function membershipChain(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data })),
+    then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data }).then(fn)),
+  };
+}
+
+/**
+ * Build the CAS update chain for bookings:
+ *   supabase.from('bookings').update(...).eq('id').eq('facility_id').eq('status').select('id')
+ * The route awaits the final call, so .select() must return a Promise.
+ */
+function updateChain(result: { data: unknown; error: unknown }) {
+  const selectFn = jest.fn(() => Promise.resolve(result));
+  const eqFn = jest.fn();
+  // Three chained .eq() calls, last returns { select }
+  const eq3 = jest.fn(() => ({ select: selectFn }));
+  const eq2 = jest.fn(() => ({ eq: eq3 }));
+  const eq1 = jest.fn(() => ({ eq: eq2 }));
+  return {
+    update: jest.fn(() => ({ eq: eq1 })),
+  };
+}
+
+/** Build a simple .select().eq().single() chain (for facility_profiles, menus, staff). */
+function singleChain(data: unknown) {
+  return {
+    select: jest.fn(() => ({
+      eq: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data, error: null })),
+      })),
+    })),
+  };
+}
+
+const bookingBase = {
   id: validBookingId, facility_id: facilityId, user_id: 'customer-1',
-  status: 'pending', customer_name: 'テスト', email: 'c@example.com',
+  customer_name: 'テスト', email: 'c@example.com',
   booking_date: '2026-05-01', start_time: '10:00', end_time: '11:00',
   total_price: 5000, menu_id: null, staff_id: null,
 };
+const bookingPending = { ...bookingBase, status: 'pending' };
+
+/** Full success-path mock: booking with `fromStatus`, update returns rows (CAS success). */
+function setupSuccessMock(fromStatus: string) {
+  mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+  const memberData = { facility_id: facilityId, role: 'owner' };
+  let callCount = 0;
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') {
+      callCount++;
+      if (callCount === 1) {
+        // booking lookup
+        return fluent({ data: { ...bookingBase, status: fromStatus } });
+      }
+      // CAS update
+      return updateChain({ data: [{ id: validBookingId }], error: null });
+    }
+    if (table === 'facility_members') {
+      return membershipChain(memberData);
+    }
+    // facility_profiles, facility_menus, staff_profiles
+    return singleChain({ name: 'テスト施設' });
+  });
+}
 
 describe('POST /api/admin/booking-status', () => {
   test('認証なし → 401', async () => {
@@ -112,27 +177,24 @@ describe('POST /api/admin/booking-status', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return fluent({ data: bookingPending }); // booking found
-      // membership check → null (not a member)
-      return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
-               maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
-               then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data: null }).then(fn)) };
+      return membershipChain(null); // not a member
     });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     expect(res.status).toBe(404);
   });
 
-  test('同一ステータスへの変更 → 400', async () => {
+  test('同一ステータスへの変更 → 400 (既にそのステータスです)', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return fluent({ data: { ...bookingPending, status: 'confirmed' } });
-      return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
-               maybeSingle: jest.fn(() => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } })),
-               then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } }).then(fn)) };
+      if (callNum === 1) return fluent({ data: { ...bookingBase, status: 'confirmed' } });
+      return membershipChain({ facility_id: facilityId, role: 'owner' });
     });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toMatch(/既にそのステータスです/);
   });
 
   test('許可されていない状態遷移 (cancelled→confirmed) → 400', async () => {
@@ -140,111 +202,11 @@ describe('POST /api/admin/booking-status', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return fluent({ data: { ...bookingPending, status: 'cancelled' } });
-      return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
-               maybeSingle: jest.fn(() => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } })),
-               then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } }).then(fn)) };
+      if (callNum === 1) return fluent({ data: { ...bookingBase, status: 'cancelled' } });
+      return membershipChain({ facility_id: facilityId, role: 'owner' });
     });
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     expect(res.status).toBe(400);
-  });
-
-  test('CAS競合: ステータスが読み取り後に変更された → 409', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return fluent({ data: bookingPending }); // read pending
-      if (callNum === 2) {
-        // membership check
-        return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
-                 maybeSingle: jest.fn(() => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } })),
-                 then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } }).then(fn)) };
-      }
-      // CAS update: returns empty array (concurrent update already changed status)
-      const eqChain = jest.fn().mockReturnThis();
-      return {
-        update: jest.fn(() => ({ eq: eqChain, then: jest.fn() })),
-        select: jest.fn(() => ({ eq: eqChain })),
-        eq: eqChain,
-        // The final .select('id') chain resolves to { data: [], error: null }
-        _resolveAs: jest.fn(() => Promise.resolve({ data: [], error: null })),
-      };
-    });
-
-    // Since mocking the full fluent chain for CAS is complex, let's test the 409 path
-    // by directly testing the condition: empty update result → 409
-    const { NextResponse } = await import('next/server');
-    // Verify the route logic: if update returns empty rows, status is 409
-    // This is tested via integration-style mock below
-    const mockUpdate = jest.fn();
-    const eqFn = jest.fn().mockReturnThis();
-    const selectFn = jest.fn(() => Promise.resolve({ data: [], error: null }));
-    mockUpdate.mockReturnValue({ eq: eqFn });
-    eqFn.mockReturnValue({ eq: eqFn, select: selectFn });
-
-    mockFrom.mockReset();
-    let cn = 0;
-    mockFrom.mockImplementation(() => {
-      cn++;
-      if (cn === 1) return fluent({ data: bookingPending });
-      if (cn === 2) {
-        return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(),
-                 maybeSingle: jest.fn(() => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } })),
-                 then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data: { facility_id: facilityId, role: 'owner' } }).then(fn)) };
-      }
-      // CAS update returning empty rows (concurrent modification)
-      const eq3 = jest.fn().mockReturnThis();
-      return {
-        update: jest.fn(() => ({ eq: eq3, select: jest.fn(() => Promise.resolve({ data: [], error: null })) })),
-        eq: eq3,
-        select: jest.fn(() => ({ eq: eq3, select: jest.fn(() => Promise.resolve({ data: [], error: null })) })),
-      };
-    });
-
-    // We verify the 409 path via the route's behavior when `updated` is empty
-    // The actual DB call chain is hard to mock perfectly, so we verify the logic by
-    // observing that the route returns 409 when the CAS yields no rows.
-    // This test documents the expected contract.
-    expect(true).toBe(true); // placeholder — see integration test below
-  });
-
-  test('正常な状態遷移 (pending→confirmed) → 200', async () => {
-    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
-    let callNum = 0;
-    const memberData = { facility_id: facilityId, role: 'owner' };
-
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) {
-        // booking lookup
-        return fluent({ data: bookingPending });
-      }
-      if (callNum === 2) {
-        // membership check (maybeSingle via .then)
-        return {
-          select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
-          in: jest.fn().mockReturnThis(),
-          maybeSingle: jest.fn(() => Promise.resolve({ data: memberData })),
-          then: jest.fn((fn: (v: unknown) => unknown) => Promise.resolve({ data: memberData }).then(fn)),
-        };
-      }
-      // CAS update + subsequent notification fetches — return success for all
-      const eqFn = jest.fn().mockReturnThis();
-      const inFn = jest.fn().mockReturnThis();
-      return {
-        update: jest.fn(() => ({ eq: eqFn })),
-        select: jest.fn(() => Promise.resolve({ data: [{ id: validBookingId }], error: null })),
-        eq: eqFn, in: inFn,
-        single: jest.fn(() => Promise.resolve({ data: { id: validBookingId }, error: null })),
-        maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
-      };
-    });
-
-    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
-    // Route may return 200 or 500 depending on how deeply the mock resolves;
-    // what we verify is that auth + ownership + state machine allow the request through.
-    expect([200, 500]).toContain(res.status);
   });
 
   test('CSRF失敗 → 403', async () => {
@@ -258,5 +220,301 @@ describe('POST /api/admin/booking-status', () => {
     (checkRateLimit as jest.Mock).mockResolvedValue(true);
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     expect(res.status).toBe(429);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// State machine: valid transitions
+// ---------------------------------------------------------------------------
+describe('POST /api/admin/booking-status - state machine (valid transitions)', () => {
+  test.each([
+    ['pending',    'confirmed'],
+    ['pending',    'cancelled'],
+    ['confirmed',  'completed'],
+    ['confirmed',  'cancelled'],
+    ['confirmed',  'no_show'],
+    ['completed',  'no_show'],
+    ['no_show',    'cancelled'],
+  ])('%s → %s: valid transition → 200', async (fromStatus, toStatus) => {
+    setupSuccessMock(fromStatus);
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: toStatus }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.success).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// State machine: invalid transitions
+// ---------------------------------------------------------------------------
+describe('POST /api/admin/booking-status - state machine (invalid transitions)', () => {
+  // Note: 'pending' is not in validStatuses so →pending is caught by the earlier
+  // validation check ("不正なステータスです"), not by the state machine. Those cases
+  // are already covered by the '不正なstatus → 400' test above and are omitted here.
+  test.each([
+    ['pending',   'completed'],
+    ['pending',   'no_show'],
+    ['confirmed', 'confirmed'],  // same-status (covered separately but consistent)
+    ['completed', 'confirmed'],
+    ['completed', 'cancelled'],
+    ['cancelled', 'confirmed'],
+    ['cancelled', 'completed'],
+    ['cancelled', 'no_show'],
+    ['cancelled', 'cancelled'],  // same-status terminal
+    ['no_show',   'confirmed'],
+    ['no_show',   'completed'],
+    ['no_show',   'no_show'],    // same-status
+  ])('%s → %s → 400', async (fromStatus, toStatus) => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return fluent({ data: { ...bookingBase, status: fromStatus } });
+      return membershipChain({ facility_id: facilityId, role: 'owner' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: toStatus }));
+    expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// CAS and DB errors
+// ---------------------------------------------------------------------------
+describe('POST /api/admin/booking-status - CAS and DB errors', () => {
+  test('CAS競合: 読み取り後にステータスが変更された → 409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'owner' };
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: bookingPending });
+        // CAS update returns empty rows — status changed concurrently
+        return updateChain({ data: [], error: null });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toMatch(/既に変更されています/);
+  });
+
+  test('DBアップデートエラー → 500', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'owner' };
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: bookingPending });
+        // update returns an error
+        return updateChain({ data: null, error: { message: 'DB error' } });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toMatch(/更新に失敗/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Notifications
+// ---------------------------------------------------------------------------
+describe('POST /api/admin/booking-status - notifications', () => {
+  test('confirmed → sendBookingConfirmed が呼ばれる', async () => {
+    setupSuccessMock('pending');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(200);
+    expect(sendBookingConfirmed).toHaveBeenCalledTimes(1);
+    expect(sendBookingCancelled).not.toHaveBeenCalled();
+    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+  });
+
+  test('cancelled → sendBookingCancelled が呼ばれる', async () => {
+    setupSuccessMock('pending');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(200);
+    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
+    expect(sendBookingConfirmed).not.toHaveBeenCalled();
+    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+  });
+
+  test('completed → sendBookingStatusUpdate が呼ばれる', async () => {
+    setupSuccessMock('confirmed');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }));
+    expect(res.status).toBe(200);
+    expect(sendBookingStatusUpdate).toHaveBeenCalledTimes(1);
+    expect(sendBookingConfirmed).not.toHaveBeenCalled();
+    expect(sendBookingCancelled).not.toHaveBeenCalled();
+  });
+
+  test('no_show → sendBookingStatusUpdate が呼ばれる', async () => {
+    setupSuccessMock('confirmed');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'no_show' }));
+    expect(res.status).toBe(200);
+    expect(sendBookingStatusUpdate).toHaveBeenCalledTimes(1);
+    const callArg = (sendBookingStatusUpdate as jest.Mock).mock.calls[0][0];
+    expect(callArg.newStatus).toBe('no_show');
+  });
+
+  test('sendBookingConfirmed に正しい emailData が渡される', async () => {
+    setupSuccessMock('pending');
+    await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(sendBookingConfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        customerName: bookingBase.customer_name,
+        customerEmail: bookingBase.email,
+        bookingDate: bookingBase.booking_date,
+        startTime: bookingBase.start_time,
+        endTime: bookingBase.end_time,
+        totalPrice: bookingBase.total_price,
+        bookingId: bookingBase.id,
+      })
+    );
+  });
+
+  test('sendPushToUser が booking.user_id で呼ばれる', async () => {
+    setupSuccessMock('pending');
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(200);
+    // sendPushToUser is called with void so we wait a tick for the promise to settle
+    await Promise.resolve();
+    expect(sendPushToUser).toHaveBeenCalledWith(
+      bookingBase.user_id,
+      expect.objectContaining({
+        title: expect.any(String),
+        body: expect.any(String),
+        url: `/mypage/bookings/${bookingBase.id}`,
+        tag: `booking-status-${bookingBase.id}`,
+      })
+    );
+  });
+
+  test('メール送信エラーは無視して 200 を返す', async () => {
+    setupSuccessMock('pending');
+    (sendBookingConfirmed as jest.Mock).mockRejectedValueOnce(new Error('SMTP error'));
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    // Email failure must not surface as HTTP error
+    expect(res.status).toBe(200);
+  });
+
+  test('menu_id があるとき facility_menus から名前を取得して email に含める', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'owner' };
+    const bookingWithMenu = { ...bookingBase, status: 'pending', menu_id: 'menu-001', staff_id: null };
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: bookingWithMenu });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      if (table === 'facility_profiles') return singleChain({ name: 'テスト施設' });
+      if (table === 'facility_menus') return singleChain({ name: 'カット' });
+      return singleChain(null);
+    });
+    await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(sendBookingConfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({ menuName: 'カット' })
+    );
+  });
+
+  test('staff_id があるとき staff_profiles から名前を取得して email に含める', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'owner' };
+    const bookingWithStaff = { ...bookingBase, status: 'pending', menu_id: null, staff_id: 'staff-001' };
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: bookingWithStaff });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      if (table === 'facility_profiles') return singleChain({ name: 'テスト施設' });
+      if (table === 'staff_profiles') return singleChain({ name: '田中スタッフ' });
+      return singleChain(null);
+    });
+    await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(sendBookingConfirmed).toHaveBeenCalledWith(
+      expect.objectContaining({ staffName: '田中スタッフ' })
+    );
+  });
+
+  test('booking.user_id が null → sendPushToUser が呼ばれない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'owner' };
+    const bookingNoUser = { ...bookingBase, status: 'pending', user_id: null };
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: bookingNoUser });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(200);
+    await Promise.resolve();
+    expect(sendPushToUser).not.toHaveBeenCalled();
+  });
+
+  test('adminロールでも操作可能 → 200', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'admin' };  // admin role
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: bookingPending });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(200);
+  });
+
+  test('不正なJSONボディ → 400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const req = new Request('http://localhost/api/admin/booking-status', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'http://localhost', Host: 'localhost' },
+      body: 'invalid json {',
+    });
+    const res = await POST(req);
+    expect(res.status).toBe(400);
+  });
+
+  test('DBのbooking.statusが未知の値 → 状態遷移拒否 → 400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const memberData = { facility_id: facilityId, role: 'owner' };
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: { ...bookingBase, status: 'unknown_status' } });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain(memberData);
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(400);
+  });
+
+  test('未処理例外 → 500', async () => {
+    mockGetUser.mockRejectedValue(new Error('Unexpected crash'));
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(500);
   });
 });

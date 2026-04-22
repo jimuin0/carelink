@@ -34,11 +34,11 @@ function setupMocks(hasUser: boolean = false, hasDuplicate: boolean = false, has
   mockMaybeSingle.mockResolvedValueOnce({ data: hasDuplicate ? { id: 'dup-1' } : null });
   mockMaybeSingle.mockResolvedValueOnce({ data: hasFacility ? { id: 'fac-1', name: 'Test Salon' } : null });
 
-  const mockEq4 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-  const mockEq3 = jest.fn().mockReturnValue({ eq: mockEq4 });
-  const mockEq2 = jest.fn().mockReturnValue({ eq: mockEq3 });
-  const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
-  mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
+  // Self-referential chain: .eq() always returns the same chainable object
+  const flexChain: any = {};
+  flexChain.eq = jest.fn(() => flexChain);
+  flexChain.maybeSingle = mockMaybeSingle;
+  mockSelect = jest.fn(() => flexChain);
 
   mockInsert = jest.fn().mockResolvedValue({ data: { id: 'entry-123' }, error: null });
   const mockSelectInsert = jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'entry-123' }, error: null }) });
@@ -94,7 +94,7 @@ function makeDeleteRequest(id: string, ip = '192.168.1.1') {
   });
 }
 
-const FACILITY_UUID = '11111111-1111-1111-1111-111111111111';
+const FACILITY_UUID = '550e8400-e29b-41d4-a716-446655440000';
 const validWaitlist = {
   facility_id: FACILITY_UUID,
   date: '2026-05-01',
@@ -215,11 +215,10 @@ describe('POST /api/waitlist', () => {
     expect(res.status).toBe(400);
   });
 
-  test('rate limit params (5 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  test('rate limit params (5 req/min per IP)', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
 
-    POST(makePostRequest(validWaitlist, '192.168.1.1'));
+    await POST(makePostRequest(validWaitlist, '192.168.1.1'));
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
     expect(call[0]).toBe('192.168.1.1');
@@ -228,14 +227,118 @@ describe('POST /api/waitlist', () => {
     expect(call[3]).toBe('waitlist');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  test('extracts first IP from x-forwarded-for', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
 
-    POST(makePostRequest(validWaitlist, '10.0.0.1, 192.168.1.1'));
+    await POST(makePostRequest(validWaitlist, '10.0.0.1, 192.168.1.1'));
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
     expect(call[0]).toBe('10.0.0.1');
+  });
+
+  test('non-auth user + facility found + insert success → 200', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const singleFn = jest.fn().mockResolvedValue({ data: { id: 'entry-123' }, error: null });
+    const selectInsert = jest.fn().mockReturnValue({ single: singleFn });
+    const insertFn = jest.fn().mockReturnValue({ select: selectInsert });
+    const maybeSingleFn = jest.fn().mockResolvedValue({ data: { id: 'fac-1', name: 'Test Salon' } });
+    const eqStatus = jest.fn().mockReturnValue({ maybeSingle: maybeSingleFn });
+    const eqId = jest.fn().mockReturnValue({ eq: eqStatus });
+    const selectFn = jest.fn().mockReturnValue({ eq: eqId });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn((table: string) => table === 'facility_profiles'
+        ? { select: selectFn }
+        : { insert: insertFn }),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.id).toBe('entry-123');
+  });
+
+  test('auth user + duplicate registration → 409', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const dupMaybeSingle = jest.fn().mockResolvedValue({ data: { id: 'dup-1' } });
+    const eq5 = jest.fn().mockReturnValue({ maybeSingle: dupMaybeSingle });
+    const eq4 = jest.fn().mockReturnValue({ eq: eq5 });
+    const eq3 = jest.fn().mockReturnValue({ eq: eq4 });
+    const eq2 = jest.fn().mockReturnValue({ eq: eq3 });
+    const eq1 = jest.fn().mockReturnValue({ eq: eq2 });
+    const selectFn = jest.fn().mockReturnValue({ eq: eq1 });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn(() => ({ select: selectFn })),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain('登録済み');
+  });
+
+  test('facility not found → 404', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const maybeSingleFn = jest.fn().mockResolvedValue({ data: null });
+    const eqStatus = jest.fn().mockReturnValue({ maybeSingle: maybeSingleFn });
+    const eqId = jest.fn().mockReturnValue({ eq: eqStatus });
+    const selectFn = jest.fn().mockReturnValue({ eq: eqId });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn(() => ({ select: selectFn })),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toContain('施設が見つかりません');
+  });
+
+  test('insert error → 500', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const singleFn = jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } });
+    const selectInsert = jest.fn().mockReturnValue({ single: singleFn });
+    const insertFn = jest.fn().mockReturnValue({ select: selectInsert });
+    const facilityMaybeSingle = jest.fn().mockResolvedValue({ data: { id: 'fac-1', name: 'Test Salon' } });
+    const eqStatus = jest.fn().mockReturnValue({ maybeSingle: facilityMaybeSingle });
+    const eqId = jest.fn().mockReturnValue({ eq: eqStatus });
+    const selectFn = jest.fn().mockReturnValue({ eq: eqId });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn((table: string) => table === 'facility_profiles'
+        ? { select: selectFn }
+        : { insert: insertFn }),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('登録に失敗');
+  });
+
+  test('POST: cookie getAll callback is invocable', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { cookies } = require('next/headers');
+    const mockCookieStore = { getAll: jest.fn(() => [] as any[]) };
+    cookies.mockResolvedValue(mockCookieStore);
+
+    const maybeSingleFn = jest.fn().mockResolvedValue({ data: null });
+    const eqFn = jest.fn().mockReturnThis();
+    const chain: any = { select: jest.fn().mockReturnThis(), eq: eqFn, maybeSingle: maybeSingleFn, insert: jest.fn().mockReturnThis() };
+
+    createServerClient.mockImplementation((_url: string, _key: string, opts: any) => {
+      opts.cookies.getAll();
+      return {
+        auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+        from: jest.fn(() => chain),
+      };
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(404); // facility not found → 404
+    expect(mockCookieStore.getAll).toHaveBeenCalled();
   });
 });
 
@@ -320,11 +423,10 @@ describe('DELETE /api/waitlist', () => {
     expect(json.success).toBe(true);
   });
 
-  test('rate limit params (10 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  test('rate limit params (10 req/min per IP)', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
 
-    DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111', '192.168.1.1'));
+    await DELETE(makeDeleteRequest('550e8400-e29b-41d4-a716-446655440000', '192.168.1.1'));
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
     expect(call[0]).toBe('192.168.1.1');
@@ -338,5 +440,38 @@ describe('DELETE /api/waitlist', () => {
     const res = await DELETE(makeDeleteRequest(validUuid));
 
     expect(res.status).toBe(200);
+  });
+
+  test('update error → 500', async () => {
+    const mockEq2Error = jest.fn().mockResolvedValue({ error: { message: 'DB error' } });
+    const mockEq1Error = jest.fn().mockReturnValue({ eq: mockEq2Error });
+    const mockUpdateError = jest.fn().mockReturnValue({ eq: mockEq1Error });
+
+    const { createServerClient } = require('@supabase/ssr');
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn(() => ({ update: mockUpdateError })),
+    });
+
+    const res = await DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111'));
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('削除に失敗');
+  });
+
+  test('DELETE: cookie getAll callback is invocable', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { cookies } = require('next/headers');
+    const mockCookieStore = { getAll: jest.fn(() => [] as any[]) };
+    cookies.mockResolvedValue(mockCookieStore);
+
+    createServerClient.mockImplementation((_url: string, _key: string, opts: any) => {
+      opts.cookies.getAll();
+      return { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) }, from: jest.fn() };
+    });
+
+    const res = await DELETE(makeDeleteRequest('550e8400-e29b-41d4-a716-446655440000'));
+    expect(res.status).toBe(401);
+    expect(mockCookieStore.getAll).toHaveBeenCalled();
   });
 });

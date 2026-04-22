@@ -13,7 +13,7 @@ import { writeAuditLog } from '@/lib/audit-logger';
 export const dynamic = 'force-dynamic';
 
 const changeSchema = z.object({
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date' }),
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
 });

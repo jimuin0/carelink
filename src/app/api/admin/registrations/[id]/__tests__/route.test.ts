@@ -124,3 +124,56 @@ test('PATCH: rejected → 200 status:rejected', async () => {
   expect(res.status).toBe(200);
   expect(json.status).toBe('rejected');
 });
+
+test('PATCH: status=pending → 200 success:true', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makeRequest({ status: 'pending' }), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.success).toBe(true);
+  expect(json.status).toBe('pending');
+});
+
+test('PATCH: writeAuditLog が approved アクションで呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ status: 'approved' }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'approve' }));
+});
+
+test('PATCH: writeAuditLog が rejected アクションで呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ status: 'rejected' }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ action: 'reject' }));
+});
+
+test('PATCH: レートリミット params (10/60s)', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest({ status: 'approved' }), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: body なし → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(
+    new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 })
+  );
+  const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
+  expect(res.status).toBe(403);
+});

@@ -176,3 +176,47 @@ test('POST: discount_type が special → 201', async () => {
   const res = await POST(makeRequest(validBody({ discount_type: 'special', special_price: 3000 })));
   expect(res.status).toBe(201);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: facility_ids が空配列 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ facility_ids: [] })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_ids が 50件 → 201', async () => {
+  const ids = Array.from({ length: 50 }, (_, i) =>
+    `${String(i).padStart(8, '0')}-1234-5678-abcd-000000000000`
+  );
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return membershipChain(ids.map(id => ({ facility_id: id })));
+    }
+    return insertChain(ids.map(id => ({ id })));
+  });
+  const res = await POST(makeRequest(validBody({ facility_ids: ids })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: レートリミット params', async () => {
+  setupSuccess();
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest(validBody()));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBeGreaterThan(0);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: レスポンスが { ok: true, created: N } 形式', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(json.ok).toBe(true);
+  expect(typeof json.created).toBe('number');
+});

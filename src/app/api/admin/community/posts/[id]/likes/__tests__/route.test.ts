@@ -195,3 +195,40 @@ test('DELETE: 正常削除 → 200 with like_count', async () => {
   expect(res.status).toBe(200);
   expect(typeof json.like_count).toBe('number');
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest('POST'), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('POST: DB insert error (non-23505) → 500', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return postSingle({ id: POST_UUID, is_locked: false });
+    return insertChain({ code: '23000', message: 'DB error' });
+  });
+  const res = await POST(makeRequest('POST'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('DELETE: DB delete error → 500', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return deleteChain({ message: 'DB error' });
+  });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('DELETE: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(403);
+});

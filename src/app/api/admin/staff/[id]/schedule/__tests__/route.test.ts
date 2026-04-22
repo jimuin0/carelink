@@ -112,6 +112,27 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
 
+// ─── shared: getAdminFacilityIdAndVerifyStaff branches ───────────────────────
+
+test('PUT: 未認証ユーザー → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PUT: facility_id なし → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  // makeRequest with null facilityId doesn't set the query param
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE, null), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PUT: 不正な facility_id UUID → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE, 'not-a-uuid'), makeProps());
+  expect(res.status).toBe(401);
+});
+
 // ─── PUT ──────────────────────────────────────────────────────────────────────
 
 test('PUT: 不正UUID → 400', async () => {
@@ -165,6 +186,31 @@ test('PUT: 正常更新（スケジュールあり）→ 200', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+test('PUT: delete DBエラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return staffSingle({ id: STAFF_UUID });
+    return deleteEq({ message: 'delete failed' });
+  });
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('PUT: insert DBエラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return staffSingle({ id: STAFF_UUID });
+    if (callNum === 2) return deleteEq(null);
+    return insertDirect({ message: 'insert failed' });
+  });
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+  expect(res.status).toBe(500);
 });
 
 test('PUT: 正常更新（空スケジュール）→ 200', async () => {
@@ -236,6 +282,35 @@ test('POST: 正常作成（勤務）→ 201', async () => {
     date: '2026-01-15', is_holiday: false, start_time: '09:00', end_time: '18:00',
   }), makeProps());
   expect(res.status).toBe(201);
+});
+
+test('POST: upsert DBエラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return staffSingle({ id: STAFF_UUID });
+    return upsertDirect({ message: 'upsert failed' });
+  });
+  const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true }), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('POST: is_holiday=true → times not included in row', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let upsertArgs: unknown;
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return staffSingle({ id: STAFF_UUID });
+    return {
+      upsert: jest.fn((row: unknown) => { upsertArgs = row; return Promise.resolve({ error: null }); }),
+    };
+  });
+  await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true, start_time: '09:00', end_time: '18:00' }), makeProps());
+  // times should NOT be in the upsert row when is_holiday is true
+  expect((upsertArgs as any).start_time).toBeUndefined();
+  expect((upsertArgs as any).end_time).toBeUndefined();
 });
 
 // ─── DELETE ───────────────────────────────────────────────────────────────────

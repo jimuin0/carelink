@@ -148,3 +148,51 @@ test('PATCH: 正常更新 → 200 with application', async () => {
   expect(res.status).toBe(200);
   expect(json.application).toBeDefined();
 });
+
+test('PATCH: status=hired → 200', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'offer_made' });
+    if (callNum === 2) return membershipChain({ role: 'owner' });
+    return updateChain({ id: APP_UUID, status: 'hired' });
+  });
+  const res = await PATCH(makeRequest({ status: 'hired' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: status=withdrawn → 200', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return updateChain({ id: APP_UUID, status: 'withdrawn' });
+  });
+  const res = await PATCH(makeRequest({ status: 'withdrawn' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: レートリミット params (20/60s)', async () => {
+  setupOwnership();
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: レスポンスが { application: ... } 形式', async () => {
+  setupOwnership();
+  const res = await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
+  const json = await res.json();
+  expect(json.application).toBeDefined();
+});

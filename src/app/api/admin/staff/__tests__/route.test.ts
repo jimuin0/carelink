@@ -152,3 +152,92 @@ test('POST: instagram_url が空文字 → 201', async () => {
   const res = await POST(makeRequest(validBody({ instagram_url: '' })));
   expect(res.status).toBe(201);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: name が 50文字 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res = await POST(makeRequest(validBody({ name: 'a'.repeat(50) })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: nomination_fee が 99999 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res = await POST(makeRequest(validBody({ nomination_fee: 99999 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: years_experience が 0 と 99 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res0 = await POST(makeRequest(validBody({ years_experience: 0 })));
+  expect(res0.status).toBe(201);
+
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const res99 = await POST(makeRequest(validBody({ years_experience: 99 })));
+  expect(res99.status).toBe(201);
+});
+
+test('POST: specialties が 20件 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  const specialties = Array.from({ length: 20 }, (_, i) => `spec${i}`);
+  const res = await POST(makeRequest(validBody({ specialties })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: specialties が 21件 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const specialties = Array.from({ length: 21 }, (_, i) => `spec${i}`);
+  const res = await POST(makeRequest(validBody({ specialties })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_id が不正UUID → 401', async () => {
+  const url = new URL('http://localhost/api/admin/staff');
+  url.searchParams.set('facility_id', 'bad-uuid');
+  const req = new (require('next/server').NextRequest)(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(validBody()),
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(401);
+});
+
+test('POST: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', name: 'テストスタッフ' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await POST(makeRequest(validBody()));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('POST: レスポンスが { staff: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', name: 'テストスタッフ' }));
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(json.staff).toBeDefined();
+  expect(json.staff.id).toBe('aaa');
+});
+
+test('POST: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest(validBody()));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});

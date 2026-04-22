@@ -182,3 +182,52 @@ test('POST: 正常作成 → 201 with job', async () => {
   expect(res.status).toBe(201);
   expect(json.job).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest(validJob()));
+  expect(res.status).toBe(403);
+});
+
+test('GET: DB エラー → 500', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return jobListChain([], { message: 'DB error' });
+  });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: レスポンスが { jobs: [] } 形式', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.jobs).toBeDefined();
+  expect(Array.isArray(json.jobs)).toBe(true);
+});
+
+test('POST: レスポンスが { job: ... } 形式', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return insertSingle({ id: 'job-1', title: 'テスト求人' });
+  });
+  const res = await POST(makePostRequest(validJob()));
+  const json = await res.json();
+  expect(json.job).toBeDefined();
+  expect(json.job.id).toBe('job-1');
+});
+
+test('GET: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([]));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});

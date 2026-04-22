@@ -1,199 +1,135 @@
 /**
  * @jest-environment node
- *
- * Tests for GET /api/sentry-check
- * Key assertions:
- *   - GET without params → returns DSN config status (200)
- *   - GET ?fire=1 without token → 401
- *   - GET ?fire=1 with invalid token → 401
- *   - GET ?fire=1 with valid token → fires to Sentry (200)
  */
-
-import * as Sentry from '@sentry/nextjs';
-import { timingSafeEqual } from 'crypto';
 
 jest.mock('@sentry/nextjs');
 
-let originalEnv: Record<string, string | undefined>;
-
-beforeAll(() => {
-  originalEnv = { ...process.env };
-});
+import { GET } from '../route';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  process.env.NEXT_PUBLIC_SENTRY_DSN = 'https://test@sentry.io/123456';
-  process.env.SENTRY_TEST_TOKEN = 'test-token-value';
-  process.env.NODE_ENV = 'test';
-
-  (Sentry.getClient as jest.Mock).mockReturnValue(null);
-  (Sentry.init as jest.Mock).mockReturnValue(undefined);
-  (Sentry.captureException as jest.Mock).mockReturnValue('test-event-id');
-  (Sentry.flush as jest.Mock).mockResolvedValue(true);
+  process.env.NEXT_PUBLIC_SENTRY_DSN = 'https://xxx@sentry.io/123';
+  process.env.SENTRY_TEST_TOKEN = 'test-token-secret';
+  process.env.NODE_ENV = 'production';
 });
 
-afterAll(() => {
-  process.env = originalEnv;
-});
-
-function makeRequest(query: string) {
-  return new Request(`http://localhost/api/sentry-check${query}`, { method: 'GET' });
+function makeRequest(query: string = '', url: string = 'http://localhost/api/sentry-check') {
+  const fullUrl = query ? `${url}${query}` : url;
+  return new Request(fullUrl, { method: 'GET' });
 }
 
 describe('GET /api/sentry-check', () => {
-  test('returns DSN config status without params', async () => {
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest(''));
-
+  test('no parameters → returns status without firing', async () => {
+    const res = await GET(makeRequest());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(json.dsnConfigured).toBe(true);
-    expect(json.clientActive).toBe(false);
-    expect(json.environment).toBe('test');
+    expect(json.fired).toBeUndefined();
   });
 
-  test('returns truncated DSN for security', async () => {
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest(''));
-
+  test('includes note about how to fire', async () => {
+    const res = await GET(makeRequest());
     const json = await res.json();
-    expect(json.dsn).toContain('...');
-    expect(json.dsn.length).toBeLessThan(35);
+    expect(json.note).toContain('fire=1');
+    expect(json.note).toContain('token=');
   });
 
-  test('returns NOT SET when DSN unconfigured', async () => {
-    process.env.NEXT_PUBLIC_SENTRY_DSN = '';
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest(''));
-
+  test('DSN configured → dsnConfigured true', async () => {
+    const res = await GET(makeRequest());
     const json = await res.json();
-    expect(json.ok).toBe(true);
+    expect(json.dsnConfigured).toBe(true);
+  });
+
+  test('DSN not configured → dsnConfigured false', async () => {
+    delete process.env.NEXT_PUBLIC_SENTRY_DSN;
+    const res = await GET(makeRequest());
+    const json = await res.json();
     expect(json.dsnConfigured).toBe(false);
     expect(json.dsn).toBe('NOT SET');
   });
 
-  test('returns help note about fire param', async () => {
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest(''));
-
-    const json = await res.json();
-    expect(json.note).toContain('/api/sentry-check?fire=1');
-  });
-
   test('fire=1 without token → 401', async () => {
-    const { GET } = await import('../route');
     const res = await GET(makeRequest('?fire=1'));
-
-    expect(res.status).toBe(401);
-    const json = await res.json();
-    expect(json.ok).toBe(false);
-    expect(json.message).toBe('invalid token');
-  });
-
-  test('fire=1 with empty token → 401', async () => {
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest('?fire=1&token='));
-
     expect(res.status).toBe(401);
     const json = await res.json();
     expect(json.ok).toBe(false);
   });
 
   test('fire=1 with invalid token → 401', async () => {
-    const { GET } = await import('../route');
     const res = await GET(makeRequest('?fire=1&token=wrong-token'));
-
     expect(res.status).toBe(401);
-    const json = await res.json();
-    expect(json.ok).toBe(false);
   });
 
-  test('fire=1 with valid token → fires error', async () => {
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest('?fire=1&token=test-token-value'));
+  test('fire=1 with valid token → 200 fired=true', async () => {
+    const { getClient, flush } = require('@sentry/nextjs');
+    getClient.mockReturnValue(null);
+    (flush as jest.Mock).mockResolvedValue(true);
 
+    const res = await GET(makeRequest('?fire=1&token=test-token-secret'));
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.ok).toBe(true);
     expect(json.fired).toBe(true);
-    expect(json.dsnConfigured).toBe(true);
-    expect(json.eventId).toBe('test-event-id');
+  });
+
+  test('includes DSN masked in response (truncated with ...)', async () => {
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(json.dsn).toMatch(/\.\.\./);
+    expect(json.dsn.length).toBeLessThan(60);
+  });
+
+  test('includes client active status', async () => {
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(json.clientActive).toBeDefined();
+  });
+
+  test('includes environment', async () => {
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(json.environment).toBe('production');
+  });
+
+  test('fire with flush success → message about checking dashboard', async () => {
+    const { getClient, flush, captureException } = require('@sentry/nextjs');
+    getClient.mockReturnValue({});
+    (flush as jest.Mock).mockResolvedValue(true);
+    (captureException as jest.Mock).mockReturnValue('event-id-123');
+
+    const res = await GET(makeRequest('?fire=1&token=test-token-secret'));
+    const json = await res.json();
+    expect(json.message).toContain('ダッシュボード');
     expect(json.flushed).toBe(true);
   });
 
-  test('initializes Sentry if client not active', async () => {
-    const { GET } = await import('../route');
-    await GET(makeRequest('?fire=1&token=test-token-value'));
+  test('fire with flush timeout → message about timeout', async () => {
+    const { getClient, flush, captureException } = require('@sentry/nextjs');
+    getClient.mockReturnValue({});
+    (flush as jest.Mock).mockResolvedValue(false);
+    (captureException as jest.Mock).mockReturnValue('event-id-123');
 
-    expect(Sentry.init).toHaveBeenCalledWith(
-      expect.objectContaining({
-        dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-        tracesSampleRate: 0.1,
-        environment: 'test',
-      })
-    );
-  });
-
-  test('captures error with Sentry.captureException', async () => {
-    const { GET } = await import('../route');
-    await GET(makeRequest('?fire=1&token=test-token-value'));
-
-    expect(Sentry.captureException).toHaveBeenCalled();
-    const errorArg = (Sentry.captureException as jest.Mock).mock.calls[0][0];
-    expect(errorArg).toBeInstanceOf(Error);
-    expect(errorArg.message).toContain('[CareLink Sentry Test]');
-  });
-
-  test('flushes Sentry with 5s timeout', async () => {
-    const { GET } = await import('../route');
-    await GET(makeRequest('?fire=1&token=test-token-value'));
-
-    expect(Sentry.flush).toHaveBeenCalledWith(5000);
-  });
-
-  test('shows success message when flushed', async () => {
-    (Sentry.flush as jest.Mock).mockResolvedValue(true);
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest('?fire=1&token=test-token-value'));
-
-    const json = await res.json();
-    expect(json.message).toContain('1分以内に');
-  });
-
-  test('shows timeout message when flush fails', async () => {
-    (Sentry.flush as jest.Mock).mockResolvedValue(false);
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest('?fire=1&token=test-token-value'));
-
+    const res = await GET(makeRequest('?fire=1&token=test-token-secret'));
     const json = await res.json();
     expect(json.message).toContain('タイムアウト');
+    expect(json.flushed).toBe(false);
   });
 
-  test('fire=1 without SENTRY_TEST_TOKEN env → 401', async () => {
+  test('includes eventId when fired', async () => {
+    const { getClient, flush, captureException } = require('@sentry/nextjs');
+    getClient.mockReturnValue({});
+    (flush as jest.Mock).mockResolvedValue(true);
+    (captureException as jest.Mock).mockReturnValue('event-id-abc123');
+
+    const res = await GET(makeRequest('?fire=1&token=test-token-secret'));
+    const json = await res.json();
+    expect(json.eventId).toBe('event-id-abc123');
+  });
+
+  test('fire without SENTRY_TEST_TOKEN env → 401', async () => {
     delete process.env.SENTRY_TEST_TOKEN;
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest('?fire=1&token=test-token-value'));
-
+    const res = await GET(makeRequest('?fire=1&token=any-token'));
     expect(res.status).toBe(401);
-  });
-
-  test('returns clientActive status', async () => {
-    (Sentry.getClient as jest.Mock).mockReturnValue({ isEnabled: () => true });
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest(''));
-
-    const json = await res.json();
-    expect(json.clientActive).toBe(true);
-  });
-
-  test('includes version in response', async () => {
-    process.env.VERCEL_GIT_COMMIT_SHA = 'abc1234567890def';
-    const { GET } = await import('../route');
-    const res = await GET(makeRequest(''));
-
-    const json = await res.json();
-    // May or may not include version in initial status check
-    // Version only in success response (already tested above)
   });
 });

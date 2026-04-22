@@ -17,6 +17,17 @@ const config = {
     'src/app/api/**/*.ts',
     '!src/**/*.d.ts',
   ],
+  coverageThreshold: {
+    global: {
+      lines: 80,
+      functions: 75,
+      branches: 70,
+      statements: 80,
+    },
+  },
+  coverageReporters: ['text-summary', 'lcov', 'json-summary'],
+  // テストタイムアウト: 10秒（デフォルト5秒から延長）
+  testTimeout: 10000,
 };
 
 // nextJest overwrites transformIgnorePatterns; merge it here

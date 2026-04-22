@@ -130,3 +130,52 @@ test('POST: 複数スーパー管理者のうち1人 → 201', async () => {
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(201);
 });
+
+test('POST: title が 201 文字 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ title: 'あ'.repeat(201) })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: title が 200 文字 → 201', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'f1' }));
+  const res = await POST(makeRequest(validBody({ title: 'あ'.repeat(200) })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: sort_order が 0 → 201', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'f1' }));
+  const res = await POST(makeRequest(validBody({ sort_order: 0 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: sort_order が 9999 → 201', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'f1' }));
+  const res = await POST(makeRequest(validBody({ sort_order: 9999 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: image_url が有効 URL → 201', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'f1' }));
+  const res = await POST(makeRequest(validBody({ image_url: 'https://example.com/img.jpg' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: CSRF エラー → CSRF レスポンス', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: レートリミット params (20req/60s)', () => {
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  POST(makeRequest(validBody()));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: subtitle が 301 文字 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ subtitle: 'あ'.repeat(301) })));
+  expect(res.status).toBe(400);
+});

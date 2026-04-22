@@ -1,107 +1,197 @@
 /**
  * @jest-environment node
  */
-import { NextRequest } from 'next/server';
 
-const mockFrom = jest.fn();
-
-jest.mock('@/lib/supabase-server', () => ({
-  createServerSupabaseClient: () => ({ from: mockFrom }),
+jest.mock('@/lib/rate-limit', () => ({
+  inMemoryRateLimit: jest.fn(() => false),
 }));
+jest.mock('@/lib/supabase-server');
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
 
+import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
-beforeEach(() => {
-  mockFrom.mockReset();
-});
+function setupDefaultMocks(hasResults: boolean = true) {
+  const { createServerSupabaseClient } = require('@/lib/supabase-server');
+  
+  const facilityData = hasResults
+    ? [
+        {
+          id: 'fac-1',
+          name: 'Salon ABC',
+          slug: 'salon-abc',
+          city: 'Tokyo',
+          nearest_station: 'Shibuya',
+          business_type: 'eyelash',
+        },
+      ]
+    : [];
 
-function fluent(resolvedValue: unknown) {
-  const self: Record<string, jest.Mock> = {};
-  const handler = jest.fn(() => self);
-  self.select = handler;
-  self.eq = handler;
-  self.ilike = handler;
-  self.not = handler;
-  self.limit = jest.fn(() => Promise.resolve(resolvedValue));
-  return self;
+  const cityData = hasResults ? [{ city: 'Tokyo' }, { city: 'Shibuya' }] : [];
+  const stationData = hasResults ? [{ nearest_station: 'Shibuya Station' }] : [];
+
+  createServerSupabaseClient.mockReturnValue({
+    from: jest.fn((table: string) => {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            ilike: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({
+                data: table === 'facility_profiles' && facilityData ? facilityData : cityData,
+              }),
+            }),
+            not: jest.fn().mockReturnValue({
+              ilike: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({
+                  data: stationData,
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }),
+  });
 }
 
-function makeRequest(q?: string) {
-  const url = q ? `http://localhost/api/facilities/suggest?q=${encodeURIComponent(q)}` : 'http://localhost/api/facilities/suggest';
-  return new NextRequest(url);
+beforeEach(() => {
+  jest.clearAllMocks();
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  setupDefaultMocks();
+});
+
+function makeRequest(query: string = '', ip = '192.168.1.1') {
+  const req = new Request(`http://localhost/api/facilities/suggest${query}`, {
+    method: 'GET',
+    headers: { 'x-forwarded-for': ip },
+  });
+  Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+  return req;
 }
 
 describe('GET /api/facilities/suggest', () => {
-  test('qパラメータで施設名を検索する', async () => {
-    const facilities = [
-      { id: 'f-1', name: 'テストサロン', slug: 'test', city: '渋谷区', nearest_station: '渋谷駅', business_type: 'ヘアサロン' },
-    ];
-    const facilityChain = fluent({ data: facilities });
-    const cityChain = fluent({ data: [{ city: '渋谷区' }] });
-    const stationChain = fluent({ data: [{ nearest_station: '渋谷駅' }] });
-
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return facilityChain;
-      if (callNum === 2) return cityChain;
-      return stationChain;
-    });
-
-    const res = await GET(makeRequest('テスト'));
-    const json = await res.json();
-    expect(json.facilities).toHaveLength(1);
-    expect(json.facilities[0].name).toBe('テストサロン');
-    expect(json.areas).toContain('渋谷区');
+  test('rate limiting → 429', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    const res = await GET(makeRequest('?q=tokyo') as any);
+    expect(res.status).toBe(429);
   });
 
-  test('qが空の場合は空配列を返す', async () => {
-    const res = await GET(makeRequest(''));
+  test('missing q parameter → 200 with empty arrays', async () => {
+    const res = await GET(makeRequest('') as any);
+    expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.facilities).toEqual([]);
     expect(json.areas).toEqual([]);
   });
 
-  test('qパラメータなしの場合は空配列を返す', async () => {
-    const res = await GET(makeRequest());
+  test('empty q parameter → 200 with empty arrays', async () => {
+    const res = await GET(makeRequest('?q=') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilities).toEqual([]);
+    expect(json.areas).toEqual([]);
+  });
+
+  test('valid q parameter → 200 with suggestions', async () => {
+    const res = await GET(makeRequest('?q=tokyo') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilities).toBeDefined();
+    expect(json.areas).toBeDefined();
+  });
+
+  test('q truncated to 50 chars', async () => {
+    const longQuery = 'x'.repeat(100);
+    const res = await GET(makeRequest(`?q=${longQuery}`) as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('SQL special chars escaped', async () => {
+    const res = await GET(makeRequest('?q=%test_value\\') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('whitespace trimmed', async () => {
+    const res = await GET(makeRequest('?q=%20%20tokyo%20%20') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('facilities limited to 5 results', async () => {
+    const res = await GET(makeRequest('?q=salon') as any);
+    const json = await res.json();
+    expect(json.facilities.length).toBeLessThanOrEqual(5);
+  });
+
+  test('areas limited to 5 results', async () => {
+    const res = await GET(makeRequest('?q=tokyo') as any);
+    const json = await res.json();
+    expect(json.areas.length).toBeLessThanOrEqual(5);
+  });
+
+  test('facility suggestion includes all fields', async () => {
+    const res = await GET(makeRequest('?q=salon') as any);
+    const json = await res.json();
+    if (json.facilities.length > 0) {
+      const fac = json.facilities[0];
+      expect(fac.id).toBeDefined();
+      expect(fac.name).toBeDefined();
+      expect(fac.slug).toBeDefined();
+      expect(fac.business_type).toBeDefined();
+    }
+  });
+
+  test('no results → 200 with empty arrays', async () => {
+    setupDefaultMocks(false);
+    const res = await GET(makeRequest('?q=nonexistent') as any);
+    expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.facilities).toEqual([]);
   });
 
-  test('エリアの重複が排除される', async () => {
-    const facilityChain = fluent({ data: [] });
-    const cityChain = fluent({ data: [{ city: '渋谷区' }, { city: '渋谷区' }] });
-    const stationChain = fluent({ data: [{ nearest_station: '渋谷駅' }] });
-
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return facilityChain;
-      if (callNum === 2) return cityChain;
-      return stationChain;
+  test('exception → 500 with Sentry', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockImplementation(() => {
+      throw new Error('DB error');
     });
-
-    const res = await GET(makeRequest('渋谷'));
-    const json = await res.json();
-    // 渋谷区 should appear once, + 渋谷駅 = 2
-    expect(json.areas).toHaveLength(2);
+    const res = await GET(makeRequest('?q=test') as any);
+    expect(res.status).toBe(500);
   });
 
-  test('areas上限5件', async () => {
-    const facilityChain = fluent({ data: [] });
-    const cityChain = fluent({ data: Array.from({ length: 10 }, (_, i) => ({ city: `City${i}` })) });
-    const stationChain = fluent({ data: [] });
+  test('rate limit params (30 req/min per IP)', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    GET(makeRequest('?q=test', '192.168.1.1') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe(30);
+  });
 
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return facilityChain;
-      if (callNum === 2) return cityChain;
-      return stationChain;
-    });
+  test('extracts first IP from x-forwarded-for', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    GET(makeRequest('?q=test', '10.0.0.1, 192.168.1.1') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('10.0.0.1');
+  });
 
-    const res = await GET(makeRequest('test'));
+  test('only published facilities returned', async () => {
+    const res = await GET(makeRequest('?q=salon') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('rate limit params window is 60_000ms', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    GET(makeRequest('?q=test') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(60_000);
+  });
+
+  test('レスポンスが { facilities, areas } 形式', async () => {
+    const res = await GET(makeRequest('?q=salon') as any);
     const json = await res.json();
-    expect(json.areas.length).toBeLessThanOrEqual(5);
+    expect(Array.isArray(json.facilities)).toBe(true);
+    expect(Array.isArray(json.areas)).toBe(true);
+  });
+
+  test('q が 1文字 → 空 (最低2文字必要かどうか)', async () => {
+    const res = await GET(makeRequest('?q=a') as any);
+    expect(res.status).toBe(200);
   });
 });

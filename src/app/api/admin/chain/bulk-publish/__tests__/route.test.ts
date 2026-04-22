@@ -160,3 +160,50 @@ test('POST: 非公開に一括変更 → 200', async () => {
   const res = await POST(makeRequest(validBody({ is_published: false })));
   expect(res.status).toBe(200);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: writeAuditLog が呼ばれる', async () => {
+  setupSuccess();
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await POST(makeRequest(validBody()));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('POST: レートリミット params (10/60s)', async () => {
+  setupSuccess();
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest(validBody()));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: レスポンスが { ok: true, updated: N } 形式', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(json.ok).toBe(true);
+  expect(typeof json.updated).toBe('number');
+});
+
+test('POST: facility_ids が 50件 (上限ぴったり) → 200', async () => {
+  const ids = Array.from({ length: 50 }, (_, i) =>
+    `${String(i + 1).padStart(8, '0')}-0000-4000-8000-000000000001`
+  );
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return membershipChain(ids.map(id => ({ facility_id: id })));
+    }
+    return updateChain(null);
+  });
+  const res = await POST(makeRequest({ facility_ids: ids, is_published: true }));
+  expect(res.status).toBe(200);
+});

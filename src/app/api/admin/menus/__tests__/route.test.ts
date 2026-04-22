@@ -199,3 +199,71 @@ test('POST: photo_url が空文字 → 201', async () => {
   const res = await POST(makePostRequest(validBody({ photo_url: '' })));
   expect(res.status).toBe(201);
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('GET: DB失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([], { message: 'DB error' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: rate limit params (30/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(30);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: rate limit params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(0);
+    return insertSingle({ id: 'menu-1' });
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest(validBody()));
+  const postCall = (inMemoryRateLimit as jest.Mock).mock.calls.find((c: unknown[]) => c[3] === 'admin-menus-post');
+  expect(postCall).toBeDefined();
+  expect(postCall[1]).toBe(20);
+  expect(postCall[2]).toBe(60_000);
+});
+
+test('GET: レスポンスが { menus: [] } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(Array.isArray(json.menus)).toBe(true);
+});
+
+test('POST: レスポンスが { menu.id } 形式', async () => {
+  const MENU_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(1);
+    return insertSingle({ id: MENU_UUID, name: 'テストメニュー' });
+  });
+  const res = await POST(makePostRequest(validBody()));
+  const json = await res.json();
+  expect(json.menu.id).toBe(MENU_UUID);
+});

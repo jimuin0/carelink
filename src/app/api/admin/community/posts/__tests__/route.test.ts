@@ -167,3 +167,81 @@ test('POST: 正常作成 → 201 with post', async () => {
   expect(res.status).toBe(201);
   expect(json.post).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest({ title: 'Test', body: 'Body' }));
+  expect(res.status).toBe(403);
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest({ title: 'Test', body: 'Body' }));
+  expect(res.status).toBe(429);
+});
+
+test('POST: レートリミット params (10/60s)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return insertPostSingle({ id: 'post-x', title: 'Test' });
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest({ title: 'Test', body: 'Body' }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: レートリミット params (30/60s)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return postListChain([]);
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(30);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: データなし → 200 with empty posts', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return postListChain([]);
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.posts).toEqual([]);
+});
+
+test('POST: category が "general" → 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return insertPostSingle({ id: 'post-2', title: 'Test', category: 'general' });
+  });
+  const res = await POST(makePostRequest({ title: 'Test', body: 'Body', category: 'general' }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: category 省略 → 201 (デフォルト general)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return insertPostSingle({ id: 'post-3', title: 'Test', category: 'general' });
+  });
+  const res = await POST(makePostRequest({ title: 'Test', body: 'Body' }));
+  expect(res.status).toBe(201);
+});

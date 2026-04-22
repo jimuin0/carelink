@@ -153,3 +153,44 @@ test('rollout_pct: 0 と 100 は有効（境界値）', async () => {
   const res100 = await PATCH(makeRequest({ rollout_pct: 100 }), makeProps());
   expect(res100.status).toBe(200);
 });
+
+test('CSRF エラー → 403', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(singleChain({ is_platform_admin: true }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ enabled: true }), makeProps());
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('enabled=false も有効 → 200', async () => {
+  mockAnonFrom.mockReturnValue(singleChain({ is_platform_admin: true }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makeRequest({ enabled: false }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('レスポンスが { ok: true } 形式', async () => {
+  mockAnonFrom.mockReturnValue(singleChain({ is_platform_admin: true }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makeRequest({ enabled: true }), makeProps());
+  const json = await res.json();
+  expect(json.ok).toBe(true);
+});
+
+test('レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(singleChain({ is_platform_admin: true }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest({ enabled: true }), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});

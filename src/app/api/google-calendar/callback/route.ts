@@ -4,11 +4,10 @@ import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
-const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
-
 export async function GET(req: NextRequest) {
+  const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
+  const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
+  const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 10, 60_000, 'gcal-callback')) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));

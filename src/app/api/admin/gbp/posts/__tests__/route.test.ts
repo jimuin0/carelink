@@ -258,3 +258,209 @@ test('DELETE: 正常削除 → 200', async () => {
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
   expect(res.status).toBe(200);
 });
+
+test('DELETE: DB失敗 → 500', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return deleteEqEq({ message: 'DB error' });
+  });
+  const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: DB失敗 → 500', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return updateEqEq({ message: 'DB error' });
+  });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, title: '更新' }),
+  }));
+  expect(res.status).toBe(500);
+});
+
+test('POST: title あり・photo_url有効・cta_type有効・scheduled_at あり', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return insertSingle({ id: POST_UUID, body: '詳細', status: 'scheduled' });
+  });
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      title: 'キャンペーン',
+      body: '詳細内容',
+      post_type: 'EVENT',
+      photo_url: 'https://example.com/photo.jpg',
+      cta_type: 'BOOK',
+      cta_url: 'https://example.com/book',
+      scheduled_at: '2026-05-01T10:00:00Z',
+    }),
+  }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.post).toBeDefined();
+});
+
+test('POST: 無効なphoto_url → nullに変換', async () => {
+  let callNum = 0;
+  const capturedInsert = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      insert: (data: unknown) => {
+        capturedInsert(data);
+        return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) };
+      },
+    };
+  });
+  await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: '内容', photo_url: 'not-https-url' }),
+  }));
+  const insertedData = capturedInsert.mock.calls[0][0];
+  expect(insertedData.photo_url).toBeNull();
+});
+
+test('POST: 無効なpost_type → STANDARDにフォールバック', async () => {
+  let callNum = 0;
+  const capturedInsert = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      insert: (data: unknown) => {
+        capturedInsert(data);
+        return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) };
+      },
+    };
+  });
+  await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: '内容', post_type: 'INVALID_TYPE' }),
+  }));
+  const insertedData = capturedInsert.mock.calls[0][0];
+  expect(insertedData.post_type).toBe('STANDARD');
+});
+
+test('PATCH: body, post_type, photo_url, cta_type, cta_url, status, scheduled_at, published_at を全部更新', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return updateEqEq(null);
+  });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      id: POST_UUID,
+      title: 'New Title',
+      body: 'New body',
+      post_type: 'OFFER',
+      photo_url: 'https://example.com/img.jpg',
+      cta_type: 'LEARN_MORE',
+      cta_url: 'https://example.com/learn',
+      status: 'published',
+      scheduled_at: '2026-06-01T00:00:00Z',
+      published_at: '2026-05-01T00:00:00Z',
+    }),
+  }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 無効なpost_type → 更新されない（条件false）', async () => {
+  let callNum = 0;
+  const capturedUpdate = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      update: (data: unknown) => {
+        capturedUpdate(data);
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+      },
+    };
+  });
+  await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, post_type: 'INVALID', status: 'INVALID_STATUS' }),
+  }));
+  const updated = capturedUpdate.mock.calls[0][0] as Record<string, unknown>;
+  expect(updated.post_type).toBeUndefined();
+  expect(updated.status).toBeUndefined();
+});
+
+test('PATCH: photo_url 無効 → null に変換', async () => {
+  let callNum = 0;
+  const capturedUpdate = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      update: (data: unknown) => {
+        capturedUpdate(data);
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+      },
+    };
+  });
+  await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, photo_url: 'not-https', cta_url: 'also-invalid' }),
+  }));
+  const updated = capturedUpdate.mock.calls[0][0] as Record<string, unknown>;
+  expect(updated.photo_url).toBeNull();
+  expect(updated.cta_url).toBeNull();
+});
+
+test('PATCH: title=null → null に変換', async () => {
+  let callNum = 0;
+  const capturedUpdate = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      update: (data: unknown) => {
+        capturedUpdate(data);
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+      },
+    };
+  });
+  await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, title: null }),
+  }));
+  const updated = capturedUpdate.mock.calls[0][0] as Record<string, unknown>;
+  expect(updated.title).toBeNull();
+});
+
+test('GET: data が null のとき [] を返す', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return postListChain([], null); // null data, no error
+  });
+  // Override postListChain to return data: null
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum <= 1) return membershipSingle(MEMBER_DATA);
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: null, error: null })),
+    };
+  });
+  callNum = 0;
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.posts).toEqual([]);
+});

@@ -2,29 +2,30 @@
  * @jest-environment node
  *
  * Tests for PATCH /api/admin/newsletter/[id]
- * Key assertions:
- *   - Non-platform-admin → 403
- *   - cancel: non-scheduled → 400 (state machine guard)
- *   - schedule: non-draft → 400
- *   - send: CAS miss → 409 (double-send prevention)
- *   - Unknown action → 400
+ * Coverage targets:
+ *   - Guards: CSRF, rate limit, UUID, platform-admin, campaign not found, unknown action
+ *   - action=cancel: state machine (scheduled→cancelled, non-scheduled→400)
+ *   - action=schedule: state machine (draft→scheduled, non-draft→400)
+ *   - action=send: status guard, CAS double-send prevention (409), batch send,
+ *     sentCount/bouncedCount, resend error handling, owner_monthly owners,
+ *     audit log, empty subscribers, chunked batches (>100)
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
-  getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
+  getRequestContext: jest.fn(() => ({ ua: 'test-agent' })),
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
+jest.mock('@/lib/email', () => ({ escSubject: jest.fn((s: string) => s) }));
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
-    batch: { send: jest.fn(() => Promise.resolve({ data: null, error: null })) },
+    batch: { send: jest.fn(() => Promise.resolve({ data: [], error: null })) },
   })),
 }));
-jest.mock('@/lib/email', () => ({ escSubject: jest.fn((s: string) => s) }));
 
-const CAMPAIGN_UUID = '11111111-1111-1111-1111-111111111111';
+const CAMPAIGN_UUID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockAdminFrom = jest.fn();
@@ -38,11 +39,14 @@ jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({ from: mockAdminFrom }),
 }));
 
+import { NextRequest } from 'next/server';
 import { PATCH } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function makeRequest(body?: object) {
-  return new Request(`http://localhost/api/admin/newsletter/${CAMPAIGN_UUID}`, {
+  return new NextRequest(`http://localhost/api/admin/newsletter/${CAMPAIGN_UUID}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : '{}',
@@ -53,6 +57,7 @@ function makeProps(id = CAMPAIGN_UUID) {
   return { params: Promise.resolve({ id }) };
 }
 
+/** Anon client chain for profiles.is_platform_admin */
 function profileChain(isAdmin: boolean) {
   return {
     select: jest.fn().mockReturnThis(),
@@ -61,7 +66,8 @@ function profileChain(isAdmin: boolean) {
   };
 }
 
-function campaignChain(data: unknown, fetchError: unknown = null) {
+/** Admin client chain for fetching a single campaign */
+function campaignFetchChain(data: unknown, fetchError: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
@@ -69,32 +75,89 @@ function campaignChain(data: unknown, fetchError: unknown = null) {
   };
 }
 
+/** Default campaign shape */
 function buildCampaign(overrides: Record<string, unknown> = {}) {
   return {
     id: CAMPAIGN_UUID,
     status: 'draft',
     campaign_type: 'user_digest',
-    subject: 'テストメール',
-    html_content: '<p>Hello</p>',
+    subject: 'Test Subject',
+    html_content: '<h1>Hello</h1>',
     text_content: 'Hello',
     ...overrides,
   };
 }
 
-function updateStatusChain(data: unknown[] | null) {
+/**
+ * Chain for update().eq().select().single() — used by cancel/schedule.
+ * Returns the provided `updated` object from single().
+ */
+function updateSingleChain(updated: unknown) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        in: jest.fn().mockReturnValue({
-          select: jest.fn(() => Promise.resolve({ data })),
-        }),
         select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: data ? data[0] ?? null : null, error: null })),
+          single: jest.fn(() => Promise.resolve({ data: updated, error: null })),
         }),
       }),
     }),
   };
 }
+
+/**
+ * Chain for the atomic-claim update used by the send action.
+ * update().eq().in().select() → resolves with { data: claimed }
+ */
+function atomicClaimChain(claimed: unknown[] | null) {
+  return {
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: claimed })),
+        }),
+      }),
+    }),
+  };
+}
+
+/**
+ * Chain for newsletter_subscriptions.select().or().eq() → resolves with { data: subscribers }
+ */
+function subscribersChain(subscribers: { email: string; user_id: string }[]) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    or: jest.fn().mockReturnThis(),
+    eq: jest.fn(() => Promise.resolve({ data: subscribers, error: null })),
+  };
+}
+
+/**
+ * Chain for facility_members.select().eq() → resolves with { data: owners }
+ */
+function facilityMembersChain(owners: { profiles: { email: string } | null }[]) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn(() => Promise.resolve({ data: owners, error: null })),
+  };
+}
+
+/**
+ * Chain for final update of campaign to 'sent' status.
+ * update().eq().select().single()
+ */
+function updateSentChain(updated: unknown) {
+  return {
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: updated, error: null })),
+        }),
+      }),
+    }),
+  };
+}
+
+// ─── beforeEach ───────────────────────────────────────────────────────────────
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -106,98 +169,357 @@ beforeEach(() => {
   process.env.RESEND_API_KEY = 'test-resend-key';
 });
 
-// ─── Guards ───────────────────────────────────────────────────────────────────
+// ─── describe blocks ──────────────────────────────────────────────────────────
 
-test('PATCH: 未認証 → 403', async () => {
-  mockGetUser.mockResolvedValue({ data: { user: null } });
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
-  expect(res.status).toBe(403);
-});
+describe('PATCH /api/admin/newsletter/[id]', () => {
 
-test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
-  expect(res.status).toBe(429);
-});
+  describe('guards', () => {
+    test('CSRF fail → error response', async () => {
+      const { checkCsrf } = require('@/lib/csrf');
+      (checkCsrf as jest.Mock).mockReturnValueOnce(
+        new Response(JSON.stringify({ error: '不正なリクエストです' }), { status: 403 }),
+      );
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(403);
+    });
 
-test('PATCH: 不正なUUID → 400', async () => {
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps('bad-id'));
-  expect(res.status).toBe(400);
-});
+    test('rate limiting → 429', async () => {
+      (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(429);
+      const json = await res.json();
+      expect(json.error).toMatch(/Too Many Requests/i);
+    });
 
-test('PATCH: 一般ユーザー → 403', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(false));
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
-  expect(res.status).toBe(403);
-});
+    test('invalid UUID → 400', async () => {
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps('not-a-uuid'));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBeDefined();
+    });
 
-// ─── Campaign not found ───────────────────────────────────────────────────────
+    test('non-platform-admin → 403', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(false));
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(403);
+    });
 
-test('PATCH: キャンペーンが見つからない → 404', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue(campaignChain(null, { message: 'not found' }));
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
-  expect(res.status).toBe(404);
-});
+    test('no user → 403', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(403);
+    });
 
-// ─── cancel action ────────────────────────────────────────────────────────────
+    test('campaign not found → 404', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(null, { message: 'not found' }));
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(404);
+    });
 
-test('PATCH: cancel — scheduled でないキャンペーン → 400', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue(campaignChain(buildCampaign({ status: 'draft' }))); // not scheduled
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
-  expect(res.status).toBe(400);
-});
+    test('unknown action → 400', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(buildCampaign()));
+      const res = await PATCH(makeRequest({ action: 'reopen' }), makeProps());
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toMatch(/unknown action/i);
+    });
+  });
 
-test('PATCH: cancel — scheduled キャンペーン → 200', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return campaignChain(buildCampaign({ status: 'scheduled' }));
-    return {
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: CAMPAIGN_UUID, status: 'cancelled' }, error: null })),
-          }),
+  // ─── cancel ─────────────────────────────────────────────────────────────────
+
+  describe('action=cancel', () => {
+    test('scheduled campaign → 200 with cancelled campaign', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'scheduled' }));
+        return updateSingleChain({ id: CAMPAIGN_UUID, status: 'cancelled' });
+      });
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.campaign).toBeDefined();
+    });
+
+    test('draft campaign → 400 (not scheduled)', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(buildCampaign({ status: 'draft' })));
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toMatch(/scheduled/i);
+    });
+
+    test('sent campaign → 400', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(buildCampaign({ status: 'sent' })));
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(400);
+    });
+
+    test('updates campaign status to cancelled', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      const updatedCampaign = { id: CAMPAIGN_UUID, status: 'cancelled' };
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'scheduled' }));
+        return updateSingleChain(updatedCampaign);
+      });
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      const json = await res.json();
+      expect(json.campaign.status).toBe('cancelled');
+      expect(json.campaign.id).toBe(CAMPAIGN_UUID);
+    });
+  });
+
+  // ─── schedule ───────────────────────────────────────────────────────────────
+
+  describe('action=schedule', () => {
+    test('draft campaign → 200 with scheduled campaign', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'draft' }));
+        return updateSingleChain({ id: CAMPAIGN_UUID, status: 'scheduled' });
+      });
+      const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.campaign).toBeDefined();
+    });
+
+    test('scheduled campaign → 400 (not draft)', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(buildCampaign({ status: 'scheduled' })));
+      const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toMatch(/draft/i);
+    });
+
+    test('updates campaign status to scheduled', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      const updatedCampaign = { id: CAMPAIGN_UUID, status: 'scheduled' };
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'draft' }));
+        return updateSingleChain(updatedCampaign);
+      });
+      const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
+      const json = await res.json();
+      expect(json.campaign.status).toBe('scheduled');
+    });
+  });
+
+  // ─── send ────────────────────────────────────────────────────────────────────
+
+  describe('action=send', () => {
+    /** Build a standard send-flow mockAdminFrom with configurable subscribers */
+    function buildSendMocks(opts: {
+      campaignOverrides?: Record<string, unknown>;
+      subscribers?: { email: string; user_id: string }[];
+      claimedRows?: { id: string }[] | null;
+      sentCampaign?: unknown;
+    } = {}) {
+      const {
+        campaignOverrides = {},
+        subscribers = [{ email: 'user1@example.com', user_id: 'uid-1' }],
+        claimedRows = [{ id: CAMPAIGN_UUID }],
+        sentCampaign = { id: CAMPAIGN_UUID, status: 'sent' },
+      } = opts;
+
+      const campaign = buildCampaign(campaignOverrides);
+      let callNum = 0;
+      mockAdminFrom.mockImplementation((table: string) => {
+        callNum++;
+        // 1st call: fetch campaign
+        if (callNum === 1) return campaignFetchChain(campaign);
+        // 2nd call: atomic claim (update to 'sending')
+        if (callNum === 2) return atomicClaimChain(claimedRows);
+        // 3rd call: newsletter_subscriptions
+        if (callNum === 3) return subscribersChain(subscribers);
+        // 4th call: update campaign to 'sent'
+        return updateSentChain(sentCampaign);
+      });
+    }
+
+    test('already sent → 400', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(buildCampaign({ status: 'sent' })));
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toBeDefined();
+    });
+
+    test('concurrent send (atomic claim empty) → 409', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({ claimedRows: [] });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(409);
+      const json = await res.json();
+      expect(json.error).toMatch(/already being sent/i);
+    });
+
+    test('draft campaign → sends successfully → 200 with sentCount', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [
+          { email: 'a@example.com', user_id: 'u1' },
+          { email: 'b@example.com', user_id: 'u2' },
+        ],
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(2);
+    });
+
+    test('scheduled campaign → sends successfully → 200', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({ campaignOverrides: { status: 'scheduled' } });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+    });
+
+    test('sends via resend.batch.send', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [{ email: 'c@example.com', user_id: 'u3' }],
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(mockBatchSend).toHaveBeenCalledTimes(1);
+      const [messages] = mockBatchSend.mock.calls[0];
+      expect(messages[0].to).toEqual(['c@example.com']);
+      expect(messages[0].from).toContain('newsletter@carelink-jp.com');
+    });
+
+    test('returns sentCount and bouncedCount', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [
+          { email: 'd@example.com', user_id: 'u4' },
+          { email: 'e@example.com', user_id: 'u5' },
+        ],
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      const json = await res.json();
+      expect(typeof json.sentCount).toBe('number');
+      expect(typeof json.bouncedCount).toBe('number');
+    });
+
+    test('resend error → bouncedCount incremented', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [
+          { email: 'fail1@example.com', user_id: 'u6' },
+          { email: 'fail2@example.com', user_id: 'u7' },
+        ],
+      });
+      const { Resend } = require('resend');
+      Resend.mockImplementationOnce(() => ({
+        batch: { send: jest.fn().mockRejectedValue(new Error('Resend failure')) },
+      }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.bouncedCount).toBe(2);
+      expect(json.sentCount).toBe(0);
+    });
+
+    test('owner_monthly type also fetches owner emails', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      const ownerEmail = 'owner@salon.com';
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        // newsletter_subscriptions (may return empty or a subscription)
+        if (callNum === 3) return subscribersChain([]);
+        // facility_members query
+        if (callNum === 4) return facilityMembersChain([{ profiles: { email: ownerEmail } }]);
+        // final update to 'sent'
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      // Owner email should have been sent
+      expect(json.sentCount).toBe(1);
+      expect(mockBatchSend).toHaveBeenCalledTimes(1);
+      const [messages] = mockBatchSend.mock.calls[0];
+      expect(messages[0].to).toContain(ownerEmail);
+    });
+
+    test('writes audit log on successful send', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [{ email: 'audit@example.com', user_id: 'u8' }],
+      });
+      const { writeAuditLog } = require('@/lib/audit-logger');
+      await PATCH(makeRequest({ action: 'send' }), makeProps());
+      // writeAuditLog is called with void so allow a tick
+      await new Promise((r) => setTimeout(r, 10));
+      expect(writeAuditLog).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: USER_ID,
+          action: 'create',
+          tableName: 'newsletter_campaigns',
+          recordId: CAMPAIGN_UUID,
         }),
-      }),
-    };
+      );
+    });
+
+    test('empty subscriber list → sentCount=0', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({ subscribers: [] });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(0);
+      expect(json.bouncedCount).toBe(0);
+    });
+
+    test('subscribers > 100 → sent in batches', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      // 150 subscribers → 2 batches (100 + 50)
+      const subs = Array.from({ length: 150 }, (_, i) => ({
+        email: `user${i}@example.com`,
+        user_id: `uid-${i}`,
+      }));
+      buildSendMocks({ subscribers: subs });
+
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      // Should have been called twice (chunk of 100 + chunk of 50)
+      expect(mockBatchSend).toHaveBeenCalledTimes(2);
+      const firstBatch = mockBatchSend.mock.calls[0][0];
+      const secondBatch = mockBatchSend.mock.calls[1][0];
+      expect(firstBatch).toHaveLength(100);
+      expect(secondBatch).toHaveLength(50);
+      const json = await res.json();
+      expect(json.sentCount).toBe(150);
+    });
   });
-  const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-// ─── schedule action ──────────────────────────────────────────────────────────
-
-test('PATCH: schedule — draft でないキャンペーン → 400', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue(campaignChain(buildCampaign({ status: 'sent' }))); // not draft
-  const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
-  expect(res.status).toBe(400);
-});
-
-// ─── send: CAS double-send prevention ────────────────────────────────────────
-
-test('PATCH: send — CAS競合（二重送信防止）→ 409', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  let callNum = 0;
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return campaignChain(buildCampaign({ status: 'draft' }));
-    // CAS update returns empty array (another process already claimed it)
-    return updateStatusChain([]);
-  });
-  const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
-  expect(res.status).toBe(409);
-});
-
-// ─── Unknown action ───────────────────────────────────────────────────────────
-
-test('PATCH: 不明なaction → 400', async () => {
-  mockAnonFrom.mockReturnValue(profileChain(true));
-  mockAdminFrom.mockReturnValue(campaignChain(buildCampaign()));
-  const res = await PATCH(makeRequest({ action: 'delete' }), makeProps());
-  expect(res.status).toBe(400);
 });

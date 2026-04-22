@@ -142,3 +142,79 @@ test('PATCH: 正常更新 → 200 ok:true', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+test('PATCH: ticket_status=open → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    }),
+  });
+  const res = await PATCH(makeRequest({ ticket_status: 'open' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: ticket_status=resolved → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    }),
+  });
+  const res = await PATCH(makeRequest({ ticket_status: 'resolved' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: priority=high → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    }),
+  });
+  const res = await PATCH(makeRequest({ priority: 'high' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: レートリミット params (10/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    }),
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest(), makeProps());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+});
+
+test('PATCH: レスポンスが { ok: true } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    }),
+  });
+  const res = await PATCH(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(json.ok).toBe(true);
+});

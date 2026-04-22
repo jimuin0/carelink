@@ -162,3 +162,49 @@ test('POST: user_id あり＋予約あり → 201', async () => {
   const res = await POST(makeRequest(validBody({ user_id: TARGET_USER })));
   expect(res.status).toBe(201);
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'session-1' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest(validBody()));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: meeting_url が https → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'session-2', duration_minutes: 30 }));
+  const res = await POST(makeRequest(validBody({ meeting_url: 'https://zoom.us/j/123456' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: platform と fee を省略 → 201 (デフォルト適用)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'session-3', duration_minutes: 60 }));
+  const res = await POST(makeRequest({ scheduled_at: '2026-06-01T10:00:00+09:00', duration_minutes: 60 }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: duration_minutes が 5 (下限ぴったり) → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'session-4', duration_minutes: 5 }));
+  const res = await POST(makeRequest(validBody({ duration_minutes: 5 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: duration_minutes が 480 (上限ぴったり) → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'session-5', duration_minutes: 480 }));
+  const res = await POST(makeRequest(validBody({ duration_minutes: 480 })));
+  expect(res.status).toBe(201);
+});

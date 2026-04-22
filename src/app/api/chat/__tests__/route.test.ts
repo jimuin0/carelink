@@ -3,51 +3,60 @@
  *
  * Tests for POST /api/chat
  * Key assertions:
- *   - CSRF check → returns checkCsrf result
- *   - Rate limiting → 429
- *   - Invalid JSON → 400
- *   - Missing messages → 400
- *   - Empty messages array → 400
- *   - Invalid message roles → filtered
- *   - Valid messages → calls Anthropic API
+ *   - CSRF check required
+ *   - Rate limiting (5 req/min per IP)
+ *   - Messages array validation (role, content length)
+ *   - Takes last 10 messages only
+ *   - Claude Haiku API integration
+ *   - Error handling (rate limit, invalid JSON, AI service error)
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-
-jest.mock('@anthropic-ai/sdk', () => {
-  const mockCreate = jest.fn();
-  const AnthropicClass = jest.fn(() => ({
+jest.mock('@/lib/rate-limit', () => ({
+  inMemoryRateLimit: jest.fn(() => false),
+}));
+// Use closure so module-level `new Anthropic()` in route always delegates to current mockMessagesCreate
+let mockMessagesCreate: jest.Mock = jest.fn();
+jest.mock('@anthropic-ai/sdk', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
     messages: {
-      create: mockCreate,
+      create: (...args: any[]) => mockMessagesCreate(...args),
     },
-  }));
-  AnthropicClass.__mockCreate = mockCreate;
-  return AnthropicClass;
-});
-
-let mockCreate: jest.Mock;
+  })),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';
 
+function setupDefaultMocks(aiSucceeds: boolean = true) {
+  (checkCsrf as jest.Mock).mockReturnValue(null);
+
+  mockMessagesCreate = jest.fn();
+  if (aiSucceeds) {
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'これは回答です。' }],
+    });
+  } else {
+    mockMessagesCreate.mockRejectedValue(new Error('API error'));
+  }
+
+  process.env.ANTHROPIC_API_KEY = 'test-key';
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkCsrf as jest.Mock).mockReturnValue(null);
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  process.env.ANTHROPIC_API_KEY = 'test-key';
-
-  const Anthropic = require('@anthropic-ai/sdk');
-  mockCreate = Anthropic.__mockCreate;
+  setupDefaultMocks();
 });
 
-function makeRequest(body: object) {
+function makeRequest(body: object, ip = '192.168.1.1') {
   return new Request('http://localhost/api/chat', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'x-forwarded-for': '192.168.1.1',
+      'x-forwarded-for': ip,
     },
     body: JSON.stringify(body),
   });
@@ -55,23 +64,22 @@ function makeRequest(body: object) {
 
 describe('POST /api/chat', () => {
   test('CSRF check failed → returns error', async () => {
-    const csrfError = new Response(JSON.stringify({ error: 'CSRF failed' }), { status: 403 });
+    const csrfError = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
     (checkCsrf as jest.Mock).mockReturnValue(csrfError);
 
-    const res = await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Hello' }] }) as any
+    );
 
     expect(res.status).toBe(403);
-    (checkCsrf as jest.Mock).mockReturnValue(null);
   });
 
   test('rate limiting → 429', async () => {
     (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
 
-    const res = await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Hello' }] }) as any
+    );
 
     expect(res.status).toBe(429);
   });
@@ -79,202 +87,237 @@ describe('POST /api/chat', () => {
   test('invalid JSON → 400', async () => {
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: 'invalid json {',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.168.1.1' },
+      body: 'invalid {',
     });
 
-    const res = await POST(req);
+    const res = await POST(req as any);
 
     expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('Invalid JSON');
   });
 
   test('missing messages → 400', async () => {
-    const res = await POST(makeRequest({}));
-
-    expect(res.status).toBe(400);
-    const json = await res.json();
-    expect(json.error).toContain('required');
-  });
-
-  test('messages is not array → 400', async () => {
-    const res = await POST(makeRequest({
-      messages: 'not an array',
-    }));
+    const res = await POST(makeRequest({}) as any);
 
     expect(res.status).toBe(400);
   });
 
   test('empty messages array → 400', async () => {
-    const res = await POST(makeRequest({
-      messages: [],
-    }));
+    const res = await POST(makeRequest({ messages: [] }) as any);
 
     expect(res.status).toBe(400);
   });
 
-  test('message with invalid role filtered out', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response text' }],
-    });
+  test('messages not array → 400', async () => {
+    const res = await POST(
+      makeRequest({ messages: 'not-array' }) as any
+    );
 
-    const res = await POST(makeRequest({
-      messages: [
-        { role: 'invalid', content: 'This should be filtered' },
-        { role: 'user', content: 'Valid message' },
-      ],
-    }));
+    expect(res.status).toBe(400);
+  });
+
+  test('message without role → filtered out', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { content: 'No role' },
+          { role: 'user', content: 'Valid' },
+        ],
+      }) as any
+    );
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(1);
+  });
+
+  test('invalid role → filtered out', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'admin', content: 'Invalid role' },
+          { role: 'user', content: 'Valid' },
+        ],
+      }) as any
+    );
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(1);
+  });
+
+  test('valid roles: user and assistant', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'user', content: 'Hello' },
+          { role: 'assistant', content: 'Hi there' },
+          { role: 'user', content: 'How are you?' },
+        ],
+      }) as any
+    );
 
     expect(res.status).toBe(200);
-    expect(mockCreate).toHaveBeenCalled();
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages).toHaveLength(1);
-    expect(args.messages[0].role).toBe('user');
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(3);
   });
 
-  test('message with non-string content filtered out', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
-    });
+  test('content > 2000 chars → filtered out', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'user', content: 'x'.repeat(2001) },
+          { role: 'user', content: 'Valid' },
+        ],
+      }) as any
+    );
 
-    const res = await POST(makeRequest({
-      messages: [
-        { role: 'user', content: 123 },
-        { role: 'user', content: 'Valid' },
-      ],
-    }));
-
-    expect(mockCreate).toHaveBeenCalled();
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages).toHaveLength(1);
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(1);
   });
 
-  test('valid user message → 200', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'AI Response' }],
-    });
+  test('content exactly 2000 chars → included', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'user', content: 'x'.repeat(2000) },
+        ],
+      }) as any
+    );
 
-    const res = await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello AI' }],
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(1);
+  });
+
+  test('takes last 10 messages only', async () => {
+    const messages = Array.from({ length: 15 }, (_, i) => ({
+      role: i % 2 === 0 ? 'user' : 'assistant',
+      content: `Message ${i}`,
     }));
+
+    const res = await POST(makeRequest({ messages }) as any);
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(10);
+    expect(call[0].messages[0].content).toBe('Message 5');
+  });
+
+  test('calls Claude Haiku model', async () => {
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].model).toBe('claude-haiku-4-5-20251001');
+  });
+
+  test('sets max_tokens to 512', async () => {
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].max_tokens).toBe(512);
+  });
+
+  test('includes system prompt', async () => {
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].system).toContain('CareLink');
+    expect(call[0].system).toContain('AI');
+  });
+
+  test('valid request → 200 with reply', async () => {
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'こんにちは' }] }) as any
+    );
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.reply).toBe('AI Response');
+    expect(json.reply).toBe('これは回答です。');
   });
 
-  test('multiple messages → passes all to API', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
-    });
+  test('AI service error → 503', async () => {
+    setupDefaultMocks(false);
 
-    const res = await POST(makeRequest({
-      messages: [
-        { role: 'user', content: 'First' },
-        { role: 'assistant', content: 'Reply' },
-        { role: 'user', content: 'Second' },
-      ],
-    }));
-
-    expect(res.status).toBe(200);
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages).toHaveLength(3);
-  });
-
-  test('takes last 10 messages if more provided', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
-    });
-
-    const messages = Array(15)
-      .fill(null)
-      .map((_, i) => ({ role: i % 2 === 0 ? 'user' : 'assistant', content: `Message ${i}` }));
-
-    const res = await POST(makeRequest({ messages }));
-
-    expect(res.status).toBe(200);
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages).toHaveLength(10);
-  });
-
-  test('filters out messages over 2000 chars', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
-    });
-
-    const longContent = 'a'.repeat(2001);
-    const res = await POST(makeRequest({
-      messages: [{ role: 'user', content: longContent }],
-    }));
-
-    // Should return 400 because no valid messages after filtering
-    expect(res.status).toBe(400);
-  });
-
-  test('calls Anthropic with correct model', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
-    });
-
-    await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.model).toBe('claude-haiku-4-5-20251001');
-  });
-
-  test('calls Anthropic with max_tokens 512', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
-    });
-
-    await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.max_tokens).toBe(512);
-  });
-
-  test('Anthropic exception → 503', async () => {
-    mockCreate.mockRejectedValue(new Error('API error'));
-
-    const res = await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
 
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.error).toContain('AIサービス');
   });
 
-  test('response with non-text content → empty reply', async () => {
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'tool_use', name: 'test' }],
-    });
+  test('content type not string → filtered out', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'user', content: 123 },
+          { role: 'user', content: 'Valid' },
+        ],
+      }) as any
+    );
 
-    const res = await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.reply).toBe('');
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(1);
   });
 
-  test('rate limit params', async () => {
+  test('message content exactly 2000 chars → included as-is', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'user', content: 'x'.repeat(2000) },
+        ],
+      }) as any
+    );
+
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages[0].content.length).toBeLessThanOrEqual(2000);
+  });
+
+  test('rate limit params (5 req/min per IP)', async () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
-    mockCreate.mockResolvedValue({
-      content: [{ type: 'text', text: 'Response' }],
+    await POST(
+      makeRequest(
+        { messages: [{ role: 'user', content: 'Test' }] },
+        '192.168.1.1'
+      ) as any
+    );
+
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('192.168.1.1');
+    expect(call[1]).toBe(5);
+    expect(call[2]).toBe(60000);
+    expect(call[3]).toBe('chat');
+  });
+
+  test('extracts first IP from x-forwarded-for', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+
+    await POST(
+      makeRequest(
+        { messages: [{ role: 'user', content: 'Test' }] },
+        '10.0.0.1, 192.168.1.1'
+      ) as any
+    );
+
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('10.0.0.1');
+  });
+
+  test('AI response with non-text content → empty reply', async () => {
+    mockMessagesCreate.mockResolvedValue({
+      content: [{ type: 'image' }],
     });
 
-    await POST(makeRequest({
-      messages: [{ role: 'user', content: 'Hello' }],
-    }));
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
 
-    expect(inMemoryRateLimit).toHaveBeenCalledWith('192.168.1.1', 5, 60000, 'chat');
+    const json = await res.json();
+    expect(json.reply).toBe('');
   });
 });

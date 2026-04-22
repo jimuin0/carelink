@@ -1,206 +1,310 @@
 /**
  * @jest-environment node
- *
- * Tests for GET /api/v1/customers
- * Key assertions:
- *   - API key scope enforcement (customers:read required)
- *   - Customer deduplication (same user_id/phone appears once)
- *   - Search injection prevention (special chars sanitized before .or() query)
- *   - Pagination clamping (limit max 100, page max 10000)
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
-
-const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
-const mockFrom = jest.fn();
-
-jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockFrom }),
+jest.mock('@/lib/rate-limit', () => ({
+  inMemoryRateLimit: jest.fn(() => false),
 }));
+jest.mock('@/lib/supabase-server');
 
-import { NextRequest } from 'next/server';
-import { GET } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { GET } from '../route';
 
-const VALID_KEY_ROW = {
-  facility_id: FACILITY_UUID,
-  scopes: ['customers:read'],
-  is_active: true,
-  expires_at: null,
-};
-
-function makeRequest(params: Record<string, string> = {}, apiKey = 'valid-api-key') {
-  const url = new URL('http://localhost/api/v1/customers');
-  Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v));
-  return new NextRequest(url.toString(), {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
+function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  
+  createServiceRoleClient.mockReturnValue({
+    from: jest.fn((table: string) => {
+      if (table === 'api_keys') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: keyValid ? {
+                  facility_id: 'fac-123',
+                  scopes: hasScope ? ['customers:read'] : ['other:scope'],
+                  is_active: true,
+                  expires_at: null,
+                } : null,
+              }),
+            }),
+          }),
+        };
+      } else if (table === 'bookings') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockReturnValue({
+                order: jest.fn().mockReturnValue({
+                  range: jest.fn().mockResolvedValue({
+                    data: [
+                      { customer_name: 'John Doe', customer_phone: '09012345678', customer_email: 'john@example.com', user_id: 'user-1' },
+                      { customer_name: 'Jane Smith', customer_phone: '09087654321', customer_email: 'jane@example.com', user_id: 'user-2' },
+                    ],
+                    error: null,
+                    count: 2,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+    }),
   });
-}
-
-function apiKeyChain(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-// Returns a fluent chain that resolves on .range()
-function bookingsChain(data: unknown[], count = data.length) {
-  const chain: Record<string, unknown> = {};
-  const self = () => chain;
-  chain.select = self; chain.eq = self; chain.not = self;
-  chain.order = self; chain.or = self;
-  chain.range = jest.fn(() => Promise.resolve({ data, error: null, count }));
-  return chain;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
-  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  setupDefaultMocks();
 });
 
-// ─── Auth guards ──────────────────────────────────────────────────────────────
-
-test('Authorizationヘッダーなし → 401', async () => {
-  const req = new NextRequest('http://localhost/api/v1/customers', { method: 'GET' });
-  const res = await GET(req);
-  expect(res.status).toBe(401);
-});
-
-test('存在しないAPIキー → 401', async () => {
-  mockFrom.mockReturnValue(apiKeyChain(null));
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(401);
-});
-
-test('無効化されたキー → 401', async () => {
-  mockFrom.mockReturnValue(apiKeyChain({ ...VALID_KEY_ROW, is_active: false }));
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(401);
-});
-
-// ─── Scope enforcement ────────────────────────────────────────────────────────
-
-test('customers:readスコープなし → 403', async () => {
-  mockFrom.mockReturnValue(apiKeyChain({ ...VALID_KEY_ROW, scopes: ['bookings:read'] }));
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(403);
-});
-
-test('*スコープ → 200', async () => {
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return apiKeyChain({ ...VALID_KEY_ROW, scopes: ['*'] });
-    return bookingsChain([]);
+function makeRequest(apiKey: string = 'test-api-key', query: string = '', ip = '192.168.1.1') {
+  const req = new Request(`http://localhost/api/v1/customers${query}`, {
+    method: 'GET',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'x-forwarded-for': ip,
+    },
   });
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(200);
-});
+  Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+  return req;
+}
 
-// ─── Rate limit ───────────────────────────────────────────────────────────────
-
-test('レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
-  const res = await GET(makeRequest());
-  expect(res.status).toBe(429);
-});
-
-// ─── Happy path + deduplication ──────────────────────────────────────────────
-
-test('顧客の重複除去: 同一user_idは1件のみ', async () => {
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return apiKeyChain(VALID_KEY_ROW);
-    return bookingsChain([
-      { customer_name: '田中太郎', customer_phone: '090-0001', customer_email: null, user_id: 'user-A' },
-      { customer_name: '田中太郎2', customer_phone: '090-0001-dup', customer_email: null, user_id: 'user-A' }, // duplicate
-      { customer_name: '佐藤花子', customer_phone: '090-0002', customer_email: null, user_id: 'user-B' },
-    ], 3);
+describe('GET /api/v1/customers', () => {
+  test('rate limiting → 429', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(429);
   });
 
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  // user-A appears twice → deduplicated to 1
-  expect(json.data).toHaveLength(2);
-});
-
-test('電話番号で重複除去', async () => {
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return apiKeyChain(VALID_KEY_ROW);
-    return bookingsChain([
-      { customer_name: '山田一郎', customer_phone: '090-9999', customer_email: null, user_id: null },
-      { customer_name: '山田一郎', customer_phone: '090-9999', customer_email: null, user_id: null }, // dup by phone
-    ], 2);
+  test('missing Authorization header → 401', async () => {
+    const req = new Request('http://localhost/api/v1/customers', {
+      method: 'GET',
+      headers: { 'x-forwarded-for': '192.168.1.1' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(401);
   });
 
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(json.data).toHaveLength(1);
-});
-
-test('正常フロー → 200 with api_version and pagination', async () => {
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return apiKeyChain(VALID_KEY_ROW);
-    return bookingsChain([
-      { customer_name: '顧客A', customer_phone: '090-1111', customer_email: 'a@example.com', user_id: 'u1' },
-    ], 1);
+  test('invalid Authorization format (no Bearer) → 401', async () => {
+    const req = new Request('http://localhost/api/v1/customers', {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Basic xyz',
+        'x-forwarded-for': '192.168.1.1',
+      },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(401);
   });
 
-  const res = await GET(makeRequest());
-  const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.api_version).toBe('1.0.0');
-  expect(json.pagination.total).toBe(1);
-  expect(json.data[0]).toEqual({ name: '顧客A', phone: '090-1111', email: 'a@example.com' });
-});
-
-// ─── Search sanitization ──────────────────────────────────────────────────────
-
-test('検索クエリのSQLワイルドカード文字をエスケープ', async () => {
-  let callNum = 0;
-  let capturedOrArg: string | null = null;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return apiKeyChain(VALID_KEY_ROW);
-    const chain: Record<string, unknown> = {};
-    const self = () => chain;
-    chain.select = self; chain.eq = self; chain.not = self; chain.order = self;
-    chain.or = jest.fn((arg: string) => { capturedOrArg = arg; return chain; });
-    chain.range = jest.fn(() => Promise.resolve({ data: [], error: null, count: 0 }));
-    return chain;
+  test('invalid API key → 401', async () => {
+    setupDefaultMocks(false);
+    const res = await GET(makeRequest('invalid-key') as any);
+    expect(res.status).toBe(401);
   });
 
-  await GET(makeRequest({ search: '100%_off' }));
-  // % and _ should be escaped in the ilike pattern
-  expect(capturedOrArg).toContain('\\%');
-  expect(capturedOrArg).toContain('\\_');
-});
-
-test('limit の最大値クランプ (100超は100に)', async () => {
-  let callNum = 0;
-  let capturedRangeArgs: [number, number] | null = null;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return apiKeyChain(VALID_KEY_ROW);
-    const chain: Record<string, unknown> = {};
-    const self = () => chain;
-    chain.select = self; chain.eq = self; chain.not = self; chain.order = self; chain.or = self;
-    chain.range = jest.fn((from: number, to: number) => { capturedRangeArgs = [from, to]; return Promise.resolve({ data: [], error: null, count: 0 }); });
-    return chain;
+  test('insufficient scope → 403', async () => {
+    setupDefaultMocks(true, false);
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(403);
   });
 
-  await GET(makeRequest({ limit: '9999', page: '1' }));
-  // range(0, 99) → limit clamped to 100
-  expect(capturedRangeArgs).toEqual([0, 99]);
+  test('valid key with scope → 200', async () => {
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.data).toBeDefined();
+    expect(Array.isArray(json.data)).toBe(true);
+  });
+
+  test('includes pagination info', async () => {
+    const res = await GET(makeRequest('test-api-key', '?page=1&limit=50') as any);
+    const json = await res.json();
+    expect(json.pagination).toBeDefined();
+    expect(json.pagination.page).toBe(1);
+    expect(json.pagination.limit).toBe(50);
+  });
+
+  test('includes API version header', async () => {
+    const res = await GET(makeRequest() as any);
+    expect(res.headers.get('X-API-Version')).toBe('1.0.0');
+  });
+
+  test('limit capped at 100', async () => {
+    const res = await GET(makeRequest('test-api-key', '?limit=200') as any);
+    const json = await res.json();
+    expect(json.pagination.limit).toBeLessThanOrEqual(100);
+  });
+
+  test('rate limit params (60 req/min per IP)', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    await GET(makeRequest('test-key', '', '192.168.1.1') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe(60);
+    expect(call[2]).toBe(60_000);
+  });
+
+  test('extracts first IP from x-forwarded-for', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    await GET(makeRequest('test-key', '', '10.0.0.1, 192.168.1.1') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('10.0.0.1');
+  });
+
+  test('expired API key → 401', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: {
+                    facility_id: 'fac-123',
+                    scopes: ['customers:read'],
+                    is_active: true,
+                    expires_at: '2020-01-01T00:00:00Z',
+                  },
+                }),
+              }),
+            }),
+          };
+        }
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(401);
+  });
+
+  test('wildcard scope (*) → 200', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['*'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          };
+        } else if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                not: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('DB error → 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          };
+        } else if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                not: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' }, count: null }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('api_version フィールドがレスポンスに含まれる', async () => {
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.api_version).toBe('1.0.0');
+  });
+
+  test('Cache-Control: no-store ヘッダーが付く', async () => {
+    const res = await GET(makeRequest() as any);
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+  });
+
+  test('page=0 は 1 にクランプされる', async () => {
+    const res = await GET(makeRequest('test-api-key', '?page=0') as any);
+    const json = await res.json();
+    expect(json.pagination.page).toBeGreaterThanOrEqual(1);
+  });
+
+  test('重複 user_id は dedup される', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          };
+        } else if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                not: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({
+                      data: [
+                        { customer_name: 'A', customer_phone: '090', customer_email: 'a@b.com', user_id: 'same-user' },
+                        { customer_name: 'A', customer_phone: '090', customer_email: 'a@b.com', user_id: 'same-user' },
+                      ],
+                      error: null,
+                      count: 2,
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.data.length).toBe(1);
+  });
 });

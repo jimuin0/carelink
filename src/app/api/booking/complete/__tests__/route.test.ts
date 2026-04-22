@@ -285,3 +285,140 @@ test('total_price が 0 → ポイント付与なし', async () => {
   // user_points insert should NOT be called
   expect(mockServiceFrom).not.toHaveBeenCalled();
 });
+
+test('booking.user_id が null → ポイント付与なし', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ ...CONFIRMED_BOOKING, user_id: null, total_price: 5000 });
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+
+  const res = await POST(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.points_earned).toBe(0);
+  expect(mockServiceFrom).not.toHaveBeenCalled();
+});
+
+test('menu_id + staff_id あり → メニュー名・スタッフ名を取得', async () => {
+  const bookingWithMenuStaff = {
+    ...CONFIRMED_BOOKING,
+    menu_id: 'menu-uuid-0001-0001-0001-000000000001',
+    staff_id: 'staf-uuid-0001-0001-0001-000000000001',
+  };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain(bookingWithMenuStaff);
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    if (table === 'facility_menus') return singleChain({ name: 'カット' });
+    if (table === 'staff_profiles') return singleChain({ name: '田中スタッフ' });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  mockServiceFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: null })) });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+});
+
+test('customer_visits insert失敗 → Sentryキャプチャして200', async () => {
+  const Sentry = require('@sentry/nextjs');
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    // customer_visits insert fails
+    return { insert: jest.fn(() => Promise.resolve({ error: { message: 'visit insert error' } })) };
+  });
+  mockServiceFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: null })) });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  expect(Sentry.captureException).toHaveBeenCalled();
+});
+
+test('user_points insert失敗 → Sentryキャプチャして200', async () => {
+  const Sentry = require('@sentry/nextjs');
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING); // total_price: 5000, user_id: CUSTOMER_USER_ID
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  // user_points insert fails
+  mockServiceFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: { message: 'point error' } })) });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  expect(Sentry.captureException).toHaveBeenCalled();
+});
+
+test('未処理例外 → 500', async () => {
+  mockGetUser.mockRejectedValue(new Error('Unexpected crash'));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+});

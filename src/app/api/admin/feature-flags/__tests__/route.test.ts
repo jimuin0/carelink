@@ -182,3 +182,64 @@ test('POST: 正常作成 → 201 with flag', async () => {
   expect(res.status).toBe(201);
   expect(json.flag).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest({ key: 'test_flag' }));
+  expect(res.status).toBe(403);
+});
+
+test('POST: key にハイフン・アンダースコア → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertFlagSingle({ id: 'f1', key: 'my-flag_v2' }));
+  const res = await POST(makePostRequest({ key: 'my-flag_v2' }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: key にスペース → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const res = await POST(makePostRequest({ key: 'test flag' }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: rollout_pct=100 → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertFlagSingle({ id: 'f2', key: 'test_flag', rollout_pct: 100 }));
+  const res = await POST(makePostRequest({ key: 'test_flag', rollout_pct: 100 }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertFlagSingle({ id: 'f3', key: 'test_flag' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await POST(makePostRequest({ key: 'test_flag' }));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('GET: DB エラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(buildListChain([], { message: 'DB error' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: レスポンスが { flags: [] } 形式（空一覧）', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(buildListChain([]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.flags).toBeDefined();
+  expect(Array.isArray(json.flags)).toBe(true);
+});
+
+test('POST: レスポンスが { flag: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertFlagSingle({ id: 'f4', key: 'test_flag' }));
+  const res = await POST(makePostRequest({ key: 'test_flag' }));
+  const json = await res.json();
+  expect(json.flag).toBeDefined();
+  expect(json.flag.id).toBe('f4');
+});

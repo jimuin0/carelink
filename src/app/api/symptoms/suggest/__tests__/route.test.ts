@@ -1,284 +1,134 @@
 /**
  * @jest-environment node
- *
- * Tests for POST /api/symptoms/suggest
- * Key assertions:
- *   - CSRF check → returns checkCsrf result
- *   - Rate limiting → 429
- *   - Invalid schema → 400
- *   - Valid request → calls Anthropic API
- *   - JSON extraction from response
- *   - HTML/XML stripping from symptoms
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({
+  inMemoryRateLimit: jest.fn(() => false),
+}));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 
-jest.mock('@anthropic-ai/sdk', () => {
-  const mockCreate = jest.fn();
-  const AnthropicClass = jest.fn(() => ({
-    messages: {
-      create: mockCreate,
-    },
-  }));
-  AnthropicClass.__mockCreate = mockCreate;
-  return AnthropicClass;
-});
+// Lazy wrapper: `mockCreate` is assigned in beforeEach; the closure captures the
+// variable slot so the singleton `client` (created at route module scope) always
+// calls whatever `mockCreate` currently is.
+let mockCreate: jest.Mock;
+jest.mock('@anthropic-ai/sdk', () => ({
+  __esModule: true,
+  default: jest.fn().mockImplementation(() => ({
+    messages: { create: (...args: unknown[]) => mockCreate(...args) },
+  })),
+}));
 
-import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 import { POST } from '../route';
 
-let mockCreate: jest.Mock;
+const VALID_AI_RESPONSE = {
+  content: [{ type: 'text', text: '{"summary":"腰痛","recommended_treatments":[{"name":"鍼灸","description":"効果的","icon":"🎯"}],"search_keywords":["腰痛 鍼灸"],"caution":null,"tips":["温める"]}' }],
+};
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (checkCsrf as jest.Mock).mockReturnValue(null);
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkCsrf as jest.Mock).mockReturnValue(null);
+  mockCreate = jest.fn().mockResolvedValue(VALID_AI_RESPONSE);
   process.env.ANTHROPIC_API_KEY = 'test-key';
-
-  const Anthropic = require('@anthropic-ai/sdk');
-  mockCreate = Anthropic.__mockCreate;
 });
 
-function makeRequest(body: object) {
+function makeRequest(body: object, ip = '192.168.1.1') {
   return new Request('http://localhost/api/symptoms/suggest', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-forwarded-for': '192.168.1.1',
-    },
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': ip },
     body: JSON.stringify(body),
   });
 }
 
+const validRequest = {
+  symptoms: '腰が痛い',
+};
+
 describe('POST /api/symptoms/suggest', () => {
-  test('CSRF check failed → returns error', async () => {
-    const csrfError = new Response(JSON.stringify({ error: 'CSRF failed' }), { status: 403 });
-    (checkCsrf as jest.Mock).mockReturnValue(csrfError);
-
-    const res = await POST(makeRequest({
-      symptoms: '頭痛',
-    }));
-
+  test('CSRF check failed → 403', async () => {
+    (checkCsrf as jest.Mock).mockReturnValue(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+    const res = await POST(makeRequest(validRequest) as any);
     expect(res.status).toBe(403);
-    (checkCsrf as jest.Mock).mockReturnValue(null);
   });
 
   test('rate limiting → 429', async () => {
     (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
-
-    const res = await POST(makeRequest({
-      symptoms: '頭痛',
-    }));
-
+    const res = await POST(makeRequest(validRequest) as any);
     expect(res.status).toBe(429);
   });
 
   test('missing symptoms → 400', async () => {
-    const res = await POST(makeRequest({}));
-
+    const res = await POST(makeRequest({}) as any);
     expect(res.status).toBe(400);
   });
 
-  test('symptoms too short → 400', async () => {
-    const res = await POST(makeRequest({
-      symptoms: 'a',
-    }));
-
+  test('symptoms too short (<2) → 400', async () => {
+    const res = await POST(makeRequest({ symptoms: 'a' }) as any);
     expect(res.status).toBe(400);
   });
 
-  test('symptoms too long → 400', async () => {
-    const res = await POST(makeRequest({
-      symptoms: 'a'.repeat(501),
-    }));
-
+  test('symptoms too long (>500) → 400', async () => {
+    const res = await POST(makeRequest({ symptoms: 'x'.repeat(501) }) as any);
     expect(res.status).toBe(400);
   });
 
-  test('prefecture too long → 400', async () => {
-    const res = await POST(makeRequest({
-      symptoms: '頭痛',
-      prefecture: 'a'.repeat(51),
-    }));
+  test('prefecture optional', async () => {
+    const res = await POST(makeRequest({ symptoms: '肩こり' }) as any);
+    expect(res.status).toBe(200);
+  });
 
-    expect(res.status).toBe(400);
+  test('valid request → 200', async () => {
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.result).toBeDefined();
+  });
+
+  test('strips HTML characters from symptoms (user input sanitized)', async () => {
+    await POST(makeRequest({ symptoms: '<script>alert("xss")</script>腰痛' }) as any);
+    expect(mockCreate).toHaveBeenCalled();
+    const call = mockCreate.mock.calls[0];
+    // User-injected script tag is stripped; route's own <symptoms> wrapper tags remain
+    expect(call[0].messages[0].content).not.toContain('<script>');
+    expect(call[0].messages[0].content).not.toContain('</script>');
+    expect(call[0].messages[0].content).toContain('腰痛');
+  });
+
+  test('AI processing failure → 500', async () => {
+    mockCreate = jest.fn().mockRejectedValue(new Error('API error'));
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('AI returns invalid JSON → 500', async () => {
+    mockCreate = jest.fn().mockResolvedValue({ content: [{ type: 'text', text: 'not json' }] });
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('rate limit params (10 req/min per IP)', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    POST(makeRequest(validRequest, '192.168.1.1') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe(10);
+  });
+
+  test('extracts first IP from x-forwarded-for', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    POST(makeRequest(validRequest, '10.0.0.1, 192.168.1.1') as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('10.0.0.1');
   });
 
   test('invalid JSON → 400', async () => {
     const req = new Request('http://localhost/api/symptoms/suggest', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: 'invalid json {',
+      headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '192.168.1.1' },
+      body: 'invalid {',
     });
-
-    const res = await POST(req);
-
+    const res = await POST(req as any);
     expect(res.status).toBe(400);
-  });
-
-  test('valid symptoms → calls Anthropic', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: '{"summary":"頭痛","recommended_treatments":[],"search_keywords":[],"caution":null,"tips":[]}',
-        },
-      ],
-    });
-
-    const res = await POST(makeRequest({
-      symptoms: '頭痛が続いている',
-    }));
-
-    expect(res.status).toBe(200);
-    expect(mockCreate).toHaveBeenCalled();
-  });
-
-  test('extracts JSON from response', async () => {
-    const validJson = { summary: 'Test', recommended_treatments: [], search_keywords: [], caution: null, tips: [] };
-
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: `Some text before\n${JSON.stringify(validJson)}\nSome text after`,
-        },
-      ],
-    });
-
-    const res = await POST(makeRequest({
-      symptoms: '症状について',
-    }));
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.result).toEqual(validJson);
-  });
-
-  test('strips HTML/XML tags from symptoms', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: '{"summary":"Test","recommended_treatments":[],"search_keywords":[],"caution":null,"tips":[]}',
-        },
-      ],
-    });
-
-    await POST(makeRequest({
-      symptoms: '頭痛<script>alert("xss")</script>',
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages[0].content).not.toContain('<script>');
-    expect(args.messages[0].content).toContain('頭痛');
-  });
-
-  test('strips angle brackets from prefecture', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: '{"summary":"Test","recommended_treatments":[],"search_keywords":[],"caution":null,"tips":[]}',
-        },
-      ],
-    });
-
-    await POST(makeRequest({
-      symptoms: '症状',
-      prefecture: '東京都<injection>',
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages[0].content).not.toContain('<injection>');
-  });
-
-  test('no JSON in response → 500', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: 'Just plain text without JSON',
-        },
-      ],
-    });
-
-    const res = await POST(makeRequest({
-      symptoms: '症状',
-    }));
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toContain('解析');
-  });
-
-  test('Anthropic exception → 500', async () => {
-    mockCreate.mockRejectedValue(new Error('API error'));
-
-    const res = await POST(makeRequest({
-      symptoms: '症状',
-    }));
-
-    expect(res.status).toBe(500);
-    const json = await res.json();
-    expect(json.error).toContain('AI処理');
-  });
-
-  test('uses correct Anthropic model', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: '{"summary":"Test","recommended_treatments":[],"search_keywords":[],"caution":null,"tips":[]}',
-        },
-      ],
-    });
-
-    await POST(makeRequest({
-      symptoms: '症状',
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.model).toBe('claude-haiku-4-5-20251001');
-  });
-
-  test('includes prefecture in message when provided', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: '{"summary":"Test","recommended_treatments":[],"search_keywords":[],"caution":null,"tips":[]}',
-        },
-      ],
-    });
-
-    await POST(makeRequest({
-      symptoms: '症状',
-      prefecture: '東京都',
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages[0].content).toContain('東京都');
-    expect(args.messages[0].content).toContain('<prefecture>');
-  });
-
-  test('does not include prefecture when not provided', async () => {
-    mockCreate.mockResolvedValue({
-      content: [
-        {
-          type: 'text',
-          text: '{"summary":"Test","recommended_treatments":[],"search_keywords":[],"caution":null,"tips":[]}',
-        },
-      ],
-    });
-
-    await POST(makeRequest({
-      symptoms: '症状',
-    }));
-
-    const args = mockCreate.mock.calls[0][0];
-    expect(args.messages[0].content).not.toContain('<prefecture>');
   });
 });

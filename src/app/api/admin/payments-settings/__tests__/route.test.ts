@@ -147,3 +147,46 @@ test('PATCH: fixed で 1000円 → 200', async () => {
   const res = await PATCH(makeRequest({ deposit_type: 'fixed', deposit_amount: 1000 }));
   expect(res.status).toBe(200);
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('PATCH: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: rate limit params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('PATCH: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await PATCH(makeRequest({ deposit_type: 'none', deposit_amount: 0 }));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('PATCH: percent で deposit_amount 100 (境界値) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const res = await PATCH(makeRequest({ deposit_type: 'percent', deposit_amount: 100 }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: fixed で deposit_amount 100 (最小値) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEq(null));
+  const res = await PATCH(makeRequest({ deposit_type: 'fixed', deposit_amount: 100 }));
+  expect(res.status).toBe(200);
+});

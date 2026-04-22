@@ -197,3 +197,64 @@ test('POST: 正常保存 → 200', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+// ─── Additional coverage ──────────────────────────────────────────────────────
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
+  }));
+  expect(res.status).toBe(403);
+});
+
+test('GET: rate limit params (20/60s)', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(FACILITY_DATA);
+    return upsertChain(null);
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: rate limit params (10/60s)', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return updateEq(null);
+  });
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
+  }));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(10);
+  expect(call[2]).toBe(60_000);
+});
+
+test('GET: レスポンスが { placeData, audit } 形式', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(FACILITY_DATA);
+    return upsertChain(null);
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect('placeData' in json).toBe(true);
+  expect('audit' in json).toBe(true);
+});

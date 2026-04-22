@@ -9,6 +9,12 @@ jest.mock('react', () => ({
 jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom, rpc: mockRpc }),
 }));
+jest.mock('../redis', () => ({
+  cachedFetch: jest.fn().mockImplementation((_key: string, fetcher: () => Promise<unknown>) => fetcher()),
+  cacheGet: jest.fn().mockResolvedValue(null),
+  cacheSet: jest.fn().mockResolvedValue(undefined),
+  cacheDel: jest.fn().mockResolvedValue(undefined),
+}));
 
 import {
   searchFacilities,
@@ -20,7 +26,12 @@ import {
   getLatestFacilities,
   getSimilarFacilities,
   getMonthlyBookingCounts,
+  getFeaturedFacilities,
+  getNearbyFacilities,
+  getAvailableFacilityIds,
 } from '../facilities';
+
+const { cachedFetch } = require('../redis');
 
 beforeEach(() => {
   mockFrom.mockReset();
@@ -234,5 +245,281 @@ describe('getMonthlyBookingCounts', () => {
   test('空配列の場合は空オブジェクト', async () => {
     const result = await getMonthlyBookingCounts([]);
     expect(result).toEqual({});
+  });
+});
+
+// ─── searchFacilities (additional branches) ──────────────────────────────────
+
+describe('searchFacilities (additional branches)', () => {
+  test('cityフィルタ', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ city: '豊中市' });
+    expect(chain.eq).toHaveBeenCalledWith('city', '豊中市');
+  });
+
+  test('rating_minフィルタ', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ rating_min: 4.0 });
+    expect(chain.gte).toHaveBeenCalledWith('rating_avg', 4.0);
+  });
+
+  test('sort=ratingで評価順ソート', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ sort: 'rating' });
+    expect(chain.order).toHaveBeenCalledWith('rating_avg', { ascending: false });
+  });
+
+  test('sort=popularで人気順ソート', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ sort: 'popular' });
+    expect(chain.order).toHaveBeenCalledWith('view_count', expect.objectContaining({ ascending: false }));
+  });
+
+  test('デフォルトは作成日降順', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({});
+    expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: false });
+  });
+
+  test('geo検索でtype_filterが渡される', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5, type: 'nail-eyelash' });
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      type_filter: 'nail-eyelash',
+    }));
+  });
+
+  test('geo検索でtype未指定はnull', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5 });
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      type_filter: null,
+    }));
+  });
+});
+
+// ─── getPopularFacilities (cache fallback) ───────────────────────────────────
+
+describe('getPopularFacilities (cache fallback)', () => {
+  test('cachedFetchが失敗した場合はDBへフォールバック', async () => {
+    const facilities = [{ id: 'f-fallback', name: 'Fallback Salon' }];
+    cachedFetch.mockRejectedValueOnce(new Error('Redis down'));
+    const chain = fluent({ data: facilities, error: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getPopularFacilities(6);
+    expect(result.facilities).toEqual(facilities);
+  });
+});
+
+// ─── getFeaturedFacilities ───────────────────────────────────────────────────
+
+/** fluent chain where limit() returns self (thenable), enabling further .or() chaining */
+function fluentFeatured(resolvedValue: unknown) {
+  const self: Record<string, jest.Mock | ((resolve: (v: unknown) => unknown) => Promise<unknown>)> = {};
+  const handler = jest.fn(() => self);
+  ['select', 'eq', 'neq', 'or', 'gte', 'lte', 'order', 'range', 'single', 'not', 'in', 'is', 'contains'].forEach(m => {
+    self[m] = handler;
+  });
+  self.limit = jest.fn(() => self); // return self so .or() can be chained
+  // Make self thenable so `await query` works
+  self.then = (resolve: (v: unknown) => unknown) => Promise.resolve(resolvedValue).then(resolve);
+  return self;
+}
+
+describe('getFeaturedFacilities', () => {
+  test('広告枠なしの場合は空配列', async () => {
+    const chain = fluentFeatured({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    const result = await getFeaturedFacilities();
+    expect(result).toEqual([]);
+  });
+
+  test('facility_card_viewのデータを抽出する', async () => {
+    const facilityData = { id: 'f-feat', name: 'Featured Salon' };
+    const chain = fluentFeatured({ data: [{ facility_card_view: facilityData }] });
+    mockFrom.mockReturnValue(chain);
+    const result = await getFeaturedFacilities();
+    expect(result).toHaveLength(1);
+    expect(result[0]).toEqual(facilityData);
+  });
+
+  test('businessTypeフィルタを適用する', async () => {
+    const chain = fluentFeatured({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getFeaturedFacilities('nail-eyelash');
+    expect(chain.or).toHaveBeenCalled();
+  });
+
+  test('areaフィルタを適用する', async () => {
+    const chain = fluentFeatured({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getFeaturedFacilities(undefined, '大阪府');
+    expect(chain.or).toHaveBeenCalled();
+  });
+
+  test('nullなrowはfilterされる', async () => {
+    const chain = fluentFeatured({ data: [{ facility_card_view: null }, { facility_card_view: { id: 'f-ok' } }] });
+    mockFrom.mockReturnValue(chain);
+    const result = await getFeaturedFacilities();
+    expect(result).toHaveLength(1);
+  });
+});
+
+// ─── getNearbyFacilities ─────────────────────────────────────────────────────
+
+describe('getNearbyFacilities', () => {
+  test('近隣施設を返す', async () => {
+    const facilities = [{ id: 'f-nearby', name: 'Nearby Salon' }];
+    const chain = fluent({ data: facilities });
+    mockFrom.mockReturnValue(chain);
+    const result = await getNearbyFacilities('f-1', '大阪府', '豊中市');
+    expect(result).toEqual(facilities);
+    expect(chain.neq).toHaveBeenCalledWith('id', 'f-1');
+    expect(chain.eq).toHaveBeenCalledWith('prefecture', '大阪府');
+    expect(chain.eq).toHaveBeenCalledWith('city', '豊中市');
+  });
+
+  test('nullデータの場合は空配列', async () => {
+    const chain = fluent({ data: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getNearbyFacilities('f-1', '大阪府', '豊中市');
+    expect(result).toEqual([]);
+  });
+});
+
+// ─── getAvailableFacilityIds ─────────────────────────────────────────────────
+
+describe('getAvailableFacilityIds', () => {
+  /**
+   * Build table-specific from() mock:
+   * Each table returns a pre-set fluent chain resolving to given data.
+   */
+  function buildMultiTableMock(tables: Record<string, unknown[]>) {
+    mockFrom.mockImplementation((table: string) => {
+      const data = tables[table] ?? [];
+      const chain = fluent({ data });
+      // Make all terminal methods resolve immediately
+      ['in', 'eq', 'not'].forEach(m => {
+        chain[m] = jest.fn(() => chain);
+      });
+      // Force await to resolve
+      (chain as unknown as PromiseLike<{ data: unknown[] }>).then =
+        (resolve: (v: { data: unknown[] }) => unknown) => Promise.resolve({ data }).then(resolve);
+      return chain;
+    });
+  }
+
+  test('空のfacilityIdsは空セットを返す', async () => {
+    const result = await getAvailableFacilityIds([], '2026-05-01');
+    expect(result.size).toBe(0);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('スタッフがいない場合は空セット', async () => {
+    buildMultiTableMock({
+      staff_schedules: [],
+      staff_profiles: [],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.size).toBe(0);
+  });
+
+  test('空きスタッフがいる施設を返す', async () => {
+    // staff-1 has a 9時間勤務、予約なし → available
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
+  test('休日スタッフは除外される', async () => {
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [{ staff_id: 'staff-1', is_holiday: true }],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(false);
+  });
+
+  test('完全予約済みスタッフは除外される', async () => {
+    // 勤務60分、予約60分 → bookedMinutes >= workMinutes → not available
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '10:00', end_time: '11:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [{ staff_id: 'staff-1', start_time: '10:00', end_time: '11:00' }],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(false);
+  });
+
+  test('morning timeslot: 午前専門スタッフは午前枠で有効', async () => {
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '12:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'morning');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
+  test('afternoon timeslot: 午前専門スタッフは午後枠で無効', async () => {
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '12:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'afternoon');
+    expect(result.has('fac-1')).toBe(false);
+  });
+
+  test('evening timeslot: 夕方スタッフは夕方枠で有効', async () => {
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '17:00', end_time: '22:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'evening');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
+  test('overrideで勤務時間が上書きされる', async () => {
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [{ staff_id: 'staff-1', is_holiday: false, start_time: '13:00', end_time: '18:00' }],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'afternoon');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
+  test('スケジュールなしスタッフはスキップ', async () => {
+    buildMultiTableMock({
+      staff_schedules: [], // no schedule for this day
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(false);
   });
 });

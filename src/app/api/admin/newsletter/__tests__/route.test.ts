@@ -179,3 +179,68 @@ test('POST: 正常作成 → 201 with campaign', async () => {
   expect(res.status).toBe(201);
   expect(json.campaign).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: campaign_type=promo → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-2', status: 'draft' }));
+  const res = await POST(makePostRequest(validPostBody({ campaign_type: 'promo' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: campaign_type=owner_monthly → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-3', status: 'draft' }));
+  const res = await POST(makePostRequest(validPostBody({ campaign_type: 'owner_monthly' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: subject が 200文字 → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-4' }));
+  const res = await POST(makePostRequest(validPostBody({ subject: 'a'.repeat(200) })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: writeAuditLog が呼ばれる', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-5', status: 'draft' }));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  await POST(makePostRequest(validPostBody()));
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('POST: レスポンスが { campaign: ... } 形式', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-1', status: 'draft' }));
+  const res = await POST(makePostRequest(validPostBody()));
+  const json = await res.json();
+  expect(json.campaign).toBeDefined();
+  expect(json.campaign.id).toBe('camp-1');
+});
+
+test('GET: DB エラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(campaignListChain([], { message: 'DB error' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('POST: POST レートリミット params (5/60s)', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertCampaignSingle({ id: 'camp-x' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest(validPostBody()));
+  const calls = (inMemoryRateLimit as jest.Mock).mock.calls;
+  const postCall = calls.find((c: unknown[]) => c[1] === 5);
+  expect(postCall).toBeDefined();
+  expect(postCall[2]).toBe(60_000);
+});

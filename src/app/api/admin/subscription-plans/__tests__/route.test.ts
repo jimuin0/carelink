@@ -171,3 +171,68 @@ test('POST: 正常作成 → 201 with plan', async () => {
   expect(res.status).toBe(201);
   expect(json.plan).toBeDefined();
 });
+
+test('POST: CSRF エラー → 403', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('GET: DB失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([], { message: 'DB error' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: レートリミット params (30/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await GET(makeGetRequest());
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(30);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: レートリミット params (20/60s)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'plan-x', name: 'test' }));
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  await POST(makePostRequest(validBody()));
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe(20);
+  expect(call[2]).toBe(60_000);
+});
+
+test('POST: sessions_per_month が 100 (上限ぴったり) → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'plan-2', name: 'test' }));
+  const res = await POST(makePostRequest(validBody({ sessions_per_month: 100 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: valid_months が 24 (上限ぴったり) → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'plan-3', name: 'test' }));
+  const res = await POST(makePostRequest(validBody({ valid_months: 24 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: price が 0 → 201 (無料プラン)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'plan-4', name: 'フリープラン' }));
+  const res = await POST(makePostRequest(validBody({ price: 0 })));
+  expect(res.status).toBe(201);
+});
+
+test('GET: レスポンスが { plans: [] } 形式', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(Array.isArray(json.plans)).toBe(true);
+});

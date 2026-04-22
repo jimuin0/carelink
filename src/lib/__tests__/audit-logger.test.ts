@@ -1,4 +1,11 @@
-import { getRequestContext, diffValues } from '../audit-logger';
+const mockInsert = jest.fn().mockResolvedValue({});
+const mockFrom = jest.fn().mockReturnValue({ insert: mockInsert });
+
+jest.mock('../supabase-server', () => ({
+  createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
+}));
+
+import { getRequestContext, diffValues, writeAuditLog } from '../audit-logger';
 
 function createMockRequest(headers: Record<string, string> = {}): Request {
   return {
@@ -60,6 +67,54 @@ describe('getRequestContext', () => {
     const req = createMockRequest({ 'x-forwarded-for': '2001:0db8:85a3:0000:0000:8a2e:0370:7334' });
     const { ip } = getRequestContext(req);
     expect(ip).toBe('2001:0db8:85a3:0000:0000:8a2e:0370:7334');
+  });
+});
+
+describe('writeAuditLog', () => {
+  beforeEach(() => {
+    mockFrom.mockClear();
+    mockInsert.mockClear();
+    mockInsert.mockResolvedValue({});
+  });
+
+  test('inserts audit log with all fields', async () => {
+    await writeAuditLog({
+      userId: 'user-1',
+      facilityId: 'fac-1',
+      action: 'update',
+      tableName: 'bookings',
+      recordId: 'rec-1',
+      oldValues: { status: 'pending' },
+      newValues: { status: 'confirmed' },
+      ipAddress: '1.2.3.4',
+      userAgent: 'TestBot/1.0',
+    });
+    expect(mockFrom).toHaveBeenCalledWith('audit_logs');
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 'user-1',
+      facility_id: 'fac-1',
+      action: 'update',
+      table_name: 'bookings',
+      record_id: 'rec-1',
+    }));
+  });
+
+  test('inserts with null defaults for optional fields', async () => {
+    await writeAuditLog({ action: 'create', tableName: 'facilities' });
+    expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: null,
+      facility_id: null,
+      record_id: null,
+      old_values: null,
+      new_values: null,
+      ip_address: null,
+      user_agent: null,
+    }));
+  });
+
+  test('does not throw when insert fails (fire-and-forget)', async () => {
+    mockInsert.mockRejectedValue(new Error('DB error'));
+    await expect(writeAuditLog({ action: 'delete', tableName: 'users' })).resolves.toBeUndefined();
   });
 });
 
