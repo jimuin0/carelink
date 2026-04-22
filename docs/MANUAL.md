@@ -82,7 +82,7 @@
 | 技術 | 用途 | バージョン |
 |------|------|-----------|
 | Node.js | ランタイム | 20.x推奨（package.json `engines: ">=18.17.0"`） |
-| Next.js | フレームワーク（App Router） | 14.2.35 |
+| Next.js | フレームワーク（App Router） | 15.5.15 |
 | React | UI | 18 |
 | TypeScript | 言語 | 5 |
 | Tailwind CSS | スタイリング | 3.4.1 |
