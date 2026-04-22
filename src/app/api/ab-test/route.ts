@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 
 const schema = z.object({
@@ -28,10 +28,7 @@ export async function POST(request: NextRequest) {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceRoleClient();
 
   await admin.from('ab_test_events').insert({
     experiment_key: parsed.data.experiment_key,
@@ -61,10 +58,7 @@ export async function GET(request: NextRequest) {
   const key = request.nextUrl.searchParams.get('key');
   if (!key || key.length > 100) return NextResponse.json({ error: 'key required' }, { status: 400 });
 
-  const admin = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const admin = createServiceRoleClient();
 
   const { data } = await admin
     .from('ab_test_events')

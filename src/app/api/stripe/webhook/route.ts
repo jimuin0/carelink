@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    await handleEvent(event, admin as unknown);
+    await handleEvent(event, admin);
     // Mark processed: true only after successful handling.
     // If this update fails and Stripe retries, ignoreDuplicates above will find the
     // existing row with processed=false and re-run the handler — intentionally safe
@@ -86,8 +86,7 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ received: true });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleEvent(event: Stripe.Event, admin: any) {
+async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createServiceRoleClient>) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;

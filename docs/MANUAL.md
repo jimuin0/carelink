@@ -157,7 +157,7 @@
 | Stripe | ✅ 設定済み（テストモード） | STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET設定済み（2026-04-07、sk_test_）。Webhook送信先「CareLink本番Webhook」`/api/payment/webhook`。Stripe Dashboardでは7イベントを購読設定済み（checkout.session.completed / customer.subscription.created・updated・deleted / invoice.payment_succeeded・failed / payment_intent.payment_failed）が、コードで実際にハンドリングしているのは3イベント（`checkout.session.completed` / `payment_intent.payment_failed` / `charge.refunded`）のみ。残りはINSERT後ノーオペで冪等記録のみ。本番化は審査後 |
 | LINE OAuthログイン | ✅ 設定済み | NEXT_PUBLIC_LINE_CHANNEL_ID=2009692936/LINE_CHANNEL_SECRET設定済み（2026-04-07）。コールバックURL `https://carelink-jp.com/api/auth/callback/line` 登録済み |
 | Resend | ✅ 設定済み | RESEND_API_KEY設定済み。EMAIL_FROM=`CareLink <noreply@carelink-jp.com>`。ドメイン `carelink-jp.com` Resend verified（DKIM/SPF設定済み、2026-04-14）。Supabase Auth カスタムSMTP も `smtp.resend.com` 経由に設定済み |
-| Jest + CI/CD | ✅ 設定済み | 200テスト（20スイート）、GitHub Actions CI（booking dateテスト修正済み） |
+| Jest + CI/CD | ✅ 設定済み | 3147テスト（169スイート）、全APIルート125本カバレッジ済み、GitHub Actions CI稼働中 |
 | Google Maps API（Places API） | ✅ 設定済み | `GOOGLE_MAPS_API_KEY` Vercel設定済み。GBP管理ページでPlace詳細取得・スコア計算・Google口コミ表示に使用（v8.12） |
 
 ---
@@ -2487,7 +2487,7 @@ git push origin main
 npm run build      # ローカルビルド
 npx tsc --noEmit   # 型チェックのみ
 npm run lint        # ESLint
-npm test           # Jest テスト（200テスト）
+npm test           # Jest テスト（3147テスト・169スイート）
 npm run test:ci    # CI用テスト（single run）
 ```
 
@@ -2517,30 +2517,36 @@ SQL:       SQL Editor
 
 設定: `jest.config.js`（jsdom環境、`@/*`パスエイリアス、uncrypto ESM対応）
 
-### 20.2 テストスイート（200テスト / 20スイート）
+### 20.2 テストスイート（3147テスト / 169スイート）
+
+**カバレッジ**: 全APIルート125本すべてテスト済み（各ルートに `__tests__/route.test.ts` 配置）
+
+| カテゴリ | スイート数 | 内容 |
+|---------|:-------:|------|
+| `lib/__tests__/` | 24 | バリデーション・DB関数・メール・Push・SEO・レートリミット・認証等 |
+| `components/__tests__/` | 1 | UIコンポーネント（Spinner） |
+| `app/api/admin/__tests__/` | 60+ | admin系全ルート（IDOR・権限・データ整合性） |
+| `app/api/booking/__tests__/` | 5 | 予約作成・変更・キャンセル・iCal・CAS二重完了 |
+| `app/api/cron/__tests__/` | 11 | 全cronジョブ（バースデー・リマインド・RFM等） |
+| `app/api/liff/__tests__/` | 5 | LIFF認証・予約・クーポン・ポイント |
+| `app/api/stripe/__tests__/` | 3 | Stripe Checkout・Webhook冪等性・領収書 |
+| `app/api/その他/__tests__/` | 60+ | availability・group-booking・waitlist・nps・レート制限等 |
+
+**E2Eテスト（Playwright）**: 11スイート・91テスト（`e2e/` ディレクトリ）
 
 | ファイル | テスト数 | 内容 |
 |---------|:-------:|------|
-| `lib/__tests__/validations.test.ts` | 20 | step1/step2/step3スキーマ + formatPhone |
-| `lib/__tests__/validations-booking.test.ts` | 12 | bookingSchema |
-| `lib/__tests__/validations-inquiry.test.ts` | 11 | inquirySchema電話番号バリデーション |
-| `lib/__tests__/validations-auth.test.ts` | 10 | loginSchema / signupSchema |
-| `lib/__tests__/constants.test.ts` | 15 | UUID_REGEX、prefectures 47、businessTypes、regionGroups、dayOrder/dayLabels、SITE_URL |
-| `lib/__tests__/csrf.test.ts` | 8 | CSRF検証 |
-| `lib/__tests__/rate-limit.test.ts` | 3 | in-memoryフォールバック |
-| `lib/__tests__/rate-limit-advanced.test.ts` | 4 | window expiry、limit=0、empty IP、checkRateLimitフォールバック |
-| `lib/__tests__/email.test.ts` | 11 | メール送信テスト |
-| `lib/__tests__/email-utils.test.ts` | 14 | メールユーティリティ |
-| `lib/__tests__/facilities.test.ts` | 17 | 施設DBクエリ |
-| `lib/__tests__/staff.test.ts` | 6 | スタッフDBクエリ |
-| `lib/__tests__/coupons.test.ts` | 9 | クーポンDBクエリ |
-| `lib/__tests__/push.test.ts` | 4 | Web Push送信 |
-| `lib/__tests__/seo-constants.test.ts` | 21 | prefectureSlugs、businessTypeSlugs、変換関数 |
-| `components/__tests__/Spinner.test.tsx` | 3 | Spinnerコンポーネント |
-| `app/api/booking/__tests__/route.test.ts` | 13 | 予約作成API |
-| `app/api/booking/[id]/cancel/__tests__/route.test.ts` | 8 | 予約キャンセルAPI |
-| `app/api/favorites/__tests__/route.test.ts` | 6 | お気に入りAPI |
-| `app/api/facilities/suggest/__tests__/route.test.ts` | 5 | オートコンプリートAPI |
+| `e2e/security.spec.ts` | 18 | XSS・CSRF・IDOR・認証バイパス |
+| `e2e/performance.spec.ts` | 12 | Core Web Vitals・LCP・TTFB |
+| `e2e/accessibility.spec.ts` | 15 | WCAG 2.1・キーボードナビ・スクリーンリーダー |
+| `e2e/concurrent-booking.spec.ts` | 7 | 同時予約競合・二重ブッキング防止 |
+| `e2e/api-contract.spec.ts` | 11 | APIレスポンス形式・ステータスコード |
+| `e2e/payment.spec.ts` | 9 | Stripeチェックアウト・Webhook |
+| `e2e/booking.spec.ts` | 3 | 予約フロー全体 |
+| `e2e/auth.spec.ts` | 4 | ログイン・サインアップ |
+| `e2e/search.spec.ts` | 4 | 施設検索・フィルタ |
+| `e2e/homepage.spec.ts` | 5 | トップページ表示 |
+| `e2e/facility.spec.ts` | 3 | 施設詳細ページ |
 
 ### 20.3 CI/CD（GitHub Actions）
 
