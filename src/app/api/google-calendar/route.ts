@@ -6,10 +6,6 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import crypto from 'crypto';
 
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-// GOOGLE_CLIENT_SECRET is used in the callback route, not here
-const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
-
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/calendar.readonly',
@@ -50,7 +46,8 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  if (!GOOGLE_CLIENT_ID) {
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  if (!googleClientId) {
     return NextResponse.json({ error: 'Google Calendar integration not configured' }, { status: 503 });
   }
 
@@ -67,6 +64,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Generate OAuth2 authorization URL with CSRF-safe state
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
   const nonce = crypto.randomBytes(32).toString('hex');
   const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now(), nonce })).toString('base64url');
 
@@ -80,8 +78,8 @@ export async function POST(req: NextRequest) {
   });
 
   const authUrl = new URL('https://accounts.google.com/o/oauth2/v2/auth');
-  authUrl.searchParams.set('client_id', GOOGLE_CLIENT_ID);
-  authUrl.searchParams.set('redirect_uri', REDIRECT_URI);
+  authUrl.searchParams.set('client_id', googleClientId);
+  authUrl.searchParams.set('redirect_uri', redirectUri);
   authUrl.searchParams.set('response_type', 'code');
   authUrl.searchParams.set('scope', SCOPES);
   authUrl.searchParams.set('access_type', 'offline');

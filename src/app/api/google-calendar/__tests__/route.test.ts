@@ -260,4 +260,73 @@ describe('POST /api/google-calendar', () => {
 
     expect(checkCsrf).toHaveBeenCalled();
   });
+
+  test('disconnect action → deletes token and returns ok', async () => {
+    const res = await POST(makePostRequest({ action: 'disconnect' }) as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.ok).toBe(true);
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  test('disconnect action with DB error → 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => ({
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ error: { message: 'DB error' } }),
+        }),
+      })),
+    });
+
+    const res = await POST(makePostRequest({ action: 'disconnect' }) as any);
+
+    expect(res.status).toBe(500);
+  });
+
+  test('generates OAuth URL with authUrl field', async () => {
+    const res = await POST(makePostRequest({}) as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.authUrl).toContain('accounts.google.com');
+    expect(json.authUrl).toContain('test-client-id');
+  });
+
+  test('OAuth URL includes required params (scope, access_type, response_type)', async () => {
+    const res = await POST(makePostRequest({}) as any);
+
+    const json = await res.json();
+    const url = new URL(json.authUrl);
+    expect(url.searchParams.get('response_type')).toBe('code');
+    expect(url.searchParams.get('access_type')).toBe('offline');
+    expect(url.searchParams.get('prompt')).toBe('consent');
+    expect(url.searchParams.get('scope')).toContain('calendar');
+  });
+
+  test('OAuth URL state param encodes userId', async () => {
+    const res = await POST(makePostRequest({}) as any);
+
+    const json = await res.json();
+    const url = new URL(json.authUrl);
+    const stateRaw = url.searchParams.get('state')!;
+    const decoded = JSON.parse(Buffer.from(stateRaw, 'base64url').toString());
+    expect(decoded.userId).toBe('user-123');
+    expect(decoded.nonce).toBeDefined();
+  });
+
+  test('OAuth URL sets google_oauth_state cookie', async () => {
+    const { cookies } = require('next/headers');
+    const mockSet = jest.fn();
+    cookies.mockResolvedValue({ set: mockSet });
+
+    await POST(makePostRequest({}) as any);
+
+    expect(mockSet).toHaveBeenCalledWith(
+      'google_oauth_state',
+      expect.any(String),
+      expect.objectContaining({ httpOnly: true, maxAge: 600 })
+    );
+  });
 });

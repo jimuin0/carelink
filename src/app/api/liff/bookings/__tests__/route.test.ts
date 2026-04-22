@@ -124,13 +124,18 @@ function makeRequest(
     ? `http://localhost/api/liff/bookings?booking_id=${bookingId}`
     : 'http://localhost/api/liff/bookings';
 
-  return new Request(url, {
+  const req = new Request(url, {
     method: 'GET',
     headers: {
       ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       'x-forwarded-for': ip,
     },
   });
+
+  // Provide nextUrl for NextRequest compatibility
+  Object.defineProperty(req, 'nextUrl', { get: () => new URL(url) });
+
+  return req;
 }
 
 const BOOKING_UUID = '11111111-1111-1111-1111-111111111111';
@@ -209,9 +214,77 @@ describe('GET /api/liff/bookings', () => {
     expect(call[0]).toBe('unknown');
   });
 
+  test('invalid LINE token → 401', async () => {
+    setupDefaultMocks(false);
 
+    const res = await GET(makeRequest() as any);
 
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toBe('Unauthorized');
+  });
 
+  test('no booking_id → returns list of bookings', async () => {
+    setupDefaultMocks(true, true, true, true);
 
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(Array.isArray(json.bookings)).toBe(true);
+    expect(json.bookings).toHaveLength(1);
+    expect(json.bookings[0].id).toBe('booking-1');
+  });
+
+  test('no bookings found → returns empty array', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
+        return createChainableMock({ data: null, error: null });
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.bookings).toEqual([]);
+  });
+
+  test('booking_id (valid UUID) → returns single booking', async () => {
+    const res = await GET(makeRequest(BOOKING_UUID) as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.booking).toBeDefined();
+    expect(json.booking.id).toBe('booking-123');
+  });
+
+  test('booking_id not found → returns booking=null', async () => {
+    setupDefaultMocks(true, true, false);
+
+    const res = await GET(makeRequest(BOOKING_UUID) as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.booking).toBeNull();
+  });
+
+  test('booking_id invalid UUID → 400', async () => {
+    const res = await GET(makeRequest('not-a-uuid') as any);
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toBe('Invalid booking_id');
+  });
+
+  test('unexpected error → 500', async () => {
+    (global.fetch as jest.Mock).mockRejectedValue(new Error('Network failure'));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+  });
 
 });

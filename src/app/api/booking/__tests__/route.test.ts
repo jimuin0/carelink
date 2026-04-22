@@ -7,12 +7,12 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock('@/lib/email', () => ({
-  sendBookingConfirmation: jest.fn(),
-  sendNewBookingNotification: jest.fn(),
+  sendBookingConfirmation: jest.fn(() => Promise.resolve()),
+  sendNewBookingNotification: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@/lib/push', () => ({
-  sendPushToFacilityOwners: jest.fn(),
-  sendPushToUser: jest.fn(),
+  sendPushToFacilityOwners: jest.fn(() => Promise.resolve()),
+  sendPushToUser: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
 jest.mock('@/lib/line', () => ({
@@ -776,6 +776,81 @@ describe('POST /api/booking', () => {
 
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(409);
+  });
+
+  test('BOOKING_CONFLICT in error message (no 23505 code) → 409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_CONFLICT occurred', code: '99998' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+  });
+
+  test('認証済みユーザーの予約 → ユーザーへのプッシュ通知', async () => {
+    const { sendPushToUser } = require('@/lib/push');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-push-test' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: 'booking-push-test', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendPushToUser).toHaveBeenCalledWith('user-push-test', expect.objectContaining({ title: expect.any(String) }));
+  });
+
+  test('オーナーメール通知パス（owner_idあり、email取得）', async () => {
+    const { sendNewBookingNotification } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    // facility_profiles (auto-confirm) - null
+    // facility_members (owner) - returns owner data
+    // profiles (owner email) - returns email
+    const nullChain = fluent({ data: null });
+    const ownerChain = fluent({ data: { user_id: 'owner-id-1' } });
+    const ownerEmailChain = fluent({ data: { email: 'owner@example.com' } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return nullChain; // facility_profiles (auto-confirm)
+      // email lookups: facility_profiles, facility_menus, staff_profiles, facility_members
+      if (table === 'facility_members') return ownerChain;
+      if (table === 'profiles') return ownerEmailChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: 'booking-owner-test', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendNewBookingNotification).toHaveBeenCalled();
   });
 
   test('booking_auto_confirm=true→confirmed status', async () => {

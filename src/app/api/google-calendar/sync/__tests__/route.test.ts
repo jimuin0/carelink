@@ -213,3 +213,153 @@ test('DELETE: 正常削除 → 200 ok:true', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
 });
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(429);
+});
+
+test('POST: CSRF エラー → 403', async () => {
+  const { NextResponse } = jest.requireActual('next/server') as { NextResponse: typeof import('next/server').NextResponse };
+  (checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({ error: 'CSRF' }, { status: 403 }));
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(403);
+});
+
+test('POST: トークン期限切れ → リフレッシュして同期成功', async () => {
+  const expiredToken = { ...TOKEN_ROW, expires_at: new Date(Date.now() - 1000).toISOString() };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA);
+    if (callNum === 2) return singleChain(expiredToken);
+    if (callNum === 3) {
+      // token update after refresh
+      return {
+        update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }),
+      };
+    }
+    if (callNum === 4) return singleChain(null); // no existing calendar event
+    return { upsert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+
+  // First fetch: token refresh; second: create calendar event
+  mockFetch
+    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'new-token', expires_in: 3600 }) })
+    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 'new-event-id' }) });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.ok).toBe(true);
+});
+
+test('POST: 既存イベントあり → PUT で更新', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA);
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    return singleChain({ google_event_id: GOOGLE_EVENT_ID }); // existing event
+  });
+  mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ id: GOOGLE_EVENT_ID }) });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.googleEventId).toBe(GOOGLE_EVENT_ID);
+
+  // Verify PUT was called for update
+  const putCall = mockFetch.mock.calls.find((call) => call[1]?.method === 'PUT');
+  expect(putCall).toBeDefined();
+});
+
+test('POST: Google Calendar 新規作成失敗 → 500', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA);
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    return singleChain(null); // no existing event
+  });
+  mockFetch.mockResolvedValue({ ok: false, status: 403 });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+});
+
+test('POST: Google Calendar 更新失敗 → 500', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA);
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    return singleChain({ google_event_id: GOOGLE_EVENT_ID }); // existing event
+  });
+  mockFetch.mockResolvedValue({ ok: false, status: 403 });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+});
+
+test('DELETE: 不正なUUID → 400', async () => {
+  const url = new URL('http://localhost/api/google-calendar/sync');
+  url.searchParams.set('bookingId', 'not-a-uuid');
+  const req = new NextRequest(url.toString(), { method: 'DELETE' });
+  const res = await DELETE(req);
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: トークン期限切れ → リフレッシュして削除', async () => {
+  const expiredToken = { access_token: 'old-token', refresh_token: 'ref', expires_at: new Date(Date.now() - 1000).toISOString() };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID });
+    if (callNum === 2) return singleChain(expiredToken);
+    return {
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: null })),
+        }),
+      }),
+    };
+  });
+
+  mockFetch
+    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'new-token', expires_in: 3600 }) })
+    .mockResolvedValueOnce({ ok: true }); // DELETE event call
+
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+  expect(res.status).toBe(200);
+});
+
+test('POST: facility_profiles が配列の場合も正常に処理', async () => {
+  const bookingWithArrayProfile = {
+    ...BOOKING_DATA,
+    facility_profiles: [{ name: '施設A', address: '東京都渋谷区' }],
+    menus: [{ name: 'カット' }],
+  };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(bookingWithArrayProfile);
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    if (callNum === 3) return singleChain(null);
+    return { upsert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ id: 'event-array' }) });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(200);
+});

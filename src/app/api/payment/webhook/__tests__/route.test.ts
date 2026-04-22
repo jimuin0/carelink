@@ -363,4 +363,136 @@ describe('POST /api/payment/webhook', () => {
     const json = await res.json();
     expect(json.duplicate).toBe(true);
   });
+
+  describe('handleEvent — specific event types', () => {
+    function setupEventMock(eventType: string, dataObject: Record<string, unknown>) {
+      const Stripe = require('stripe');
+      Stripe.mockImplementation(() => ({
+        webhooks: {
+          constructEvent: jest.fn().mockReturnValue({
+            id: `evt_${eventType.replace(/\./g, '_')}`,
+            type: eventType,
+            data: { object: dataObject },
+          }),
+        },
+      }));
+    }
+
+    test('charge.refunded full refund → payment_status=refunded', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_refund_001',
+        amount: 5000,
+        amount_refunded: 5000,
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'refunded' });
+    });
+
+    test('charge.refunded partial refund → payment_status=partial_refund', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_refund_002',
+        amount: 5000,
+        amount_refunded: 2500,
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'partial_refund' });
+    });
+
+    test('charge.refunded without payment_intent → no DB update', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: null,
+        amount: 5000,
+        amount_refunded: 5000,
+      });
+
+      mockUpdate.mockClear();
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    test('charge.dispute.created → payment_status=disputed', async () => {
+      setupEventMock('charge.dispute.created', {
+        payment_intent: 'pi_dispute_001',
+        status: 'needs_response',
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'disputed' });
+    });
+
+    test('charge.dispute.created without payment_intent → no DB update', async () => {
+      setupEventMock('charge.dispute.created', {
+        payment_intent: null,
+        status: 'needs_response',
+      });
+
+      mockUpdate.mockClear();
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    test('charge.dispute.closed won → payment_status=paid', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dispute_won',
+        status: 'won',
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'paid' });
+    });
+
+    test('charge.dispute.closed lost → payment_status=dispute_lost', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dispute_lost',
+        status: 'lost',
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'dispute_lost' });
+    });
+
+    test('charge.dispute.closed without payment_intent → no DB update', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: null,
+        status: 'won',
+      });
+
+      mockUpdate.mockClear();
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    test('payment_intent.payment_failed without booking_id → updates by stripe_payment_intent_id', async () => {
+      setupEventMock('payment_intent.payment_failed', {
+        id: 'pi_fallback_001',
+        metadata: {},
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'failed' });
+    });
+  });
 });
