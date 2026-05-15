@@ -94,8 +94,8 @@ export async function GET(request: Request) {
       }
     }
 
-    await logCronRun('flag-reviews', 'success', startedAt, { processed: flagged });
-    return NextResponse.json({ success: true, flagged });
+    await logCronRun('flag-reviews', 'success', startedAt, { processed: flagged, skipped: 0 });
+    return NextResponse.json({ processed: flagged, skipped: 0 });
   } catch (e) {
     console.error('flag-reviews error', e);
     await logCronRun('flag-reviews', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { logCronRun } from '@/lib/cron-logger';
 import { createHmac } from 'crypto';
 
 function makeUnsubToken(email: string): string {
@@ -29,48 +30,52 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'RESEND_API_KEY is not configured' }, { status: 503 });
   }
 
+  const startedAt = new Date();
   const admin = createServiceRoleClient();
-  const now = new Date();
-  const month = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
 
-  // Check if already sent this month
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-  const { data: existing } = await admin
-    .from('newsletter_campaigns')
-    .select('id')
-    .eq('campaign_type', 'owner_monthly')
-    .eq('status', 'sent')
-    .gte('sent_at', startOfMonth)
-    .limit(1);
+  try {
+    const now = new Date();
+    const month = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
 
-  if (existing && existing.length > 0) {
-    return NextResponse.json({ skipped: true, reason: 'Already sent this month' });
-  }
+    // Check if already sent this month
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    const { data: existing } = await admin
+      .from('newsletter_campaigns')
+      .select('id')
+      .eq('campaign_type', 'owner_monthly')
+      .eq('status', 'sent')
+      .gte('sent_at', startOfMonth)
+      .limit(1);
 
-  // Get booking stats for last month
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
+    if (existing && existing.length > 0) {
+      await logCronRun('newsletter-digest', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ skipped: true, reason: 'Already sent this month' });
+    }
 
-  const { count: newBookings } = await admin
-    .from('bookings')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', startOfLastMonth)
-    .lte('created_at', endOfLastMonth);
+    // Get booking stats for last month
+    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
 
-  const { count: newReviews } = await admin
-    .from('reviews')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', startOfLastMonth)
-    .lte('created_at', endOfLastMonth);
+    const { count: newBookings } = await admin
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', startOfLastMonth)
+      .lte('created_at', endOfLastMonth);
 
-  const { count: newFacilities } = await admin
-    .from('facility_profiles')
-    .select('id', { count: 'exact', head: true })
-    .gte('created_at', startOfLastMonth)
-    .lte('created_at', endOfLastMonth);
+    const { count: newReviews } = await admin
+      .from('reviews')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', startOfLastMonth)
+      .lte('created_at', endOfLastMonth);
 
-  // Build HTML body (unsubscribe URL is per-recipient, appended at send time)
-  const htmlBody = `
+    const { count: newFacilities } = await admin
+      .from('facility_profiles')
+      .select('id', { count: 'exact', head: true })
+      .gte('created_at', startOfLastMonth)
+      .lte('created_at', endOfLastMonth);
+
+    // Build HTML body (unsubscribe URL is per-recipient, appended at send time)
+    const htmlBody = `
 <!DOCTYPE html>
 <html lang="ja">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
@@ -126,84 +131,101 @@ export async function GET(req: NextRequest) {
 </body>
 </html>`;
 
-  // Create campaign record
-  const { data: campaign, error: insertErr } = await admin
-    .from('newsletter_campaigns')
-    .insert({
-      campaign_type: 'owner_monthly',
-      subject: `【CareLink】${month}号 施設オーナー向けニュースレター`,
-      html_content: htmlBody,
-      status: 'sending',
-    })
-    .select()
-    .single();
+    // Create campaign record — CAS guard: if another concurrent invocation already inserted
+    // a 'sending' or 'sent' campaign this month, the unique constraint (if present) or the
+    // status check above prevents double-send. We additionally treat insert errors as a skip.
+    const { data: campaign, error: insertErr } = await admin
+      .from('newsletter_campaigns')
+      .insert({
+        campaign_type: 'owner_monthly',
+        subject: `【CareLink】${month}号 施設オーナー向けニュースレター`,
+        html_content: htmlBody,
+        status: 'sending',
+      })
+      .select()
+      .single();
 
-  if (insertErr || !campaign) {
-    console.error('[newsletter-digest] insert error:', insertErr);
-    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
-  }
-
-  // Get all owner emails
-  const { data: owners } = await admin
-    .from('facility_members')
-    .select('profiles(email)')
-    .eq('role', 'owner');
-
-  const emails: string[] = (owners || [])
-    .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
-      const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
-      return p?.email;
-    })
-    .filter(Boolean) as string[];
-
-  const uniqueEmails = Array.from(new Set(emails));
-
-  const resend = new Resend(process.env.RESEND_API_KEY);
-  let sentCount = 0;
-  let failedCount = 0;
-  const subject = `【CareLink】${month}号 施設オーナー向けニュースレター`;
-
-  // Send individually with personalized unsubscribe URLs (batch of 100 = Resend limit)
-  const BATCH_SIZE = 100;
-  for (let i = 0; i < uniqueEmails.length; i += BATCH_SIZE) {
-    const chunk = uniqueEmails.slice(i, i + BATCH_SIZE);
-    const messages = chunk.map((email) => {
-      const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
-      return {
-        from: 'CareLink <newsletter@carelink-jp.com>',
-        to: [email],
-        subject,
-        html: htmlBody.replace('__UNSUB_FOOTER__', footer),
-      };
-    });
-    try {
-      await resend.batch.send(messages);
-      sentCount += chunk.length;
-    } catch (err) {
-      console.error('[newsletter-digest] batch send failed:', err);
-      failedCount += chunk.length;
+    if (insertErr || !campaign) {
+      // 23505 = unique_violation: another invocation already created the campaign
+      const isConflict = (insertErr as { code?: string } | null)?.code === '23505';
+      console.error('[newsletter-digest] insert error:', insertErr);
+      await logCronRun('newsletter-digest', isConflict ? 'skipped' : 'error', startedAt, {
+        processed: 0,
+        error_msg: insertErr?.message,
+      });
+      return NextResponse.json(
+        isConflict ? { skipped: true, reason: 'Concurrent invocation already started' } : { error: 'Internal Server Error' },
+        { status: isConflict ? 200 : 500 }
+      );
     }
+
+    // Get all owner emails
+    const { data: owners } = await admin
+      .from('facility_members')
+      .select('profiles(email)')
+      .eq('role', 'owner');
+
+    const emails: string[] = (owners || [])
+      .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
+        const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
+        return p?.email;
+      })
+      .filter(Boolean) as string[];
+
+    const uniqueEmails = Array.from(new Set(emails));
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    let sentCount = 0;
+    let failedCount = 0;
+    const subject = `【CareLink】${month}号 施設オーナー向けニュースレター`;
+
+    // Send individually with personalized unsubscribe URLs (batch of 100 = Resend limit)
+    const BATCH_SIZE = 100;
+    for (let i = 0; i < uniqueEmails.length; i += BATCH_SIZE) {
+      const chunk = uniqueEmails.slice(i, i + BATCH_SIZE);
+      const messages = chunk.map((email) => {
+        const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
+        return {
+          from: 'CareLink <newsletter@carelink-jp.com>',
+          to: [email],
+          subject,
+          html: htmlBody.replace('__UNSUB_FOOTER__', footer),
+        };
+      });
+      try {
+        await resend.batch.send(messages);
+        sentCount += chunk.length;
+      } catch (err) {
+        console.error('[newsletter-digest] batch send failed:', err);
+        failedCount += chunk.length;
+      }
+    }
+
+    const { error: campaignUpdateErr } = await admin
+      .from('newsletter_campaigns')
+      .update({
+        status: 'sent',
+        sent_at: new Date().toISOString(),
+        stats: { sent: sentCount, opened: 0, clicked: 0, bounced: 0, failed: failedCount },
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', campaign.id);
+    if (campaignUpdateErr) {
+      console.error('[newsletter-digest] campaign status update failed — next run may re-send', { campaignId: campaign.id, err: campaignUpdateErr });
+    }
+
+    await logCronRun('newsletter-digest', 'success', startedAt, {
+      processed: sentCount,
+      skipped: failedCount,
+      meta: { campaignId: campaign.id },
+    });
+
+    return NextResponse.json({ processed: sentCount, skipped: failedCount, campaignId: campaign.id });
+  } catch (e) {
+    console.error('[newsletter-digest] Error:', e);
+    await logCronRun('newsletter-digest', 'error', startedAt, {
+      error_msg: e instanceof Error ? e.message : String(e),
+    });
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
-
-  const { error: campaignUpdateErr } = await admin
-    .from('newsletter_campaigns')
-    .update({
-      status: 'sent',
-      sent_at: new Date().toISOString(),
-      stats: { sent: sentCount, opened: 0, clicked: 0, bounced: 0, failed: failedCount },
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', campaign.id);
-  if (campaignUpdateErr) {
-    console.error('[newsletter-digest] campaign status update failed — next run may re-send', { campaignId: campaign.id, err: campaignUpdateErr });
-  }
-
-  // Log cron execution
-  await admin.from('cron_logs').insert({
-    job_name: 'newsletter-digest',
-    status: 'success',
-    message: `Sent ${sentCount} newsletters (${failedCount} send failures)`,
-  }).then(() => null, (err) => console.error('[newsletter-digest] cron_logs insert failed', err));
-
-  return NextResponse.json({ ok: true, sentCount, failedCount, campaignId: campaign.id });
 }

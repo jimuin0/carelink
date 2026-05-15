@@ -314,4 +314,17 @@ describe('GET /api/cron/waitlist-notify', () => {
 
     expect(mockSelectFacility).toHaveBeenCalled();
   });
+
+  test('非 Error スロー → String() フォールバック → 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => { throw 'string error'; }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal error');
+  });
 });

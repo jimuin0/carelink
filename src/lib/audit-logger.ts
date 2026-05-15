@@ -35,6 +35,13 @@ export interface AuditLogEntry {
 /**
  * 監査ログを記録する（fire-and-forget）
  * ログ失敗でも本体処理を止めない
+ *
+ * @example
+ *   // 正しい使い方: void を付けて await しない（fire-and-forget）
+ *   void writeAuditLog({ action: 'update', tableName: 'bookings', ... });
+ *
+ *   // 誤った使い方（呼び出し元がログ完了を待ってしまう）:
+ *   // await writeAuditLog(...);  ← 不要な await
  */
 export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
   try {

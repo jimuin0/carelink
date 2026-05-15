@@ -607,6 +607,69 @@ describe('POST /api/booking/[id]/cancel', () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
   });
 
+  test('LINE通知: menu_id あり → facility_menus からメニュー名を取得して通知', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    const { sendBookingCancellation } = require('@/lib/line');
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    const eqChain = (data: unknown) => ({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data }),
+      maybeSingle: jest.fn().mockResolvedValue({ data }),
+      limit: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: null }) }),
+    });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: 'menu-line-1', staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      // For supabase (non-admin) calls in email/LINE path: facility_profiles, facility_menus, facility_members
+      if (table === 'facility_menus') return eqChain({ name: 'カット' });
+      if (table === 'facility_profiles') return eqChain({ name: 'Salon X' });
+      return eqChain(null);
+    });
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'line_user_links') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { line_user_id: 'U_line_abc' } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancellation).toHaveBeenCalledWith('U_line_abc', expect.objectContaining({ menuName: 'カット' }));
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
   test('LINE通知: line_user_id なし → sendLineCancellation 呼ばれない', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
     const { sendBookingCancellation } = require('@/lib/line');
@@ -647,4 +710,158 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendBookingCancellation).not.toHaveBeenCalled();
 
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  test('LINE Works: menu_id ありでメニュー名を取得して通知', async () => {
+    const { isLineWorksConfigured, notifyCancellationLineWorks } = require('@/lib/integrations/line-works');
+    (isLineWorksConfigured as jest.Mock).mockReturnValue(true);
+    (notifyCancellationLineWorks as jest.Mock).mockResolvedValue(undefined);
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: 'menu-lw-1', staff_id: 'staff-lw',
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'staff_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [{ id: 'staff-lw', line_works_channel_id: 'ch-lw-001', line_works_notify_all: true }],
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'facility_menus') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { name: 'カラー' } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(notifyCancellationLineWorks).toHaveBeenCalledWith('ch-lw-001', expect.objectContaining({ menuName: 'カラー' }));
+  });
+
+  test('LINE Works: notifyCancellationLineWorks が reject → Sentry.captureException', async () => {
+    const { isLineWorksConfigured, notifyCancellationLineWorks } = require('@/lib/integrations/line-works');
+    const Sentry = require('@sentry/nextjs');
+    (isLineWorksConfigured as jest.Mock).mockReturnValue(true);
+    (notifyCancellationLineWorks as jest.Mock).mockRejectedValue(new Error('LW send error'));
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: 'staff-assigned',
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'staff_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [{ id: 'staff-assigned', line_works_channel_id: 'ch-reject', line_works_notify_all: false }],
+              }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(Sentry.captureException).toHaveBeenCalled();
+  });
+
+  test('LINE Works: adminSupabase が throw → 外側 catch → Sentry + 200', async () => {
+    const { isLineWorksConfigured } = require('@/lib/integrations/line-works');
+    const Sentry = require('@sentry/nextjs');
+    (isLineWorksConfigured as jest.Mock).mockReturnValue(true);
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+
+    const { createClient } = require('@supabase/supabase-js');
+    (createClient as jest.Mock).mockImplementationOnce(() => ({
+      from: jest.fn(() => { throw new Error('admin client exploded'); }),
+    })).mockImplementation(() => ({ from: (...args: any[]) => mockAdminFrom(...args) }));
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(Sentry.captureException).toHaveBeenCalled();
   });

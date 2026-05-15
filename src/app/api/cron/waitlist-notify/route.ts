@@ -66,7 +66,9 @@ export async function GET(request: Request) {
           .from('facility_profiles')
           .select('name, slug')
           .eq('id', cancel.facility_id)
-          .single();
+          .maybeSingle();
+
+        if (!facility) continue;
 
         for (const waiter of waiters) {
           // Atomic claim: only send if we win the status transition (CAS guard).
@@ -87,7 +89,7 @@ export async function GET(request: Request) {
           if (!claimed || claimed.length === 0) continue;
 
           // メール通知
-          if (waiter.email && resend && facility) {
+          if (waiter.email && resend) {
             const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
             await resend.emails.send({
               from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
@@ -110,7 +112,7 @@ export async function GET(request: Request) {
       meta: { expired: expiredCount ?? 0 },
     });
 
-    return NextResponse.json({ notified, expired: expiredCount ?? 0 });
+    return NextResponse.json({ processed: notified, skipped: 0, expired: expiredCount ?? 0 });
   } catch (e) {
     await logCronRun('waitlist-notify', 'error', startedAt, {
       error_msg: e instanceof Error ? e.message : String(e),

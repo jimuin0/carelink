@@ -8,6 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX } from '@/lib/constants';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -73,6 +74,16 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await admin.from('coupons').insert(rows).select('id');
   if (error) return NextResponse.json({ error: 'クーポン作成に失敗しました' }, { status: 500 });
+
+  const { ip: auditIp, ua } = getRequestContext(req);
+  void writeAuditLog({
+    userId: user.id,
+    action: 'create',
+    tableName: 'coupons',
+    newValues: { name: name.trim(), discount_type, facility_ids, count: data?.length ?? 0 },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
 
   return NextResponse.json({ ok: true, created: data?.length ?? 0 }, { status: 201 });
 }

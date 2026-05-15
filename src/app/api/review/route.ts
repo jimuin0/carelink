@@ -11,6 +11,7 @@ import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,13 +54,15 @@ export async function POST(request: Request) {
   }
 
   const cookieStore = await cookies();
-  const supabase = createServerClient(
+  // auth.getUser() は anon key クライアントで行う（service role でも動作するが設計上分離）
+  const authClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
+  const supabase = createServiceRoleClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await authClient.auth.getUser();
 
   // 24h内に同一施設への投稿チェック
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();

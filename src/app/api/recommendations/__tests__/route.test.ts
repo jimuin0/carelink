@@ -247,4 +247,196 @@ describe('GET /api/recommendations', () => {
 
     expect(mockFavoritesSelect().eq().limit).toHaveBeenCalledWith(20);
   });
+
+  test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/recommendations', { method: 'GET' });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('facility_profiles が null → processEntry で早期 return', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    const bookingsWithNullProfile = [{ facility_id: 'fac-1', facility_profiles: null }];
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ data: bookingsWithNullProfile }),
+        }),
+      }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: [{ id: 'pop-1' }] }),
+    });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // Null profile → no type/pref collected → popular fallback
+    expect(json.type).toBe('popular');
+  });
+
+  test('bookings が null → ?? [] フォールバック', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ data: null }), // null bookings
+        }),
+      }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: null }) }), // null favorites
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: null }), // null popular data
+    });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // null bookings/favorites → no history → popular fallback → null data → ?? []
+    expect(json.recommendations).toEqual([]);
+    expect(json.type).toBe('popular');
+  });
+
+  test('topType あり・topPref なし → prefecture eq をスキップ', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    // Bookings with business_type but missing prefecture/city
+    const bookingsTypeOnly = [
+      { facility_id: 'fac-1', facility_profiles: { id: 'fac-1', business_type: 'acupuncture', prefecture: '', city: '' } },
+    ];
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ data: bookingsTypeOnly }),
+        }),
+      }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: null }), // null type matches
+    });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.type).toBe('personalized');
+  });
+
+  test('topType なし・topPref あり → business_type eq をスキップ', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    // Booking with empty-string business_type (falsy) but valid prefecture
+    const bookingsPrefOnly = [
+      { facility_id: 'fac-1', facility_profiles: { id: 'fac-1', business_type: '', prefecture: '東京都', city: '渋谷区' } },
+    ];
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ data: bookingsPrefOnly }),
+        }),
+      }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: [] }),
+    });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.type).toBe('personalized');
+  });
+
+  test('filtered が limit 以上 → 補完クエリをスキップ', async () => {
+    const { createClient } = require('@supabase/supabase-js');
+    // Bookings with type+pref
+    const bookingsData = [
+      { facility_id: 'fac-1', facility_profiles: { id: 'fac-1', business_type: 'acupuncture', prefecture: '東京都', city: '渋谷区' } },
+    ];
+    // 6 unique results (>= limit of 6)
+    const manyResults = Array.from({ length: 6 }, (_, i) => ({ id: `rec-${i}` }));
+    const mockBkSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          limit: jest.fn().mockResolvedValue({ data: bookingsData }),
+        }),
+      }),
+    });
+    const mockFavSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+    });
+    const mockPopEq = jest.fn();
+    const mockPopOrder = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: manyResults }),
+    });
+    mockPopEq.mockReturnValue({ eq: mockPopEq, order: mockPopOrder });
+    const mockPopSel = jest.fn().mockReturnValue({ eq: mockPopEq });
+
+    createClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBkSelect };
+        if (table === 'favorites') return { select: mockFavSelect };
+        if (table === 'facility_card_view') return { select: mockPopSel };
+      }),
+    });
+
+    const res = await GET(makeRequest(6) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.recommendations.length).toBe(6);
+  });
 });

@@ -9,12 +9,12 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 10, 60_000, 'liff-link')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(req);
-  if (csrfError) return csrfError;
   try {
     const supabase = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabase.auth.getUser();

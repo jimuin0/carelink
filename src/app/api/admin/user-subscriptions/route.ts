@@ -70,12 +70,12 @@ export async function GET(request: NextRequest) {
 
 // 管理者がユーザーにサブスクを付与
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 20, 60_000, 'user-subscriptions-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -126,12 +126,12 @@ export async function POST(request: NextRequest) {
 
 // 1回セッション使用
 export async function PATCH(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 30, 60_000, 'user-subscriptions-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

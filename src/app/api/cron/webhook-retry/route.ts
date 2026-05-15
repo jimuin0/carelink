@@ -89,7 +89,7 @@ export async function GET(request: Request) {
       meta: { total: jobs.length },
     });
 
-    return NextResponse.json({ processed: success, failed });
+    return NextResponse.json({ processed: success, skipped: failed });
   } catch (e) {
     await logCronRun('webhook-retry', 'error', startedAt, {
       error_msg: e instanceof Error ? e.message : String(e),

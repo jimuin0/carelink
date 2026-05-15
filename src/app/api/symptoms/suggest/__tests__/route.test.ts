@@ -79,6 +79,11 @@ describe('POST /api/symptoms/suggest', () => {
     expect(res.status).toBe(200);
   });
 
+  test('prefecture あり → プロンプトに都道府県を含む', async () => {
+    const res = await POST(makeRequest({ symptoms: '腰が痛い', prefecture: '東京都' }) as any);
+    expect(res.status).toBe(200);
+  });
+
   test('valid request → 200', async () => {
     const res = await POST(makeRequest(validRequest) as any);
     expect(res.status).toBe(200);
@@ -130,5 +135,33 @@ describe('POST /api/symptoms/suggest', () => {
     });
     const res = await POST(req as any);
     expect(res.status).toBe(400);
+  });
+
+  test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/symptoms/suggest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validRequest),
+    });
+    POST(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('AI レスポンスに JSON なし → 500', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'text', text: 'JSONがありません' }],
+    });
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('AI レスポンスが text 以外の type → text は空文字、JSONなし → 500', async () => {
+    mockCreate.mockResolvedValue({
+      content: [{ type: 'tool_use', text: undefined }],
+    });
+    const res = await POST(makeRequest(validRequest) as any);
+    expect(res.status).toBe(500);
   });
 });

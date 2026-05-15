@@ -24,7 +24,10 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const sessionId = request.nextUrl.searchParams.get('session_id');
-  if (!sessionId || sessionId.length > 200) return NextResponse.json({ error: 'session_id required' }, { status: 400 });
+  // Stripe Checkout Session IDs start with "cs_" and are at most ~200 chars
+  if (!sessionId || sessionId.length > 200 || !/^cs_[a-zA-Z0-9_]+$/.test(sessionId)) {
+    return NextResponse.json({ error: 'session_id required' }, { status: 400 });
+  }
 
   const admin = createServiceRoleClient();
 

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const telehealthSchema = z.object({
   user_id: z.string().uuid().optional().nullable(),
@@ -19,7 +20,7 @@ const telehealthSchema = z.object({
   fee: z.number().int().min(0).max(9999999).optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -35,7 +36,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { facilityId: data.facility_id, userId: user.id } : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -47,29 +48,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = telehealthSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
+  const admin = createServiceRoleClient();
+
   // If user_id provided, verify they belong to this facility via a booking
   if (parsed.data.user_id) {
-    const admin = createServiceRoleClient();
     const { data: booking } = await admin
       .from('bookings')
       .select('id')
-      .eq('facility_id', facilityId)
+      .eq('facility_id', auth.facilityId)
       .eq('user_id', parsed.data.user_id)
       .limit(1)
       .maybeSingle();
     if (!booking) return NextResponse.json({ error: 'このユーザーはこの施設に予約がありません' }, { status: 403 });
   }
 
-  const admin = createServiceRoleClient();
   const { data, error } = await admin.from('telehealth_sessions').insert({
-    facility_id: facilityId,
+    facility_id: auth.facilityId,
     user_id: parsed.data.user_id ?? null,
     scheduled_at: parsed.data.scheduled_at,
     duration_minutes: parsed.data.duration_minutes,
@@ -80,5 +81,16 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'create',
+    tableName: 'telehealth_sessions',
+    recordId: data.id,
+    newValues: { user_id: parsed.data.user_id ?? null, scheduled_at: parsed.data.scheduled_at, duration_minutes: parsed.data.duration_minutes },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ session: data }, { status: 201 });
 }

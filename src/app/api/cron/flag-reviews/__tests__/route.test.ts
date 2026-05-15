@@ -254,4 +254,37 @@ describe('GET /api/cron/flag-reviews', () => {
 
     expect(res.status).toBe(200);
   });
+
+  test('update エラー → console.error してフラグ数に加算しない', async () => {
+    mockUpdateReviews = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_reviews') {
+        return {
+          select: (...args: any[]) => mockSelectReviews(...args),
+          update: (...args: any[]) => mockUpdateReviews(...args),
+        };
+      }
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.flagged).toBe(0); // updateErr → flagged not incremented
+  });
+
+  test('非 Error スロー → String() フォールバック', async () => {
+    mockRpcDelegate.mockImplementation(() => { throw 'rpc string error'; });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'flag-reviews', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'rpc string error' })
+    );
+  });
 });

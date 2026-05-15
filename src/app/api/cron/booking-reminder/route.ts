@@ -106,7 +106,7 @@ export async function GET(request: Request) {
       skipped,
       meta: { total_bookings: bookings.length },
     });
-    return NextResponse.json({ sent, skipped, total: bookings.length });
+    return NextResponse.json({ processed: sent, skipped, total: bookings.length });
   } catch (e) {
     Sentry.captureException(e, { tags: { feature: 'booking-reminder-cron' } });
     await logCronRun('booking-reminder', 'error', startedAt, {

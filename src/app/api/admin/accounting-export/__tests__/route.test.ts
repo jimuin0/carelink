@@ -239,3 +239,108 @@ test('GET: writeAuditLog が呼ばれる', async () => {
   await new Promise(r => setTimeout(r, 10));
   expect(writeAuditLog).toHaveBeenCalled();
 });
+
+// ─── Parameter validation (additional) ────────────────────────────────────────
+
+test('GET: from が不正な日付形式 → 400', async () => {
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, from: 'not-a-date' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: to が不正な日付形式 → 400', async () => {
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, to: 'not-a-date' }));
+  expect(res.status).toBe(400);
+});
+
+// ─── Null fallback branches in CSV generation ──────────────────────────────────
+
+test('GET: bookingsがnullのとき空CSVを返す', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain(null as unknown as unknown[]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('取引日');
+});
+
+test('GET: freee形式 fromなし → filenameにallを使う', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee' }));
+  expect(res.status).toBe(200);
+  expect(res.headers.get('Content-Disposition')).toContain('all');
+});
+
+test('GET: freee形式 profiles配列・null値フィールド', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b1',
+    created_at: '2026-01-01T10:00:00Z',
+    menu_name: null,
+    total_amount: null,
+    status: 'completed',
+    profiles: [{ display_name: null, email: null }],
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('2026');
+});
+
+test('GET: mf形式 fromなし・null値フィールド', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b1',
+    created_at: '2026-01-01T10:00:00Z',
+    menu_name: null,
+    total_amount: null,
+    status: 'confirmed',
+    profiles: [{ display_name: null }],
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'mf' }));
+  expect(res.status).toBe(200);
+  expect(res.headers.get('Content-Disposition')).toContain('all');
+});
+
+test('GET: generic形式 fromなし・null値フィールド', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b1',
+    created_at: '2026-01-01T10:00:00Z',
+    menu_name: null,
+    total_amount: null,
+    status: 'completed',
+    profiles: [{ display_name: null, email: null }],
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  expect(res.headers.get('Content-Disposition')).toContain('all');
+});
+
+test('GET: mf形式 bookingsがnull → 空CSV', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain(null as unknown as unknown[]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'mf' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('借方勘定科目');
+});
+
+test('GET: generic形式 bookingsがnull → 空CSV', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain(null as unknown as unknown[]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('予約ID');
+});
+
+test('GET: 正規表現は通過するがNaNの日付 → 400', async () => {
+  // '2026-99-99' passes /^\d{4}-\d{2}-\d{2}$/ but new Date() returns Invalid Date
+  const res = await GET(makeGetRequest({
+    facility_id: FACILITY_UUID,
+    from: '2026-99-99',
+    to: '2026-99-99',
+  }));
+  expect(res.status).toBe(400);
+});

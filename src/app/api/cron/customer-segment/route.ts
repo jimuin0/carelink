@@ -38,7 +38,10 @@ export async function GET(request: Request) {
       .eq('status', 'published')
       .limit(200);
 
-    if (!facilities) return NextResponse.json({ status: 'ok', count: 0 });
+    if (!facilities) {
+      await logCronRun('customer-segment', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ status: 'ok', count: 0 });
+    }
 
     // Build facility lookup map once (avoids per-facility re-fetch in email section)
     const facilityMap = new Map(facilities.map((f) => [f.id, f]));
@@ -46,6 +49,7 @@ export async function GET(request: Request) {
     const now = new Date();
     const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     let count = 0;
+    let skipped = 0;
 
     for (const facility of facilities) {
       // 完了済み予約からメール別に集計（直近2年分、最大2000件）
@@ -57,7 +61,7 @@ export async function GET(request: Request) {
         .gte('booking_date', twoYearsAgo)
         .limit(2000);
 
-      if (!bookings || bookings.length === 0) continue;
+      if (!bookings || bookings.length === 0) { skipped++; continue; }
 
       // メール別に集計
       const customerMap = new Map<string, {
@@ -191,8 +195,8 @@ export async function GET(request: Request) {
       count++;
     }
 
-    await logCronRun('customer-segment', 'success', startedAt, { processed: count });
-    return NextResponse.json({ status: 'ok', facilities: count });
+    await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped });
+    return NextResponse.json({ processed: count, skipped });
   } catch (e) {
     console.error('[customer-segment] Error:', e);
     await logCronRun('customer-segment', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

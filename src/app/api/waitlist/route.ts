@@ -35,18 +35,18 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
+  const body = await request.json().catch(() => ({}));
+  const parsed = WaitlistSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
+  }
+
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
-
-  const body = await request.json().catch(() => ({}));
-  const parsed = WaitlistSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: '入力内容を確認してください' }, { status: 400 });
-  }
 
   const { data: { user } } = await supabase.auth.getUser();
   const data = parsed.data;

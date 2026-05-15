@@ -77,7 +77,7 @@ export default function RegisterPage() {
       const data = await res.json();
       if (data.results?.[0]) {
         const r = data.results[0];
-        setValue('address', `${r.address1}${r.address2}${r.address3}`);
+        setValue('address', `${r.address1 ?? ''}${r.address2 ?? ''}${r.address3 ?? ''}`);
       }
     } catch { /* ignore */ }
   }, [setValue]);

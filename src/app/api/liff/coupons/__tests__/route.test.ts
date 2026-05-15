@@ -274,4 +274,79 @@ describe('GET /api/liff/coupons', () => {
     expect(res.status).toBe(200);
     // Verify that .limit(30) is applied
   });
+
+  test('pastBookings が null → ?? [] フォールバック', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const mockBookingNull = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          in: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+    });
+    const mockFavNull = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ data: null }),
+      }),
+    });
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return mockBookingNull();
+        if (table === 'favorites') return mockFavNull();
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.coupons).toEqual([]); // null → [] → allFacilityIds empty → early return
+  });
+
+  test('coupons が null → ?? [] フォールバック', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                in: jest.fn().mockResolvedValue({ data: [{ facility_id: 'fac-1' }] }),
+              }),
+            }),
+          };
+        }
+        if (table === 'favorites') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: [] }),
+            }),
+          };
+        }
+        if (table === 'coupons') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                in: jest.fn().mockReturnValue({
+                  or: jest.fn().mockReturnValue({
+                    or: jest.fn().mockReturnValue({
+                      order: jest.fn().mockReturnValue({
+                        limit: jest.fn().mockResolvedValue({ data: null }),
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.coupons).toEqual([]); // null → ?? []
+  });
 });

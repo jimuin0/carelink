@@ -30,8 +30,13 @@ export async function getCouponsByMenuId(menuId: string): Promise<Coupon[]> {
 
   if (!data) return [];
   return data
-    .map((row: Record<string, unknown>) => row.coupons as Coupon)
-    .filter((c: Coupon) => c.is_active);
+    .flatMap((row: Record<string, unknown>) => {
+      const c = row.coupons;
+      if (!c) return [];
+      // Supabase may return a single object or an array for joined relations
+      return Array.isArray(c) ? (c as Coupon[]) : [c as Coupon];
+    })
+    .filter((c: Coupon) => c?.is_active);
 }
 
 export async function hasCoupons(facilityId: string): Promise<boolean> {

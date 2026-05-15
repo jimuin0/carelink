@@ -194,4 +194,71 @@ describe('GET /api/facilities/suggest', () => {
     const res = await GET(makeRequest('?q=a') as any);
     expect(res.status).toBe(200);
   });
+
+  test('x-forwarded-for ヘッダーなし → IP "unknown" を使用', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/facilities/suggest?q=test', {
+      method: 'GET',
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('DB が null を返す → || [] フォールバック（facilities/cityData/stationData）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            ilike: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: null }),
+            }),
+            not: jest.fn().mockReturnValue({
+              ilike: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: null }),
+              }),
+            }),
+          }),
+        }),
+      })),
+    });
+
+    const res = await GET(makeRequest('?q=tokyo') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilities).toEqual([]);
+    expect(json.areas).toEqual([]);
+  });
+
+  test('null city 行 → if(row.city) の false ブランチ', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn((table: string) => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            ilike: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({
+                data: [{ city: null }, { city: 'Tokyo' }],
+              }),
+            }),
+            not: jest.fn().mockReturnValue({
+              ilike: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({
+                  data: [{ nearest_station: null }, { nearest_station: 'Shibuya' }],
+                }),
+              }),
+            }),
+          }),
+        }),
+      })),
+    });
+
+    const res = await GET(makeRequest('?q=tokyo') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.areas).toContain('Tokyo');
+    expect(json.areas).toContain('Shibuya');
+  });
 });

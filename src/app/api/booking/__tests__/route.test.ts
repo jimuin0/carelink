@@ -853,6 +853,124 @@ describe('POST /api/booking', () => {
     expect(sendNewBookingNotification).toHaveBeenCalled();
   });
 
+  test('LINE通知パス（user + LINE_CHANNEL_ACCESS_TOKEN_CARELINK + lineLink）', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-test' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    // facility_profiles → auto-confirm
+    const nullChain = fluent({ data: null });
+
+    // line_user_links → lineLink with line_user_id
+    const lineLinkChain = fluent({ data: { line_user_id: 'line-user-abc' } });
+
+    // call order:
+    // 1: conflict check
+    // 2: facility_profiles (auto-confirm)
+    // 3: facility_profiles (email Promise.all)
+    // 4: facility_members (email Promise.all)
+    // 5: line_user_links (LINE notification)
+    // 6: facility_profiles (LINE facility name)
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return lineLinkChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendLineConfirm).toHaveBeenCalled();
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  test('LINE Works ループ（proper call ordering、staffList複数エントリ）', async () => {
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock;
+      notifyNewBookingLineWorks: jest.Mock;
+    };
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockResolvedValue(undefined);
+
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockRpc.mockResolvedValue({ data: 'booking-lw-test', error: null });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const nullChain = fluent({ data: null });
+
+    // staffList with mixed entries: null channel_id (skip), notify_all=false (skip), notify_all=true (notify)
+    const staffListResult = {
+      data: [
+        { id: 'staff-a', line_works_channel_id: null, line_works_notify_all: false },
+        { id: 'staff-b', line_works_channel_id: 'ch-b', line_works_notify_all: false },
+        { id: 'staff-c', line_works_channel_id: 'ch-c', line_works_notify_all: true },
+      ],
+    };
+    const staffListChain: Record<string, jest.Mock> = {};
+    staffListChain.select = jest.fn(() => staffListChain);
+    staffListChain.eq = jest.fn(() => staffListChain);
+    staffListChain.not = jest.fn(() => Promise.resolve(staffListResult));
+
+    // call order (user=null, no menu):
+    // 1: conflict check
+    // 2: facility_profiles (auto-confirm)
+    // 3: facility_profiles (email Promise.all)
+    // 4: facility_members (email Promise.all)
+    // 5: staff_profiles (LINE Works staffList)
+    // 6: facility_profiles (LINE Works Promise.all)
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return staffListChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(notifyNewBookingLineWorks).toHaveBeenCalledWith('ch-c', expect.any(Object));
+    expect(notifyNewBookingLineWorks).not.toHaveBeenCalledWith('ch-b', expect.any(Object));
+
+    isLineWorksConfigured.mockReturnValue(false);
+  });
+
+  test('オーナーemailなし → sendNewBookingNotification 呼ばれない', async () => {
+    const { sendNewBookingNotification } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    // owner has user_id but profiles returns no email
+    const ownerChain = fluent({ data: { user_id: 'owner-1' } });
+    const noEmailChain = fluent({ data: { email: null } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return nullChain;    // facility_profiles auto-confirm
+      if (table === 'facility_members') return ownerChain;
+      if (table === 'profiles') return noEmailChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: 'booking-no-email', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    expect(sendNewBookingNotification).not.toHaveBeenCalled();
+  });
+
   test('booking_auto_confirm=true→confirmed status', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 
@@ -877,5 +995,158 @@ describe('POST /api/booking', () => {
       'create_booking_atomic',
       expect.objectContaining({ p_status: 'confirmed' })
     );
+  });
+
+  test('sendPushToFacilityOwners が reject → .catch() → Sentry', async () => {
+    const { sendPushToFacilityOwners } = require('@/lib/push');
+    const Sentry = require('@sentry/nextjs');
+    sendPushToFacilityOwners.mockReturnValue(Promise.reject(new Error('push failed')));
+
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockImplementation(() => fluent({ data: null }));
+    // override call 1
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(Sentry.captureException).toHaveBeenCalled();
+  });
+
+  test('sendPushToUser が reject → .catch() → Sentry', async () => {
+    const { sendPushToFacilityOwners, sendPushToUser } = require('@/lib/push');
+    const Sentry = require('@sentry/nextjs');
+    sendPushToFacilityOwners.mockResolvedValue(undefined);
+    sendPushToUser.mockReturnValue(Promise.reject(new Error('user push failed')));
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'push-user' } } });
+    let callNum = 0;
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(Sentry.captureException).toHaveBeenCalled();
+  });
+
+  test('LINE通知: menu_id あり → facility_menus からメニュー名を取得', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-menu' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+
+    const MENU_UUID = '11111111-1111-1111-a111-111111111111';
+    const bookingWithMenu = { ...validBooking, menu_id: MENU_UUID };
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    // Call sequence with menu_id:
+    // 1: bookings (conflict), 2: facility_menus (price check - .in().eq() chain)
+    // 3: facility_profiles (auto-confirm), rpc
+    // 4: facility_profiles (email), 5: facility_menus (email name lookup)
+    // 6: facility_members (owner), 7: line_user_links (LINE via adminSupabase)
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2 && table === 'facility_menus') {
+        // Price validation: .select().in().eq() must resolve to { data: [{ id, price }] }
+        return {
+          select: jest.fn().mockReturnThis(),
+          in: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockResolvedValue({ data: [{ id: MENU_UUID, price: 5000 }], error: null }),
+        };
+      }
+      if (callNum === 7) return fluent({ data: { line_user_id: 'U_line_menu' } });
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(bookingWithMenu));
+    expect(res.status).toBe(200);
+    expect(sendLineConfirm).toHaveBeenCalled();
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  test('LINE通知: sendLineBookingConfirm が reject → Sentry', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    const Sentry = require('@sentry/nextjs');
+    sendLineConfirm.mockReturnValue(Promise.reject(new Error('LINE send failed')));
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-err' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return fluent({ data: { line_user_id: 'U_line_err' } });
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(Sentry.captureException).toHaveBeenCalled();
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  test('LINE Works: notifyNewBookingLineWorks が reject → Sentry', async () => {
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock;
+      notifyNewBookingLineWorks: jest.Mock;
+    };
+    const Sentry = require('@sentry/nextjs');
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockReturnValue(Promise.reject(new Error('LW failed')));
+
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const staffListChain: Record<string, jest.Mock> = {};
+    staffListChain.select = jest.fn(() => staffListChain);
+    staffListChain.eq = jest.fn(() => staffListChain);
+    staffListChain.not = jest.fn(() => Promise.resolve({
+      data: [{ id: 'staff-lw', line_works_channel_id: 'ch-lw-rej', line_works_notify_all: true }],
+    }));
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return staffListChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(Sentry.captureException).toHaveBeenCalled();
+
+    isLineWorksConfigured.mockReturnValue(false);
+  });
+
+  test('予期しない例外 → 500', async () => {
+    mockGetUser.mockImplementation(() => { throw new Error('unexpected'); });
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(500);
   });
 });

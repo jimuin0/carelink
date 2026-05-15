@@ -163,8 +163,8 @@ export default function AdminSettingsPage() {
           access_info: accessInfo || null,
           phone: phone || null,
           website_url: websiteUrl || null,
-          seat_count: seatCount ? parseInt(seatCount) : null,
-          staff_count: staffCount ? parseInt(staffCount) : null,
+          seat_count: seatCount ? parseInt(seatCount, 10) : null,
+          staff_count: staffCount ? parseInt(staffCount, 10) : null,
           parking,
           credit_card: creditCard,
           features: selectedFeatures,
@@ -390,7 +390,7 @@ export default function AdminSettingsPage() {
             <select
               id="buffer-minutes"
               value={bufferMinutes}
-              onChange={(e) => setBufferMinutes(parseInt(e.target.value))}
+              onChange={(e) => setBufferMinutes(parseInt(e.target.value, 10))}
               className="form-input w-40"
             >
               {[0, 5, 10, 15, 20, 30, 45, 60].map((m) => (

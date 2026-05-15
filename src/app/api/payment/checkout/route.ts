@@ -10,6 +10,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { SITE_URL, UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,9 +97,31 @@ export async function POST(request: NextRequest) {
       metadata: {
         booking_id: bookingId,
         user_id: user.id,
+        payment_type: 'full',
       },
       locale: 'ja',
+      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
     });
+
+    // Record session in DB before returning URL.
+    // If this fails, expire the Stripe session to prevent orphaned charges.
+    const admin = createServiceRoleClient();
+    const { error: sessionInsertErr } = await admin.from('stripe_sessions').insert({
+      booking_id: bookingId,
+      facility_id: booking.facility_id,
+      user_id: user.id,
+      stripe_session_id: session.id,
+      amount: serverAmount,
+      currency: 'jpy',
+      status: 'pending',
+      payment_type: 'full',
+      expires_at: new Date((Math.floor(Date.now() / 1000) + 30 * 60) * 1000).toISOString(),
+    });
+    if (sessionInsertErr) {
+      await stripe.checkout.sessions.expire(session.id).catch(() => {});
+      console.error('[payment/checkout] stripe_sessions insert failed — Stripe session expired', { sessionId: session.id, err: sessionInsertErr });
+      return NextResponse.json({ error: '決済セッションの作成に失敗しました。しばらく後に再度お試しください。' }, { status: 500 });
+    }
 
     return NextResponse.json({ url: session.url });
   } catch (e) {

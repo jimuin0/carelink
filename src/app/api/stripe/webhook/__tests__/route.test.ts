@@ -383,6 +383,54 @@ describe('POST /api/stripe/webhook', () => {
       expect(mockBookingsUpdate).toHaveBeenCalled();
     });
 
+    test('checkout.session.completed deposit booking update error → 500', async () => {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
+          if (table === 'bookings') return {
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockResolvedValue({ error: { message: 'deposit confirm failed' } }),
+              }),
+            }),
+          };
+          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_deposit_err',
+        payment_intent: 'pi_deposit_err',
+        metadata: { booking_id: 'bk_dep_err', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
+    test('checkout.session.completed cancel_fee booking update error → 500', async () => {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
+          if (table === 'bookings') return {
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ error: { message: 'cancel_fee update failed' } }),
+            }),
+          };
+          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_cancel_err',
+        payment_intent: 'pi_cancel_err',
+        metadata: { booking_id: 'bk_cancel_err', payment_type: 'cancel_fee' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
     test('checkout.session.expired → marks session expired', async () => {
       setupEventMock('checkout.session.expired', {
         id: 'cs_expired_789',
@@ -444,5 +492,105 @@ describe('POST /api/stripe/webhook', () => {
       expect(res.status).toBe(200);
       expect(mockStripeSessionsUpdate).toHaveBeenCalled();
     });
+
+    test('charge.refunded partial refund → partial_refund status', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_partial_001',
+        amount: 5000,
+        amount_refunded: 2500,
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'partial_refund' })
+      );
+    });
+
+    test('checkout.session.completed with slot_id → activates featured slot', async () => {
+      const mockFeaturedSlotsUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: null }),
+      });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
+          if (table === 'bookings') return { update: mockBookingsUpdate };
+          if (table === 'featured_slots') return { update: mockFeaturedSlotsUpdate };
+          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_slot_001',
+        payment_intent: 'pi_slot',
+        metadata: { slot_id: 'slot_abc123' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockFeaturedSlotsUpdate).toHaveBeenCalledWith({ is_active: true });
+    });
+
+    test('checkout.session.completed slot update error → logs, still 200', async () => {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
+          if (table === 'featured_slots') return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'slot error' } }) }) };
+          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_slot_err',
+        payment_intent: 'pi_slot_err',
+        metadata: { slot_id: 'slot_err_123' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('charge.dispute.created with non-string payment_intent → no DB update', async () => {
+      setupEventMock('charge.dispute.created', {
+        payment_intent: null, // not a string → paymentIntentId = null
+        status: 'needs_response',
+      });
+      mockStripeSessionsUpdate.mockClear();
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).not.toHaveBeenCalled();
+    });
+
+    test('charge.dispute.closed with non-string payment_intent → no DB update', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: null,
+        status: 'won',
+      });
+      mockStripeSessionsUpdate.mockClear();
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockStripeSessionsUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  test('constructEvent throws non-Error → 400 with unknown error', async () => {
+    const Stripe = require('stripe');
+    Stripe.mockImplementation(() => ({
+      webhooks: { constructEvent: jest.fn().mockImplementation(() => { throw 'string error'; }) },
+    }));
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('handleEvent throws non-Error → 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+        // Throw a non-Error from within handleEvent processing
+        return { update: jest.fn().mockImplementation(() => { throw 'non-error string'; }) };
+      }),
+    });
+    const res = await POST(makeRequest('{}') as any);
+    expect(res.status).toBe(500);
   });
 });

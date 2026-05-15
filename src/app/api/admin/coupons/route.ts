@@ -64,12 +64,12 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 20, 60_000, 'coupons-create')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
   const auth = await getAdminInfo(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 

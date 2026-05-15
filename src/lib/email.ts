@@ -289,7 +289,7 @@ export async function sendFavoritesDigest(data: {
     return `
       <tr>
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;">
-          <a href="${SITE_URL}/facility/${esc(f.slug)}" style="color:#0ea5e9;font-weight:600;text-decoration:none;">${esc(f.name)}</a>
+          <a href="${SITE_URL}/facility/${encodeURIComponent(f.slug)}" style="color:#0ea5e9;font-weight:600;text-decoration:none;">${esc(f.name)}</a>
         </td>
         <td style="padding:10px 12px;border-bottom:1px solid #e2e8f0;font-size:13px;color:#475569;">${updates.join('、')}</td>
       </tr>

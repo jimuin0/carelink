@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const treatmentPlanSchema = z.object({
   user_id: z.string().uuid().optional().nullable(),
@@ -18,7 +19,7 @@ const treatmentPlanSchema = z.object({
   notes: z.string().max(2000).optional().nullable(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -34,7 +35,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { facilityId: data.facility_id, userId: user.id } : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -46,16 +47,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = treatmentPlanSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
+
+  // user_id が指定された場合、その施設に予約があるユーザーのみ許可（IDOR 防止）
+  if (parsed.data.user_id) {
+    const { data: booking } = await admin
+      .from('bookings')
+      .select('id')
+      .eq('facility_id', auth.facilityId)
+      .eq('user_id', parsed.data.user_id)
+      .limit(1)
+      .maybeSingle();
+    if (!booking) return NextResponse.json({ error: 'このユーザーはこの施設に予約がありません' }, { status: 403 });
+  }
+
   const { data, error } = await admin.from('treatment_plans').insert({
-    facility_id: facilityId,
+    facility_id: auth.facilityId,
     user_id: parsed.data.user_id ?? null,
     title: parsed.data.title,
     diagnosis: parsed.data.diagnosis ?? null,
@@ -68,5 +82,16 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'create',
+    tableName: 'treatment_plans',
+    recordId: data.id,
+    newValues: { title: parsed.data.title, user_id: parsed.data.user_id ?? null, total_sessions: parsed.data.total_sessions },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ plan: data }, { status: 201 });
 }

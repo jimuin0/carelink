@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
@@ -12,7 +13,7 @@ const blogPostSchema = z.object({
   is_published: z.boolean().optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -28,7 +29,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { facilityId: data.facility_id, userId: user.id } : null;
 }
 
 export async function POST(request: NextRequest) {
@@ -40,8 +41,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminInfo(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = blogPostSchema.safeParse(body);
@@ -50,7 +51,7 @@ export async function POST(request: NextRequest) {
   const isPublished = parsed.data.is_published ?? false;
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('blog_posts').insert({
-    facility_id: facilityId,
+    facility_id: auth.facilityId,
     title: parsed.data.title,
     content: parsed.data.content,
     is_published: isPublished,
@@ -58,5 +59,18 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ip: auditIp, ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'create',
+    tableName: 'blog_posts',
+    recordId: data.id,
+    newValues: { title: parsed.data.title, is_published: isPublished },
+    ipAddress: auditIp,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ post: data }, { status: 201 });
 }

@@ -62,5 +62,5 @@ export async function GET(request: Request) {
     skipped: results.skipped,
     meta: { errors: results.errors },
   });
-  return NextResponse.json({ ok: true, ...results });
+  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors });
 }

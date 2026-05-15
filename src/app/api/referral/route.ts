@@ -1,22 +1,17 @@
-import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from "@/lib/rate-limit";
 /**
  * 紹介プログラム API（v8.6）
  * GET: 自分の紹介コード取得（なければ自動生成）
  * POST: 紹介コード使用（新規ユーザーが初回予約完了時に呼ぶ）
  */
 
+import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from "@/lib/rate-limit";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
 import { checkCsrf } from '@/lib/csrf';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
-
-const adminSupabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 function generateCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -39,6 +34,8 @@ export async function GET(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+  const adminSupabase = createServiceRoleClient();
 
   // 既存コード取得
   const { data: existing } = await adminSupabase
@@ -79,6 +76,8 @@ export async function POST(request: NextRequest) {
 
   const { code } = await request.json().catch(() => ({}));
   if (!code || typeof code !== 'string' || code.length > 100) return NextResponse.json({ error: 'コードが必要です' }, { status: 400 });
+
+  const adminSupabase = createServiceRoleClient();
 
   // 紹介コード検証
   const { data: referralCode } = await adminSupabase

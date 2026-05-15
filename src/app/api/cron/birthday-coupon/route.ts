@@ -49,6 +49,7 @@ export async function GET(request: Request) {
     }
 
     let sent = 0;
+    let skipped = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     const birthdayYear = jstNow.getUTCFullYear();
     // Reason includes the year so the partial unique index (user_id, reason WHERE reason LIKE 'birthday_%')
@@ -65,8 +66,9 @@ export async function GET(request: Request) {
         reason: birthdayReason,
       });
       if (insertErr) {
-        if ((insertErr as { code?: string }).code === '23505') continue; // 既付与済み
+        if ((insertErr as { code?: string }).code === '23505') { skipped++; continue; } // 既付与済み
         console.error('[birthday-coupon] points insert error:', insertErr);
+        skipped++;
         continue;
       }
 
@@ -112,8 +114,8 @@ export async function GET(request: Request) {
       sent++;
     }
 
-    await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent });
-    return NextResponse.json({ status: 'ok', sent, total: profiles.length });
+    await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped });
+    return NextResponse.json({ processed: sent, skipped, total: profiles.length });
   } catch (e) {
     console.error('[birthday-coupon] Error:', e);
     await logCronRun('birthday-coupon', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

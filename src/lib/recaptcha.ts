@@ -23,6 +23,10 @@ export async function verifyRecaptcha(
   const secretKey = process.env.RECAPTCHA_SECRET_KEY;
   if (!secretKey) {
     // キーが未設定の場合はスキップ（開発環境対応）
+    // 本番環境で未設定の場合はすべてのリクエストが素通りになるため警告ログを出す
+    if (process.env.NODE_ENV === 'production') {
+      console.warn('[recaptcha] RECAPTCHA_SECRET_KEY is not set — all requests will pass verification. Set this env var in production.');
+    }
     return { success: true, reason: 'no_secret_key' };
   }
 

@@ -311,3 +311,104 @@ test('CSRF エラー → 403', async () => {
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(403);
 });
+
+test('予期しない例外 → 500', async () => {
+  mockGetUser.mockImplementation(() => { throw new Error('unexpected'); });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(500);
+});
+
+// ─── ?? fallback branches ─────────────────────────────────────────────────────
+
+test('no_show_fee_percent=null → ?? 100 フォールバック', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(PAST_BOOKING);
+    if (callNum === 2) return singleChain({ ...POLICY, no_show_fee_percent: null });
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee_percent).toBe(100);
+});
+
+test('same_day_fee_percent=null → ?? 50 フォールバック', async () => {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayBooking = { ...PAST_BOOKING, booking_date: todayStr, status: 'cancelled' };
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(todayBooking);
+    if (callNum === 2) return singleChain({ ...POLICY, same_day_fee_percent: null });
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee_percent).toBe(50);
+});
+
+test('one_day_fee_percent=null → ?? 30 フォールバック', async () => {
+  const tomorrowStr = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const tomorrowBooking = { ...PAST_BOOKING, booking_date: tomorrowStr, status: 'cancelled' };
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(tomorrowBooking);
+    if (callNum === 2) return singleChain({ ...POLICY, one_day_fee_percent: null });
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee_percent).toBe(30);
+});
+
+test('three_day_fee_percent=null → ?? 0 フォールバック → fee=0 で早期リターン', async () => {
+  const twoDaysStr = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const twoDayBooking = { ...PAST_BOOKING, booking_date: twoDaysStr, status: 'cancelled' };
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(twoDayBooking);
+    return singleChain({ ...POLICY, three_day_fee_percent: null });
+  });
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.fee).toBe(0);
+});
+
+test('total_price=null → ?? 0 フォールバック → feeAmount=0 < 50 → 最小金額エラー', async () => {
+  const nullPriceBooking = { ...PAST_BOOKING, total_price: null };
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(nullPriceBooking);
+    return singleChain(POLICY);
+  });
+  const res = await POST(makeRequest(), makeProps());
+  const json = await res.json();
+  expect(json.fee).toBe(0);
+});
+
+test('menu_name=null → ?? "施術" フォールバック → 説明に施術が使われる', async () => {
+  const noMenuBooking = { ...PAST_BOOKING, menu_name: null };
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(noMenuBooking);
+    if (callNum === 2) return singleChain(POLICY);
+    if (callNum === 3) return singleChain({ name: 'テスト施設', slug: 'test', stripe_enabled: true });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  const createCall = mockStripeCreate.mock.calls[0][0];
+  expect(createCall.line_items[0].price_data.product_data.description).toContain('施術');
+});

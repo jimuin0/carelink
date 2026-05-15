@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
 
 async function getFacilityIds(userId: string): Promise<string[]> {
@@ -39,6 +40,8 @@ export async function GET(req: NextRequest) {
 
 // Public POST: submit application
 export async function POST(req: NextRequest) {
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 5, 60_000, 'job-apply')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });

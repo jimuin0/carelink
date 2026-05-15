@@ -9,9 +9,14 @@ const PROTECTED_PATHS = ['/mypage', '/admin'];
 // TTL: 5分（頻繁なDB問い合わせを防ぐ）
 const MEMBERSHIP_CACHE_TTL_SECONDS = 300;
 
-async function signCacheValue(userId: string, val: '0' | '1'): Promise<string> {
+async function signCacheValue(userId: string, val: '0' | '1'): Promise<string | null> {
   const secret = process.env.ADMIN_COOKIE_SECRET;
-  if (!secret) return val;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('[middleware] ADMIN_COOKIE_SECRET is not set — /admin membership cache is disabled. Set this env var to enable caching.');
+    }
+    return null;
+  }
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${userId}:${val}`));
@@ -40,7 +45,8 @@ async function verifyCacheValue(userId: string, cookieVal: string): Promise<bool
 }
 
 function getMembershipCacheKey(userId: string): string {
-  return `_cm_mbr_${userId.slice(0, 8)}`;
+  // UUID全体（36文字）をキーに含める。先頭8文字のみだと衝突率が高く別ユーザーのキャッシュを参照するリスクがある
+  return `_cm_mbr_${userId.replace(/-/g, '').slice(0, 16)}`;
 }
 
 export async function middleware(request: NextRequest) {
@@ -81,8 +87,9 @@ export async function middleware(request: NextRequest) {
   try {
     const { data } = await supabase.auth.getUser();
     user = data.user;
-  } catch {
+  } catch (err) {
     // Supabase障害時はリクエストを通す（保護ルートは後段でリダイレクト）
+    console.error('[middleware] Supabase getUser failed — treating as unauthenticated:', err);
   }
 
   // 保護ルートへの未認証アクセスをリダイレクト
@@ -114,15 +121,17 @@ export async function middleware(request: NextRequest) {
         .single();
       hasAccess = !!(membership && ['owner', 'admin'].includes(membership.role));
 
-      // キャッシュを設定（5分TTL、HttpOnly + HMAC署名）
+      // キャッシュを設定（5分TTL、HttpOnly + HMAC署名）— ADMIN_COOKIE_SECRET 未設定時はキャッシュしない
       const signedVal = await signCacheValue(user.id, hasAccess ? '1' : '0');
-      supabaseResponse.cookies.set(cacheKey, signedVal, {
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax',
-        maxAge: MEMBERSHIP_CACHE_TTL_SECONDS,
-        path: '/admin',
-      });
+      if (signedVal !== null) {
+        supabaseResponse.cookies.set(cacheKey, signedVal, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          maxAge: MEMBERSHIP_CACHE_TTL_SECONDS,
+          path: '/admin',
+        });
+      }
     }
 
     if (!hasAccess) {

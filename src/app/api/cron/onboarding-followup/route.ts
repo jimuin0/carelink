@@ -43,6 +43,7 @@ export async function GET(request: Request) {
     }
 
     let sent = 0;
+    let skipped = 0;
     for (const facility of facilities) {
       try {
         // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
@@ -53,7 +54,7 @@ export async function GET(request: Request) {
           .is('onboarding_email_sent_at', null)
           .select('id');
 
-        if (!claimed || claimed.length === 0) continue;
+        if (!claimed || claimed.length === 0) { skipped++; continue; }
 
         // 未完了ステップを特定
         // staff_schedules has no facility_id column — query staff IDs first, then schedules
@@ -86,7 +87,7 @@ export async function GET(request: Request) {
         if (scheduleCount === 0) missingSteps.push('スケジュールの設定');
         missingSteps.push('施設を「公開」にする');
 
-        if (!member) continue;
+        if (!member) { skipped++; continue; }
 
         const { data: profile } = await supabase
           .from('profiles')
@@ -94,7 +95,7 @@ export async function GET(request: Request) {
           .eq('id', member.user_id)
           .maybeSingle();
 
-        if (!profile?.email) continue;
+        if (!profile?.email) { skipped++; continue; }
 
         await sendOnboardingFollowEmail({
           ownerEmail: profile.email,
@@ -104,11 +105,12 @@ export async function GET(request: Request) {
         sent++;
       } catch (facilityErr) {
         console.error('[onboarding-followup] facility processing error', { facilityId: facility.id, err: facilityErr });
+        skipped++;
       }
     }
 
-    await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent });
-    return NextResponse.json({ status: 'ok', sent });
+    await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped });
+    return NextResponse.json({ processed: sent, skipped });
   } catch (e) {
     console.error('[onboarding-followup] Error:', e);
     await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

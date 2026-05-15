@@ -297,4 +297,116 @@ describe('GET /api/cron/newsletter-digest', () => {
     const json = await res.json();
     expect(json).toBeDefined();
   });
+
+  test('campaign insert エラー → 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let newsletterCalls = 0;
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          newsletterCalls++;
+          if (newsletterCalls === 1) {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    gte: jest.fn().mockReturnValue({
+                      limit: jest.fn().mockResolvedValue({ data: [] }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {
+            insert: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: { message: 'Insert failed' } }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockResolvedValue({ count: 0 }),
+            }),
+          }),
+        };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('batch send 失敗 → failedCount に加算して 200 続行', async () => {
+    mockBatchSend.mockRejectedValue(new Error('batch send failed'));
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.failedCount).toBeGreaterThan(0);
+  });
+
+  test('campaign update エラー → console.error して 200 続行', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let newsletterCalls = 0;
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          newsletterCalls++;
+          if (newsletterCalls === 1) {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    gte: jest.fn().mockReturnValue({
+                      limit: jest.fn().mockResolvedValue({ data: [] }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          } else if (newsletterCalls === 2) {
+            return {
+              insert: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-999' }, error: null }),
+                }),
+              }),
+            };
+          }
+          return {
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
+            }),
+          };
+        } else if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                data: [{ profiles: { email: 'owner@example.com' } }],
+              }),
+            }),
+          };
+        } else if (table === 'cron_logs') {
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockResolvedValue({ count: 0 }),
+            }),
+          }),
+        };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
 });

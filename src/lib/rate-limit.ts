@@ -32,21 +32,23 @@ export function inMemoryRateLimit(ip: string, limit: number, windowMs: number, p
   const key = `${prefix}:${ip}`;
   const now = Date.now();
   const timestamps = (store.get(key) || []).filter(t => now - t < windowMs);
-  if (timestamps.length >= limit) return true;
-  timestamps.push(now);
+  const limited = timestamps.length >= limit;
+  if (!limited) timestamps.push(now);
+  // LRU: 常に delete+set でアクセス順を末尾に更新（制限中も filtered timestamps を書き戻してストアを清潔に保つ）
+  store.delete(key);
   store.set(key, timestamps);
   // 定期的にexpired entryを掃除（メモリリーク防止）
   if (store.size > 500) {
     Array.from(store.entries()).forEach(([k, ts]) => {
       if (ts.every((t: number) => now - t >= windowMs)) store.delete(k);
     });
-    // それでも多い場合は古いものから削除
+    // それでも多い場合は先頭（最も古くアクセスされた）から削除
     if (store.size > 1000) {
       const entries = Array.from(store.keys());
       entries.slice(0, entries.length - 500).forEach((k) => store.delete(k));
     }
   }
-  return false;
+  return limited;
 }
 
 export async function checkRateLimit(

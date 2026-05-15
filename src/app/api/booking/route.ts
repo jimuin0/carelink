@@ -23,12 +23,6 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
   }
 
-  const body = await request.json().catch(() => ({}));
-  const parsed = bookingSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
-  }
-
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -47,7 +41,14 @@ export async function POST(request: Request) {
     }
   );
 
+  // getUser() before schema parsing (security order: CSRF → RateLimit → getUser → schema)
   const { data: { user } } = await supabase.auth.getUser();
+
+  const body = await request.json().catch(() => ({}));
+  const parsed = bookingSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+  }
 
   // 時間バリデーション
   if (parsed.data.start_time >= parsed.data.end_time) {

@@ -7,7 +7,7 @@ import * as Sentry from '@sentry/nextjs';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
@@ -122,10 +122,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // LINE Works change notification (non-blocking)
     if (isLineWorksConfigured()) {
       try {
-        const adminSupabase = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!
-        );
+        const adminSupabase = createServiceRoleClient();
         const { data: staffList } = await adminSupabase
           .from('staff_profiles')
           .select('line_works_channel_id, line_works_notify_all, id')

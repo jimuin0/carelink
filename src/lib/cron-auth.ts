@@ -14,16 +14,18 @@ export function checkCronAuth(request: Request): NextResponse | null {
   }
   const expectedFull = `Bearer ${expected}`;
   const actual = authHeader ?? '';
-  // Pad to same length to avoid length-based timing leak
-  const a = Buffer.from(actual.padEnd(expectedFull.length, '\0'));
-  const b = Buffer.from(expectedFull.padEnd(actual.length, '\0'));
-  // Use the longer length so both buffers are equal size
-  const len = Math.max(a.length, b.length);
+  // UTF-8 バイト列で比較（ASCII 以外の文字でも正確に一致判定できる）
+  const aBytes = Buffer.from(actual, 'utf8');
+  const bBytes = Buffer.from(expectedFull, 'utf8');
+  // 長さが異なる場合: パディングして timingSafeEqual を通すが結果は必ず false にする
+  // （パディング後の比較だけでは長さ不一致を正しく弾けない場合があるため二重チェック）
+  const len = Math.max(aBytes.length, bBytes.length);
   const aBuf = Buffer.alloc(len);
   const bBuf = Buffer.alloc(len);
-  a.copy(aBuf);
-  b.copy(bBuf);
-  const valid = timingSafeEqual(aBuf, bBuf);
+  aBytes.copy(aBuf);
+  bBytes.copy(bBuf);
+  // timingSafeEqual は定数時間比較。長さ不一致は別途チェックして必ず false を返す
+  const valid = timingSafeEqual(aBuf, bBuf) && aBytes.length === bBytes.length;
   if (!valid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }

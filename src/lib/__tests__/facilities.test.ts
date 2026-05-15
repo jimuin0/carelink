@@ -522,4 +522,130 @@ describe('getAvailableFacilityIds', () => {
     const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
     expect(result.has('fac-1')).toBe(false);
   });
+
+  test('staff_idなし予約はスキップされる', async () => {
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [{ staff_id: null, start_time: '10:00', end_time: '11:00' }],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
+  test('同施設の2人目スタッフはavailableSet確認でスキップ', async () => {
+    buildMultiTableMock({
+      staff_schedules: [
+        { staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' },
+        { staff_id: 'staff-2', start_time: '09:00', end_time: '18:00' },
+      ],
+      staff_profiles: [
+        { id: 'staff-1', facility_id: 'fac-1' },
+        { id: 'staff-2', facility_id: 'fac-1' },
+      ],
+      schedule_overrides: [],
+      bookings: [],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(true);
+    expect(result.size).toBe(1);
+  });
+
+  test('staffSchedulesがnullの場合も動作する', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'staff_profiles') {
+        const chain = fluent({ data: [{ id: 'staff-1', facility_id: 'fac-1' }] });
+        ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+        (chain as unknown as PromiseLike<unknown>).then =
+          (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [{ id: 'staff-1', facility_id: 'fac-1' }] }).then(resolve);
+        return chain;
+      }
+      // Other tables return null data
+      const chain = fluent({ data: null });
+      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+      (chain as unknown as PromiseLike<unknown>).then =
+        (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null }).then(resolve);
+      return chain;
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.size).toBe(0);
+  });
+});
+
+// ─── null data fallback branches ────────────────────────────────────────────
+
+describe('null data fallbacks', () => {
+  test('searchFacilities: dataがnullのとき空配列', async () => {
+    const chain = fluent({ data: null, count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await searchFacilities({});
+    expect(result.facilities).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  test('getPopularFacilities: 引数なし（デフォルトlimit=6）', async () => {
+    const chain = fluent({ data: [], error: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getPopularFacilities();
+    expect(result.facilities).toEqual([]);
+  });
+
+  test('getLatestFacilities: 引数なし（デフォルトlimit=6）', async () => {
+    const chain = fluent({ data: [], error: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getLatestFacilities();
+    expect(result.facilities).toEqual([]);
+  });
+
+  test('getFacilityMenus: dataがnullのとき空配列', async () => {
+    const chain = fluent(null);
+    chain.order = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getFacilityMenus('fac-1');
+    expect(result.menus).toEqual([]);
+  });
+
+  test('getFacilityPhotos: dataがnullのとき空配列', async () => {
+    const chain = fluent(null);
+    chain.order = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getFacilityPhotos('fac-1');
+    expect(result.photos).toEqual([]);
+  });
+
+  test('getFacilityReviews: dataがnullのとき空配列', async () => {
+    const chain = fluent(null);
+    chain.order = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getFacilityReviews('fac-1');
+    expect(result.reviews).toEqual([]);
+  });
+
+  test('getSimilarFacilities: dataがnullのとき空配列', async () => {
+    const chain = fluent({ data: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getSimilarFacilities('f-1', 'ヘアサロン', '東京都');
+    expect(result).toEqual([]);
+  });
+
+  test('getMonthlyBookingCounts: dataがnullのとき空オブジェクト', async () => {
+    const chain = fluent(null);
+    chain.lt = jest.fn(() => Promise.resolve({ data: null }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getMonthlyBookingCounts(['f-1']);
+    expect(result).toEqual({});
+  });
+
+  test('getMonthlyBookingCounts: 12月は翌年1月を計算', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-12-15T00:00:00Z'));
+    const chain = fluent(null);
+    chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockReturnValue(chain);
+    await getMonthlyBookingCounts(['f-1']);
+    const ltCall = (chain.lt as jest.Mock).mock.calls[0];
+    expect(ltCall[1]).toBe('2027-01-01');
+    jest.useRealTimers();
+  });
 });

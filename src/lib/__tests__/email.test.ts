@@ -226,3 +226,62 @@ describe('sendFavoritesDigest', () => {
     expect(html).toContain('メールの受信を停止する');
   });
 });
+
+describe('bookingDetailHtml — オプションフィールド省略', () => {
+  const minData = {
+    customerName: 'ミニ太郎',
+    customerEmail: 'mini@example.com',
+    facilityName: 'ミニサロン',
+    bookingDate: '2026-04-01',
+    startTime: '10:00',
+    endTime: '11:00',
+    bookingId: 'b-min',
+    // menuName/staffName/totalPrice は全て省略
+  };
+
+  test('menuName省略 → メニュー行なし', async () => {
+    await sendBookingConfirmation(minData);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('メニュー</td>');
+  });
+
+  test('staffName省略 → 担当行なし', async () => {
+    await sendBookingConfirmation(minData);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('担当</td>');
+  });
+
+  test('totalPrice省略 → 料金行なし', async () => {
+    await sendBookingConfirmation(minData);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('料金</td>');
+  });
+});
+
+describe('RESEND_API_KEY未設定時 — 全send関数', () => {
+  test('全send関数がスキップされる（resend=null）', async () => {
+    const origKey = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    jest.resetModules();
+    jest.mock('resend', () => ({ Resend: jest.fn() }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('../email');
+    const noSendMock = jest.fn();
+    const minData = {
+      customerName: 'テスト', customerEmail: 'a@b.com', facilityName: 'サロン',
+      bookingDate: '2026-04-01', startTime: '10:00', endTime: '11:00', bookingId: 'x',
+    };
+    await mod.sendBookingConfirmation(minData);
+    await mod.sendBookingReminder(minData);
+    await mod.sendBookingConfirmed(minData);
+    await mod.sendBookingCancelled(minData);
+    await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });
+    await mod.sendWelcomeEmail({ ownerEmail: 'o@o.com', facilityName: 'F' });
+    await mod.sendOnboardingFollowEmail({ ownerEmail: 'o@o.com', facilityName: 'F', missingSteps: [] });
+    await mod.sendBookingStatusUpdate({ ...minData, newStatus: 'confirmed' });
+    await mod.sendFavoritesDigest({ userEmail: 'u@u.com', facilities: [] });
+    expect(noSendMock).not.toHaveBeenCalled();
+    process.env.RESEND_API_KEY = origKey;
+  });
+});

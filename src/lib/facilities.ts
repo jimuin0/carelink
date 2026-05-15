@@ -165,6 +165,9 @@ export async function getFacilityPhotos(facilityId: string) {
 
 export async function getFacilityReviews(facilityId: string) {
   const supabase = createServerSupabaseClient();
+  // `public_reviews` はSupabase型定義に含まれないビューのため
+  // 同スキーマの `facility_reviews` にキャストしてSDKの型エラーを回避する。
+  // データ型は末尾の `as FacilityReview[]` で保証する。
   const { data, error } = await supabase
     .from('public_reviews' as 'facility_reviews')
     .select('*')

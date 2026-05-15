@@ -364,6 +364,89 @@ describe('POST /api/payment/webhook', () => {
     expect(json.duplicate).toBe(true);
   });
 
+  test('idempotency insert error (non-23505) → 500', async () => {
+    mockInsert = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: null,
+          error: { code: '99999', message: 'Some other DB error' },
+        }),
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'stripe_events') return { insert: mockInsert };
+      if (table === 'bookings') return { update: mockUpdate };
+    });
+
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('idempotency: insertedがnull（no error, no row）→ duplicate', async () => {
+    mockInsert = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: null,
+          error: null,
+        }),
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'stripe_events') return { insert: mockInsert };
+      if (table === 'bookings') return { update: mockUpdate };
+    });
+
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.duplicate).toBe(true);
+  });
+
+  test('checkout.session.completed: amount_total=null → paid_amount=0', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_null_amount',
+      type: 'checkout.session.completed',
+      data: { object: { metadata: { booking_id: 'b-1' }, amount_total: null, payment_intent: 'pi_1' } },
+    });
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+    expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({ paid_amount: 0 }));
+  });
+
+  test('customer.subscription.created → 200 (no DB op)', async () => {
+    mockConstructEvent.mockReturnValue({
+      id: 'evt_sub_created',
+      type: 'customer.subscription.created',
+      data: { object: {} },
+    });
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('customer.subscription.updated → 200', async () => {
+    mockConstructEvent.mockReturnValue({ id: 'evt_sub_updated', type: 'customer.subscription.updated', data: { object: {} } });
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('customer.subscription.deleted → 200', async () => {
+    mockConstructEvent.mockReturnValue({ id: 'evt_sub_deleted', type: 'customer.subscription.deleted', data: { object: {} } });
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('invoice.payment_succeeded → 200', async () => {
+    mockConstructEvent.mockReturnValue({ id: 'evt_inv_success', type: 'invoice.payment_succeeded', data: { object: {} } });
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('invoice.payment_failed → 200', async () => {
+    mockConstructEvent.mockReturnValue({ id: 'evt_inv_failed', type: 'invoice.payment_failed', data: { object: {} } });
+    const res = await POST(makeRequest('{}', 'sig') as any);
+    expect(res.status).toBe(200);
+  });
+
   describe('handleEvent — specific event types', () => {
     function setupEventMock(eventType: string, dataObject: Record<string, unknown>) {
       const Stripe = require('stripe');
@@ -493,6 +576,65 @@ describe('POST /api/payment/webhook', () => {
 
       expect(res.status).toBe(200);
       expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'failed' });
+    });
+
+    test('payment_intent.payment_failed with booking_id + update error → logs, still 200', async () => {
+      setupEventMock('payment_intent.payment_failed', {
+        id: 'pi_err',
+        metadata: { booking_id: 'b-err' },
+      });
+      mockUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
+      });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('payment_intent.payment_failed without booking_id + update error → logs, still 200', async () => {
+      setupEventMock('payment_intent.payment_failed', { id: 'pi_no_bk', metadata: {} });
+      mockUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
+      });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('charge.refunded update error → logs, still 200', async () => {
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_ref_err',
+        amount: 5000,
+        amount_refunded: 5000,
+      });
+      mockUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: { message: 'refund update failed' } }),
+      });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('charge.dispute.created update error → logs, still 200', async () => {
+      setupEventMock('charge.dispute.created', {
+        payment_intent: 'pi_dis_err',
+        status: 'needs_response',
+      });
+      mockUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: { message: 'dispute update failed' } }),
+      });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('charge.dispute.closed update error → logs, still 200', async () => {
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dis_closed_err',
+        status: 'won',
+      });
+      mockUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: { message: 'close update failed' } }),
+      });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
     });
   });
 });

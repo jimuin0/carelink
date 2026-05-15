@@ -1,6 +1,6 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import * as Sentry from '@sentry/nextjs';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
@@ -44,29 +44,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '不正なステータスです' }, { status: 400 });
     }
 
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
-          },
-        },
-      }
-    );
-
-    // Auth check
-    const { data: { user } } = await supabase.auth.getUser();
+    // Auth check（セッション検証には authClient を使用）
+    const authClient = await createServerSupabaseAuthClient();
+    const { data: { user } } = await authClient.auth.getUser();
     if (!user) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
+
+    // DB 操作には serviceRole を使用（RLS バイパス、RLS 変更の影響を受けない）
+    const supabase = createServiceRoleClient();
 
     // Fetch booking first to scope the permission check
     const { data: booking } = await supabase

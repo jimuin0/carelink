@@ -31,9 +31,13 @@ export async function GET(request: Request) {
       .select('id')
       .eq('status', 'published');
 
-    if (!facilities) return NextResponse.json({ status: 'ok', count: 0 });
+    if (!facilities) {
+      await logCronRun('daily-summary', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ status: 'ok', count: 0 });
+    }
 
     let count = 0;
+    let skipped = 0;
 
     for (const facility of facilities) {
       try {
@@ -44,7 +48,7 @@ export async function GET(request: Request) {
           .eq('facility_id', facility.id)
           .eq('booking_date', dateStr);
 
-        if (!bookings || bookings.length === 0) continue;
+        if (!bookings || bookings.length === 0) { skipped++; continue; }
 
         const completed = bookings.filter(b => b.status === 'completed');
         const cancelled = bookings.filter(b => b.status === 'cancelled');
@@ -85,17 +89,19 @@ export async function GET(request: Request) {
           }, { onConflict: 'facility_id,date' });
         if (upsertErr) {
           console.error('[daily-summary] revenue summary upsert failed', { facilityId: facility.id, err: upsertErr });
+          skipped++;
           continue;
         }
 
         count++;
       } catch (facilityErr) {
         console.error('[daily-summary] facility processing error', { facilityId: facility.id, err: facilityErr });
+        skipped++;
       }
     }
 
-    await logCronRun('daily-summary', 'success', startedAt, { processed: count, meta: { date: dateStr } });
-    return NextResponse.json({ status: 'ok', date: dateStr, facilities: count });
+    await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped, meta: { date: dateStr } });
+    return NextResponse.json({ processed: count, skipped, date: dateStr });
   } catch (e) {
     console.error('[daily-summary] Error:', e);
     await logCronRun('daily-summary', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

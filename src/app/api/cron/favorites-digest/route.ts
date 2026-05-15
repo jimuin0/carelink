@@ -32,6 +32,7 @@ export async function GET(request: Request) {
   if (cronAuthError) return cronAuthError;
 
   let sent = 0;
+  let skipped = 0;
   const startedAt = new Date();
   const thisWeek = isoWeek(startedAt);
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -44,6 +45,7 @@ export async function GET(request: Request) {
       .limit(500);
 
     if (!favUsers || favUsers.length === 0) {
+      await logCronRun('favorites-digest', 'skipped', startedAt, { processed: 0 });
       return NextResponse.json({ success: true, sent: 0 });
     }
 
@@ -98,12 +100,12 @@ export async function GET(request: Request) {
     const emailMap = new Map((authUsers?.users || []).map((u) => [u.id, u.email]));
 
     for (const profile of profiles || []) {
-      if (profile.email_unsubscribed) continue;
+      if (profile.email_unsubscribed) { skipped++; continue; }
       // Skip if already sent this week (idempotency for double-fire)
-      if (profile.favorites_digest_sent_week === thisWeek) continue;
+      if (profile.favorites_digest_sent_week === thisWeek) { skipped++; continue; }
 
       const email = emailMap.get(profile.id);
-      if (!email) continue;
+      if (!email) { skipped++; continue; }
 
       const facilityIds = userFacilityMap.get(profile.id) || [];
 
@@ -122,7 +124,7 @@ export async function GET(request: Request) {
         })
         .filter(Boolean) as { name: string; slug: string; newCoupons: number; hasNewMenus: boolean }[];
 
-      if (updatedFacilities.length === 0) continue;
+      if (updatedFacilities.length === 0) { skipped++; continue; }
 
       // Claim this week's slot before sending (CAS guard)
       const { data: claimed } = await supabase
@@ -132,7 +134,7 @@ export async function GET(request: Request) {
         .neq('favorites_digest_sent_week', thisWeek)
         .select('id');
 
-      if (!claimed || claimed.length === 0) continue; // Another invocation claimed it
+      if (!claimed || claimed.length === 0) { skipped++; continue; } // Another invocation claimed it
 
       // 配信停止トークン生成・保存
       const token = generateUnsubscribeToken();
@@ -152,8 +154,8 @@ export async function GET(request: Request) {
       sent++;
     }
 
-    await logCronRun('favorites-digest', 'success', startedAt, { processed: sent });
-    return NextResponse.json({ success: true, sent });
+    await logCronRun('favorites-digest', 'success', startedAt, { processed: sent, skipped });
+    return NextResponse.json({ processed: sent, skipped });
   } catch (e) {
     console.error('favorites-digest error', e);
     await logCronRun('favorites-digest', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

@@ -232,3 +232,9 @@ test('DELETE: 契約中ユーザーなし → 正常削除 (200 deleted)', async
   expect(res.status).toBe(200);
   expect(json.message).toBe('deleted');
 });
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});

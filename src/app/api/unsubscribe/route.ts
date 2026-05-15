@@ -15,6 +15,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,9 @@ function verifyUnsubHmac(email: string, hmac: string): boolean {
 }
 
 export async function POST(request: Request) {
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
+
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 10, 60_000, 'unsubscribe')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });

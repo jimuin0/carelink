@@ -40,10 +40,12 @@ export async function GET(request: Request) {
       .limit(500);
 
     if (!bookings || bookings.length === 0) {
+      await logCronRun('review-request', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ status: 'ok', sent: 0 });
     }
 
     let sent = 0;
+    let skipped = 0;
 
     for (const booking of bookings) {
       // Claim this booking before sending — prevents duplicate send on double-fire.
@@ -56,7 +58,7 @@ export async function GET(request: Request) {
         .is('review_request_sent_at', null)
         .select('id');
 
-      if (!claimed || claimed.length === 0) continue; // Another invocation already claimed this booking
+      if (!claimed || claimed.length === 0) { skipped++; continue; } // Another invocation already claimed this booking
 
       // 施設名取得
       const { data: facility } = await supabase
@@ -65,7 +67,7 @@ export async function GET(request: Request) {
         .eq('id', booking.facility_id)
         .maybeSingle();
 
-      if (!facility) continue;
+      if (!facility) { skipped++; continue; }
 
       const reviewUrl = `https://carelink-jp.com/facility/${facility.slug}#review`;
 
@@ -92,15 +94,15 @@ export async function GET(request: Request) {
           await sendLineText(
             lineLink.line_user_id,
             `✨ ${facility.name}へのご来店ありがとうございました！\n\n口コミを投稿すると50ポイントプレゼント🎁\n\n👇 口コミを書く\n${reviewUrl}`
-          );
+          ).catch((err) => console.error('[review-request] LINE send failed', { bookingId: booking.id, err }));
         }
       }
 
       sent++;
     }
 
-    await logCronRun('review-request', 'success', startedAt, { processed: sent });
-    return NextResponse.json({ status: 'ok', sent });
+    await logCronRun('review-request', 'success', startedAt, { processed: sent, skipped });
+    return NextResponse.json({ processed: sent, skipped });
   } catch (e) {
     console.error('[review-request] Error:', e);
     await logCronRun('review-request', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

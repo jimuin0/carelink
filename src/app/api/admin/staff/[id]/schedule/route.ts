@@ -64,12 +64,12 @@ async function getAdminFacilityIdAndVerifyStaff(
 // PUT: Replace all weekly schedules for a staff member
 export async function PUT(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 20, 60_000, 'staff-schedule-put')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
@@ -110,12 +110,12 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 // POST: Add or update a schedule override
 export async function POST(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 20, 60_000, 'staff-schedule-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
@@ -151,12 +151,12 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 // DELETE: Remove a schedule override
 export async function DELETE(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
+  const csrfError = checkCsrf(request);
+  if (csrfError) return csrfError;
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
   if (inMemoryRateLimit(ip, 10, 60_000, 'staff-schedule-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 

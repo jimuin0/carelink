@@ -6,7 +6,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendBookingCancelled } from '@/lib/email';
 import * as Sentry from '@sentry/nextjs';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
-import { createClient } from '@supabase/supabase-js';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { notifyCancellationLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -128,10 +128,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // LINE cancellation notification (non-blocking)
   try {
     if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
-      const adminSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
+      const adminSupabase = createServiceRoleClient();
       const { data: lineLink } = await adminSupabase
         .from('line_user_links')
         .select('line_user_id')
@@ -166,10 +163,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // LINE Works cancellation notification (non-blocking)
   if (isLineWorksConfigured()) {
     try {
-      const adminSupabase = createClient(
-        process.env.NEXT_PUBLIC_SUPABASE_URL!,
-        process.env.SUPABASE_SERVICE_ROLE_KEY!
-      );
+      const adminSupabase = createServiceRoleClient();
       const { data: staffList } = await adminSupabase
         .from('staff_profiles')
         .select('line_works_channel_id, line_works_notify_all, id')

@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import * as Sentry from '@sentry/nextjs';
 
 export const dynamic = 'force-dynamic';
@@ -25,12 +26,6 @@ export async function PUT(request: Request) {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
     if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'profile')) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
-    }
-
-    const body = await request.json().catch(() => ({}));
-    const parsed = profileSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
     }
 
     const cookieStore = await cookies();
@@ -56,8 +51,15 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
 
+    const body = await request.json().catch(() => ({}));
+    const parsed = profileSchema.safeParse(body);
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+    }
+
     const d = parsed.data;
-    const { error } = await supabase
+    const serviceClient = createServiceRoleClient();
+    const { error } = await serviceClient
       .from('profiles')
       .update({
         display_name: d.display_name,

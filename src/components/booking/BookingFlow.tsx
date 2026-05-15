@@ -126,43 +126,48 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     }
     setSubmitting(true);
 
-    const res = await fetch('/api/booking', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        facility_id: facility.id,
-        staff_id: selectedStaff?.id ?? null,
-        menu_id: selectedMenus[0]?.id ?? null,
-        menu_ids: selectedMenus.map((m) => m.id),
-        coupon_id: selectedCoupon?.id ?? null,
-        booking_date: selectedDate,
-        start_time: selectedSlot?.slot_start,
-        end_time: selectedSlot?.slot_end,
-        customer_name: customerName,
-        email,
-        phone: phone || null,
-        note: note || null,
-        total_price: calculatePrice(),
-        points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (res.ok) {
-      const body = await res.json().catch(() => null);
-      const completeParams = new URLSearchParams({
-        id: body?.bookingId || '',
-        date: selectedDate || '',
-        time: selectedSlot?.slot_start || '',
-        end_time: selectedSlot?.slot_end || '',
-        facility: facility.name || '',
+    try {
+      const res = await fetch('/api/booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facility_id: facility.id,
+          staff_id: selectedStaff?.id ?? null,
+          menu_id: selectedMenus[0]?.id ?? null,
+          menu_ids: selectedMenus.map((m) => m.id),
+          coupon_id: selectedCoupon?.id ?? null,
+          booking_date: selectedDate,
+          start_time: selectedSlot?.slot_start,
+          end_time: selectedSlot?.slot_end,
+          customer_name: customerName,
+          email,
+          phone: phone || null,
+          note: note || null,
+          total_price: calculatePrice(),
+          points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
+        }),
+        signal: AbortSignal.timeout(15000),
       });
-      router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
-    } else {
-      const body = await res.json().catch(() => null);
-      setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
+
+      if (res.ok) {
+        const body = await res.json().catch(() => null);
+        const completeParams = new URLSearchParams({
+          id: body?.bookingId || '',
+          date: selectedDate || '',
+          time: selectedSlot?.slot_start || '',
+          end_time: selectedSlot?.slot_end || '',
+          facility: facility.name || '',
+        });
+        router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
+      } else {
+        const body = await res.json().catch(() => null);
+        setToast({ type: 'error', message: body?.error || '予約に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました。もう一度お試しください。' });
+    } finally {
+      setSubmitting(false);
     }
-    setSubmitting(false);
   };
 
   const calculatePrice = () => {
@@ -467,9 +472,10 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               <span className="text-gray-500">日時</span>
               <span className="font-medium">{selectedDate} {selectedSlot?.slot_start.slice(0, 5)}〜{selectedSlot?.slot_end.slice(0, 5)}</span>
             </div>
-            {calculatePrice() !== null && (() => {
+            {(() => {
+              const finalPrice = calculatePrice();
+              if (finalPrice === null) return null;
               const menuTotal = selectedMenus.reduce((s, m) => s + (m.price || 0), 0);
-              const finalPrice = calculatePrice() ?? 0;
               const hasCouponDiscount = selectedCoupon && menuTotal > finalPrice;
               return (
                 <div className="border-t border-sky-200 pt-2 mt-2 space-y-1">
@@ -543,31 +549,35 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           </div>
 
           {/* Points */}
-          {isAuthenticated && availablePoints > 0 && calculatePrice() !== null && (
-            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
-              <label className="flex items-center gap-2 text-sm">
-                <input type="checkbox" checked={usePoints} onChange={(e) => { setUsePoints(e.target.checked); if (!e.target.checked) setPointsToUse(0); }} />
-                <span>ポイントを使う（{availablePoints.toLocaleString()}pt 利用可能）</span>
-              </label>
-              {usePoints && (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={0}
-                    max={Math.min(availablePoints, calculatePrice() || 0)}
-                    value={pointsToUse}
-                    onChange={(e) => setPointsToUse(Math.min(Number(e.target.value) || 0, availablePoints, calculatePrice() || 0))}
-                    className="form-input !w-28 text-sm"
-                  />
-                  <span className="text-xs text-gray-500">pt（1pt=1円）</span>
-                  <button type="button" onClick={() => setPointsToUse(Math.min(availablePoints, calculatePrice() || 0))} className="text-xs text-primary hover:underline">全額使用</button>
-                </div>
-              )}
-              {usePoints && pointsToUse > 0 && (
-                <p className="text-sm font-bold">お支払い金額: ¥{((calculatePrice() || 0) - pointsToUse).toLocaleString()}</p>
-              )}
-            </div>
-          )}
+          {(() => {
+            const currentPrice = calculatePrice();
+            if (!isAuthenticated || availablePoints <= 0 || currentPrice === null) return null;
+            return (
+              <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 space-y-2">
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={usePoints} onChange={(e) => { setUsePoints(e.target.checked); if (!e.target.checked) setPointsToUse(0); }} />
+                  <span>ポイントを使う（{availablePoints.toLocaleString()}pt 利用可能）</span>
+                </label>
+                {usePoints && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={Math.min(availablePoints, currentPrice)}
+                      value={pointsToUse}
+                      onChange={(e) => setPointsToUse(Math.min(Number(e.target.value) || 0, availablePoints, currentPrice))}
+                      className="form-input !w-28 text-sm"
+                    />
+                    <span className="text-xs text-gray-500">pt（1pt=1円）</span>
+                    <button type="button" onClick={() => setPointsToUse(Math.min(availablePoints, currentPrice))} className="text-xs text-primary hover:underline">全額使用</button>
+                  </div>
+                )}
+                {usePoints && pointsToUse > 0 && (
+                  <p className="text-sm font-bold">お支払い金額: ¥{(currentPrice - pointsToUse).toLocaleString()}</p>
+                )}
+              </div>
+            );
+          })()}
 
           {isAuthenticated === false && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">

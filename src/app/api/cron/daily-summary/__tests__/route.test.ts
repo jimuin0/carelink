@@ -335,4 +335,209 @@ describe('GET /api/cron/daily-summary', () => {
     const json = await res.json();
     expect(json.error).toBe('Internal error');
   });
+
+  test('upsert error → continue to next facility, count not incremented', async () => {
+    setupDefaultMocks(true, true, [], true);
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // Both facilities fail upsert → count stays 0
+    expect(json.facilities).toBe(0);
+  });
+
+  test('facilities クエリが null → count 0 で早期リターン', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => ({
+        select: jest.fn(() => ({
+          eq: jest.fn(() => ({ data: null, error: null })),
+        })),
+      })),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.count).toBe(0);
+  });
+
+  test('メールなし予約 → emails.length === 0 → newCount/repeatCount ともに 0', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+
+    const bookingsNoEmail = [
+      { status: 'completed', total_price: 5000, email: null },
+    ];
+    mockUpsertFn = jest.fn().mockResolvedValue({ data: null, error: null });
+
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+            })),
+          };
+        }
+        if (table === 'bookings') {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({
+                eq: jest.fn(() => ({ data: bookingsNoEmail, error: null })),
+              })),
+            })),
+          };
+        }
+        if (table === 'daily_revenue_summary') {
+          return { upsert: mockUpsertFn };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const upsertCall = mockUpsertFn.mock.calls[0];
+    expect(upsertCall[0].new_customer_count).toBe(0);
+    expect(upsertCall[0].repeat_customer_count).toBe(0);
+  });
+
+  test('pastRows が null → ?? [] フォールバック', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+
+    mockUpsertFn = jest.fn().mockResolvedValue({ data: null, error: null });
+
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+            })),
+          };
+        }
+        if (table === 'bookings') {
+          let bookingsCallCount = 0;
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({
+                eq: jest.fn(() => ({ data: [{ status: 'completed', total_price: 5000, email: 'user@example.com' }], error: null })),
+                in: jest.fn(() => ({
+                  lt: jest.fn(() => {
+                    bookingsCallCount++;
+                    return { data: null, error: null }; // pastRows = null
+                  }),
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === 'daily_revenue_summary') {
+          return { upsert: mockUpsertFn };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const upsertCall = mockUpsertFn.mock.calls[0];
+    expect(upsertCall[0].new_customer_count).toBe(1); // null → [] → all new
+  });
+
+  test('total_price が null → || 0 フォールバック', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+
+    mockUpsertFn = jest.fn().mockResolvedValue({ data: null, error: null });
+    const bookingsNullPrice = [
+      { status: 'completed', total_price: null, email: 'a@example.com' },
+      { status: 'completed', total_price: 3000, email: 'b@example.com' },
+    ];
+
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+            })),
+          };
+        }
+        if (table === 'bookings') {
+          return {
+            select: jest.fn(() => ({
+              eq: jest.fn(() => ({
+                eq: jest.fn(() => ({ data: bookingsNullPrice, error: null })),
+                in: jest.fn(() => ({
+                  lt: jest.fn(() => ({ data: [], error: null })),
+                })),
+              })),
+            })),
+          };
+        }
+        if (table === 'daily_revenue_summary') {
+          return { upsert: mockUpsertFn };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const upsertCall = mockUpsertFn.mock.calls[0];
+    expect(upsertCall[0].total_revenue).toBe(3000); // null treated as 0
+  });
+
+  test('非 Error をスロー → String() フォールバック', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => { throw 'string error'; }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'daily-summary', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'string error' })
+    );
+  });
+
+  test('facility processing exception → caught per-facility, others continue', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let facilityCallCount = 0;
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          facilityCallCount++;
+          if (facilityCallCount === 1) {
+            // First call returns facility list
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({ data: [{ id: 'fac-1' }, { id: 'fac-2' }], error: null }),
+              }),
+            };
+          }
+          // Subsequent calls (per-facility processing) throw
+          throw new Error('facility fetch error');
+        }
+        if (table === 'daily_revenue_summary') {
+          return { upsert: mockUpsertFn };
+        }
+        // bookings table throws to trigger facility catch
+        throw new Error('bookings error');
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+  });
 });

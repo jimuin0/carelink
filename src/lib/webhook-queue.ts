@@ -45,6 +45,10 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
 
 /**
  * 失敗したWebhookを次の試行時刻に再スケジュールする
+ * @param jobId  ジョブID
+ * @param attempt 直前まで完了した試行回数（0=初回失敗, 1=1回目リトライ失敗, 2=2回目リトライ失敗）
+ *               attempt >= max_attempts(3) で dead-letter に移行
+ * @param errorMsg エラーメッセージ
  */
 export async function scheduleRetry(
   jobId: string,
@@ -53,8 +57,9 @@ export async function scheduleRetry(
 ): Promise<void> {
   const supabase = createServiceRoleClient();
 
+  // attempt は「今失敗した試行番号」(0-indexed)。max_attempts=3 なので attempt >= 3 で全試行消化済み
   if (attempt >= 3) {
-    // 最大リトライ回数超過 → failed
+    // 最大リトライ回数超過 → dead-letter（failed）
     const { error: failErr } = await supabase.from('webhook_retry_queue').update({
       status: 'failed',
       last_error: errorMsg,
@@ -65,14 +70,16 @@ export async function scheduleRetry(
     return;
   }
 
-  const delayMs = RETRY_DELAYS_MS[attempt] ?? 30 * 60 * 1000;
+  // 次回試行のディレイ: RETRY_DELAYS_MS[attempt+1] を使う（attempt=0の失敗→次回は1回目リトライ=5分後）
+  const nextAttempt = attempt + 1;
+  const delayMs = RETRY_DELAYS_MS[nextAttempt] ?? 30 * 60 * 1000;
   const scheduledAt = new Date(Date.now() + delayMs).toISOString();
 
   const { error: retryErr } = await supabase.from('webhook_retry_queue').update({
     status: 'pending',
-    attempt_count: attempt,
+    attempt_count: nextAttempt,   // 次回試行番号を記録（ワーカーは attempt_count を読んで scheduleRetry に渡す）
     last_error: errorMsg,
     scheduled_at: scheduledAt,
   }).eq('id', jobId);
-  if (retryErr) console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: retryErr });
+  if (retryErr) console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt: nextAttempt, err: retryErr });
 }
