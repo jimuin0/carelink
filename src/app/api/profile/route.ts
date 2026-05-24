@@ -78,6 +78,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e) {
+    console.error('[api/profile PUT] caught error:', e instanceof Error ? `${e.name}: ${e.message}\n${e.stack}` : String(e));
     Sentry.captureException(e, { tags: { feature: 'profile' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
