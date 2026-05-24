@@ -59,8 +59,15 @@ export async function checkRateLimit(
   prefix: string,
 ): Promise<boolean> {
   if (limiter) {
-    const { success } = await limiter.limit(ip);
-    return !success;
+    try {
+      const { success } = await limiter.limit(ip);
+      return !success;
+    } catch (e) {
+      // Upstash が落ちている / DNS 解決不可 / トークン無効 等の場合、
+      // 例外をそのまま伝播させると API ルート全体が 500 になるため
+      // in-memory フォールバックに切り替える（フェイルセーフ）
+      console.error(`[rate-limit] Upstash failure, falling back to in-memory:`, e instanceof Error ? e.message : String(e));
+    }
   }
   return inMemoryRateLimit(ip, fallbackLimit, fallbackWindowMs, prefix);
 }

@@ -29,7 +29,6 @@ export async function PUT(request: Request) {
     }
 
     const cookieStore = await cookies();
-    console.error('[api/profile DEBUG] URL prefix:', (process.env.NEXT_PUBLIC_SUPABASE_URL || '').slice(0, 15), 'ANON_KEY len:', (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').length, 'cookies:', cookieStore.getAll().map(c => c.name).join(','));
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -79,7 +78,6 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    console.error('[api/profile PUT] caught error:', e instanceof Error ? `${e.name}: ${e.message}\n${e.stack}` : String(e));
     Sentry.captureException(e, { tags: { feature: 'profile' } });
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
