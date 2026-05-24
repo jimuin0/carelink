@@ -1,0 +1,77 @@
+name: Scheduled Cron Jobs
+
+# Vercel Hobby プランは cron 頻度を 1日1回に制限しているため
+# vercel.json から GitHub Actions に移行（schedule 自由 + 無料）
+# 各ジョブは Bearer ${{ secrets.CRON_SECRET }} で /api/cron/* を叩く
+
+on:
+  schedule:
+    # UTC 表記。日本時間 = UTC + 9
+    - cron: '0 15 * * *'   # booking-reminder       JST 00:00 daily
+    - cron: '0 6 * * *'    # daily-summary          JST 15:00 daily
+    - cron: '0 7 * * 0'    # customer-segment       JST 16:00 Sunday
+    - cron: '0 18 * * *'   # review-request         JST 03:00 daily
+    - cron: '0 9 * * 0'    # sync-google-ratings    JST 18:00 Sunday
+    - cron: '0 16 * * *'   # onboarding-followup    JST 01:00 daily
+    - cron: '0 14 * * *'   # birthday-coupon        JST 23:00 daily
+    - cron: '0 * * * *'    # flag-reviews           hourly
+    - cron: '0 15 * * 1'   # favorites-digest       JST 00:00 Monday
+    - cron: '30 * * * *'   # waitlist-notify        hourly (offset to avoid collision)
+    - cron: '*/15 * * * *' # webhook-retry          every 15 min
+    - cron: '0 16 1 * *'   # newsletter-digest      JST 01:00 1st of month
+  workflow_dispatch:
+    inputs:
+      job:
+        description: '手動実行する cron path (例: /api/cron/flag-reviews)'
+        required: true
+
+jobs:
+  dispatch:
+    name: Dispatch matching cron
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve target path
+        id: target
+        env:
+          MANUAL_JOB: ${{ inputs.job }}
+          TRIGGER_CRON: ${{ github.event.schedule }}
+        run: |
+          if [ -n "$MANUAL_JOB" ]; then
+            echo "path=$MANUAL_JOB" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          case "$TRIGGER_CRON" in
+            "0 15 * * *")    P="/api/cron/booking-reminder" ;;
+            "0 6 * * *")     P="/api/cron/daily-summary" ;;
+            "0 7 * * 0")     P="/api/cron/customer-segment" ;;
+            "0 18 * * *")    P="/api/cron/review-request" ;;
+            "0 9 * * 0")     P="/api/cron/sync-google-ratings" ;;
+            "0 16 * * *")    P="/api/cron/onboarding-followup" ;;
+            "0 14 * * *")    P="/api/cron/birthday-coupon" ;;
+            "0 * * * *")     P="/api/cron/flag-reviews" ;;
+            "0 15 * * 1")    P="/api/cron/favorites-digest" ;;
+            "30 * * * *")    P="/api/cron/waitlist-notify" ;;
+            "*/15 * * * *")  P="/api/cron/webhook-retry" ;;
+            "0 16 1 * *")    P="/api/cron/newsletter-digest" ;;
+            *) echo "Unknown schedule: $TRIGGER_CRON"; exit 1 ;;
+          esac
+          echo "path=$P" >> $GITHUB_OUTPUT
+
+      - name: Call cron endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: ${{ secrets.CARELINK_BASE_URL }}
+          TARGET_PATH: ${{ steps.target.outputs.path }}
+        run: |
+          : "${BASE_URL:?CARELINK_BASE_URL secret not set}"
+          : "${CRON_SECRET:?CRON_SECRET secret not set}"
+          STATUS=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE_URL$TARGET_PATH" \
+            --max-time 300)
+          echo "Status: $STATUS"
+          echo "--- body ---"
+          cat /tmp/body
+          if [ "$STATUS" -ge 400 ]; then
+            exit 1
+          fi
