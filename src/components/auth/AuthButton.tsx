@@ -55,7 +55,13 @@ export default function AuthButton() {
     );
   }
 
-  const displayName = user.user_metadata?.display_name || 'ユーザー';
+  const meta = user.user_metadata ?? {};
+  const displayName =
+    meta.display_name ||
+    meta.full_name ||
+    meta.name ||
+    (user.email ? user.email.split('@')[0] : '') ||
+    'ユーザー';
   const initial = displayName.charAt(0);
 
   return (

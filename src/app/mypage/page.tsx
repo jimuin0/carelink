@@ -23,7 +23,7 @@ export default async function MyPageDashboard() {
     <div className="space-y-6">
       <div className="bg-white rounded-2xl shadow-sm p-6">
         <h1 className="text-xl font-bold mb-2">
-          {profile?.display_name ?? 'ユーザー'}さん、こんにちは
+          {(profile?.display_name && profile.display_name.trim()) || 'ユーザー'}さん、こんにちは
         </h1>
         <p className="text-sm text-gray-500">マイページでは、お気に入りやプロフィールを管理できます。</p>
       </div>

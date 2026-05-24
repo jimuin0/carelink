@@ -37,7 +37,13 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     const supabase = createBrowserSupabaseClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (user) {
-        setCustomerName(user.user_metadata?.display_name || '');
+        const meta = user.user_metadata ?? {};
+        setCustomerName(
+          meta.display_name ||
+          meta.full_name ||
+          meta.name ||
+          ''
+        );
         setEmail(user.email || '');
       }
     }).catch(() => {});

@@ -57,7 +57,13 @@ export default function HomeUserPanel() {
     );
   }
 
-  const displayName = user.user_metadata?.display_name || 'ユーザー';
+  const meta = user.user_metadata ?? {};
+  const displayName =
+    meta.display_name ||
+    meta.full_name ||
+    meta.name ||
+    (user.email ? user.email.split('@')[0] : '') ||
+    'ユーザー';
 
   return (
     <div className="bg-white rounded shadow-sm overflow-hidden">
