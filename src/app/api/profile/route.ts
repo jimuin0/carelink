@@ -29,6 +29,7 @@ export async function PUT(request: Request) {
     }
 
     const cookieStore = await cookies();
+    console.error('[api/profile DEBUG] URL prefix:', (process.env.NEXT_PUBLIC_SUPABASE_URL || '').slice(0, 15), 'ANON_KEY len:', (process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '').length, 'cookies:', cookieStore.getAll().map(c => c.name).join(','));
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
