@@ -1,0 +1,85 @@
+name: Vercel Preview Build
+
+# PR 段階で `vercel build --prod` をドライ実行し、
+# Hobby cron 制約等の「ビルドは通るがデプロイ時に拒否される」エラーを事前検知する。
+# 過去 38日間デプロイが全失敗していた cron_jobs_limits_reached のような事象を
+# PR マージ前に弾く層。
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  vercel-build:
+    name: Vercel Build Dry-Run
+    runs-on: ubuntu-latest
+    if: ${{ vars.ENABLE_VERCEL_PR_BUILD == 'true' }}
+    env:
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Pull Vercel Environment (preview)
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Validate vercel.json crons (Hobby ≤ daily, ≤ 2 jobs)
+        run: |
+          python3 - <<'PY'
+          import json, sys, re
+          with open('vercel.json') as f:
+              v = json.load(f)
+          crons = v.get('crons', [])
+          # Hobby plan: 各 cron は 1日 1回まで、合計 2 件まで
+          # （プランによって異なる場合 ENABLE_VERCEL_PR_BUILD 自体を無効化する）
+          MAX_FREQ_PER_DAY = 1
+          MAX_TOTAL = 2
+          errors = []
+          if len(crons) > MAX_TOTAL:
+              errors.append(f"cron 数 {len(crons)} > Hobby 上限 {MAX_TOTAL}")
+          for c in crons:
+              s = c.get('schedule', '')
+              # 5フィールド cron
+              parts = s.split()
+              if len(parts) != 5:
+                  errors.append(f"invalid schedule: {s}")
+                  continue
+              # 「*/N」「N,M」「*」など毎時以上の頻度を弾く
+              minute, hour, dom, month, dow = parts
+              if '*' in minute and minute != '*':
+                  errors.append(f"sub-hourly: {s}")
+              elif minute == '*':
+                  errors.append(f"every minute: {s}")
+              # hour='*' は 24 回 = NG
+              if hour == '*':
+                  errors.append(f"hourly: {s}")
+          if errors:
+              print("🔴 vercel.json cron 制約違反:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("Hobby プラン制約: 各 cron 1日1回まで、合計 2 件まで")
+              print("対応: GitHub Actions cron (.github/workflows/cron.yml) に移行")
+              sys.exit(1)
+          print(f"✅ vercel.json crons OK ({len(crons)} jobs, all ≤ daily)")
+          PY
+
+      - name: Vercel Build (preview)
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Report
+        if: failure()
+        run: |
+          echo "🔴 Vercel ビルドが失敗しました。マージ前に修正してください。"
+          echo "想定原因: cron_jobs_limits_reached / env var 不足 / 型エラー / ビルド時例外"
