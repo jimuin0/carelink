@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { notifyRateLimit } from '@/lib/rate-limit';
 import { withRoute } from '@/lib/with-route';
+import { postToSlack } from '@/lib/slack';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,8 +61,9 @@ function buildSlackMessage(payload: NotifyPayload): string {
 }
 
 export const POST = withRoute(async (request) => {
-  const webhookUrl = process.env.SLACK_WEBHOOK_URL;
-  if (!webhookUrl) {
+  // Phase 7a: Bot Token + chat.postMessage 経由に変更
+  // SLACK_BOT_TOKEN + SLACK_DEFAULT_CHANNEL 未設定時は 500 を返す
+  if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_DEFAULT_CHANNEL) {
     return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
   }
 
@@ -83,18 +85,15 @@ export const POST = withRoute(async (request) => {
   const payload = result.data as NotifyPayload;
   const text = buildSlackMessage(payload);
 
-  const slackRes = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
-    signal: AbortSignal.timeout(10000),
-  });
+  // 種別ごとのチャンネル振り分けは将来 env 追加で可能（Phase 7a は単一チャンネル）
+  // 例: process.env.SLACK_CHANNEL_CONTACTS || SLACK_DEFAULT_CHANNEL
+  const slackResult = await postToSlack({ text });
 
-  if (!slackRes.ok) {
-    return NextResponse.json({ error: 'Slack通知の送信に失敗しました' }, { status: 502 });
+  if (!slackResult.ok) {
+    return NextResponse.json({ error: 'Slack通知の送信に失敗しました', detail: slackResult.error }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, ts: slackResult.ts });
 }, {
   csrf: true,
   rateLimit: { limiter: notifyRateLimit, limit: 5, windowMs: 60_000, prefix: 'notify' },
