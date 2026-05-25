@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
-import { Redis } from '@upstash/redis';
+import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -10,7 +9,7 @@ export const revalidate = 0;
  *
  * Critical 依存（いずれか NG → status=503）:
  *   - Supabase DB（必須）
- *   - Upstash Redis（必須、rate-limit が依存）
+ *   - Supabase RPC check_rate_limit（必須、rate-limit が依存）
  *
  * Degraded 依存（NG でも 200 を維持、deps に状態のみ報告）:
  *   - Stripe / Resend / Slack（決済・通知系、即時致命ではないがダッシュボード可視化）
@@ -55,14 +54,17 @@ async function probeSupabase(): Promise<DepResult> {
   });
 }
 
-async function probeUpstash(): Promise<DepResult> {
-  return probe('upstash', async () => {
-    const url = process.env.UPSTASH_REDIS_REST_URL;
-    const token = process.env.UPSTASH_REDIS_REST_TOKEN;
-    if (!url || !token) throw new Error('not configured');
-    const redis = new Redis({ url, token });
-    const r = await redis.ping();
-    if (r !== 'PONG') throw new Error(`unexpected ping response: ${r}`);
+async function probeRateLimit(): Promise<DepResult> {
+  return probe('rate_limit', async () => {
+    // Supabase RPC check_rate_limit を実呼びして実装の生存確認
+    // 大きな limit で 1 回呼んでも実害なし（バケットに 1 行作るだけ、1h で自動削除）
+    const supabase = createServiceRoleClient();
+    const { error } = await supabase.rpc('check_rate_limit', {
+      p_key: 'rl:health-probe:127.0.0.1',
+      p_limit: 999999,
+      p_window_ms: 60000,
+    });
+    if (error) throw new Error(error.message);
   });
 }
 
@@ -96,17 +98,17 @@ async function probeResend(): Promise<DepResult> {
 export async function GET() {
   const start = Date.now();
 
-  const [supabase, upstash, stripe, resend] = await Promise.all([
+  const [supabase, rate_limit, stripe, resend] = await Promise.all([
     probeSupabase(),
-    probeUpstash(),
+    probeRateLimit(),
     probeStripe(),
     probeResend(),
   ]);
 
-  const deps = { supabase, upstash, stripe, resend };
+  const deps = { supabase, rate_limit, stripe, resend };
 
-  // Critical: Supabase と Upstash が落ちたら 503
-  const criticalOk = supabase.ok && upstash.ok;
+  // Critical: Supabase DB と rate_limit RPC が落ちたら 503
+  const criticalOk = supabase.ok && rate_limit.ok;
   // Degraded: Stripe/Resend は warn のみ
   const degraded = !stripe.ok || !resend.ok;
 

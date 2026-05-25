@@ -17,9 +17,8 @@
  */
 
 import { NextResponse } from 'next/server';
-import type { Ratelimit } from '@upstash/ratelimit';
 import { checkCsrf } from './csrf';
-import { checkRateLimit } from './rate-limit';
+import { checkRateLimit, type RateLimitConfig } from './rate-limit';
 import { safeCaptureException } from './safe';
 
 type Handler = (request: Request) => Promise<NextResponse>;
@@ -29,7 +28,7 @@ interface WithRouteOptions {
   csrf?: boolean;
   /** Rate limit 設定（指定時のみ適用） */
   rateLimit?: {
-    limiter: Ratelimit | null;
+    limiter: RateLimitConfig | null;
     limit: number;
     windowMs: number;
     prefix: string;

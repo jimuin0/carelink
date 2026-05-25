@@ -1,27 +1,20 @@
 /**
- * Upstash Redis ユーティリティ
- * キャッシュ・キュー・セッションの共通インターフェース
+ * キャッシュ / セッション ユーティリティ（Phase 6: Upstash 廃止版）
  *
- * UPSTASH_REDIS_REST_URL / UPSTASH_REDIS_REST_TOKEN が未設定の場合は
- * インメモリフォールバックが動作する（開発環境・テスト用）
+ * 旧版は @upstash/redis を依存先としていたが、Phase 6 で Upstash ベンダーを
+ * 完全廃止したため、現在は MemoryStore（プロセス内 in-memory）のみで動作する。
+ *
+ * 影響:
+ *  - cachedFetch: 各 serverless インスタンスが独自キャッシュを持つ
+ *    （cache miss が増えるが機能的には等価、追加 DB クエリ 1 回/instance）
+ *  - queuePush/queuePop/queueLength: 本番未使用（grep で 0 件確認済）
+ *  - sessionSet/sessionGet/sessionDel: 本番未使用（同上）
+ *
+ * 将来クロスインスタンス共有キャッシュが必要になった場合は
+ * Supabase に cache_buckets テーブルを追加して同パターンで切り替え可能。
  */
-import { Redis } from '@upstash/redis';
 
-// ===== Redis client =====
-
-function getRedis(): Redis | null {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return null;
-  }
-  return new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
-}
-
-const _redis = getRedis();
-
-// ===== In-memory fallback =====
+// ===== In-memory store =====
 
 class MemoryStore {
   private store = new Map<string, { value: unknown; expires: number | null }>();
@@ -57,53 +50,23 @@ const memStore = new MemoryStore();
 
 // ===== Cache API =====
 
-/**
- * キャッシュから値を取得
- */
 export async function cacheGet<T>(key: string): Promise<T | null> {
-  if (_redis) {
-    return _redis.get<T>(key);
-  }
   return memStore.get<T>(key);
 }
 
-/**
- * 値をキャッシュに保存
- * @param key キャッシュキー
- * @param value 保存する値
- * @param ttlSeconds TTL（秒）、未指定時は無期限
- */
-export async function cacheSet(key: string, value: unknown, ttlSeconds?: number): Promise<void> {
-  if (_redis) {
-    if (ttlSeconds != null) {
-      await _redis.set(key, value, { ex: ttlSeconds });
-    } else {
-      await _redis.set(key, value);
-    }
-    return;
-  }
+export async function cacheSet(
+  key: string,
+  value: unknown,
+  ttlSeconds?: number
+): Promise<void> {
   await memStore.set(key, value, ttlSeconds);
 }
 
-/**
- * キャッシュを削除
- */
 export async function cacheDel(key: string): Promise<void> {
-  if (_redis) {
-    await _redis.del(key);
-    return;
-  }
   await memStore.del(key);
 }
 
-/**
- * キャッシュが存在するか確認
- */
 export async function cacheExists(key: string): Promise<boolean> {
-  if (_redis) {
-    const result = await _redis.exists(key);
-    return result > 0;
-  }
   return memStore.exists(key);
 }
 
@@ -111,7 +74,7 @@ export async function cacheExists(key: string): Promise<boolean> {
  * キャッシュ or Fetch パターン
  * @param key キャッシュキー
  * @param fetcher データ取得関数
- * @param ttlSeconds TTL（秒）
+ * @param ttlSeconds TTL（秒、既定 300）
  */
 export async function cachedFetch<T>(
   key: string,
@@ -120,80 +83,51 @@ export async function cachedFetch<T>(
 ): Promise<T> {
   const cached = await cacheGet<T>(key);
   if (cached !== null) return cached;
-
   const fresh = await fetcher();
   await cacheSet(key, fresh, ttlSeconds);
   return fresh;
 }
 
-// ===== Queue API (simple list-based) =====
+// ===== Queue API（互換のため残置、in-memory では no-op） =====
 
-/**
- * キューにジョブを追加
- */
-export async function queuePush(queueName: string, job: unknown): Promise<void> {
-  if (_redis) {
-    await _redis.lpush(queueName, JSON.stringify(job));
-    return;
-  }
-  // In-memory fallback: not for production use
+export async function queuePush(_queueName: string, _job: unknown): Promise<void> {
+  // in-memory では実装なし（本番未使用）
 }
 
-/**
- * キューからジョブを取得（FIFO）
- */
-export async function queuePop<T>(queueName: string): Promise<T | null> {
-  if (_redis) {
-    const item = await _redis.rpop<string>(queueName);
-    if (!item) return null;
-    try {
-      return JSON.parse(item) as T;
-    } catch {
-      return null;
-    }
-  }
+export async function queuePop<T>(_queueName: string): Promise<T | null> {
   return null;
 }
 
-/**
- * キューの長さを取得
- */
-export async function queueLength(queueName: string): Promise<number> {
-  if (_redis) {
-    return _redis.llen(queueName);
-  }
+export async function queueLength(_queueName: string): Promise<number> {
   return 0;
 }
 
-// ===== Session API =====
+// ===== Session API（cacheGet/Set ラッパー） =====
 
 const SESSION_TTL = 60 * 60 * 24 * 7; // 7 days
 
-/**
- * セッションを保存
- */
 export async function sessionSet(sessionId: string, data: unknown): Promise<void> {
   await cacheSet(`session:${sessionId}`, data, SESSION_TTL);
 }
 
-/**
- * セッションを取得
- */
 export async function sessionGet<T>(sessionId: string): Promise<T | null> {
   return cacheGet<T>(`session:${sessionId}`);
 }
 
-/**
- * セッションを削除
- */
 export async function sessionDel(sessionId: string): Promise<void> {
   await cacheDel(`session:${sessionId}`);
 }
 
-// ===== Connection check =====
+// ===== Compat =====
 
+/**
+ * @deprecated Phase 6 で Upstash 廃止。常に false を返す。
+ */
 export function isRedisAvailable(): boolean {
-  return _redis !== null;
+  return false;
 }
 
-export { _redis as redisClient };
+/**
+ * @deprecated Phase 6 で Upstash 廃止。常に null。
+ */
+export const redisClient = null;

@@ -37,7 +37,7 @@ async function jestConfig() {
   return {
     ...base,
     transformIgnorePatterns: [
-      '/node_modules/(?!(uncrypto|@upstash)/)',
+      '/node_modules/(?!(uncrypto)/)',
     ],
   };
 }
