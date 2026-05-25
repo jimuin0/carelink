@@ -177,7 +177,7 @@ describe('GET /api/cron/review-request', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.sent).toBeGreaterThanOrEqual(0);
+    expect(json.processed).toBeGreaterThanOrEqual(0);
   });
 
   test('filters status=completed', async () => {

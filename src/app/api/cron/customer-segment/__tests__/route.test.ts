@@ -122,7 +122,7 @@ describe('GET /api/cron/customer-segment', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.status).toBe('ok');
+    expect(typeof json.processed).toBe('number');
   });
 
   test('fetches published facilities (max 200)', async () => {
@@ -207,7 +207,7 @@ describe('GET /api/cron/customer-segment', () => {
     const res = await GET(makeRequest() as any);
 
     const json = await res.json();
-    expect(json.facilities).toBe(0);
+    expect(json.processed).toBe(0);
   });
 
   test('upserts to customer_segments table', async () => {

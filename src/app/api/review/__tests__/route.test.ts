@@ -19,6 +19,11 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+  createServerSupabaseClient: jest.fn(),
+  createServerSupabaseAuthClient: jest.fn(),
+}));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
@@ -52,22 +57,27 @@ function setupDefaultMocks(hasUser: boolean = true, hasRecentReview: boolean = f
   const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
   mockInsert = jest.fn().mockReturnValue({ select: mockSelectInsert });
 
+  const fromRouter = jest.fn((table: string) => {
+    if (table === 'facility_reviews') {
+      return {
+        select: mockSelect,
+        insert: mockInsert,
+      };
+    } else if (table === 'bookings') {
+      return { select: mockSelectBooking };
+    } else if (table === 'user_points') {
+      return { select: mockSelect, insert: mockInsert };
+    }
+  });
+
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
-    from: jest.fn((table: string) => {
-      if (table === 'facility_reviews') {
-        return {
-          select: mockSelect,
-          insert: mockInsert,
-        };
-      } else if (table === 'bookings') {
-        return { select: mockSelectBooking };
-      } else if (table === 'user_points') {
-        return { select: mockSelect, insert: mockInsert };
-      }
-    }),
+    from: fromRouter,
   });
+
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
 
   const { cookies } = require('next/headers');
   cookies.mockResolvedValue({
@@ -344,19 +354,24 @@ describe('POST /api/review', () => {
       const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
       const mockPointsInsert = jest.fn().mockResolvedValue({ error: null });
 
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') {
+          return { select: mockDupSelect, insert: mockInsert };
+        } else if (table === 'bookings') {
+          return { select: mockBookingSelect };
+        } else if (table === 'user_points') {
+          return { select: mockPointsSelect, insert: mockPointsInsert };
+        }
+      });
+
       const { createServerClient } = require('@supabase/ssr');
       createServerClient.mockReturnValue({
         auth: { getUser: mockGetUser },
-        from: jest.fn((table: string) => {
-          if (table === 'facility_reviews') {
-            return { select: mockDupSelect, insert: mockInsert };
-          } else if (table === 'bookings') {
-            return { select: mockBookingSelect };
-          } else if (table === 'user_points') {
-            return { select: mockPointsSelect, insert: mockPointsInsert };
-          }
-        }),
+        from: fromRouter,
       });
+
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
 
       const { cookies } = require('next/headers');
       cookies.mockResolvedValue({ getAll: jest.fn(() => []) });

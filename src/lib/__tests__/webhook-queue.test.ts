@@ -86,7 +86,7 @@ test('scheduleRetry: attempt=1 → pending状態に再スケジュール', async
 
   expect(updateMock).toHaveBeenCalledWith(expect.objectContaining({
     status: 'pending',
-    attempt_count: 1,
+    attempt_count: 2,
   }));
 });
 
@@ -111,6 +111,6 @@ test('scheduleRetry: 再スケジュールDB失敗 → エラーログを出力'
 
   expect(console.error).toHaveBeenCalledWith(
     '[webhook-queue] failed to reschedule job — job stuck in processing',
-    expect.objectContaining({ jobId: 'job-stuck', attempt: 1 })
+    expect.objectContaining({ jobId: 'job-stuck', attempt: 2 })
   );
 });

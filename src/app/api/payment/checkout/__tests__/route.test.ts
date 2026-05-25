@@ -23,9 +23,17 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 
 const mockFrom = jest.fn();
 const mockGetUser = jest.fn();
+const mockServiceInsert = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }),
+}));
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(() => ({
+    from: jest.fn(() => ({ insert: mockServiceInsert })),
+  })),
+  createServerSupabaseClient: jest.fn(),
+  createServerSupabaseAuthClient: jest.fn(),
 }));
 
 const mockStripeCreate = jest.fn();
@@ -72,6 +80,7 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/test', id: 'cs_test' });
+  mockServiceInsert.mockImplementation(() => Promise.resolve({ error: null }));
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';

@@ -7,6 +7,7 @@
 
 import { createHmac } from 'crypto';
 
+jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));

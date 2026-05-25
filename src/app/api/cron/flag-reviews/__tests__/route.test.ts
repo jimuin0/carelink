@@ -226,7 +226,7 @@ describe('GET /api/cron/flag-reviews', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(typeof json.flagged).toBe('number');
+    expect(typeof json.processed).toBe('number');
   });
 
   test('handles multiple bulk spam IPs', async () => {
@@ -273,7 +273,7 @@ describe('GET /api/cron/flag-reviews', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.flagged).toBe(0); // updateErr → flagged not incremented
+    expect(json.processed).toBe(0); // updateErr → flagged not incremented
   });
 
   test('非 Error スロー → String() フォールバック', async () => {

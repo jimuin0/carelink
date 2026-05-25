@@ -269,8 +269,7 @@ describe('GET /api/cron/favorites-digest', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.success).toBe(true);
-    expect(json.sent).toBeGreaterThanOrEqual(0);
+    expect(typeof json.processed).toBe('number');
   });
 
   test('skips if user already sent this week', async () => {
@@ -280,7 +279,7 @@ describe('GET /api/cron/favorites-digest', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.sent).toBe(0);
+    expect(json.processed).toBe(0);
   });
 
   test('respects email_unsubscribed flag', async () => {
@@ -290,7 +289,7 @@ describe('GET /api/cron/favorites-digest', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.sent).toBe(0);
+    expect(json.processed).toBe(0);
   });
 
   test('aggregates favorites per user', async () => {

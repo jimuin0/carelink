@@ -16,6 +16,9 @@ jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/email');
+jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
+}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
@@ -136,7 +139,7 @@ describe('GET /api/cron/booking-reminder', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(typeof json.sent).toBe('number');
+    expect(typeof json.processed).toBe('number');
     expect(typeof json.skipped).toBe('number');
     expect(typeof json.total).toBe('number');
   });

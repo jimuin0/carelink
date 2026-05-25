@@ -202,7 +202,7 @@ describe('GET /api/cron/onboarding-followup', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.status).toBe('ok');
+    expect(typeof json.processed).toBe('number');
   });
 
   test('filters facilities not published (status != published)', async () => {

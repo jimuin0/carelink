@@ -10,10 +10,15 @@
  *   - Error handling
  */
 
+jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
-jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+  createServerSupabaseClient: jest.fn(),
+  createServerSupabaseAuthClient: jest.fn(),
+}));
 
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';

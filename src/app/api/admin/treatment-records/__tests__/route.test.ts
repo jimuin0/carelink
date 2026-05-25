@@ -20,11 +20,15 @@ const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
 
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+jest.mock('@/lib/supabase-server-auth', () => ({
+  createServerSupabaseAuthClient: () => Promise.resolve({
+    from: mockAnonFrom,
+    auth: { getUser: mockGetUser },
+  }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServerSupabaseClient: () => ({ from: mockAnonFrom }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -187,7 +191,18 @@ test('POST: facility_id が不正UUID → 401', async () => {
 
 test('POST: 全フィールド指定でも 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'rec-full' }));
+  // user_id 指定時は bookings 存在確認 → treatment_records insert の 2 経路
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'booking-1' } }),
+      } as any;
+    }
+    return insertSingle({ id: 'rec-full' });
+  });
   const res = await POST(makeRequest(validBody({
     user_id: '550e8400-e29b-41d4-a716-446655440099',
     menu_name: '鍼灸',
