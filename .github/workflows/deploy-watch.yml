@@ -1,0 +1,127 @@
+name: Deploy Watch
+
+# 過去 38日間デプロイが silently 失敗していた事象の再発防止。
+# 2系統で監視:
+# 1. deployment_status イベント受信 → 失敗時に自動 Issue 起票
+# 2. 30分毎に main HEAD vs Vercel production current SHA 差分検査
+
+on:
+  deployment_status:
+  schedule:
+    - cron: '*/30 * * * *'   # 30分毎の drift 監視
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  deployments: read
+
+jobs:
+  notify-deploy-failure:
+    name: Notify Deploy Failure
+    if: ${{ github.event_name == 'deployment_status' && github.event.deployment_status.state == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const ds = context.payload.deployment_status;
+            const d = context.payload.deployment;
+            const title = `🔴 Deploy failed: ${d.environment} (${d.sha.slice(0,7)})`;
+            const body = [
+              `**Environment:** ${d.environment}`,
+              `**Commit:** ${d.sha}`,
+              `**State:** ${ds.state}`,
+              `**Target URL:** ${ds.target_url || '(none)'}`,
+              `**Description:** ${ds.description || '(none)'}`,
+              `**Creator:** @${d.creator?.login || 'unknown'}`,
+              '',
+              '担当 runbook: docs/runbooks/deploy-failure.md（Phase 3 で整備予定）',
+              '即時対応: Vercel ダッシュボードでビルドログ確認 → 原因特定 → 修正 PR',
+            ].join('\n');
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo:  context.repo.repo,
+              title,
+              body,
+              labels: ['deploy-failure', 'priority:high'],
+            });
+
+  drift-check:
+    name: HEAD vs Production SHA Drift
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get main HEAD SHA
+        id: head
+        run: echo "sha=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
+
+      - name: Get latest Production deployment SHA
+        id: prod
+        run: |
+          # GitHub Deployments API（Vercel が production deployment を作成しているはず）
+          SHA=$(gh api "repos/${{ github.repository }}/deployments?environment=Production&per_page=1" --jq '.[0].sha // ""')
+          CREATED=$(gh api "repos/${{ github.repository }}/deployments?environment=Production&per_page=1" --jq '.[0].created_at // ""')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+          echo "created=$CREATED" >> $GITHUB_OUTPUT
+
+      - name: Compare and alert
+        run: |
+          HEAD="${{ steps.head.outputs.sha }}"
+          PROD="${{ steps.prod.outputs.sha }}"
+          CREATED="${{ steps.prod.outputs.created }}"
+
+          if [ -z "$PROD" ]; then
+            echo "⚠️  Production deployment 未検出（Vercel 連携 or Deployments API 失敗）"
+            exit 0
+          fi
+
+          if [ "$HEAD" = "$PROD" ]; then
+            echo "✅ HEAD = Production SHA ($HEAD)"
+            exit 0
+          fi
+
+          # 60分以上ドリフトしているかチェック
+          AGE_SECONDS=$(( $(date +%s) - $(date -d "$CREATED" +%s) ))
+          AGE_MIN=$(( AGE_SECONDS / 60 ))
+          AHEAD=$(git rev-list --count "$PROD..$HEAD" 2>/dev/null || echo "?")
+
+          echo "📊 Drift detected:"
+          echo "  HEAD:         $HEAD"
+          echo "  Production:   $PROD (${AGE_MIN} min ago)"
+          echo "  Commits behind: $AHEAD"
+
+          if [ $AGE_MIN -lt 60 ]; then
+            echo "  → デプロイ進行中の可能性 (60分未満)、warn のみ"
+            exit 0
+          fi
+
+          # 60分超のドリフト → Issue 起票
+          gh issue list --label "deploy-drift" --state open --json title --jq '.[].title' \
+            | grep -q "Deploy drift" && echo "既に open issue あり" && exit 0
+
+          gh issue create \
+            --title "🟡 Deploy drift: HEAD と Production が ${AHEAD} commits 乖離 (${AGE_MIN} min)" \
+            --label "deploy-drift,priority:medium" \
+            --body "$(cat <<EOF
+          ## ドリフト検知
+          - HEAD: \`$HEAD\`
+          - Production: \`$PROD\` (${AGE_MIN} 分前)
+          - 未反映: ${AHEAD} commits
+
+          ## 想定原因
+          - Vercel-GitHub 連携が切れている（過去事例: GitHub App 未インストール）
+          - ビルド失敗が連続している（vercel.json cron 違反等）
+          - 手動デプロイのキューが詰まっている
+
+          ## 対応
+          1. Vercel ダッシュボードで最新デプロイ状態確認
+          2. GitHub Actions の Vercel Preview Build PR check 履歴確認
+          3. 必要なら \`vercel --prod\` で手動デプロイ
+          EOF
+          )"
