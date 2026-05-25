@@ -1,11 +1,30 @@
 {
   "extends": ["next/core-web-vitals", "next/typescript"],
+  "plugins": ["carelink-safety"],
+  "rules": {
+    "carelink-safety/no-await-fire-and-forget": "error",
+    "carelink-safety/no-bare-sentry-capture": "error"
+  },
   "overrides": [
     {
       "files": ["**/__tests__/**/*.ts", "**/__tests__/**/*.tsx", "**/*.test.ts", "**/*.test.tsx"],
       "rules": {
         "@typescript-eslint/no-explicit-any": "off",
-        "@typescript-eslint/no-require-imports": "off"
+        "@typescript-eslint/no-require-imports": "off",
+        "carelink-safety/no-bare-sentry-capture": "off",
+        "carelink-safety/no-await-fire-and-forget": "off"
+      }
+    },
+    {
+      "files": ["src/lib/safe.ts"],
+      "rules": {
+        "carelink-safety/no-bare-sentry-capture": "off"
+      }
+    },
+    {
+      "files": ["src/app/api/sentry-check/route.ts"],
+      "rules": {
+        "carelink-safety/no-bare-sentry-capture": "off"
       }
     }
   ]

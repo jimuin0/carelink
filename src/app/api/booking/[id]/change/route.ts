@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -154,17 +154,17 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
             if (!staff.line_works_channel_id) continue;
             if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
             sendLineWorksMessage(staff.line_works_channel_id, { content: { type: 'text', text } })
-              .catch((e) => Sentry.captureException(e, { tags: { feature: 'change-lineworks' } }));
+              .catch((e) => safeCaptureException(e, 'change-lineworks'));
           }
         }
       } catch (e) {
-        Sentry.captureException(e, { tags: { feature: 'change-lineworks-setup' } });
+        safeCaptureException(e, 'change-lineworks-setup');
       }
     }
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-change' } });
+    safeCaptureException(e, 'booking-change');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

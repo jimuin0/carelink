@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     if ('error' in result) return result.error;
     return NextResponse.json({ job: result.job });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'admin-jobs-get' } });
+    safeCaptureException(e, 'admin-jobs-get');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }
@@ -94,7 +94,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       .single();
 
     if (error) {
-      Sentry.captureException(error, { tags: { feature: 'admin-jobs-update' } });
+      safeCaptureException(error, 'admin-jobs-update');
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
     }
 
@@ -110,7 +110,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     return NextResponse.json({ job: data });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'admin-jobs-update' } });
+    safeCaptureException(e, 'admin-jobs-update');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }
@@ -137,7 +137,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
       .eq('facility_id', job.facility_id);
 
     if (error) {
-      Sentry.captureException(error, { tags: { feature: 'admin-jobs-delete' } });
+      safeCaptureException(error, 'admin-jobs-delete');
       return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
     }
 
@@ -152,7 +152,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'admin-jobs-delete' } });
+    safeCaptureException(e, 'admin-jobs-delete');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }

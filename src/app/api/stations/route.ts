@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
       { headers: { 'Cache-Control': 'public, max-age=3600, s-maxage=3600' } }
     );
   } catch (e) {
-    Sentry.captureException(e, { tags: { route: 'api/stations' } });
+    safeCaptureException(e, 'api/stations');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

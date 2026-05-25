@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
 
     return NextResponse.redirect(lineAuthUrl.toString());
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'line-auth-redirect' } });
+    safeCaptureException(e, 'line-auth-redirect');
     return NextResponse.redirect(new URL('/auth/login?error=line_unexpected', request.url));
   }
 }

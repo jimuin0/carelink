@@ -7,7 +7,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
@@ -144,7 +144,7 @@ export async function POST(request: NextRequest) {
       sendWelcomeEmail({
         ownerEmail: user.email,
         facilityName: facility_name,
-      }).catch((e) => Sentry.captureException(e, { tags: { feature: 'welcome-email' } }));
+      }).catch((e) => safeCaptureException(e, 'welcome-email'));
     }
 
     return NextResponse.json({
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
       message: '施設を作成しました。管理画面からメニューやスタッフを登録してください。',
     });
   } catch (e) {
-    Sentry.captureException(e);
+    safeCaptureException(e, 'api/facility/setup');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

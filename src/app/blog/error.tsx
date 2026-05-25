@@ -1,7 +1,8 @@
 'use client';
 
-import * as Sentry from '@sentry/nextjs';
 import { useEffect } from 'react';
+
+import { safeCaptureException } from '@/lib/safe';
 
 export default function BlogError({
   error,
@@ -11,7 +12,7 @@ export default function BlogError({
   reset: () => void;
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    safeCaptureException(error, 'blog');
   }, [error]);
   return (
     <div className="flex items-center justify-center min-h-[60vh]">

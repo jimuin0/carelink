@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendBookingCancelled } from '@/lib/email';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -187,19 +187,19 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
           const isAssigned = staff.id === booking.staff_id;
           if (isAssigned || staff.line_works_notify_all) {
             notifyCancellationLineWorks(staff.line_works_channel_id, cancelInfo).catch((e) =>
-              Sentry.captureException(e, { tags: { feature: 'cancel-lineworks' } })
+              safeCaptureException(e, 'cancel-lineworks')
             );
           }
         }
       }
     } catch (e) {
-      Sentry.captureException(e, { tags: { feature: 'cancel-lineworks-setup' } });
+      safeCaptureException(e, 'cancel-lineworks-setup');
     }
   }
 
   return NextResponse.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-cancel' } });
+    safeCaptureException(e, 'booking-cancel');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

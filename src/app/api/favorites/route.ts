@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,7 +74,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ isFavorited: true });
     }
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'favorites' } });
+    safeCaptureException(e, 'favorites');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

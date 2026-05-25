@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
     if (error) return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
     return NextResponse.json({ jobs: data ?? [] });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'admin-jobs-list' } });
+    safeCaptureException(e, 'admin-jobs-list');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }
@@ -87,13 +87,13 @@ export async function POST(request: Request) {
       .single();
 
     if (error) {
-      Sentry.captureException(error, { tags: { feature: 'admin-jobs-create' } });
+      safeCaptureException(error, 'admin-jobs-create');
       return NextResponse.json({ error: '作成に失敗しました' }, { status: 500 });
     }
 
     return NextResponse.json({ job: data }, { status: 201 });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'admin-jobs-create' } });
+    safeCaptureException(e, 'admin-jobs-create');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }

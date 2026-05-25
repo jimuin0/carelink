@@ -6,7 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -270,17 +270,17 @@ export async function POST(request: Request) {
       bookingId: newBookingId,
     };
 
-    sendBookingConfirmation(emailData).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-email' } }));
+    sendBookingConfirmation(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
 
     // Notify facility owner
     if (ownerResult.data) {
       const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', ownerResult.data.user_id).single();
       if (ownerProfile?.email) {
-        sendNewBookingNotification({ ...emailData, facilityEmail: ownerProfile.email }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-email-owner' } }));
+        sendNewBookingNotification({ ...emailData, facilityEmail: ownerProfile.email }).catch((e) => safeCaptureException(e, 'booking-email-owner'));
       }
     }
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-email-setup' } });
+    safeCaptureException(e, 'booking-email-setup');
   }
 
   // Push notifications (non-blocking)
@@ -290,7 +290,7 @@ export async function POST(request: Request) {
       body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
       url: '/admin/bookings',
       tag: `booking-${newBookingId}`,
-    }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-push-owner' } }));
+    }).catch((e) => safeCaptureException(e, 'booking-push-owner'));
 
     if (user) {
       sendPushToUser(user.id, {
@@ -298,10 +298,10 @@ export async function POST(request: Request) {
         body: `${parsed.data.booking_date} ${parsed.data.start_time}〜のご予約を承りました`,
         url: `/mypage/bookings/${newBookingId}`,
         tag: `booking-confirm-${newBookingId}`,
-      }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-push-user' } }));
+      }).catch((e) => safeCaptureException(e, 'booking-push-user'));
     }
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-push-setup' } });
+    safeCaptureException(e, 'booking-push-setup');
   }
 
   // LINE notification (non-blocking)
@@ -332,11 +332,11 @@ export async function POST(request: Request) {
           menuName: lineMenuName,
           date: parsed.data.booking_date,
           time: parsed.data.start_time,
-        }).catch((e) => Sentry.captureException(e, { tags: { feature: 'booking-line' } }));
+        }).catch((e) => safeCaptureException(e, 'booking-line'));
       }
     }
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-line-setup' } });
+    safeCaptureException(e, 'booking-line-setup');
   }
 
   // LINE Works staff notification (non-blocking)
@@ -374,20 +374,20 @@ export async function POST(request: Request) {
           const isAssigned = staff.id === parsed.data.staff_id;
           if (isAssigned || staff.line_works_notify_all) {
             notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo).catch((e) =>
-              Sentry.captureException(e, { tags: { feature: 'booking-lineworks' } })
+              safeCaptureException(e, 'booking-lineworks')
             );
           }
         }
         void facilityRow;
       }
     } catch (e) {
-      Sentry.captureException(e, { tags: { feature: 'booking-lineworks-setup' } });
+      safeCaptureException(e, 'booking-lineworks-setup');
     }
   }
 
   return NextResponse.json({ success: true, bookingId: newBookingId });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking' } });
+    safeCaptureException(e, 'booking');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

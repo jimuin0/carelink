@@ -1,11 +1,12 @@
 'use client';
 
-import * as Sentry from '@sentry/nextjs';
 import { useEffect } from 'react';
+
+import { safeCaptureException } from '@/lib/safe';
 
 export default function Error({ error, reset }: { error: Error; reset: () => void }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    safeCaptureException(error, 'admin-inquiries');
   }, [error]);
   return (
     <div className="flex items-center justify-center py-12">

@@ -3,9 +3,12 @@
  *
  * Tests for src/lib/safe.ts（Phase 3 Layer6）
  */
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({
+  captureException: jest.fn(),
+  captureMessage: jest.fn(),
+}));
 
-import { safeAsync, safeSync, safeCaptureException } from '../safe';
+import { safeAsync, safeSync, safeCaptureException, safeCaptureMessage } from '../safe';
 import * as Sentry from '@sentry/nextjs';
 
 beforeEach(() => jest.clearAllMocks());
@@ -106,6 +109,29 @@ describe('safeSync', () => {
     );
     expect(r).toBe('fb');
     expect(consoleSpy).toHaveBeenCalledWith('[safe:sync]', 'sync boom');
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('safeCaptureMessage', () => {
+  test('Sentry.captureMessage が tag/level/extra 込みで呼ばれる', async () => {
+    safeCaptureMessage('test message', 'warning', 'csrf', { ip: '1.2.3.4' });
+    await new Promise((r) => setTimeout(r, 10));
+    expect(Sentry.captureMessage).toHaveBeenCalledWith('test message', {
+      level: 'warning',
+      tags: { safe_tag: 'csrf' },
+      extra: { ip: '1.2.3.4' },
+    });
+  });
+
+  test('Sentry が throw しても本関数は throw しない', async () => {
+    (Sentry.captureMessage as jest.Mock).mockImplementation(() => {
+      throw new Error('sentry down');
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    expect(() => safeCaptureMessage('m', 'error', 'tag')).not.toThrow();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(consoleSpy).toHaveBeenCalledWith('[safeCaptureMessage:tag]', 'm');
     consoleSpy.mockRestore();
   });
 });

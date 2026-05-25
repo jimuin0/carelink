@@ -66,6 +66,7 @@
     "@types/react-dom": "^18",
     "eslint": "^8",
     "eslint-config-next": "15.5.15",
+    "eslint-plugin-carelink-safety": "file:eslint-plugin-carelink-safety",
     "husky": "^9.1.7",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.3.0",

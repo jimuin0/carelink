@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
       areas: Array.from(areaSet).slice(0, 5),
     });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'facility-suggest' } });
+    safeCaptureException(e, 'facility-suggest');
     return NextResponse.json({ facilities: [], areas: [] }, { status: 500 });
   }
 }

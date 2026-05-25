@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({ slots: (data ?? []) as AvailableSlot[] });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'slots' } });
+    safeCaptureException(e, 'slots');
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
   }
 }
