@@ -1,0 +1,27 @@
+# 全体デフォルト所有者（最低限のレビューゲート）
+*                          @jimuin0
+
+# クリティカル領域（必須レビュー）
+/supabase/migrations/      @jimuin0
+/.github/                  @jimuin0
+/middleware.ts             @jimuin0
+/vercel.json               @jimuin0
+/package.json              @jimuin0
+/package-lock.json         @jimuin0
+/.env.example              @jimuin0
+
+# API: 認証・決済・cron・admin
+/src/app/api/auth/         @jimuin0
+/src/app/api/payment/      @jimuin0
+/src/app/api/admin/        @jimuin0
+/src/app/api/cron/         @jimuin0
+/src/app/api/profile/      @jimuin0
+/src/app/api/account/      @jimuin0
+
+# セキュリティ・共有ライブラリ
+/src/lib/csrf.ts           @jimuin0
+/src/lib/cron-auth.ts      @jimuin0
+/src/lib/rate-limit.ts     @jimuin0
+/src/lib/supabase-server.ts        @jimuin0
+/src/lib/supabase-server-auth.ts   @jimuin0
+/src/lib/audit-logger.ts   @jimuin0

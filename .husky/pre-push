@@ -1,0 +1,13 @@
+# push 前の最終砦: 過去 200 commit にシークレット痕跡が無いか走査
+# 既に history に紛れていた場合の push を物理的に止める
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks detect --redact --no-banner --log-opts="-n 200" || {
+    echo ""
+    echo "🔴 直近 200 commit にシークレット痕跡があります（push をブロック）。"
+    echo "   git filter-repo --replace-text で履歴から除去してから再 push してください。"
+    echo "   復旧手順: docs/runbooks/secret-leak.md"
+    exit 1
+  }
+else
+  echo "⚠️  gitleaks 未インストール（pre-push スキップ）。brew install gitleaks 推奨。"
+fi
