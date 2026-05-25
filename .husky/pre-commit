@@ -1,0 +1,17 @@
+# 1. .env.example に実値混入していないか（軽量・常時実行）
+node scripts/check-env-example.mjs || exit 1
+
+# 2. ステージ済みファイルにシークレットらしき文字列が無いか（gitleaks）
+#    gitleaks 未インストール環境では警告のみで通過（CI 側で最終検出）
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --no-banner || {
+    echo ""
+    echo "🔴 シークレットらしき文字列が検出されました。"
+    echo "   テスト用ダミーなら src/__fixtures__/secrets.ts に集約してください。"
+    echo "   どうしても許可したい場合は対象行末に '# gitleaks:allow' を付与。"
+    exit 1
+  }
+else
+  echo "⚠️  gitleaks 未インストール（pre-commit スキップ）。"
+  echo "   recommend: brew install gitleaks"
+fi

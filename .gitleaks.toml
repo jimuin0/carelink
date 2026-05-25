@@ -1,0 +1,20 @@
+# CareLink gitleaks configuration
+# 既定ルールに加え、テストファイル内の合成 JWT のみ allowlist する
+# （本物の Slack/Stripe/Resend/Supabase キーは引き続き全て検知）
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "テストファイル内のダミー JWT のみ許可（本物の秘密キーは引き続き検知）"
+paths = [
+  '''.*__tests__.*\.(ts|tsx|js)$''',
+  '''.*\.test\.(ts|tsx|js)$''',
+  '''.*\.spec\.(ts|tsx|js)$''',
+  '''^src/__fixtures__/''',
+]
+# 上記 paths 配下では「jwt」ルールのみスキップ。他ルール（slack/stripe/resend 等）は引き続き有効
+regexTarget = "match"
+regexes = [
+  '''eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+''',
+]
