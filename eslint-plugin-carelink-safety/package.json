@@ -1,0 +1,10 @@
+{
+  "name": "eslint-plugin-carelink-safety",
+  "version": "1.0.0",
+  "description": "CareLink 固有の安全規約を ESLint で強制する custom plugin",
+  "main": "index.js",
+  "private": true,
+  "peerDependencies": {
+    "eslint": ">=8"
+  }
+}
