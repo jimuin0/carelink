@@ -7,8 +7,8 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit } from '@/lib/rate-limit';
+import { withRoute } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,15 +20,7 @@ const contactSchema = z.object({
   message: z.string().min(1).max(5000),
 });
 
-export async function POST(request: Request) {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (await checkRateLimit(mutationRateLimit, ip, 3, 60_000, 'contact')) {
-    return NextResponse.json({ error: 'リクエストが多すぎます。時間をおいて再度お試しください。' }, { status: 429 });
-  }
-
+export const POST = withRoute(async (request) => {
   const body = await request.json().catch(() => null);
   const parsed = contactSchema.safeParse(body);
   if (!parsed.success) {
@@ -69,4 +61,8 @@ export async function POST(request: Request) {
   }).catch((err) => console.error('[contact] Slack notification failed', { err }));
 
   return NextResponse.json({ success: true });
-}
+}, {
+  csrf: true,
+  rateLimit: { limiter: mutationRateLimit, limit: 3, windowMs: 60_000, prefix: 'contact' },
+  sentryTag: 'contact',
+});
