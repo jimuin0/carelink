@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { checkCsrf } from '@/lib/csrf';
-import { notifyRateLimit, checkRateLimit } from '@/lib/rate-limit';
-import { safeCaptureException } from '@/lib/safe';
+import { notifyRateLimit } from '@/lib/rate-limit';
+import { withRoute } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,53 +59,44 @@ function buildSlackMessage(payload: NotifyPayload): string {
   }
 }
 
-export async function POST(request: Request) {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (await checkRateLimit(notifyRateLimit, ip, 5, 60_000, 'notify')) {
-    return NextResponse.json({ error: 'Too many requests' }, { status: 429 });
-  }
-
+export const POST = withRoute(async (request) => {
   const webhookUrl = process.env.SLACK_WEBHOOK_URL;
   if (!webhookUrl) {
     return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
   }
 
-  try {
-    const body = await request.json().catch(() => null);
-    if (!body) return NextResponse.json({ error: '無効なリクエストです' }, { status: 400 });
+  const body = await request.json().catch(() => null);
+  if (!body) return NextResponse.json({ error: '無効なリクエストです' }, { status: 400 });
 
-    const payloadSchema = z.discriminatedUnion('type', [
-      z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string().max(200), business_type: z.string().max(100), representative_name: z.string().max(100), phone: z.string().max(30), email: z.string().max(254), address: z.string().max(300).optional(), desired_start_date: z.string().max(30).optional() }) }),
-      z.object({ type: z.literal('contact'), data: z.object({ name: z.string().max(100), inquiry_type: z.string().max(100), email: z.string().max(254), message: z.string().max(2000) }) }),
-      z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string().max(200), name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), message: z.string().max(2000) }) }),
-      z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string().max(200), contact_name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), business_type: z.string().max(100) }) }),
-    ]);
+  const payloadSchema = z.discriminatedUnion('type', [
+    z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string().max(200), business_type: z.string().max(100), representative_name: z.string().max(100), phone: z.string().max(30), email: z.string().max(254), address: z.string().max(300).optional(), desired_start_date: z.string().max(30).optional() }) }),
+    z.object({ type: z.literal('contact'), data: z.object({ name: z.string().max(100), inquiry_type: z.string().max(100), email: z.string().max(254), message: z.string().max(2000) }) }),
+    z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string().max(200), name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), message: z.string().max(2000) }) }),
+    z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string().max(200), contact_name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), business_type: z.string().max(100) }) }),
+  ]);
 
-    const result = payloadSchema.safeParse(body);
-    if (!result.success) {
-      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
-    }
-
-    const payload = result.data as NotifyPayload;
-    const text = buildSlackMessage(payload);
-
-    const slackRes = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-      signal: AbortSignal.timeout(10000),
-    });
-
-    if (!slackRes.ok) {
-      return NextResponse.json({ error: 'Slack通知の送信に失敗しました' }, { status: 502 });
-    }
-
-    return NextResponse.json({ ok: true });
-  } catch (e) {
-    safeCaptureException(e, 'notify');
-    return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
+  const result = payloadSchema.safeParse(body);
+  if (!result.success) {
+    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
   }
-}
+
+  const payload = result.data as NotifyPayload;
+  const text = buildSlackMessage(payload);
+
+  const slackRes = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+    signal: AbortSignal.timeout(10000),
+  });
+
+  if (!slackRes.ok) {
+    return NextResponse.json({ error: 'Slack通知の送信に失敗しました' }, { status: 502 });
+  }
+
+  return NextResponse.json({ ok: true });
+}, {
+  csrf: true,
+  rateLimit: { limiter: notifyRateLimit, limit: 5, windowMs: 60_000, prefix: 'notify' },
+  sentryTag: 'notify',
+});

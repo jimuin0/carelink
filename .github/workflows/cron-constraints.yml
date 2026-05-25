@@ -1,0 +1,86 @@
+name: Cron Constraints Check
+
+# vercel.json の cron 制約を PR 段階で検証する単独ワークフロー。
+# vercel-preview-build.yml と異なり VERCEL_TOKEN 不要なので常に走る。
+# 過去 38日デプロイ停止の真因（cron_jobs_limits_reached）を最初に弾く層。
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'vercel.json'
+      - '.github/workflows/cron-constraints.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'vercel.json'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate vercel.json cron constraints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check Hobby plan cron limits (≤ daily, ≤ 2 jobs)
+        run: |
+          python3 - <<'PY'
+          import json, sys
+          try:
+              with open('vercel.json') as f:
+                  v = json.load(f)
+          except FileNotFoundError:
+              print("✅ vercel.json 不在（cron 未使用）")
+              sys.exit(0)
+          except json.JSONDecodeError as e:
+              print(f"🔴 vercel.json が不正な JSON: {e}")
+              sys.exit(1)
+
+          crons = v.get('crons', [])
+          # Hobby plan: 各 cron は 1日1回まで、合計 2 件まで
+          # （Pro 以上に upgrade 済なら ENABLE_CARELINK_VERCEL_PRO=true を repo vars に設定して本 workflow を skip）
+          MAX_FREQ_PER_DAY = 1
+          MAX_TOTAL = 2
+
+          errors = []
+
+          if len(crons) > MAX_TOTAL:
+              errors.append(f"cron 数 {len(crons)} > Hobby 上限 {MAX_TOTAL} 件")
+
+          for c in crons:
+              s = c.get('schedule', '')
+              path = c.get('path', '(unknown)')
+              parts = s.split()
+              if len(parts) != 5:
+                  errors.append(f"{path}: invalid schedule format '{s}'")
+                  continue
+              minute, hour, dom, month, dow = parts
+              # 「*/N」「N,M」など毎時以上の頻度を弾く
+              if minute == '*':
+                  errors.append(f"{path}: every-minute schedule '{s}' (Hobby は 1日1回まで)")
+              elif '/' in minute or ',' in minute:
+                  errors.append(f"{path}: sub-hourly schedule '{s}' (Hobby は 1日1回まで)")
+              elif hour == '*':
+                  errors.append(f"{path}: hourly schedule '{s}' (Hobby は 1日1回まで)")
+              elif '/' in hour or ',' in hour:
+                  # 例: 0 */6 * * * = 4回/日 → NG
+                  errors.append(f"{path}: multi-hour schedule '{s}' (Hobby は 1日1回まで)")
+
+          if errors:
+              print("🔴 vercel.json の cron が Hobby プラン制約に違反しています:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("")
+              print("【対応】")
+              print("  選択肢A: 該当 cron を daily 換算に変更（schedule の hour を固定値に）")
+              print("  選択肢B: Pro プランにアップグレード後、本 workflow を repo vars で skip")
+              print("  選択肢C: GitHub Actions cron (.github/workflows/cron.yml) に移行")
+              print("")
+              print("【参考】過去 38日間デプロイが silently 失敗していた cron_jobs_limits_reached の再発防止チェック")
+              sys.exit(1)
+
+          print(f"✅ vercel.json crons OK ({len(crons)} jobs, all ≤ daily, total ≤ {MAX_TOTAL})")
+          PY

@@ -2,10 +2,9 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
-import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { safeCaptureException } from '@/lib/safe';
+import { withRoute } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,67 +17,58 @@ const profileSchema = z.object({
   gender: z.enum(['male', 'female', 'other', 'unspecified']).nullable().optional(),
 });
 
-export async function PUT(request: Request) {
-  try {
-    const csrfError = checkCsrf(request);
-    if (csrfError) return csrfError;
-
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-    if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'profile')) {
-      return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
-    }
-
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      {
-        cookies: {
-          getAll() { return cookieStore.getAll(); },
-          setAll(cookiesToSet) {
-            try {
-              cookiesToSet.forEach(({ name, value, options }) =>
-                cookieStore.set(name, value, options)
-              );
-            } catch {}
-          },
+export const PUT = withRoute(async (request) => {
+  const cookieStore = await cookies();
+  const supabase = createServerClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      cookies: {
+        getAll() { return cookieStore.getAll(); },
+        setAll(cookiesToSet) {
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            );
+          } catch {}
         },
-      }
-    );
-
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+      },
     }
+  );
 
-    const body = await request.json().catch(() => ({}));
-    const parsed = profileSchema.safeParse(body);
-    if (!parsed.success) {
-      return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
-    }
-
-    const d = parsed.data;
-    const serviceClient = createServiceRoleClient();
-    const { error } = await serviceClient
-      .from('profiles')
-      .update({
-        display_name: d.display_name,
-        phone: d.phone ?? null,
-        prefecture: d.prefecture ?? null,
-        city: d.city ?? null,
-        birth_date: d.birth_date ?? null,
-        gender: d.gender ?? null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', user.id);
-
-    if (error) {
-      return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
-    }
-
-    return NextResponse.json({ success: true });
-  } catch (e) {
-    safeCaptureException(e, 'profile');
-    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
   }
-}
+
+  const body = await request.json().catch(() => ({}));
+  const parsed = profileSchema.safeParse(body);
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+  }
+
+  const d = parsed.data;
+  const serviceClient = createServiceRoleClient();
+  const { error } = await serviceClient
+    .from('profiles')
+    .update({
+      display_name: d.display_name,
+      phone: d.phone ?? null,
+      prefecture: d.prefecture ?? null,
+      city: d.city ?? null,
+      birth_date: d.birth_date ?? null,
+      gender: d.gender ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', user.id);
+
+  if (error) {
+    return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
+}, {
+  csrf: true,
+  rateLimit: { limiter: mutationRateLimit, limit: 10, windowMs: 60_000, prefix: 'profile' },
+  sentryTag: 'profile',
+});
