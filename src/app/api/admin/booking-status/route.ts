@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
@@ -162,7 +162,7 @@ export async function POST(request: Request) {
         await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
       }
     } catch (e) {
-      Sentry.captureException(e, { tags: { feature: 'booking-email' } });
+      safeCaptureException(e, 'booking-email');
     }
 
     // Push notification to booking user
@@ -183,7 +183,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'admin-booking-status' } });
+    safeCaptureException(e, 'admin-booking-status');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

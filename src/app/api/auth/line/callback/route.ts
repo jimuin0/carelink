@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 
@@ -199,7 +199,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.redirect(`${origin}${safeRedirect}`);
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'line-auth' } });
+    safeCaptureException(e, 'line-auth');
     return NextResponse.redirect(`${origin}/auth/login?error=line_unexpected`);
   }
 }

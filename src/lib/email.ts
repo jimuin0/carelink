@@ -1,5 +1,5 @@
 import { Resend } from 'resend';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -90,7 +90,7 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
   try {
     await resend.emails.send(params);
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'email', email_type: context } });
+    safeCaptureException(e, `email:${context}`);
   }
 }
 

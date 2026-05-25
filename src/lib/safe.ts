@@ -42,7 +42,7 @@ export async function safeAsync<T>(
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[safe:${opts.tag}]`, msg);
     if (opts.reportToSentry !== false) {
-      void reportToSentry(e, opts.tag);
+      reportToSentry(e, opts.tag);
     }
     return fallback;
   }
@@ -58,7 +58,7 @@ export function safeSync<T>(fn: () => T, fallback: T, opts: SafeOptions): T {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`[safe:${opts.tag}]`, msg);
     if (opts.reportToSentry !== false) {
-      void reportToSentry(e, opts.tag);
+      reportToSentry(e, opts.tag);
     }
     return fallback;
   }
@@ -67,11 +67,15 @@ export function safeSync<T>(fn: () => T, fallback: T, opts: SafeOptions): T {
 /**
  * Sentry の captureException を最も安全に呼ぶラッパー。
  * Sentry が初期化されていない / SDK 内部で throw した場合も本関数は throw しない。
+ *
+ * 注: static import を使用（dynamic import だと test 側で同期 assert ができない）。
+ * Sentry SDK は sentry.server.config.ts が server 起動時に既に load 済み。
  */
-async function reportToSentry(error: unknown, tag: string): Promise<void> {
+import * as SentrySdk from '@sentry/nextjs';
+
+function reportToSentry(error: unknown, tag: string): void {
   try {
-    const Sentry = await import('@sentry/nextjs');
-    Sentry.captureException(error, { tags: { safe_tag: tag } });
+    SentrySdk.captureException(error, { tags: { safe_tag: tag } });
   } catch {
     // Sentry 自体の失敗は console.error のみ（既に safe* で出力済みのため再出力しない）
   }
@@ -82,5 +86,28 @@ async function reportToSentry(error: unknown, tag: string): Promise<void> {
  * これも throw しない。
  */
 export function safeCaptureException(error: unknown, tag: string): void {
-  void reportToSentry(error, tag);
+  reportToSentry(error, tag);
+}
+
+/**
+ * Sentry.captureMessage の安全ラッパー（csrf.ts 等の警告系メッセージ用）。
+ * level は 'info' | 'warning' | 'error' のいずれか。
+ * Sentry 自体が throw しても本関数は throw しない。
+ */
+export function safeCaptureMessage(
+  message: string,
+  level: 'info' | 'warning' | 'error',
+  tag: string,
+  extra?: Record<string, unknown>
+): void {
+  try {
+    SentrySdk.captureMessage(message, {
+      level,
+      tags: { safe_tag: tag },
+      extra,
+    });
+  } catch {
+    // Sentry 失敗時は console.error のみ
+    console.error(`[safeCaptureMessage:${tag}]`, message);
+  }
 }

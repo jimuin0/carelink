@@ -1,6 +1,6 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 
@@ -64,7 +64,7 @@ export async function GET(request: Request) {
 
       if (claimError) {
         // Unexpected DB error — skip rather than risk duplicate send
-        Sentry.captureException(claimError, { tags: { feature: 'booking-reminder', bookingId: booking.id } });
+        safeCaptureException(claimError, 'booking-reminder');
         skipped++;
         continue;
       }
@@ -96,7 +96,7 @@ export async function GET(request: Request) {
         });
         sent++;
       } catch (e) {
-        Sentry.captureException(e, { tags: { feature: 'booking-reminder', bookingId: booking.id } });
+        safeCaptureException(e, 'booking-reminder');
         skipped++;
       }
     }
@@ -108,7 +108,7 @@ export async function GET(request: Request) {
     });
     return NextResponse.json({ processed: sent, skipped, total: bookings.length });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-reminder-cron' } });
+    safeCaptureException(e, 'booking-reminder-cron');
     await logCronRun('booking-reminder', 'error', startedAt, {
       error_msg: e instanceof Error ? e.message : String(e),
     });

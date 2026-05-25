@@ -1,11 +1,12 @@
 'use client';
 
-import * as Sentry from '@sentry/nextjs';
 import { useEffect } from 'react';
+
+import { safeCaptureException } from '@/lib/safe';
 
 export default function AdminError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    safeCaptureException(error, 'admin');
   }, [error]);
   return (
     <div className="flex flex-col items-center justify-center py-12">

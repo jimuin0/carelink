@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -118,7 +118,7 @@ export async function POST(request: Request) {
       amount: booking.total_price,
     });
     if (visitError) {
-      Sentry.captureException(visitError, { tags: { feature: 'booking-complete', step: 'visit-insert' } });
+      safeCaptureException(visitError, 'booking-complete');
     }
 
     // Calculate and insert points (1 point per 100 yen)
@@ -135,14 +135,14 @@ export async function POST(request: Request) {
           booking_id: booking.id,
         });
         if (pointError) {
-          Sentry.captureException(pointError, { tags: { feature: 'booking-complete', step: 'point-insert' } });
+          safeCaptureException(pointError, 'booking-complete');
         }
       }
     }
 
     return NextResponse.json({ success: true, points_earned: pointsEarned });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'booking-complete' } });
+    safeCaptureException(e, 'booking-complete');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

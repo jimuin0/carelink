@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import * as Sentry from '@sentry/nextjs';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,7 +78,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json({ success: true });
   } catch (e) {
-    Sentry.captureException(e, { tags: { feature: 'profile' } });
+    safeCaptureException(e, 'profile');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
