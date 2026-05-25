@@ -192,10 +192,12 @@ describe('GET /api/availability', () => {
     const res = await GET(makeRequest(VALID_UUID, undefined, 2026, 5) as any);
 
     const json = await res.json();
-    // Past dates should have status='full'
+    // route は "今日の 00:00 JST" を境界に過去を full とする
+    const todayMidnight = new Date();
+    todayMidnight.setHours(0, 0, 0, 0);
     Object.entries(json.dates).forEach(([date, info]: [string, any]) => {
-      const dateObj = new Date(date + 'T00:00:00');
-      if (dateObj < new Date()) {
+      const dateObj = new Date(date + 'T00:00:00+09:00');
+      if (dateObj < todayMidnight) {
         expect(info.status).toBe('full');
       }
     });

@@ -42,11 +42,16 @@ const mockAnonFrom = jest.fn();
 const mockServiceFrom = jest.fn();
 const mockGetUser = jest.fn();
 
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+jest.mock('@/lib/supabase-server-auth', () => ({
+  createServerSupabaseAuthClient: () => Promise.resolve({
+    auth: { getUser: mockGetUser },
+  }),
 }));
+// route の DB 操作は全て serviceRole 経由なので、既存テストの mockAnonFrom 上の
+// 期待を mockServiceFrom にもバインドする（同じ関数を共有）
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockServiceFrom }),
+  createServiceRoleClient: () => ({ from: mockAnonFrom }),
+  createServerSupabaseClient: () => ({ from: mockAnonFrom }),
 }));
 
 import { POST } from '../route';
@@ -407,10 +412,12 @@ test('user_points insert失敗 → Sentryキャプチャして200', async () => 
         }),
       };
     }
+    // user_points insert を失敗させる
+    if (table === 'user_points') {
+      return { insert: jest.fn(() => Promise.resolve({ error: { message: 'point error' } })) };
+    }
     return { insert: jest.fn(() => Promise.resolve({ error: null })) };
   });
-  // user_points insert fails
-  mockServiceFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: { message: 'point error' } })) });
 
   const res = await POST(makeRequest());
   expect(res.status).toBe(200);

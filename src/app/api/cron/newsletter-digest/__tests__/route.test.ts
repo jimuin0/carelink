@@ -346,7 +346,7 @@ describe('GET /api/cron/newsletter-digest', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.failedCount).toBeGreaterThan(0);
+    expect(json.skipped).toBeGreaterThan(0);
   });
 
   test('campaign update エラー → console.error して 200 続行', async () => {

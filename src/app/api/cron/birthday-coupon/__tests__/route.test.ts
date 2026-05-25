@@ -100,7 +100,11 @@ function setupDefaultMocks(
     }));
   }
 
-  process.env.RESEND_API_KEY = resendAvailable ? 'resend-key' : undefined;
+  if (resendAvailable) {
+    process.env.RESEND_API_KEY = 'resend-key';
+  } else {
+    delete process.env.RESEND_API_KEY;
+  }
   process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
 }
 
@@ -148,7 +152,7 @@ describe('GET /api/cron/birthday-coupon', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.sent).toBe(2);
+    expect(json.processed).toBe(2);
     expect(json.total).toBe(2);
   });
 
@@ -180,7 +184,7 @@ describe('GET /api/cron/birthday-coupon', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.sent).toBeGreaterThanOrEqual(1);
+    expect(json.processed).toBeGreaterThanOrEqual(1);
   });
 
   test('sends birthday email when RESEND_API_KEY available', async () => {

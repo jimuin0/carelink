@@ -21,12 +21,17 @@ const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
 
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+jest.mock('@/lib/supabase-server-auth', () => ({
+  createServerSupabaseAuthClient: () => Promise.resolve({
+    from: mockAnonFrom,
+    auth: { getUser: mockGetUser },
+  }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServerSupabaseClient: () => ({ from: mockAnonFrom }),
 }));
+jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';

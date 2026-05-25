@@ -286,7 +286,7 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toHaveProperty('processed');
-    expect(json).toHaveProperty('failed');
+    expect(json).toHaveProperty('skipped');
   });
 
   test('individual job error → continues to next', async () => {

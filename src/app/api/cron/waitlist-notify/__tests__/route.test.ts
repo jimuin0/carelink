@@ -12,6 +12,7 @@
  */
 
 jest.mock('@/lib/cron-auth');
+jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn() }));
 jest.mock('@/lib/supabase-server');
 jest.mock('resend');
 
@@ -84,7 +85,7 @@ function setupDefaultMocks(
 
   mockSelectFacility = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      single: jest.fn().mockResolvedValue({
+      maybeSingle: jest.fn().mockResolvedValue({
         data: { id: 'fac-0', name: 'Test Salon', slug: 'test-salon' },
       }),
     }),
@@ -254,7 +255,7 @@ describe('GET /api/cron/waitlist-notify', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.notified).toBe(0);
+    expect(json.processed).toBe(0);
   });
 
   test('handles no matching waiters → continues to next slot', async () => {
@@ -292,7 +293,7 @@ describe('GET /api/cron/waitlist-notify', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(typeof json.notified).toBe('number');
+    expect(typeof json.processed).toBe('number');
   });
 
   test('selects from waiting status only', async () => {

@@ -115,8 +115,7 @@ describe('GET /api/cron/sync-google-ratings', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.ok).toBe(true);
-    expect(typeof json.updated).toBe('number');
+    expect(typeof json.processed).toBe('number');
     expect(typeof json.skipped).toBe('number');
     expect(typeof json.errors).toBe('number');
   });
@@ -180,7 +179,7 @@ describe('GET /api/cron/sync-google-ratings', () => {
     const res = await GET(makeRequest() as any);
 
     const json = await res.json();
-    expect(json.updated).toBeGreaterThan(0);
+    expect(json.processed).toBeGreaterThan(0);
   });
 
   test('update error → error count', async () => {
@@ -250,7 +249,7 @@ describe('GET /api/cron/sync-google-ratings', () => {
 
     const json = await res.json();
     expect(json.skipped).toBe(0);
-    expect(json.updated).toBe(0);
+    expect(json.processed).toBe(0);
   });
 
   test('mixed success and failures', async () => {
@@ -267,7 +266,7 @@ describe('GET /api/cron/sync-google-ratings', () => {
     const res = await GET(makeRequest() as any);
 
     const json = await res.json();
-    expect(json.updated).toBeGreaterThan(0);
+    expect(json.processed).toBeGreaterThan(0);
     expect(json.errors).toBeGreaterThan(0);
   });
 

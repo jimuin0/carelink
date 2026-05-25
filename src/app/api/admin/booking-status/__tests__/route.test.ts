@@ -21,11 +21,14 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
 
-jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({
+jest.mock('@/lib/supabase-server-auth', () => ({
+  createServerSupabaseAuthClient: jest.fn(() => Promise.resolve({
     auth: { getUser: mockGetUser },
-    from: mockFrom,
-  }),
+  })),
+}));
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
+  createServerSupabaseClient: jest.fn(() => ({ from: mockFrom })),
 }));
 jest.mock('next/headers', () => ({
   cookies: () => ({ getAll: () => [], set: jest.fn() }),

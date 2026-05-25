@@ -1,11 +1,12 @@
 /**
  * @jest-environment node
  */
+jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server-auth');
-jest.mock('@supabase/supabase-js');
+jest.mock('@/lib/supabase-server');
 
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { POST, GET } from '../route';
@@ -53,14 +54,16 @@ function setupDefaultMocks(hasUser: boolean = false, isAdmin: boolean = false) {
     }),
   });
 
-  const { createClient } = require('@supabase/supabase-js');
-  createClient.mockReturnValue({
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockReturnValue({
     from: jest.fn().mockReturnValue({
       insert: mockInsert,
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockResolvedValue({
           data: [
             { variant: 'control', event_type: 'impression' },
+            { variant: 'control', event_type: 'conversion' },
+            { variant: 'treatment', event_type: 'impression' },
             { variant: 'treatment', event_type: 'conversion' },
           ],
         }),

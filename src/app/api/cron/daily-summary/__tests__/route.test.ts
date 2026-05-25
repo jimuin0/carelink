@@ -148,8 +148,8 @@ describe('GET /api/cron/daily-summary', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.status).toBe('ok');
-    expect(json.facilities).toBe(0);
+    // facilities が空配列の場合は通常パスで {processed: 0, skipped: 0, date: ...}
+    expect(json.processed).toBe(0);
   });
 
   test('facilities with no bookings → skipped', async () => {
@@ -159,7 +159,7 @@ describe('GET /api/cron/daily-summary', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.status).toBe('ok');
+    expect(json.skipped).toBeGreaterThan(0);
   });
 
   test('completed bookings aggregated', async () => {
@@ -259,7 +259,7 @@ describe('GET /api/cron/daily-summary', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.facilities).toBeGreaterThanOrEqual(0);
+    expect(json.processed).toBeGreaterThanOrEqual(0);
   });
 
   test('logCronRun called on success', async () => {
@@ -343,8 +343,8 @@ describe('GET /api/cron/daily-summary', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    // Both facilities fail upsert → count stays 0
-    expect(json.facilities).toBe(0);
+    // Both facilities fail upsert → processed stays 0
+    expect(json.processed).toBe(0);
   });
 
   test('facilities クエリが null → count 0 で早期リターン', async () => {

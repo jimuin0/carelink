@@ -16,6 +16,10 @@ jest.mock('@/lib/rate-limit', () => ({
   mutationRateLimit: 'mutationLimit',
   checkRateLimit: jest.fn(),
 }));
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+  createServerSupabaseClient: jest.fn(),
+}));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
@@ -45,6 +49,13 @@ function setupDefaultMocks(
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
+    from: jest.fn().mockReturnValue({
+      update: mockUpdate,
+    }),
+  });
+
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  (createServiceRoleClient as jest.Mock).mockReturnValue({
     from: jest.fn().mockReturnValue({
       update: mockUpdate,
     }),
