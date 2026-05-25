@@ -1,5 +1,11 @@
-jest.mock('@upstash/ratelimit', () => ({ Ratelimit: jest.fn() }));
-jest.mock('@upstash/redis', () => ({ Redis: jest.fn() }));
+// Phase 6: Supabase Postgres ベースに移行。
+// checkRateLimit は Supabase RPC → 失敗時 in-memory フォールバックの構造なので
+// テストでは Supabase 側を mock して RPC エラーを意図的に発生させ in-memory に落とす。
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(() => ({
+    rpc: jest.fn().mockRejectedValue(new Error('RPC unavailable in unit test')),
+  })),
+}));
 
 import { inMemoryRateLimit, checkRateLimit } from '../rate-limit';
 
@@ -102,7 +108,7 @@ describe('inMemoryRateLimit - メモリ管理', () => {
   });
 });
 
-describe('checkRateLimit - Upstash フォールバック', () => {
+describe('checkRateLimit - Supabase 失敗時の in-memory フォールバック', () => {
   test('limiter=null で連続超過はブロックされる', async () => {
     const prefix = 'test-fallback-seq-' + Date.now();
     const ip = '3.3.3.3';

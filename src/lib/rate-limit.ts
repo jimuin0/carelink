@@ -1,48 +1,70 @@
-import { Ratelimit } from '@upstash/ratelimit';
-import { Redis } from '@upstash/redis';
+/**
+ * Rate limit ライブラリ（Phase 6: Supabase Postgres 移行版）
+ *
+ * 2026-04 Upstash インスタンス消失 → 全 mutation API 500 事故の構造的再発防止として
+ * Upstash 依存を完全廃止し、既存 Supabase Postgres の RPC check_rate_limit() に切替。
+ *
+ * 動作:
+ *  1. checkRateLimit: Supabase RPC を最優先で試行（atomic INCR + ウィンドウ判定）
+ *  2. Supabase 失敗時: in-memory フォールバック（fail-safe、本体 API は 500 化させない）
+ *  3. inMemoryRateLimit: ルートが直接呼ぶ場合用（GET 系の軽量制限など）
+ *
+ * 既存呼び出しシグネチャ互換:
+ *  - bookingRateLimit / notifyRateLimit / mutationRateLimit を「設定オブジェクト」として export
+ *  - checkRateLimit(config, ip, fallbackLimit, fallbackWindowMs, prefix) — config は記録用のみ
+ */
 
-function createRedis(): Redis | undefined {
-  if (!process.env.UPSTASH_REDIS_REST_URL || !process.env.UPSTASH_REDIS_REST_TOKEN) {
-    return undefined;
-  }
-  return new Redis({
-    url: process.env.UPSTASH_REDIS_REST_URL,
-    token: process.env.UPSTASH_REDIS_REST_TOKEN,
-  });
+import { createServiceRoleClient } from './supabase-server';
+
+export interface RateLimitConfig {
+  prefix: string;
+  limit: number;
+  windowMs: number;
 }
 
-const redis = createRedis();
+// 用途別 config（既存 API シグネチャ互換のために null 許容）
+export const bookingRateLimit: RateLimitConfig | null = {
+  prefix: 'rl:booking',
+  limit: 3,
+  windowMs: 5 * 60_000,
+};
 
-export const bookingRateLimit = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(3, '5 m'), prefix: 'rl:booking' })
-  : null;
+export const notifyRateLimit: RateLimitConfig | null = {
+  prefix: 'rl:notify',
+  limit: 5,
+  windowMs: 60_000,
+};
 
-export const notifyRateLimit = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(5, '60 s'), prefix: 'rl:notify' })
-  : null;
+export const mutationRateLimit: RateLimitConfig | null = {
+  prefix: 'rl:mutation',
+  limit: 10,
+  windowMs: 60_000,
+};
 
-export const mutationRateLimit = redis
-  ? new Ratelimit({ redis, limiter: Ratelimit.slidingWindow(10, '60 s'), prefix: 'rl:mutation' })
-  : null;
+// ===== in-memory fallback =====
+// Supabase RPC が失敗した場合 + 単独で inMemoryRateLimit を呼ぶルート用
 
-// in-memory fallback (Upstash未設定時)
 const store = new Map<string, number[]>();
 
-export function inMemoryRateLimit(ip: string, limit: number, windowMs: number, prefix: string): boolean {
+export function inMemoryRateLimit(
+  ip: string,
+  limit: number,
+  windowMs: number,
+  prefix: string
+): boolean {
   const key = `${prefix}:${ip}`;
   const now = Date.now();
-  const timestamps = (store.get(key) || []).filter(t => now - t < windowMs);
+  const timestamps = (store.get(key) || []).filter((t) => now - t < windowMs);
   const limited = timestamps.length >= limit;
   if (!limited) timestamps.push(now);
-  // LRU: 常に delete+set でアクセス順を末尾に更新（制限中も filtered timestamps を書き戻してストアを清潔に保つ）
+  // LRU: 常に delete+set でアクセス順を末尾に更新
   store.delete(key);
   store.set(key, timestamps);
-  // 定期的にexpired entryを掃除（メモリリーク防止）
+  // 定期的に expired entry を掃除（メモリリーク防止）
   if (store.size > 500) {
     Array.from(store.entries()).forEach(([k, ts]) => {
       if (ts.every((t: number) => now - t >= windowMs)) store.delete(k);
     });
-    // それでも多い場合は先頭（最も古くアクセスされた）から削除
     if (store.size > 1000) {
       const entries = Array.from(store.keys());
       entries.slice(0, entries.length - 500).forEach((k) => store.delete(k));
@@ -51,23 +73,34 @@ export function inMemoryRateLimit(ip: string, limit: number, windowMs: number, p
   return limited;
 }
 
+// ===== Supabase RPC ベース =====
+
 export async function checkRateLimit(
-  limiter: Ratelimit | null,
+  // 第1引数 config は記録用のみ（実装では fallbackLimit/fallbackWindowMs/prefix が真の値）
+  _config: RateLimitConfig | null,
   ip: string,
   fallbackLimit: number,
   fallbackWindowMs: number,
-  prefix: string,
+  prefix: string
 ): Promise<boolean> {
-  if (limiter) {
-    try {
-      const { success } = await limiter.limit(ip);
-      return !success;
-    } catch (e) {
-      // Upstash が落ちている / DNS 解決不可 / トークン無効 等の場合、
-      // 例外をそのまま伝播させると API ルート全体が 500 になるため
-      // in-memory フォールバックに切り替える（フェイルセーフ）
-      console.error(`[rate-limit] Upstash failure, falling back to in-memory:`, e instanceof Error ? e.message : String(e));
-    }
+  const key = `${prefix}:${ip}`;
+  try {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase.rpc('check_rate_limit', {
+      p_key: key,
+      p_limit: fallbackLimit,
+      p_window_ms: fallbackWindowMs,
+    });
+    if (error) throw new Error(error.message);
+    return data === true;
+  } catch (e) {
+    // Supabase RPC が落ちている / 未マイグレ / 接続失敗等の場合、
+    // 例外を伝播させると API ルート全体が 500 になるため
+    // in-memory フォールバックに切り替える（fail-safe）
+    console.error(
+      `[rate-limit] Supabase RPC failure, falling back to in-memory:`,
+      e instanceof Error ? e.message : String(e)
+    );
+    return inMemoryRateLimit(ip, fallbackLimit, fallbackWindowMs, prefix);
   }
-  return inMemoryRateLimit(ip, fallbackLimit, fallbackWindowMs, prefix);
 }
