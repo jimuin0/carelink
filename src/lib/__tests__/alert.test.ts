@@ -1,11 +1,11 @@
 /**
  * @jest-environment node
  *
- * Tests for src/lib/alert.ts
- * - SLACK_WEBHOOK_URL 未設定時は無投稿
+ * Tests for src/lib/alert.ts (Phase 7a: Bot Token 経由に更新)
+ * - SLACK_BOT_TOKEN/SLACK_DEFAULT_CHANNEL 未設定時は無投稿
  * - level / route / status / extra を含む構造化メッセージ
  * - 秘密 key 自動 redact
- * - fetch 失敗で throw しない（fire-and-forget）
+ * - postToSlack 失敗で throw しない（fire-and-forget）
  */
 
 import { postAlert, alertError, alertWarning } from '../alert';
@@ -13,23 +13,38 @@ import { postAlert, alertError, alertWarning } from '../alert';
 describe('alert', () => {
   let originalFetch: typeof fetch;
   let mockFetch: jest.Mock;
-  const ORIGINAL_URL = process.env.SLACK_WEBHOOK_URL;
+  const ORIGINAL_TOKEN = process.env.SLACK_BOT_TOKEN;
+  const ORIGINAL_CHANNEL = process.env.SLACK_DEFAULT_CHANNEL;
 
   beforeEach(() => {
     originalFetch = global.fetch;
-    mockFetch = jest.fn().mockResolvedValue(new Response('ok'));
+    mockFetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, ts: '123.456' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
     global.fetch = mockFetch as unknown as typeof fetch;
-    process.env.SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/TEST/TEST/TEST';
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+    process.env.SLACK_DEFAULT_CHANNEL = 'C0TESTCHAN';
   });
 
   afterEach(() => {
     global.fetch = originalFetch;
-    if (ORIGINAL_URL === undefined) delete process.env.SLACK_WEBHOOK_URL;
-    else process.env.SLACK_WEBHOOK_URL = ORIGINAL_URL;
+    if (ORIGINAL_TOKEN === undefined) delete process.env.SLACK_BOT_TOKEN;
+    else process.env.SLACK_BOT_TOKEN = ORIGINAL_TOKEN;
+    if (ORIGINAL_CHANNEL === undefined) delete process.env.SLACK_DEFAULT_CHANNEL;
+    else process.env.SLACK_DEFAULT_CHANNEL = ORIGINAL_CHANNEL;
   });
 
-  test('SLACK_WEBHOOK_URL 未設定 → 投稿しない', async () => {
-    delete process.env.SLACK_WEBHOOK_URL;
+  test('SLACK_BOT_TOKEN 未設定 → 投稿しない', async () => {
+    delete process.env.SLACK_BOT_TOKEN;
+    postAlert({ level: 'error', message: 'test' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  test('SLACK_DEFAULT_CHANNEL 未設定 → 投稿しない', async () => {
+    delete process.env.SLACK_DEFAULT_CHANNEL;
     postAlert({ level: 'error', message: 'test' });
     await new Promise((r) => setTimeout(r, 50));
     expect(mockFetch).not.toHaveBeenCalled();
@@ -52,6 +67,17 @@ describe('alert', () => {
     const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
     expect(body.text).toContain('🟡');
     expect(body.text).toContain('WARNING');
+  });
+
+  test('chat.postMessage エンドポイント宛 + Authorization Bearer ヘッダ', async () => {
+    alertError('msg');
+    await new Promise((r) => setTimeout(r, 50));
+    const url = mockFetch.mock.calls[0]![0] as string;
+    expect(url).toBe('https://slack.com/api/chat.postMessage');
+    const init = mockFetch.mock.calls[0]![1] as RequestInit;
+    expect((init.headers as Record<string, string>).Authorization).toBe('Bearer xoxb-test-token');
+    const body = JSON.parse(init.body as string);
+    expect(body.channel).toBe('C0TESTCHAN');
   });
 
   test('extra の秘密 key を redact する', async () => {
@@ -86,6 +112,22 @@ describe('alert', () => {
     consoleSpy.mockRestore();
   });
 
+  test('Slack API が ok:false 応答 → console.error のみ', async () => {
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false, error: 'channel_not_found' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    expect(() => alertError('test')).not.toThrow();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[alert] Slack post failed'),
+      expect.stringContaining('channel_not_found')
+    );
+    consoleSpy.mockRestore();
+  });
+
   test('長文 extra は 200 文字で切り詰める', async () => {
     postAlert({
       level: 'info',
@@ -94,7 +136,6 @@ describe('alert', () => {
     });
     await new Promise((r) => setTimeout(r, 50));
     const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
-    // 切り詰め後は 200 文字 + '...' を含む
     expect(body.text).toContain('...');
     expect(body.text).not.toContain('x'.repeat(300));
   });

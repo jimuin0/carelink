@@ -22,11 +22,16 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';
 
 function setupDefaultMocks() {
+  // Phase 7a: chat.postMessage は { ok: true, ts: '...' } を返す
   global.fetch = jest.fn().mockResolvedValue(
-    new Response(JSON.stringify({ ok: true }), { status: 200 })
+    new Response(JSON.stringify({ ok: true, ts: '1234.5678', channel: 'C0TESTCHAN' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })
   );
 
-  process.env.SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/REDACTED';
+  process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+  process.env.SLACK_DEFAULT_CHANNEL = 'C0TESTCHAN';
 }
 
 beforeEach(() => {
@@ -284,17 +289,22 @@ describe('POST /api/notify', () => {
     );
 
     expect(global.fetch).toHaveBeenCalledWith(
-      'https://hooks.slack.com/services/REDACTED',
+      'https://slack.com/api/chat.postMessage',
       expect.objectContaining({
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: expect.objectContaining({
+          Authorization: 'Bearer xoxb-test-token',
+        }),
       })
     );
   });
 
-  test('Slack webhook error → 502', async () => {
+  test('Slack API ok:false 応答 → 502', async () => {
     (global.fetch as jest.Mock).mockResolvedValue(
-      new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+      new Response(JSON.stringify({ ok: false, error: 'channel_not_found' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
     );
 
     const res = await POST(
@@ -313,8 +323,8 @@ describe('POST /api/notify', () => {
     expect(res.status).toBe(502);
   });
 
-  test('missing SLACK_WEBHOOK_URL → 500', async () => {
-    delete process.env.SLACK_WEBHOOK_URL;
+  test('missing SLACK_BOT_TOKEN → 500', async () => {
+    delete process.env.SLACK_BOT_TOKEN;
 
     const res = await POST(
       makeRequest({
@@ -414,7 +424,7 @@ describe('POST /api/notify', () => {
     expect(res.status).toBe(200);
   });
 
-  test('fetch timeout → 500', async () => {
+  test('fetch timeout → 502（postToSlack が ok:false で吸収）', async () => {
     (global.fetch as jest.Mock).mockRejectedValue(new Error('Timeout'));
 
     const res = await POST(
@@ -430,6 +440,6 @@ describe('POST /api/notify', () => {
       }) as any
     );
 
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(502);
   });
 });

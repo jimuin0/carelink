@@ -1,10 +1,14 @@
 /**
- * Slack 構造化アラート（Phase 2）
+ * Slack 構造化アラート（Phase 2 → Phase 7a で Bot 化）
  *
  * /api/profile 級の 500 が Sentry には記録されるが Slack 通知が無く
  * 数日放置された事象の再発防止。`instrumentation.ts` の onRequestError から
  * 呼び出し、本体応答に影響させない fire-and-forget で投稿する。
+ *
+ * Phase 7a: SLACK_WEBHOOK_URL → SLACK_BOT_TOKEN + chat.postMessage 経由に変更。
  */
+
+import { postToSlack } from './slack';
 
 type AlertLevel = 'error' | 'warning' | 'info';
 
@@ -27,13 +31,12 @@ const LEVEL_EMOJI: Record<AlertLevel, string> = {
 
 /**
  * Slack に構造化メッセージを fire-and-forget で投稿する。
- * SLACK_WEBHOOK_URL 未設定 / fetch 失敗時は console.error のみ。
+ * SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL 未設定時はサイレントスキップ。
  * 本関数は throw しない（呼び出し側の本体処理を一切妨げない）。
  */
 export function postAlert(payload: AlertPayload): void {
-  // 環境変数の即時評価のみ try に含めず軽量化
-  const url = process.env.SLACK_WEBHOOK_URL;
-  if (!url) {
+  // 環境変数の即時評価
+  if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_DEFAULT_CHANNEL) {
     // 開発・テスト環境では正常系（無通知）
     return;
   }
@@ -68,13 +71,10 @@ export function postAlert(payload: AlertPayload): void {
       }
 
       const text = lines.join('\n');
-
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-        signal: AbortSignal.timeout(5000),
-      });
+      const result = await postToSlack({ text });
+      if (!result.ok) {
+        console.error('[alert] Slack post failed:', result.error);
+      }
     } catch (e) {
       // Slack 死亡時の最終フォールバック
       console.error('[alert] Slack post failed:', e instanceof Error ? e.message : String(e));

@@ -17,15 +17,24 @@ describe('予約日付バリデーション', () => {
     return true;
   }
 
+  // ローカル日付 → 'YYYY-MM-DD' 変換（toISOString は UTC のため、JST 00-09時帯で
+  // 日付がずれて isValidBookingDate と比較ずれを起こすバグを回避）
+  function localDateString(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${dd}`;
+  }
+
   test('今日の日付は有効', () => {
-    const today = new Date().toISOString().split('T')[0];
+    const today = localDateString(new Date());
     expect(isValidBookingDate(today)).toBe(true);
   });
 
   test('明日の日付は有効', () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
-    expect(isValidBookingDate(tomorrow.toISOString().split('T')[0])).toBe(true);
+    expect(isValidBookingDate(localDateString(tomorrow))).toBe(true);
   });
 
   test('昨日の日付は無効', () => {
