@@ -56,6 +56,68 @@ jobs:
               labels: ['deploy-failure', 'priority:high'],
             });
 
+  notify-deploy-success:
+    name: Notify Deploy Success + Startup Check
+    # 品質スタック L7-D: 起動時 (= deploy 成功直後) に全依存系の OK/NG を Slack 通知
+    # Production deploy 成功時のみ。5分待ってから /api/health を叩いて結果を投稿。
+    if: >
+      ${{ github.event_name == 'deployment_status'
+          && github.event.deployment_status.state == 'success'
+          && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Wait for deployment warm-up (60s)
+        run: sleep 60
+
+      - name: Probe /api/health and notify Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+          DEPLOY_SHA: ${{ github.event.deployment.sha }}
+        run: |
+          STATUS_CODE=$(curl -s -o /tmp/h.json -w "%{http_code}" --max-time 30 https://carelink-jp.com/api/health || echo "000")
+          BODY=$(cat /tmp/h.json 2>/dev/null || echo '{}')
+          STATUS=$(echo "$BODY" | python3 -c "import sys,json
+try:
+    print(json.load(sys.stdin).get('status','unknown'))
+except Exception:
+    print('unknown')")
+          if [ "$STATUS_CODE" = "200" ] && [ "$STATUS" = "healthy" ]; then
+              EMOJI="✅"; LEVEL="STARTUP OK"
+          else
+              EMOJI="🟡"; LEVEL="STARTUP DEGRADED"
+          fi
+          export STATUS_CODE STATUS EMOJI LEVEL
+          export HEALTH_BODY="$BODY"
+
+          python3 <<'PY'
+          import json, os, urllib.request
+          token = os.environ['SLACK_BOT_TOKEN']
+          channel = os.environ['SLACK_DEFAULT_CHANNEL']
+          sha = os.environ['DEPLOY_SHA'][:7]
+          emoji = os.environ['EMOJI']
+          level = os.environ['LEVEL']
+          status_code = os.environ['STATUS_CODE']
+          status = os.environ['STATUS']
+          body = os.environ.get('HEALTH_BODY', '')[:1500]
+          text = (
+              f"{emoji} *Production deploy startup check* — {level}\n"
+              f"> commit: `{sha}`\n"
+              f"> health HTTP: `{status_code}` / status: `{status}`\n"
+              f"```{body}```"
+          )
+          req = urllib.request.Request(
+              'https://slack.com/api/chat.postMessage',
+              data=json.dumps({'channel': channel, 'text': text}).encode('utf-8'),
+              headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json; charset=utf-8'},
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+              print(f"{emoji} Slack notified")
+          except Exception as e:
+              print(f"⚠️ Slack post failed: {e}")
+          PY
+
   drift-check:
     name: HEAD vs Production SHA Drift
     if: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
