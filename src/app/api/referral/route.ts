@@ -114,7 +114,7 @@ export const POST = withRoute(async (request) => {
   ]);
   if (refResult.error || selfResult.error) {
     // referral_uses row is committed; points could not be awarded.
-    // Surface as 500 so the client knows and ops can investigate via Sentry.
+    // Surface as 500 so the client knows and ops can investigate via Vercel logs / Slack alert.
     const err = refResult.error ?? selfResult.error;
     console.error('[referral] ポイント付与失敗 (referral_uses行は挿入済み):', err);
     return NextResponse.json({ error: 'ポイントの付与に失敗しました。サポートにお問い合わせください。' }, { status: 500 });

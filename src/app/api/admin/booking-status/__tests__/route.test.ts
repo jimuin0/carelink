@@ -16,7 +16,7 @@ jest.mock('@/lib/email', () => ({
 }));
 jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn() }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();

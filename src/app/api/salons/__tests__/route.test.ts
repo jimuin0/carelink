@@ -13,7 +13,7 @@ jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
-jest.mock('@sentry/nextjs');
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';

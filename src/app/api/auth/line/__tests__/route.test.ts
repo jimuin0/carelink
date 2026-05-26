@@ -15,7 +15,7 @@ jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
 jest.mock('next/headers');
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';

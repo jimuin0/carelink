@@ -1,5 +1,5 @@
 jest.mock('resend', () => ({ Resend: jest.fn() }));
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { esc, formatDate, formatTime } from '../email';
 

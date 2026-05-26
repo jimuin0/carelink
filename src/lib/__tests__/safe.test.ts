@@ -1,15 +1,19 @@
 /**
  * @jest-environment node
  *
- * Tests for src/lib/safe.ts（Phase 3 Layer6）
+ * Tests for src/lib/safe.ts (Phase 8: Sentry 廃止後)
+ *   - fn の戻り値透過
+ *   - throw 時の fallback
+ *   - console.error への構造化ログ出力
+ *   - safeCaptureException / safeCaptureMessage は console 出力のみ（Sentry 廃止）
  */
-jest.mock('@sentry/nextjs', () => ({
-  captureException: jest.fn(),
-  captureMessage: jest.fn(),
-}));
 
-import { safeAsync, safeSync, safeCaptureException, safeCaptureMessage } from '../safe';
-import * as Sentry from '@sentry/nextjs';
+import {
+  safeAsync,
+  safeSync,
+  safeCaptureException,
+  safeCaptureMessage,
+} from '../safe';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -19,7 +23,7 @@ describe('safeAsync', () => {
     expect(r).toBe(42);
   });
 
-  test('throw 時は fallback を返す', async () => {
+  test('throw 時は fallback を返し console.error を出力', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     const r = await safeAsync(
       async () => {
@@ -30,51 +34,6 @@ describe('safeAsync', () => {
     );
     expect(r).toBe('fallback');
     expect(consoleSpy).toHaveBeenCalledWith('[safe:unit]', 'boom');
-    consoleSpy.mockRestore();
-  });
-
-  test('throw 時に Sentry へ通報する（既定）', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    await safeAsync(
-      async () => {
-        throw new Error('boom');
-      },
-      null,
-      { tag: 'unit' }
-    );
-    await new Promise((r) => setTimeout(r, 10));
-    expect(Sentry.captureException).toHaveBeenCalled();
-    consoleSpy.mockRestore();
-  });
-
-  test('reportToSentry: false → Sentry を呼ばない', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    await safeAsync(
-      async () => {
-        throw new Error('boom');
-      },
-      null,
-      { tag: 'unit', reportToSentry: false }
-    );
-    await new Promise((r) => setTimeout(r, 10));
-    expect(Sentry.captureException).not.toHaveBeenCalled();
-    consoleSpy.mockRestore();
-  });
-
-  test('Sentry 自体が throw しても safeAsync は throw しない', async () => {
-    (Sentry.captureException as jest.Mock).mockImplementation(() => {
-      throw new Error('sentry down');
-    });
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    await expect(
-      safeAsync(
-        async () => {
-          throw new Error('boom');
-        },
-        'ok',
-        { tag: 'unit' }
-      )
-    ).resolves.toBe('ok');
     consoleSpy.mockRestore();
   });
 
@@ -91,6 +50,19 @@ describe('safeAsync', () => {
     expect(consoleSpy).toHaveBeenCalledWith('[safe:unit]', 'string error');
     consoleSpy.mockRestore();
   });
+
+  test('reportToSentry オプションは互換性のため残置（no-op）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const r = await safeAsync(
+      async () => {
+        throw new Error('boom');
+      },
+      'fb',
+      { tag: 'unit', reportToSentry: false }
+    );
+    expect(r).toBe('fb');
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('safeSync', () => {
@@ -98,7 +70,7 @@ describe('safeSync', () => {
     expect(safeSync(() => 'ok', 'fb', { tag: 'sync' })).toBe('ok');
   });
 
-  test('throw 時は fallback を返す', () => {
+  test('throw 時は fallback を返し console.error を出力', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     const r = safeSync(
       () => {
@@ -113,41 +85,53 @@ describe('safeSync', () => {
   });
 });
 
-describe('safeCaptureMessage', () => {
-  test('Sentry.captureMessage が tag/level/extra 込みで呼ばれる', async () => {
-    safeCaptureMessage('test message', 'warning', 'csrf', { ip: '1.2.3.4' });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(Sentry.captureMessage).toHaveBeenCalledWith('test message', {
-      level: 'warning',
-      tags: { safe_tag: 'csrf' },
-      extra: { ip: '1.2.3.4' },
-    });
+describe('safeCaptureException', () => {
+  test('Error オブジェクトを console.error に出力（stack 含む）', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const err = new Error('test-error');
+    safeCaptureException(err, 'tag');
+    expect(consoleSpy).toHaveBeenCalled();
+    const args = consoleSpy.mock.calls[0];
+    expect(args[0]).toBe('[safeCaptureException:tag]');
+    expect(args[1]).toBe('test-error');
+    consoleSpy.mockRestore();
   });
 
-  test('Sentry が throw しても本関数は throw しない', async () => {
-    (Sentry.captureMessage as jest.Mock).mockImplementation(() => {
-      throw new Error('sentry down');
-    });
+  test('文字列例外も処理する', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    expect(() => safeCaptureMessage('m', 'error', 'tag')).not.toThrow();
-    await new Promise((r) => setTimeout(r, 10));
-    expect(consoleSpy).toHaveBeenCalledWith('[safeCaptureMessage:tag]', 'm');
+    safeCaptureException('plain string', 'tag2');
+    expect(consoleSpy).toHaveBeenCalledWith('[safeCaptureException:tag2]', 'plain string', '');
     consoleSpy.mockRestore();
+  });
+
+  test('throw しない（fail-safe）', () => {
+    expect(() => safeCaptureException(new Error('x'), 'tag')).not.toThrow();
   });
 });
 
-describe('safeCaptureException', () => {
-  test('Sentry が throw しても本関数は throw しない', async () => {
-    (Sentry.captureException as jest.Mock).mockImplementation(() => {
-      throw new Error('sentry down');
-    });
-    expect(() => safeCaptureException(new Error('x'), 'tag')).not.toThrow();
-    await new Promise((r) => setTimeout(r, 10));
+describe('safeCaptureMessage', () => {
+  test('warning level → console.warn', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    safeCaptureMessage('msg', 'warning', 'csrf', { ip: '1.2.3.4' });
+    expect(warnSpy).toHaveBeenCalledWith('[safeCaptureMessage:csrf]', 'msg', { ip: '1.2.3.4' });
+    warnSpy.mockRestore();
   });
 
-  test('Sentry が正常時は captureException が呼ばれる', async () => {
-    safeCaptureException(new Error('x'), 'tag');
-    await new Promise((r) => setTimeout(r, 10));
-    expect(Sentry.captureException).toHaveBeenCalled();
+  test('info level → console.info', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation();
+    safeCaptureMessage('hello', 'info', 'tag');
+    expect(infoSpy).toHaveBeenCalledWith('[safeCaptureMessage:tag]', 'hello');
+    infoSpy.mockRestore();
+  });
+
+  test('error level → console.error', () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    safeCaptureMessage('boom', 'error', 'tag');
+    expect(errSpy).toHaveBeenCalledWith('[safeCaptureMessage:tag]', 'boom');
+    errSpy.mockRestore();
+  });
+
+  test('throw しない（fail-safe）', () => {
+    expect(() => safeCaptureMessage('m', 'error', 'tag')).not.toThrow();
   });
 });

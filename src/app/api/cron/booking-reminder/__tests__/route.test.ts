@@ -18,7 +18,7 @@ jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/email');
 jest.mock('@sentry/nextjs', () => ({
   captureException: jest.fn(),
-}));
+}), { virtual: true });
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';

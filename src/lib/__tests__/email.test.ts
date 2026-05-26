@@ -9,7 +9,7 @@ jest.mock('resend', () => ({
 
 jest.mock('@sentry/nextjs', () => ({
   captureException: mockCaptureException,
-}));
+}), { virtual: true });
 
 // Set env before require
 process.env.RESEND_API_KEY = 'test-resend-key';
@@ -116,7 +116,7 @@ describe('RESEND_API_KEY未設定時', () => {
     // Need fresh module for this test
     jest.resetModules();
     jest.mock('resend', () => ({ Resend: jest.fn() }));
-    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { sendBookingConfirmation: freshSend } = require('../email');
     await freshSend(baseData);
@@ -126,10 +126,17 @@ describe('RESEND_API_KEY未設定時', () => {
 });
 
 describe('送信エラー時', () => {
-  test('Sentryにエラーを報告する', async () => {
+  test('console.error にエラーを記録する（Phase 8: Sentry 廃止）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     mockSend.mockRejectedValueOnce(new Error('network error'));
     await sendBookingConfirmation(baseData);
-    expect(mockCaptureException).toHaveBeenCalledTimes(1);
+    // safe.ts safeCaptureException → console.error 経由で出力される
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[safeCaptureException:'),
+      expect.anything(),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
   });
 });
 
@@ -264,7 +271,7 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     delete process.env.RESEND_API_KEY;
     jest.resetModules();
     jest.mock('resend', () => ({ Resend: jest.fn() }));
-    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('../email');
     const noSendMock = jest.fn();

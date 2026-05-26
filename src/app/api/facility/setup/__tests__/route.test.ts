@@ -22,7 +22,7 @@ jest.mock('@/lib/rate-limit');
 jest.mock('@supabase/ssr');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/email');
-jest.mock('@sentry/nextjs');
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('next/headers');
 
 import { checkCsrf } from '@/lib/csrf';
