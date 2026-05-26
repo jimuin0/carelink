@@ -8,7 +8,7 @@
  * Phase 7a: SLACK_WEBHOOK_URL → SLACK_BOT_TOKEN + chat.postMessage 経由に変更。
  */
 
-import { postToSlack } from './slack';
+import { postToSlackWithThreadGrouping } from './slack';
 
 type AlertLevel = 'error' | 'warning' | 'info';
 
@@ -71,7 +71,22 @@ export function postAlert(payload: AlertPayload): void {
       }
 
       const text = lines.join('\n');
-      const result = await postToSlack({ text });
+
+      // Phase 7c: 同 route + 同 commit + 同 level の連発を 1 スレッドに集約
+      // route や commit が無い alert は thread_key も無く通常投稿になる
+      const threadKey = [
+        'alert',
+        payload.level,
+        payload.route ? `route=${payload.route}` : '',
+        payload.commit_sha ? `commit=${payload.commit_sha}` : '',
+      ]
+        .filter(Boolean)
+        .join(':');
+
+      const result = await postToSlackWithThreadGrouping({
+        thread_key: threadKey,
+        text,
+      });
       if (!result.ok) {
         console.error('[alert] Slack post failed:', result.error);
       }

@@ -8,6 +8,14 @@
  * - postToSlack 失敗で throw しない（fire-and-forget）
  */
 
+// Phase 7c: alert.ts は postToSlackWithThreadGrouping 経由
+// supabase-server を mock し、RPC は空配列を返す（既存スレッドなし → 通常投稿）
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(() => ({
+    rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
+  })),
+}));
+
 import { postAlert, alertError, alertWarning } from '../alert';
 
 describe('alert', () => {
@@ -19,7 +27,7 @@ describe('alert', () => {
   beforeEach(() => {
     originalFetch = global.fetch;
     mockFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, ts: '123.456' }), {
+      new Response(JSON.stringify({ ok: true, ts: '123.456', channel: 'C0TESTCHAN' }), {
         headers: { 'Content-Type': 'application/json' },
       })
     );
