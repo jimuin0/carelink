@@ -348,6 +348,110 @@ test('未処理例外 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+// Branch coverage: line 78 — failedOps の filter で r.status === 'fulfilled' && error ありケース確認
+// (すでに上のテストでカバーされているが、両ブランチを確実にカバーするため追加)
+
+// Branch coverage: line 90 — if (memberships) の true ブランチ（memberships が空配列）
+test('施設メンバーシップが空配列 → ループをスキップして正常削除', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            // memberships = [] (truthy but empty) → loop body never runs
+            eq: jest.fn().mockReturnValue(Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })),
+        }),
+      };
+    }
+    return {
+      delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+    };
+  });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+});
+
+// Branch coverage: line 100 — (count ?? 0) === 0 の null coalescing ブランチ（count = null → 0 として評価）
+test('オーナーカウントが null → ?? 0 で 0 として評価 → 施設停止', async () => {
+  const mockSuspendEq = jest.fn().mockReturnValue(Promise.resolve({ error: null }));
+  const mockSuspendUpdate = jest.fn().mockReturnValue({ eq: mockSuspendEq });
+  // count = null triggers the ?? 0 branch → (null ?? 0) === 0 → true → suspend
+  const mockNeq = jest.fn().mockReturnValue(Promise.resolve({ count: null, error: null }));
+  const mockMemberCheckEq2 = jest.fn().mockReturnValue({ neq: mockNeq });
+  const mockMemberCheckEq1 = jest.fn().mockReturnValue({ eq: mockMemberCheckEq2 });
+  const mockMemberCheckSelect = jest.fn().mockReturnValue({ eq: mockMemberCheckEq1 });
+
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return {
+        select: jest.fn().mockImplementation((fields: string, opts?: object) => {
+          if (opts && (opts as any).count === 'exact') return mockMemberCheckSelect(fields, opts);
+          return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ data: [{ facility_id: 'fac-null', role: 'owner' }], error: null })) }) };
+        }),
+        delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+      };
+    }
+    if (table === 'facility_profiles') {
+      return { update: mockSuspendUpdate };
+    }
+    return {
+      delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+    };
+  });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  // count=null treated as 0 → facility should be suspended
+  expect(mockSuspendUpdate).toHaveBeenCalledWith({ status: 'suspended' });
+});
+
+// Branch coverage: line 90 — if (memberships) false branch: DB returns null for memberships
+test('facility_members が null → ループをスキップして正常削除', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            // data: null → memberships is null → if (memberships) is false → loop skipped
+            eq: jest.fn().mockReturnValue(Promise.resolve({ data: null, error: null })),
+          }),
+        }),
+        delete: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })),
+        }),
+      };
+    }
+    return {
+      delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(Promise.resolve({ error: null })) }),
+    };
+  });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+});
+
+// Branch coverage: line 78 — filter: r.status === 'fulfilled' but .error is falsy (no failure logged)
+test('PII削除が全て成功 → failedOps は空 → ログなし', async () => {
+  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  // Default mock: all ops succeed with error: null
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  // PII partial-failure log should NOT have been called
+  expect(consoleSpy).not.toHaveBeenCalledWith(
+    expect.stringContaining('PII deletion partial failure'),
+    expect.anything(),
+  );
+  consoleSpy.mockRestore();
+});
+
 test('auth削除は必ずPIIスクラブの後に実行される', async () => {
   const callOrder: string[] = [];
   mockFrom.mockImplementation((table: string) => {

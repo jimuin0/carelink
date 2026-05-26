@@ -175,6 +175,18 @@ describe('GET /api/google-calendar', () => {
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
     expect(call[0]).toBe('10.0.0.1');
   });
+
+  // Branch coverage: line 16 — x-forwarded-for ヘッダなし → 'unknown' にフォールバック
+  test('x-forwarded-for ヘッダなし (GET) → IP が unknown にフォールバック', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+
+    const req = new Request('http://localhost/api/google-calendar', { method: 'GET' });
+    GET(req as any);
+
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
 });
 
 describe('POST /api/google-calendar', () => {
@@ -251,6 +263,22 @@ describe('POST /api/google-calendar', () => {
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
     expect(call[0]).toBe('10.0.0.1');
+  });
+
+  // Branch coverage: line 41 — x-forwarded-for ヘッダなし → 'unknown' にフォールバック
+  test('x-forwarded-for ヘッダなし (POST) → IP が unknown にフォールバック', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+
+    const req = new Request('http://localhost/api/google-calendar', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    POST(req as any);
+
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
   });
 
   test('POST requires CSRF token validation', () => {

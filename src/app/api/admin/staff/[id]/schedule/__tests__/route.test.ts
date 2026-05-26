@@ -34,6 +34,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { PUT, POST, DELETE } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeProps(id = STAFF_UUID) {
   return { params: Promise.resolve({ id }) };
@@ -351,4 +352,146 @@ test('DELETE: 正常削除 → 200', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('PUT: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('POST: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true }), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('DELETE: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true }), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: 不正な params.id UUID → 400', async () => {
+  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps('bad-id'));
+  expect(res.status).toBe(400);
+});
+
+test('POST: is_holiday=false で start/end 未指定でも upsert される', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return staffSingle({ id: STAFF_UUID });
+    return upsertDirect(null);
+  });
+  const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: false }), makeProps());
+  expect(res.status).toBe(201);
+});
+
+test('PUT: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(staffSingle({ id: STAFF_UUID }));
+  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PUT(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('POST: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(staffSingle({ id: STAFF_UUID }));
+  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(staffSingle({ id: STAFF_UUID }));
+  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await DELETE(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+// Branch coverage: line 123 — POST で getAdminFacilityIdAndVerifyStaff が null → 401
+test('POST: 非管理者 (memberSingle null) → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle(null)); // not a member
+  const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true }), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('POST: スタッフが施設に所属しない → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(staffSingle(null)); // staff not in facility
+  const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true }), makeProps());
+  expect(res.status).toBe(401);
+});
+
+// Branch coverage: line 164 — DELETE で getAdminFacilityIdAndVerifyStaff が null → 401
+test('DELETE: 非管理者 (memberSingle null) → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle(null)); // not a member
+  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('DELETE: スタッフが施設に所属しない → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(staffSingle(null)); // staff not in facility
+  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PUT: x-forwarded-for ヘッダから IP 取得', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return staffSingle({ id: STAFF_UUID });
+    if (callNum === 2) return deleteEq(null);
+    return insertDirect(null);
+  });
+  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}/schedule`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+    body: JSON.stringify(VALID_SCHEDULE),
+  });
+  const res = await PUT(req, makeProps());
+  expect(res.status).toBe(200);
 });

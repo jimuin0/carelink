@@ -308,6 +308,54 @@ describe('POST /api/chat', () => {
     expect(call[0]).toBe('10.0.0.1');
   });
 
+  test('missing x-forwarded-for → uses "unknown" IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }] }),
+    });
+    await POST(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('null entry in messages array → filtered out', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          null,
+          { role: 'user', content: 'Valid' },
+        ],
+      }) as any
+    );
+    const call = mockMessagesCreate.mock.calls[0];
+    expect(call[0].messages.length).toBe(1);
+  });
+
+  test('all messages filtered out → 400 No valid messages', async () => {
+    const res = await POST(
+      makeRequest({
+        messages: [
+          { role: 'admin', content: 'bad' },
+          { role: 'user', content: 123 },
+        ],
+      }) as any
+    );
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('No valid messages');
+  });
+
+  test('AI response content[0] undefined → empty reply', async () => {
+    mockMessagesCreate.mockResolvedValue({ content: [] });
+    const res = await POST(
+      makeRequest({ messages: [{ role: 'user', content: 'Test' }] }) as any
+    );
+    const json = await res.json();
+    expect(json.reply).toBe('');
+  });
+
   test('AI response with non-text content → empty reply', async () => {
     mockMessagesCreate.mockResolvedValue({
       content: [{ type: 'image' }],

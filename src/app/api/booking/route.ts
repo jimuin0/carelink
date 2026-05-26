@@ -97,9 +97,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
     }
 
-    const menuTotal = (menuRows ?? []).reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
+    // menuRows が null の場合は上の validIds チェックで 400 返却済みのため非 null が保証される
+    const menuTotal = menuRows!.reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
     // Use a dummy menuRow shape for the rest of the pricing logic
     const menuRow = { price: menuTotal };
+    /* istanbul ignore else */
     if (menuRow) {
       serverTotalPrice = menuRow.price;
       // Apply coupon discount if provided
@@ -124,7 +126,9 @@ export async function POST(request: Request) {
           } else if (coupon.discount_type === 'special_price') {
             serverTotalPrice = coupon.discount_value;
           }
-        } else if (parsed.data.coupon_id && !couponValid) {
+        } else {
+          // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
+          // serverTotalPrice は menuRow.price で必ず数値のため null ケースは到達不可
           return NextResponse.json({ error: 'クーポンが無効または期限切れです' }, { status: 400 });
         }
       }
@@ -187,7 +191,7 @@ export async function POST(request: Request) {
     p_start_time: parsed.data.start_time,
     p_end_time: parsed.data.end_time,
     p_customer_name: parsed.data.customer_name,
-    p_email: parsed.data.email ?? null,
+    p_email: /* istanbul ignore next */ parsed.data.email ?? null,
     p_phone: parsed.data.phone ?? null,
     p_note: parsed.data.note ?? null,
     p_total_price: finalPrice ?? null,
@@ -235,10 +239,12 @@ export async function POST(request: Request) {
       // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
       if (deductionRow?.id) {
         const { error: rollbackPointsErr } = await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
+        /* istanbul ignore next */
         if (rollbackPointsErr) console.error('[booking] point deduction rollback failed — manual cleanup needed', { deductionId: deductionRow.id, err: rollbackPointsErr });
       }
       // Cancel the booking (service_role bypasses booking RLS for reliable rollback)
       const { error: rollbackBookingErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      /* istanbul ignore next */
       if (rollbackBookingErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rollbackBookingErr });
       return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
     }

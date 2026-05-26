@@ -157,6 +157,42 @@ describe('sendPushToUser — deep tests', () => {
   });
 });
 
+describe('sendPushToUser — vapidConfigured 二回目スキップ', () => {
+  test('2 度目の呼び出しでは setVapidDetails が再実行されない', async () => {
+    // 一度通知を成功させて vapidConfigured = true にする
+    mockSubData = { endpoint: 'https://push.example.com/twice', p256dh: 'k', auth: 'a' };
+    mockSendNotification.mockResolvedValue({});
+    await sendPushToUser('user-twice-1', { title: 'T', body: 'B' });
+    // 2 度目： setVapidDetails が呼ばれず getWebPush の if 分岐 false 側を通る
+    mockSendNotification.mockResolvedValue({});
+    const result = await sendPushToUser('user-twice-2', { title: 'T', body: 'B' });
+    expect(result).toBe(true);
+  });
+});
+
+describe('sendPushToUser — VAPID 部分設定', () => {
+  test('PUBLIC のみ設定で PRIVATE なし → 早期 false', async () => {
+    jest.resetModules();
+    const orig = process.env.VAPID_PRIVATE_KEY;
+    delete process.env.VAPID_PRIVATE_KEY;
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = 'pub-only';
+    jest.doMock('web-push', () => ({ setVapidDetails: jest.fn(), sendNotification: jest.fn() }));
+    jest.doMock('../supabase-server', () => ({
+      createServiceRoleClient: () => ({
+        from: () => ({
+          select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }),
+          delete: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        }),
+      }),
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { sendPushToUser: fn } = require('../push');
+    expect(await fn('u', { title: 't', body: 'b' })).toBe(false);
+    if (orig === undefined) delete process.env.VAPID_PRIVATE_KEY;
+    else process.env.VAPID_PRIVATE_KEY = orig;
+  });
+});
+
 // ---------------------------------------------------------------------------
 // sendPushToFacilityOwners
 // ---------------------------------------------------------------------------
@@ -403,5 +439,23 @@ describe('sendPushToFacilityOwners', () => {
     expect(selectMock).toHaveBeenCalledWith('user_id');
     expect(eqMock).toHaveBeenCalledWith('facility_id', 'facility-xyz');
     expect(inMock).toHaveBeenCalledWith('role', ['owner', 'admin']);
+  });
+});
+
+// Branch coverage: line 12 — sendPushToUser は VAPID キー未設定時に getWebPush() を呼ぶ前に
+// 早期 return false するため、getWebPush() 内の else 分岐はデッドコード。
+// push.ts に /* istanbul ignore next */ を付与して除外済み。
+// ここでは sendPushToUser の早期 return false（line 35）をテストする。
+describe('sendPushToUser — VAPID keys absent', () => {
+  test('NEXT_PUBLIC_VAPID_PUBLIC_KEY 未設定 → 早期 return false', async () => {
+    jest.resetModules();
+    const origPub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { sendPushToUser: fn } = require('../push');
+    const result = await fn('u', { title: 't', body: 'b' });
+    expect(result).toBe(false);
+    if (origPub !== undefined) process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY = origPub;
+    else delete process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
   });
 });

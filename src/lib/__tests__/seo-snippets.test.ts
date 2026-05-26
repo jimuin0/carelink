@@ -3,6 +3,7 @@
  * Pure functions — no mocking required for the main exports.
  */
 
+// We keep the default import but also allow partial mock for prefSeo null branches
 import {
   getBusinessTypeContext,
   generatePrefTypeContent,
@@ -117,5 +118,43 @@ describe('generateCityTypeContent', () => {
   test('first FAQ answer includes searchPoints', () => {
     const result = generateCityTypeContent('tokyo', '渋谷区', 'esthetic');
     expect(result!.faqs[0].answer).toBeTruthy();
+  });
+});
+
+// Branch coverage: line 127 — prefSeo is null → fallback string used
+// Branch coverage: line 166 — prefSeo is null → regionContext = ''
+// Since all 47 prefectures have prefSeo data, we use jest.mock to simulate a null prefSeo case.
+describe('generatePrefTypeContent / generateCityContent — prefSeo null branch', () => {
+  // We spy on the getPrefectureSeo import via jest.mock at module level.
+  // To avoid breaking other tests we use jest.doMock in a separate require block.
+
+  // Branch coverage: line 127 — prefSeo null path (fallback intro text)
+  test('generatePrefTypeContent: prefSeo が null → fallback intro テキストが使われる', () => {
+    let result: ReturnType<typeof import('../seo-snippets').generatePrefTypeContent> | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('@/data/prefecture-seo', () => ({
+        getPrefectureSeo: () => null,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { generatePrefTypeContent: genPrefType } = require('../seo-snippets');
+      result = genPrefType('tokyo', 'hair-salon');
+    });
+    expect(result).not.toBeNull();
+    expect(result!.intro).toContain('医療・美容・福祉施設が広く点在するエリア');
+  });
+
+  // Branch coverage: line 166 — prefSeo null path (regionContext = '')
+  test('generateCityContent: prefSeo が null → regionContext が空文字になる', () => {
+    let result: ReturnType<typeof import('../seo-snippets').generateCityContent> | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('@/data/prefecture-seo', () => ({
+        getPrefectureSeo: () => null,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { generateCityContent: genCity } = require('../seo-snippets');
+      result = genCity('osaka', '豊中市');
+    });
+    expect(result).not.toBeNull();
+    expect(result!.intro).toContain('豊中市');
   });
 });

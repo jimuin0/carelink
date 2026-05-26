@@ -355,7 +355,6 @@ describe('GET /api/stripe/receipt', () => {
     expect(html).toContain('印刷・PDF保存');
     expect(html).toContain('window.print()');
   });
-});
 
   // ─── 深掘り: XSS 全パターン ───────────────────────────────────────────────
 
@@ -639,3 +638,136 @@ describe('GET /api/stripe/receipt', () => {
     const res = await GET(makeRequest(encodeURIComponent(dangerousId)) as any);
     expect([200, 400, 404]).toContain(res.status);
   });
+
+  test('facility_profiles がオブジェクト（非配列）→ 200', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: {
+                  id: 'sess-abc-123',
+                  user_id: 'user-123',
+                  stripe_session_id: 'cs_test_123',
+                  amount: 10000,
+                  status: 'paid',
+                  payment_type: 'service',
+                  created_at: '2026-05-10T10:00:00Z',
+                  facility_profiles: { name: 'Salon Object', postal_code: null, phone: null, address: null, prefecture: null, city: null },
+                },
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('Salon Object');
+    // postal_code / phone なし → それぞれの分岐 false
+    expect(html).not.toContain('〒');
+    expect(html).not.toContain('TEL:');
+  });
+
+  test('facility が null（リレーション null）→ デフォルト文言で表示', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: {
+                  id: 'sess-abc-123',
+                  user_id: 'user-123',
+                  stripe_session_id: 'cs_test_123',
+                  amount: 5000,
+                  status: 'paid',
+                  payment_type: 'service',
+                  created_at: '2026-05-10T10:00:00Z',
+                  facility_profiles: null,
+                },
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('施設');
+  });
+
+  test('facility postal_code あり、prefecture/city/address null → 〒のみ表示', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: {
+                  id: 'sess-abc-123',
+                  user_id: 'user-123',
+                  stripe_session_id: 'cs_test_123',
+                  amount: 7000,
+                  status: 'paid',
+                  payment_type: 'service',
+                  created_at: '2026-05-10T10:00:00Z',
+                  facility_profiles: {
+                    name: 'Salon Partial',
+                    postal_code: '100-0001',
+                    prefecture: null,
+                    city: null,
+                    address: null,
+                    phone: null,
+                  },
+                },
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain('〒100-0001');
+  });
+
+  // Branch coverage: line 13 — esc(null) → s ?? '' の null 分岐（stripe_session_id=null で呼び出し）
+  test('stripe_session_id が null → esc(null) で空文字フォールバック（line 13 ?? true 分岐）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              single: jest.fn().mockResolvedValue({
+                data: {
+                  id: 'sess-abc-123',
+                  user_id: 'user-123',
+                  stripe_session_id: null,
+                  amount: 5000,
+                  status: 'paid',
+                  payment_type: 'service',
+                  created_at: '2026-05-10T10:00:00Z',
+                  facility_profiles: [{ name: 'Salon X', postal_code: null, prefecture: null, city: null, address: null, phone: null }],
+                },
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    // stripe_session_id is null → esc(null) returns '' → no session ID displayed
+    expect(html).not.toContain('cs_test');
+  });
+});

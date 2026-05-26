@@ -74,6 +74,17 @@ describe('verifyRecaptcha', () => {
     expect(result.success).toBe(true);
   });
 
+  test('no secret key in production → warn log emitted', async () => {
+    const originalEnv = process.env.NODE_ENV;
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'production', configurable: true });
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    const result = await verifyRecaptcha('tok', 'booking');
+    expect(result).toEqual({ success: true, reason: 'no_secret_key' });
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('RECAPTCHA_SECRET_KEY'));
+    warnSpy.mockRestore();
+    Object.defineProperty(process.env, 'NODE_ENV', { value: originalEnv, configurable: true });
+  });
+
   test('fetch throws → returns success=false with reason=verify_error', async () => {
     process.env.RECAPTCHA_SECRET_KEY = SECRET;
     global.fetch = jest.fn().mockRejectedValue(new Error('Network error'));

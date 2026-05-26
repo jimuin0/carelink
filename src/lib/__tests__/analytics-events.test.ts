@@ -196,4 +196,25 @@ describe('analytics-events', () => {
     expect(() => trackBookingStarted('fac-1', 'Salon')).not.toThrow();
     expect(mockGtag).not.toHaveBeenCalled();
   });
+
+  test('gtag が関数でない（object）場合は呼ばない', () => {
+    (window as Window & { gtag?: unknown }).gtag = { not: 'a function' };
+    expect(() => trackBookingStarted('fac-1', 'Salon')).not.toThrow();
+    expect(mockGtag).not.toHaveBeenCalled();
+  });
+
+  test('SSR (window undefined) → 何もしない', () => {
+    const origWindow = (global as { window?: unknown }).window;
+    // @ts-expect-error - simulating SSR
+    delete (global as { window?: unknown }).window;
+    jest.isolateModules(() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const mod = require('../analytics-events');
+      expect(() => mod.trackBookingStarted('f', 's')).not.toThrow();
+    });
+    (global as { window?: unknown }).window = origWindow;
+  });
+
+  // Branch coverage: line 14 — typeof window === 'undefined' の true 分岐は
+  // 上の 'SSR (window undefined)' テストで jest.isolateModules + delete window により既にカバー済み
 });

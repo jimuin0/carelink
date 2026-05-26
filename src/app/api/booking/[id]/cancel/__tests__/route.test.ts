@@ -827,6 +827,420 @@ describe('POST /api/booking/[id]/cancel', () => {
     await new Promise(r => setTimeout(r, 10));
   });
 
+  test('total_price null → undefined フォールバック', async () => {
+    const { sendBookingCancelled } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: null, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancelled).toHaveBeenCalledWith(expect.objectContaining({ totalPrice: undefined }));
+  });
+
+  test('facility が null でも email 送信続行（facility?.name フォールバック）', async () => {
+    const { sendBookingCancelled } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      // すべて null
+      return fluent({ data: null });
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancelled).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
+  });
+
+  test('owner 取得できるが ownerProfile.email なし → 送信は1回のみ', async () => {
+    const { sendBookingCancelled } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon Y' } });
+      if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
+      if (table === 'profiles') return fluent({ data: { email: null } });
+      return fluent({ data: null });
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
+  });
+
+  test('LINE通知時の email 取得 throw → 内側 catch で握り潰し 200', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      // 3 回目以降の呼び出しで throw → email try/catch で握り潰し
+      throw new Error('email path exploded');
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+  });
+
+  test('LINE Works: 担当外スタッフ かつ notify_all=false → 通知スキップ', async () => {
+    const { isLineWorksConfigured, notifyCancellationLineWorks } = require('@/lib/integrations/line-works');
+    (isLineWorksConfigured as jest.Mock).mockReturnValue(true);
+    (notifyCancellationLineWorks as jest.Mock).mockClear();
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: 'staff-assigned',
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'staff_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [
+                  { id: 'staff-other', line_works_channel_id: 'ch-skip', line_works_notify_all: false },
+                  { id: 'staff-nochan', line_works_channel_id: null, line_works_notify_all: true },
+                ],
+              }),
+            }),
+          }),
+        };
+      }
+      return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(notifyCancellationLineWorks).not.toHaveBeenCalled();
+  });
+
+  // Branch coverage: line 146 — LINE通知パス内で menu_id が存在してlineLink有効、menu_id false分岐
+  test('LINE通知: lineLink あり + menu_id なし → cancelMenuName = "" で通知', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    const { sendBookingCancellation } = require('@/lib/line');
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: { name: 'Salon Z' } }),
+        };
+      }
+      return fluent({ data: null });
+    });
+
+    // admin client returns lineLink with line_user_id
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'line_user_links') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { line_user_id: 'U_no_menu' } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    // menu_id が null なので menuName は空文字
+    expect(sendBookingCancellation).toHaveBeenCalledWith('U_no_menu', expect.objectContaining({ menuName: '' }));
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  // Branch coverage: line 148 — menuForLine が見つかったが name が null の場合
+  test('LINE通知: menu_id あり + menuForLine.name が null → cancelMenuName = ""', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    const { sendBookingCancellation } = require('@/lib/line');
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: 'menu-null-name', staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_menus') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: { name: null } }),
+          single: jest.fn().mockResolvedValue({ data: { name: null } }),
+        };
+      }
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: { name: 'Salon Q' } }),
+          single: jest.fn().mockResolvedValue({ data: { name: 'Salon Q' } }),
+        };
+      }
+      return fluent({ data: null });
+    });
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'line_user_links') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { line_user_id: 'U_null_name' } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    // name が null なので || '' で空文字になる
+    expect(sendBookingCancellation).toHaveBeenCalledWith('U_null_name', expect.objectContaining({ menuName: '' }));
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  // Branch coverage: line 152 — facilityForLine?.name が null (|| '' 分岐)
+  test('LINE通知: facilityForLine.name が null → facilityName = ""', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    const { sendBookingCancellation } = require('@/lib/line');
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({ data: { name: null } }),
+          single: jest.fn().mockResolvedValue({ data: { name: null } }),
+        };
+      }
+      return fluent({ data: null });
+    });
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'line_user_links') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { line_user_id: 'U_null_facility' } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancellation).toHaveBeenCalledWith('U_null_facility', expect.objectContaining({ facilityName: '' }));
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  // Branch coverage: line 177 — LINE Works パスで menuForLW?.name が null (|| '' 分岐)
+  test('LINE Works: menu_id あり + menuForLW.name が null → menuName = ""', async () => {
+    const { isLineWorksConfigured, notifyCancellationLineWorks } = require('@/lib/integrations/line-works');
+    (isLineWorksConfigured as jest.Mock).mockReturnValue(true);
+    (notifyCancellationLineWorks as jest.Mock).mockResolvedValue(undefined);
+
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: 'menu-lw-null', staff_id: 'staff-lw',
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'staff_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockResolvedValue({
+                data: [{ id: 'staff-lw', line_works_channel_id: 'ch-lw-null', line_works_notify_all: true }],
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'facility_menus') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { name: null } }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+          }),
+        }),
+      };
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    // menuForLW.name が null なので || '' で空文字
+    expect(notifyCancellationLineWorks).toHaveBeenCalledWith('ch-lw-null', expect.objectContaining({ menuName: '' }));
+  });
+
   test('LINE Works: adminSupabase が throw → 外側 catch → Sentry + 200', async () => {
     const { isLineWorksConfigured } = require('@/lib/integrations/line-works');
     (isLineWorksConfigured as jest.Mock).mockReturnValue(true);

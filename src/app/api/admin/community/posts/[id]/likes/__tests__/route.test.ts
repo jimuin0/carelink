@@ -232,3 +232,82 @@ test('DELETE: CSRF エラー → 403', async () => {
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(403);
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('POST: likeCount が null → like_count=0', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return postSingle({ id: POST_UUID, is_locked: false });
+    if (callNum === 3) return insertChain(null);
+    return postSingle(null);
+  });
+  const res = await POST(makeRequest('POST'), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.like_count).toBe(0);
+});
+
+test('POST: likeCount.like_count が undefined → 0', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return postSingle({ id: POST_UUID, is_locked: false });
+    if (callNum === 3) return insertChain(null);
+    return postSingle({}); // like_count undefined
+  });
+  const res = await POST(makeRequest('POST'), makeProps());
+  const json = await res.json();
+  expect(json.like_count).toBe(0);
+});
+
+test('DELETE: post が null → like_count=0', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return deleteChain(null);
+    return postSingle(null);
+  });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.like_count).toBe(0);
+});
+
+test('POST: x-forwarded-for ヘッダ → IP抽出', async () => {
+  setupLikeSuccess();
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest(`http://localhost/api/admin/community/posts/${POST_UUID}/likes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await POST(req, makeProps());
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});
+
+test('DELETE: x-forwarded-for ヘッダ → IP抽出', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    if (callNum === 2) return deleteChain(null);
+    return postSingle({ like_count: 3 });
+  });
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest(`http://localhost/api/admin/community/posts/${POST_UUID}/likes`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await DELETE(req, makeProps());
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});

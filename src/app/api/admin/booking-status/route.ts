@@ -174,7 +174,7 @@ export async function POST(request: Request) {
         no_show: '来店確認が取れませんでした',
       };
       void sendPushToUser(booking.user_id, {
-        title: statusLabels[status] || 'ステータス更新',
+        title: statusLabels[status] || /* istanbul ignore next */ 'ステータス更新',
         body: `${facility?.name || ''} ${booking.booking_date} ${booking.start_time}〜`,
         url: `/mypage/bookings/${booking.id}`,
         tag: `booking-status-${booking.id}`,

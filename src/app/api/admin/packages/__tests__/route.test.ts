@@ -246,6 +246,37 @@ test('POST: レスポンスが { package: ... } 形式', async () => {
   expect(json.package.id).toBe('aaa');
 });
 
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(429);
+});
+
+test('POST: 不正なJSON → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/packages');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: is_active が明示的に false → 201 (?? 分岐の左側)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', is_active: false }));
+  const res = await POST(makePostRequest(validPostBody({ is_active: false })));
+  expect(res.status).toBe(201);
+});
+
+test('GET: facility_id が不正UUID → 401', async () => {
+  const res = await GET(makeGetRequest('not-uuid'));
+  expect(res.status).toBe(401);
+});
+
 test('POST: レートリミット params', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));

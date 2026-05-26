@@ -333,6 +333,69 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(res.status).toBe(500);
   });
 
+  test('points insert non-23505 error → skipped', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockPointsInsert = jest.fn().mockResolvedValue({
+      error: { code: '99999', message: 'other db error' },
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') return { select: mockProfilesSelect };
+      if (table === 'user_points') return { insert: mockPointsInsert };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.skipped).toBeGreaterThan(0);
+    consoleSpy.mockRestore();
+  });
+
+  test('profile.email null → no email send', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              filter: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({
+                  data: [{ id: 'u1', email: null, display_name: 'No Email' }],
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'user_points') return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
+    });
+    const { Resend } = require('resend');
+    const sendSpy = jest.fn().mockResolvedValue({ success: true });
+    Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(sendSpy).not.toHaveBeenCalled();
+  });
+
+  test('LINE token unset → skip LINE block', async () => {
+    setupDefaultMocks(1);
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK; // setupDefaultMocks 後に削除
+    (sendLineText as jest.Mock).mockClear();
+
+    await GET(makeRequest() as any);
+    expect(sendLineText).not.toHaveBeenCalled();
+  });
+
+  test('non-Error throw → String fallback in catch', async () => {
+    mockFrom.mockImplementation(() => { throw 'plain string error'; });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
   test('points reason includes current year for idempotency', async () => {
     setupDefaultMocks(1);
 

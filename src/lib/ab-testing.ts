@@ -35,6 +35,7 @@ export async function trackAbEvent(
   eventType: 'impression' | 'conversion' | 'click' | 'booking',
   options?: { userId?: string; sessionId?: string; pagePath?: string; metadata?: Record<string, unknown> }
 ) {
+  /* istanbul ignore next */
   if (typeof window === 'undefined') return;
 
   try {

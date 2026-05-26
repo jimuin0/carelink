@@ -1139,4 +1139,616 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(500);
   });
+
+  test('CAS失敗（残高が負）→ rollback → 400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-cas' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+    const nullChain = fluent({ data: null });
+
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-cas' } })),
+      })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -50 }] }));
+
+    const rollbackPointsChain: Record<string, unknown> = {};
+    rollbackPointsChain.delete = jest.fn(() => ({
+      eq: jest.fn(() => Promise.resolve({ error: null })),
+    }));
+
+    const rollbackBookingChain: Record<string, unknown> = {};
+    rollbackBookingChain.update = jest.fn(() => ({
+      eq: jest.fn(() => Promise.resolve({ error: null })),
+    }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-cas-fail', error: null });
+
+    let upCall = 0;
+    mockFrom.mockImplementation((table: string) => {
+      upCall++;
+      if (upCall === 1) return conflictChain;
+      if (upCall === 2) return balanceChain;
+      if (upCall === 3) return nullChain;
+      if (table === 'user_points' && upCall === 4) return deductionChain;
+      if (table === 'user_points' && upCall === 5) return recheckChain;
+      if (table === 'user_points') return rollbackPointsChain;
+      if (table === 'bookings') return rollbackBookingChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('競合');
+  });
+
+  test('rpc が null データで成功 → 500 (newBookingId 空)', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    let cc = 0;
+    mockFrom.mockImplementation(() => {
+      cc++;
+      if (cc === 1) return conflictChain;
+      return fluent({ data: null });
+    });
+    mockRpc.mockResolvedValue({ data: null, error: null });
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(500);
+  });
+
+  test('menu_id null かつ menu_ids なし → サーバー側価格計算スキップ', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return fluent({ data: null });
+    });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: null }));
+    expect(res.status).toBe(200);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: null })
+    );
+  });
+
+  // Branch coverage: line 94 - menuRows が null → validIds = new Set([]) → allValid = false → 400
+  test('facility_menus returns null → メニュー不正→400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = crypto.randomUUID();
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: null, error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('メニュー');
+  });
+
+  // Branch coverage: line 100 - r.price ?? 0 の null branch（price が null → 0 として集計）
+  test('menu price が null → 0 として集計し total=0', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = crypto.randomUUID();
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId, price: null }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: 0 })
+    );
+  });
+
+  // Branch coverage: line 115 - valid_from が未来 → coupon 無効 → 400
+  test('クーポン valid_from が未来 → 無効として400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = crypto.randomUUID();
+    const couponId = crypto.randomUUID();
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    // valid_from は未来 → まだ有効期間に入っていない
+    const couponChain = fluent({
+      data: {
+        discount_type: 'fixed',
+        discount_value: 500,
+        is_active: true,
+        valid_from: new Date(Date.now() + 86400000 * 30).toISOString(),
+        valid_until: null,
+      }
+    });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return couponChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('クーポン');
+  });
+
+  // Branch coverage: line 162 - serverTotalPrice != null && pointsUsed > 0 → finalPrice を差し引き計算
+  test('ポイント使用時に serverTotalPrice から差し引いた finalPrice を RPC に渡す', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-final' } } });
+    const menuId = crypto.randomUUID();
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId, price: 5000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 1000 }] }));
+
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { id: 'ded-final' } })),
+      })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-final-price', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return fluent({ data: null }); // facility_profiles
+      if (table === 'user_points' && callNum === 5) return deductionChain;
+      if (table === 'user_points' && callNum === 6) return recheckChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 500 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // serverTotalPrice=5000, pointsUsed=500 → finalPrice=4500
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: 4500, p_points_used: 500 })
+    );
+  });
+
+  // Branch coverage: line 236 - deductionRow?.id が falsy → delete スキップして booking をキャンセル
+  test('CAS失敗でdeductionRow.idなし → deleteスキップしてbookingロールバック→400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-no-did' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+
+    const nullChain = fluent({ data: null });
+
+    // Deduction insert returns data: null (no id)
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: null })),
+      })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -100 }] }));
+
+    const cancelChain: Record<string, unknown> = {};
+    cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-no-did', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (table === 'bookings') return cancelChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('競合');
+  });
+
+  // Branch coverage: line 238 - rollbackPointsErr がある場合 console.error ログ
+  test('CAS失敗でポイントrollbackエラー → console.error ログ出力', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-rb-err' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+
+    const nullChain = fluent({ data: null });
+
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { id: 'ded-err-id' } })),
+      })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -100 }] }));
+
+    // delete returns an error
+    const deleteChain: Record<string, unknown> = {};
+    deleteChain.delete = jest.fn(() => ({
+      eq: jest.fn(() => Promise.resolve({ error: { message: 'delete failed' } })),
+    }));
+
+    const cancelChain: Record<string, unknown> = {};
+    cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-rb-err', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (table === 'user_points') return deleteChain;
+      if (table === 'bookings') return cancelChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    expect(res.status).toBe(400);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[booking] point deduction rollback failed'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
+  });
+
+  // Branch coverage: line 242 - rollbackBookingErr がある場合 console.error ログ
+  test('CAS失敗でbooking rollbackエラー → console.error ログ出力', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-bk-rb-err' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 500 }] }));
+
+    const nullChain = fluent({ data: null });
+
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { id: 'ded-bk-err' } })),
+      })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: -100 }] }));
+
+    const deleteChain: Record<string, unknown> = {};
+    deleteChain.delete = jest.fn(() => ({
+      eq: jest.fn(() => Promise.resolve({ error: null })),
+    }));
+
+    // booking update returns error
+    const cancelChain: Record<string, unknown> = {};
+    cancelChain.update = jest.fn(() => ({
+      eq: jest.fn(() => Promise.resolve({ error: { message: 'cancel failed' } })),
+    }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-bk-err', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (table === 'user_points') return deleteChain;
+      if (table === 'bookings') return cancelChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    expect(res.status).toBe(400);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[booking] booking rollback failed'),
+      expect.anything()
+    );
+    consoleSpy.mockRestore();
+  });
+
+  // Branch coverage: line 155 - pointRows が null → ?? [] → reduce で 0 → 残高不足チェック
+  test('user_points クエリが null → ポイント残高 0 → points_used を超えるので400', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-null-pts' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    // user_points returns { data: null } → (null ?? []).reduce(...) = 0 < 200 → 400
+    const pointsNullChain = fluent(null);
+    pointsNullChain.eq = jest.fn(() => Promise.resolve({ data: null }));
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return pointsNullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('ポイント');
+  });
+
+  // Branch coverage: line 232 - recheck が null → ?? [] → reduce で 0 → newBalance=0 >= 0 → CAS通過
+  test('CAS recheck が null → 残高 0 → CAS通過 → 200', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-recheck-null' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
+
+    const nullChain = fluent({ data: null });
+
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({
+        single: jest.fn(() => Promise.resolve({ data: { id: 'ded-recheck-null' } })),
+      })),
+    }));
+
+    // recheck returns { data: null } → (null ?? []) = [] → reduce = 0 → newBalance=0 >= 0 → no rollback
+    const recheckNullChain = fluent(null);
+    recheckNullChain.eq = jest.fn(() => Promise.resolve({ data: null }));
+
+    mockRpc.mockResolvedValue({ data: 'booking-recheck-null', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain; // facility_profiles
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckNullChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(json.bookingId).toBe('booking-recheck-null');
+  });
+
+  // Branch coverage: line 317, 355, 358 - LINE Works: menu_id + staff_id (isAssigned=true) → Promise.all でメニュー名・スタッフ名を取得
+  test('LINE Works: menu_id + staff_id あり → assigned staff へ通知', async () => {
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock;
+      notifyNewBookingLineWorks: jest.Mock;
+    };
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockResolvedValue(undefined);
+
+    const menuId = crypto.randomUUID();
+    const staffId = crypto.randomUUID();
+
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    mockRpc.mockResolvedValue({ data: 'booking-lw-assigned', error: null });
+
+    // staff_id → conflict chain needs extra .eq() after .gt()
+    const noConflict = Promise.resolve({ data: [] });
+    const conflictChain = fluent(null);
+    const chainEnd: Record<string, unknown> = {};
+    chainEnd.eq = jest.fn(() => noConflict);
+    chainEnd.then = noConflict.then.bind(noConflict);
+    conflictChain.gt = jest.fn(() => chainEnd);
+
+    const menuResult = { data: [{ id: menuId, price: 5000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    // Staff nomination fee (null → skip addition)
+    const staffFeeChain = fluent({ data: { nomination_fee: null } });
+    const nullChain = fluent({ data: null });
+
+    // staffList: assigned staff (notify_all=false, isAssigned=true)
+    const staffListResult = {
+      data: [{ id: staffId, line_works_channel_id: 'ch-assigned', line_works_notify_all: false }],
+    };
+    const staffListChain: Record<string, jest.Mock> = {};
+    staffListChain.select = jest.fn(() => staffListChain);
+    staffListChain.eq = jest.fn(() => staffListChain);
+    staffListChain.not = jest.fn(() => Promise.resolve(staffListResult));
+
+    // call order (user=null, menu_id, staff_id):
+    // 1: conflict, 2: facility_menus (price), 3: staff_profiles (fee),
+    // 4: facility_profiles (auto-confirm), rpc
+    // notification: 5+, LINE Works staffList at call 9
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return staffFeeChain;
+      if (callNum === 4) return nullChain;
+      if (callNum === 9) return staffListChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // isAssigned=true → notified
+    expect(notifyNewBookingLineWorks).toHaveBeenCalledWith('ch-assigned', expect.any(Object));
+
+    isLineWorksConfigured.mockReturnValue(false);
+  });
+
+  // Branch coverage: discount_type が既知のいずれでもない → 割引なし → total_price そのまま → 200
+  test('coupon discount_type が未知の値 → 割引なし → total_price そのまま → 200', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = crypto.randomUUID();
+    const couponId = crypto.randomUUID();
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    // discount_type = 'mystery' → no if/else branch matches → price unchanged
+    const couponChain = fluent({ data: { discount_type: 'mystery', discount_value: 0, is_active: true, valid_from: null, valid_until: null } });
+    const nullChain = fluent({ data: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return couponChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: 10000 })
+    );
+  });
+
+  // Branch coverage: LINE通知 → lineLink が存在するが line_user_id が null → 通知スキップ → 200
+  test('LINE通知: lineLink あり + line_user_id が null → 通知スキップ → 200', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-no-id' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-token';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const nullChain = fluent({ data: null });
+
+    // line_user_links → lineLink exists but line_user_id is null → lineLink?.line_user_id is falsy → skip
+    const lineLinkChain = fluent({ data: { line_user_id: null } });
+
+    // call order (user set, no menu):
+    // 1: conflict check
+    // 2: facility_profiles (auto-confirm)
+    // 3: facility_profiles (email Promise.all)
+    // 4: facility_members (email Promise.all)
+    // 5: line_user_links (LINE notification)
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return lineLinkChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendLineConfirm).not.toHaveBeenCalled();
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
 });

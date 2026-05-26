@@ -520,5 +520,242 @@ describe('POST /api/review', () => {
       expect(insertArg.reviewer_ip).toBeDefined();
       expect(insertArg.reviewer_ip).toBe('10.20.30.40');
     });
+
+    test('comment 空文字 → null として insert', async () => {
+      setupBizMocks({ hasUser: true });
+      await POST(makeRequest({ ...bizReview, comment: '' }));
+      const insertArg = mockInsert.mock.calls[0][0];
+      expect(insertArg.comment).toBeNull();
+    });
+
+    test('photo_urls 空配列 → null として insert', async () => {
+      setupBizMocks({ hasUser: true });
+      await POST(makeRequest({ ...bizReview, photo_urls: [] }));
+      const insertArg = mockInsert.mock.calls[0][0];
+      expect(insertArg.photo_urls).toBeNull();
+    });
+
+    test('photo_urls 未指定 → null として insert', async () => {
+      setupBizMocks({ hasUser: true });
+      await POST(makeRequest(bizReview));
+      const insertArg = mockInsert.mock.calls[0][0];
+      expect(insertArg.photo_urls).toBeNull();
+    });
+
+    test('comment 指定値が insert に渡る', async () => {
+      setupBizMocks({ hasUser: true });
+      await POST(makeRequest({ ...bizReview, comment: 'good service' }));
+      const insertArg = mockInsert.mock.calls[0][0];
+      expect(insertArg.comment).toBe('good service');
+    });
+
+    // Branch coverage: line 51 — recaptcha_token あり + RECAPTCHA_SECRET_KEY あり + 成功パス
+    test('reCAPTCHA token あり + 検証成功 → 200', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      process.env.RECAPTCHA_SECRET_KEY = 'test-secret-key';
+      (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+
+      const res = await POST(makeRequest({ ...bizReview, recaptcha_token: 'valid-token' }));
+
+      expect(res.status).toBe(200);
+      expect(verifyRecaptcha).toHaveBeenCalledWith('valid-token', 'review', 0.4);
+    });
+
+    // Branch coverage: line 104 — completedBooking が null の場合の ?? 演算子分岐
+    test('completedBooking が null → isVerifiedVisit=false', async () => {
+      // bookings クエリが null を返すケース
+      const mockGetUserFn = jest.fn().mockResolvedValue({
+        data: { user: { id: 'user-123', email: 'test@example.com' } },
+      });
+
+      const mockDupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockDupGte = jest.fn().mockReturnValue({ limit: mockDupLimit });
+      const mockDupEq2 = jest.fn().mockReturnValue({ gte: mockDupGte });
+      const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
+      const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
+
+      // bookings が null を返す
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: null });
+      const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
+      const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
+      const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
+      const mockBookingSelect = jest.fn().mockReturnValue({ eq: mockBookingEq1 });
+
+      const mockSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
+      const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
+      const mockInsertFn = jest.fn().mockReturnValue({ select: mockSelectInsert });
+
+      const mockPointsLimit = jest.fn().mockResolvedValue({ data: [], error: null });
+      const mockPointsEq2 = jest.fn().mockReturnValue({ limit: mockPointsLimit });
+      const mockPointsEq1 = jest.fn().mockReturnValue({ eq: mockPointsEq2 });
+      const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
+      const mockPointsInsert = jest.fn().mockResolvedValue({ error: null });
+
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
+        if (table === 'bookings') return { select: mockBookingSelect };
+        if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+      });
+
+      const { createServerClient } = require('@supabase/ssr');
+      createServerClient.mockReturnValue({ auth: { getUser: mockGetUserFn }, from: fromRouter });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      const { cookies } = require('next/headers');
+      cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      expect(mockInsertFn).toHaveBeenCalled();
+      expect(mockInsertFn.mock.calls[0][0].is_verified_visit).toBe(false);
+    });
+
+    // Branch coverage: line 145 — user_points dedup select エラー
+    test('user_points dedup チェックエラー → ポイント付与スキップ（200継続）', async () => {
+      const mockGetUserFn = jest.fn().mockResolvedValue({
+        data: { user: { id: 'user-123', email: 'test@example.com' } },
+      });
+
+      const mockDupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockDupGte = jest.fn().mockReturnValue({ limit: mockDupLimit });
+      const mockDupEq2 = jest.fn().mockReturnValue({ gte: mockDupGte });
+      const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
+      const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
+
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
+      const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
+      const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
+      const mockBookingSelect = jest.fn().mockReturnValue({ eq: mockBookingEq1 });
+
+      const mockSingle = jest.fn().mockResolvedValue({ data: { id: 'review-456' }, error: null });
+      const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
+      const mockInsertFn = jest.fn().mockReturnValue({ select: mockSelectInsert });
+
+      // user_points select でエラーを返す → selectErr 分岐を踏む
+      const mockPointsLimit = jest.fn().mockResolvedValue({ data: null, error: { message: 'select error' } });
+      const mockPointsEq2 = jest.fn().mockReturnValue({ limit: mockPointsLimit });
+      const mockPointsEq1 = jest.fn().mockReturnValue({ eq: mockPointsEq2 });
+      const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
+      const mockPointsInsert = jest.fn().mockResolvedValue({ error: null });
+
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
+        if (table === 'bookings') return { select: mockBookingSelect };
+        if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+      });
+
+      const { createServerClient } = require('@supabase/ssr');
+      createServerClient.mockReturnValue({ auth: { getUser: mockGetUserFn }, from: fromRouter });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      const { cookies } = require('next/headers');
+      cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      const res = await POST(makeRequest(bizReview));
+      // エラーがあってもメインの投稿は成功している
+      expect(res.status).toBe(200);
+      // ポイントinsertは呼ばれない（エラー早期リターン）
+      expect(mockPointsInsert).not.toHaveBeenCalled();
+    });
+
+    // Branch coverage: line 149 — existing ポイントが既にある場合はinsertをスキップ
+    test('user_points dedup: 既存レコードあり → ポイントinsert スキップ', async () => {
+      const mockGetUserFn = jest.fn().mockResolvedValue({
+        data: { user: { id: 'user-123', email: 'test@example.com' } },
+      });
+
+      const mockDupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockDupGte = jest.fn().mockReturnValue({ limit: mockDupLimit });
+      const mockDupEq2 = jest.fn().mockReturnValue({ gte: mockDupGte });
+      const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
+      const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
+
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
+      const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
+      const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
+      const mockBookingSelect = jest.fn().mockReturnValue({ eq: mockBookingEq1 });
+
+      const mockSingle = jest.fn().mockResolvedValue({ data: { id: 'review-789' }, error: null });
+      const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
+      const mockInsertFn = jest.fn().mockReturnValue({ select: mockSelectInsert });
+
+      // user_points select が既存レコードを返す → insert スキップ分岐
+      const mockPointsLimit = jest.fn().mockResolvedValue({ data: [{ id: 'existing-point' }], error: null });
+      const mockPointsEq2 = jest.fn().mockReturnValue({ limit: mockPointsLimit });
+      const mockPointsEq1 = jest.fn().mockReturnValue({ eq: mockPointsEq2 });
+      const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
+      const mockPointsInsert = jest.fn().mockResolvedValue({ error: null });
+
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
+        if (table === 'bookings') return { select: mockBookingSelect };
+        if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+      });
+
+      const { createServerClient } = require('@supabase/ssr');
+      createServerClient.mockReturnValue({ auth: { getUser: mockGetUserFn }, from: fromRouter });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      const { cookies } = require('next/headers');
+      cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      // 既存ポイントがあるので insert は呼ばれない
+      expect(mockPointsInsert).not.toHaveBeenCalled();
+    });
+
+    // Branch coverage: line 155 — user_points insert エラー（ログのみで続行）
+    test('user_points insert エラー → ログのみ、200継続', async () => {
+      const mockGetUserFn = jest.fn().mockResolvedValue({
+        data: { user: { id: 'user-123', email: 'test@example.com' } },
+      });
+
+      const mockDupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockDupGte = jest.fn().mockReturnValue({ limit: mockDupLimit });
+      const mockDupEq2 = jest.fn().mockReturnValue({ gte: mockDupGte });
+      const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
+      const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
+
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
+      const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
+      const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
+      const mockBookingSelect = jest.fn().mockReturnValue({ eq: mockBookingEq1 });
+
+      const mockSingle = jest.fn().mockResolvedValue({ data: { id: 'review-999' }, error: null });
+      const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
+      const mockInsertFn = jest.fn().mockReturnValue({ select: mockSelectInsert });
+
+      // user_points select → 既存なし（insert を試みる）
+      const mockPointsLimit = jest.fn().mockResolvedValue({ data: [], error: null });
+      const mockPointsEq2 = jest.fn().mockReturnValue({ limit: mockPointsLimit });
+      const mockPointsEq1 = jest.fn().mockReturnValue({ eq: mockPointsEq2 });
+      const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
+      // insert がエラーを返す → insertErr 分岐
+      const mockPointsInsert = jest.fn().mockReturnValue(
+        Promise.resolve({ error: { message: 'insert failed' } })
+      );
+
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
+        if (table === 'bookings') return { select: mockBookingSelect };
+        if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+      });
+
+      const { createServerClient } = require('@supabase/ssr');
+      createServerClient.mockReturnValue({ auth: { getUser: mockGetUserFn }, from: fromRouter });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      const { cookies } = require('next/headers');
+      cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      const res = await POST(makeRequest(bizReview));
+      // insertErr があっても fire-and-forget なのでメインは200
+      expect(res.status).toBe(200);
+      expect(mockPointsInsert).toHaveBeenCalled();
+    });
   });
 });

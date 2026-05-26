@@ -206,3 +206,93 @@ test('PATCH: レスポンスが { post } 形式', async () => {
   const json = await res.json();
   expect(json.post.id).toBe(POST_UUID);
 });
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeDeleteRequest(), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('PATCH: is_published=true → published_at が設定される', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
+        }),
+      }),
+    };}),
+  });
+  await PATCH(makePatchRequest({ is_published: true }), makeProps());
+  expect(captured?.published_at).toBeDefined();
+  expect(captured?.published_at).not.toBeNull();
+});
+
+test('PATCH: is_published=false → published_at が null', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
+        }),
+      }),
+    };}),
+  });
+  await PATCH(makePatchRequest({ is_published: false }), makeProps());
+  expect(captured?.published_at).toBeNull();
+});
+
+test('PATCH: is_published 未指定 → published_at 設定なし', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
+        }),
+      }),
+    };}),
+  });
+  await PATCH(makePatchRequest({ title: 'x' }), makeProps());
+  expect(captured?.published_at).toBeUndefined();
+});
+
+test('PATCH: profile=null → 403', async () => {
+  mockAnonFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await PATCH(makePatchRequest({ title: 'x' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const req = new NextRequest(`http://localhost/api/admin/platform-blog/${POST_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateSingle({ id: POST_UUID, title: 'x' }));
+  const req = new NextRequest(`http://localhost/api/admin/platform-blog/${POST_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+    body: JSON.stringify({ title: 'x' }),
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(200);
+});

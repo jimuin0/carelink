@@ -292,3 +292,119 @@ test('payment_type=deposit → セッション名にデポジット', async () =
   const createCall = mockStripeSessionCreate.mock.calls[0][0];
   expect(createCall.line_items[0].price_data.product_data.name).toContain('デポジット');
 });
+
+test('x-forwarded-for なし → unknown IP', async () => {
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  let callNum = 0;
+  mockFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
+    if (callNum === 2) return singleChain({ deposit_amount: 3000 });
+    if (table === 'stripe_sessions') return insertChain(null);
+    return singleChain(null);
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: 'u@u.com' } } });
+  mockStripeSessionCreate.mockResolvedValue(STRIPE_SESSION);
+  const req = new Request('http://localhost/api/stripe/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ facility_id: FACILITY_UUID }),
+  });
+  Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+  await POST(req as any);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[0]).toBe('unknown');
+});
+
+test('booking_idなし → product description undefined, success_url が /mypage/bookings 直下', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test-slug', stripe_enabled: true, stripe_account_id: null });
+    if (callNum === 2) return singleChain({ deposit_amount: 5000 });
+    if (table === 'stripe_sessions') return insertChain(null);
+    return singleChain(null);
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: 'u@u.com' } } });
+  mockStripeSessionCreate.mockResolvedValue(STRIPE_SESSION);
+
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
+  expect(res.status).toBe(200);
+  const createCall = mockStripeSessionCreate.mock.calls[0][0];
+  expect(createCall.line_items[0].price_data.product_data.description).toBeUndefined();
+  expect(createCall.success_url).toContain('/mypage/bookings?payment=success');
+  expect(createCall.metadata.booking_id).toBe('');
+});
+
+test('booking_id 指定 → product description にbooking_id前方8文字, success_url にIDを含む', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test-slug', stripe_enabled: true, stripe_account_id: null });
+    if (table === 'bookings') return singleChain({ total_price: 8000, user_id: USER_ID });
+    if (table === 'stripe_sessions') return insertChain(null);
+    return singleChain(null);
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: 'u@u.com' } } });
+  mockStripeSessionCreate.mockResolvedValue(STRIPE_SESSION);
+
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID, booking_id: VALID_UUID }));
+  expect(res.status).toBe(200);
+  const createCall = mockStripeSessionCreate.mock.calls[0][0];
+  expect(createCall.line_items[0].price_data.product_data.description).toContain('予約ID:');
+  expect(createCall.success_url).toContain(`/mypage/bookings/${VALID_UUID}`);
+});
+
+// Branch coverage: line 106 — payment_type !== 'deposit' のとき '予約料金' を使用（false 分岐）
+// payment_type='full' は有効値（'deposit'/'full'）なので 'deposit' 以外のブランチをカバーする
+test('payment_type=full → 商品名に「予約料金」が含まれる（line 106 false 分岐）', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test-slug', stripe_enabled: true, stripe_account_id: null });
+    if (table === 'bookings') return singleChain({ total_price: 5000, user_id: USER_ID });
+    if (table === 'stripe_sessions') return insertChain(null);
+    return singleChain(null);
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: 'u@u.com' } } });
+  mockStripeSessionCreate.mockResolvedValue(STRIPE_SESSION);
+
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID, booking_id: VALID_UUID, payment_type: 'full' }));
+  expect(res.status).toBe(200);
+  const createCall = mockStripeSessionCreate.mock.calls[0][0];
+  expect(createCall.line_items[0].price_data.product_data.name).toContain('予約料金');
+});
+
+test('payment_type 省略時はデフォルト deposit', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
+    if (callNum === 2) return singleChain({ deposit_amount: 3000 });
+    if (table === 'stripe_sessions') return insertChain(null);
+    return singleChain(null);
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: 'u@u.com' } } });
+  mockStripeSessionCreate.mockResolvedValue(STRIPE_SESSION);
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
+  expect(res.status).toBe(200);
+  const createCall = mockStripeSessionCreate.mock.calls[0][0];
+  expect(createCall.metadata.payment_type).toBe('deposit');
+});
+
+test('user.email が undefined → customer_email も undefined', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
+    if (callNum === 2) return singleChain({ deposit_amount: 3000 });
+    if (table === 'stripe_sessions') return insertChain(null);
+    return singleChain(null);
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: null } });
+  mockStripeSessionCreate.mockResolvedValue(STRIPE_SESSION);
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
+  expect(res.status).toBe(200);
+  const createCall = mockStripeSessionCreate.mock.calls[0][0];
+  expect(createCall.customer_email).toBeUndefined();
+});

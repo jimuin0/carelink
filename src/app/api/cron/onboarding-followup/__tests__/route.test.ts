@@ -455,6 +455,140 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(call[0].missingSteps).toContain('施設を「公開」にする');
   });
 
+  test('staffData null → staffIds empty, schedule query skipped', async () => {
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockReturnValue({
+                neq: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({ data: [{ id: 'fac-z', name: 'Z', status: 'draft' }] }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: mockFacilitiesUpdate,
+        };
+      }
+      if (table === 'facility_menus') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: 1 }) }) };
+      if (table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: null }) }) };
+      if (table === 'facility_photos') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: 1 }) }) };
+      if (table === 'facility_members') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'owner' } }),
+            }),
+          }),
+        }),
+      };
+      if (table === 'profiles') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { email: 'o@example.com' } }),
+          }),
+        }),
+      };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        missingSteps: expect.arrayContaining(['スタッフの登録']),
+      })
+    );
+  });
+
+  test('scheduleCount nullable (null count) → falls back to 0 = missing schedule', async () => {
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockReturnValue({
+                neq: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({ data: [{ id: 'fac-n', name: 'N', status: 'draft' }] }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: mockFacilitiesUpdate,
+        };
+      }
+      if (table === 'facility_menus') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: 1 }) }) };
+      if (table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [{ id: 's1' }] }) }) };
+      if (table === 'facility_photos') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: 1 }) }) };
+      if (table === 'staff_schedules') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ count: null }) }) };
+      if (table === 'facility_members') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'owner' } }),
+            }),
+          }),
+        }),
+      };
+      if (table === 'profiles') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { email: 'o@example.com' } }),
+          }),
+        }),
+      };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        missingSteps: expect.arrayContaining(['スケジュールの設定']),
+      })
+    );
+  });
+
+  test('facility processing throws → caught, skipped++', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockReturnValue({
+                neq: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({ data: [{ id: 'f-err', name: 'E', status: 'draft' }] }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: mockFacilitiesUpdate,
+        };
+      }
+      if (table === 'facility_menus') throw new Error('menus query exploded');
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    consoleSpy.mockRestore();
+  });
+
+  test('non-Error throw → String fallback', async () => {
+    mockFromDelegate.mockImplementation(() => { throw 'plain string'; });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
   test('Promise.all for parallel queries', async () => {
     setupDefaultMocks(1, true, true, true, true);
 
@@ -465,5 +599,59 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(mockFromDelegate).toHaveBeenCalledWith('staff_profiles');
     expect(mockFromDelegate).toHaveBeenCalledWith('facility_photos');
     expect(mockFromDelegate).toHaveBeenCalledWith('facility_members');
+  });
+
+  // Branch coverage: line 84 — menuCount is null → (menuCount ?? 0) uses right side 0 → missingStep added
+  // Branch coverage: line 86 — photoCount is null → (photoCount ?? 0) uses right side 0 → missingStep added
+  test('menuCount=null, photoCount=null → どちらも 0 に fallback し missing step 追加', async () => {
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockReturnValue({
+                neq: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({ data: [{ id: 'fac-q', name: 'Q', status: 'draft' }] }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: mockFacilitiesUpdate,
+        };
+      }
+      // menuCount null → (menuCount ?? 0) === 0 → push メニュー step (line 84 right branch)
+      if (table === 'facility_menus') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: null }) }) };
+      if (table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [{ id: 's1' }] }) }) };
+      // photoCount null → (photoCount ?? 0) === 0 → push photo step (line 86 right branch)
+      if (table === 'facility_photos') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: null }) }) };
+      if (table === 'staff_schedules') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ count: 1 }) }) };
+      if (table === 'facility_members') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'owner-u' } }),
+            }),
+          }),
+        }),
+      };
+      if (table === 'profiles') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: { email: 'o@test.com' } }),
+          }),
+        }),
+      };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(sendOnboardingFollowEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        missingSteps: expect.arrayContaining(['メニュー・料金の登録', '施設写真のアップロード']),
+      })
+    );
   });
 });

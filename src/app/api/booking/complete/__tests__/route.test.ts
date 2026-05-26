@@ -425,3 +425,120 @@ test('未処理例外 → 500', async () => {
   const res = await POST(makeRequest());
   expect(res.status).toBe(500);
 });
+
+test('total_price が null → ポイント付与なし', async () => {
+  const bookingNullPrice = { ...CONFIRMED_BOOKING, total_price: null };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain(bookingNullPrice);
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  const res = await POST(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.points_earned).toBe(0);
+});
+
+test('total_price が 50（低額）→ pointsEarned=0 でポイント insert スキップ', async () => {
+  const bookingLowPrice = { ...CONFIRMED_BOOKING, total_price: 50 };
+  let callNum = 0;
+  let userPointsCalled = false;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain(bookingLowPrice);
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    if (table === 'user_points') {
+      userPointsCalled = true;
+      return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+    }
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  const res = await POST(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.points_earned).toBe(0);
+  expect(userPointsCalled).toBe(false);
+});
+
+test('不正JSON ボディ → bookingId なしと判断 → 400', async () => {
+  const req = new Request('http://localhost/api/booking/complete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{not json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+// Branch coverage: line 95 — menu?.name is falsy (null) → menuName = null (right-side of ||)
+// Branch coverage: line 99 — staff?.name is falsy (null) → staffName = null (right-side of ||)
+test('menu.name が null → menuName=null、staff.name が null → staffName=null', async () => {
+  // Reuse BOOKING_UUID for menu_id/staff_id (only needs to be truthy UUID-like value)
+  const bookingWithMenuStaff = {
+    ...CONFIRMED_BOOKING,
+    menu_id: BOOKING_UUID,
+    staff_id: CUSTOMER_USER_ID,
+  };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return singleChain(bookingWithMenuStaff);
+    if (table === 'facility_members') return singleChain({ facility_id: FACILITY_UUID, role: 'owner' });
+    if (table === 'bookings') {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve({ data: { id: BOOKING_UUID }, error: null })),
+                }),
+              }),
+            }),
+          }),
+        }),
+      };
+    }
+    // facility_menus returns data but name=null → menuName = null||null = null (line 95 false branch)
+    if (table === 'facility_menus') return singleChain({ name: null });
+    // staff_profiles returns data but name=null → staffName = null||null = null (line 99 false branch)
+    if (table === 'staff_profiles') return singleChain({ name: null });
+    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  mockServiceFrom.mockReturnValue({ insert: jest.fn(() => Promise.resolve({ error: null })) });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+});

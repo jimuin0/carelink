@@ -23,7 +23,8 @@ export const jobFormSchema = z
     benefits: z.string().trim().max(2000).optional().or(z.literal('')),
   })
   .refine(
-    (v) => v.salary_min === null || v.salary_max === null || (v.salary_max ?? 0) >= (v.salary_min ?? 0),
+    // null チェック後は transform により両者は必ず number（?? 0 は到達不可）
+    (v) => v.salary_min === null || v.salary_max === null || (v.salary_max as number) >= (v.salary_min as number),
     { message: '上限は下限以上にしてください', path: ['salary_max'] },
   );
 

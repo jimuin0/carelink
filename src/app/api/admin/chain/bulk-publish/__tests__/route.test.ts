@@ -194,6 +194,36 @@ test('POST: レスポンスが { ok: true, updated: N } 形式', async () => {
   expect(typeof json.updated).toBe('number');
 });
 
+test('POST: 不正なJSON → 400', async () => {
+  const req = new NextRequest('http://localhost/api/admin/chain/bulk-publish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_ids が文字列 (非配列) → 400', async () => {
+  const res = await POST(makeRequest({ facility_ids: 'not-array' as any, is_published: true }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: memberships が null → 403', async () => {
+  // membership query returns data: null
+  mockAdminFrom.mockImplementation(() => {
+    const finalIn = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    const firstIn = jest.fn().mockReturnValue({ in: finalIn });
+    return {
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({ in: firstIn }),
+      }),
+    };
+  });
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
 test('POST: facility_ids が 50件 (上限ぴったり) → 200', async () => {
   const ids = Array.from({ length: 50 }, (_, i) =>
     `${String(i + 1).padStart(8, '0')}-0000-4000-8000-000000000001`

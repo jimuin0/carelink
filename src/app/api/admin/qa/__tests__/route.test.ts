@@ -205,3 +205,28 @@ test('POST: facility_id なし → 401', async () => {
   const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }, null, null));
   expect(res.status).toBe(401);
 });
+
+test('POST: facility_id が不正UUID → 401', async () => {
+  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: '回答' }, null, 'not-uuid'));
+  expect(res.status).toBe(401);
+});
+
+test('POST: 不正JSON → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/qa');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+// Branch coverage: line 75 — action=delete で deleteSchema バリデーション失敗 → 400（true 分岐）
+test('POST: delete, qa_id が不正UUID → deleteSchema 失敗 → 400（line 75 true 分岐）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest({ qa_id: 'not-a-uuid' }, 'delete'));
+  expect(res.status).toBe(400);
+});

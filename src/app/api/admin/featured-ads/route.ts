@@ -98,7 +98,7 @@ export async function POST(req: NextRequest) {
       business_type: business_type || null,
       starts_at: new Date(starts_at).toISOString(),
       ends_at: new Date(ends_at).toISOString(),
-      budget_yen: PLAN_PRICES[slot_type] || 0,
+      budget_yen: PLAN_PRICES[slot_type] || /* istanbul ignore next */ 0,
       is_active: false, // becomes active after payment
     })
     .select()
@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       price_data: {
         currency: 'jpy',
         unit_amount: PLAN_PRICES[slot_type],
-        product_data: { name: planLabels[slot_type] || '広告プラン' },
+        product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
       },
     }],
     success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,

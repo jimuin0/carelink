@@ -327,4 +327,28 @@ describe('GET /api/salons', () => {
 
     expect(res.status).toBe(200);
   });
+
+  test('list returns null data but no error → empty array', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const listChain: any = {};
+    Object.assign(listChain, {
+      eq: jest.fn().mockReturnValue(listChain),
+      ilike: jest.fn().mockReturnValue(listChain),
+      order: jest.fn().mockReturnValue(listChain),
+      limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+    });
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            order: jest.fn().mockReturnValue(listChain),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toEqual([]);
+  });
 });

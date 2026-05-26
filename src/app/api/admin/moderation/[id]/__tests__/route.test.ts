@@ -35,6 +35,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { PATCH } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(body?: object) {
   return new Request(`http://localhost/api/admin/moderation/${QUEUE_UUID}`, {
@@ -212,4 +213,123 @@ test('PATCH: rejected + content_type:review → facility_reviews が非表示化
   // Verify facility_reviews.update was called with hidden status
   expect(reviewUpdateMock).toHaveBeenCalledWith(expect.objectContaining({ status: 'hidden', is_flagged: true }));
   expect(reviewUpdateEq).toHaveBeenCalledWith('id', REVIEW_UUID);
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PATCH(makeRequest({ decision: 'approved' }), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('PATCH: content_id が不正なUUID → 500', async () => {
+  setupAdmin();
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: buildQueueItem({ content_id: 'not-uuid' }), error: null })),
+  });
+  const res = await PATCH(makeRequest({ decision: 'approved' }), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: rejected + content_type!=review → facility_reviews更新スキップ', async () => {
+  setupAdmin();
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn(() => Promise.resolve({ data: buildQueueItem({ content_type: 'photo' }), error: null })),
+      };
+    }
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    };
+  });
+  const res = await PATCH(makeRequest({ decision: 'rejected' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: rejected で review_note 未指定 → デフォルトメッセージ使用 + hide失敗 (200のまま)', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  setupAdmin();
+  let callNum = 0;
+  let hideArgs: Record<string, unknown> | undefined;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn(() => Promise.resolve({ data: buildQueueItem(), error: null })),
+      };
+    }
+    if (callNum === 2) {
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: null })),
+        }),
+      };
+    }
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { hideArgs = u; return {
+        eq: jest.fn(() => Promise.resolve({ error: { message: 'hide failed' } })),
+      };}),
+    };
+  });
+  const res = await PATCH(makeRequest({ decision: 'rejected' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(hideArgs?.flag_reason).toBe('管理者による非承認');
+});
+
+test('PATCH: decision=escalated → audit log action=update', async () => {
+  setupAdmin();
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn(() => Promise.resolve({ data: buildQueueItem(), error: null })),
+      };
+    }
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    };
+  });
+  const res = await PATCH(makeRequest({ decision: 'escalated' }), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.decision).toBe('escalated');
+});
+
+test('PATCH: profile が null → 403', async () => {
+  mockAnonFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await PATCH(makeRequest({ decision: 'approved' }), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: 不正な JSON body → 400', async () => {
+  setupAdmin();
+  const req = new Request(`http://localhost/api/admin/moderation/${QUEUE_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req as unknown as Parameters<typeof PATCH>[0], makeProps());
+  expect(res.status).toBe(400);
 });

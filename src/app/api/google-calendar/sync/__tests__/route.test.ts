@@ -363,3 +363,83 @@ test('POST: facility_profiles が配列の場合も正常に処理', async () =>
   const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
   expect(res.status).toBe(200);
 });
+
+// Branch coverage: line 22 — refreshAccessToken fetch が ok=false の場合に throw
+test('POST: トークンリフレッシュ失敗（fetch ok=false）→ 500', async () => {
+  const expiredToken = { ...TOKEN_ROW, expires_at: new Date(Date.now() - 1000).toISOString() };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA);
+    return singleChain(expiredToken);
+  });
+
+  // First fetch: token refresh returns ok=false → throw
+  mockFetch.mockResolvedValueOnce({ ok: false, status: 400 });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+});
+
+// Branch coverage: line 75 — トークン更新後DB保存エラー（ログ出力のみで続行）
+test('POST: トークンリフレッシュ後のDB保存失敗でも同期は続行 → 200', async () => {
+  const expiredToken = { ...TOKEN_ROW, expires_at: new Date(Date.now() - 1000).toISOString() };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA);
+    if (callNum === 2) return singleChain(expiredToken);
+    if (callNum === 3) {
+      // token update after refresh → DB保存エラー
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: { message: 'DB save error' } })),
+        }),
+      };
+    }
+    if (callNum === 4) return singleChain(null); // no existing calendar event
+    return { upsert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+
+  mockFetch
+    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ access_token: 'new-token', expires_in: 3600 }) })
+    .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: 'new-event-id' }) });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  // tokenUpdateErr があってもログのみで処理続行する
+  expect(res.status).toBe(200);
+});
+
+// Branch coverage: line 92 (×2) — facility_profiles が null の場合の分岐
+test('POST: facility_profiles が null → facilityName が undefined → デフォルト名使用', async () => {
+  const bookingWithNullProfile = {
+    ...BOOKING_DATA,
+    facility_profiles: null,
+    menus: null,
+  };
+
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(bookingWithNullProfile);
+    if (callNum === 2) return singleChain(TOKEN_ROW);
+    if (callNum === 3) return singleChain(null);
+    return { upsert: jest.fn(() => Promise.resolve({ error: null })) };
+  });
+  mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ id: 'event-null-profile' }) });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.ok).toBe(true);
+});
+
+// Branch coverage: line 163 — DELETE の CSRF チェック失敗
+test('DELETE: CSRF エラー → 403', async () => {
+  const { NextResponse } = jest.requireActual('next/server') as { NextResponse: typeof import('next/server').NextResponse };
+  (checkCsrf as jest.Mock).mockReturnValue(NextResponse.json({ error: 'CSRF' }, { status: 403 }));
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+  expect(res.status).toBe(403);
+});

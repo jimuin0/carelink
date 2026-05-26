@@ -231,6 +231,93 @@ test('GET: レスポンスが配列形式', async () => {
   expect(Array.isArray(json)).toBe(true);
 });
 
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(429);
+});
+
+test('GET: data が null → 200 with []', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    order: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json).toEqual([]);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  const req = new Request('http://localhost/api/admin/api-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req as unknown as NextRequest);
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_id が数値 → 400 (typeof check)', async () => {
+  const res = await POST(makePostRequest({ facility_id: 12345, name: 'test', scopes: ['bookings:read'] }) as unknown as NextRequest);
+  expect(res.status).toBe(400);
+});
+
+test('POST: name が数値 → 400 (typeof check)', async () => {
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: 123, scopes: ['bookings:read'] }) as unknown as NextRequest);
+  expect(res.status).toBe(400);
+});
+
+test('POST: scopes が配列でない → 400', async () => {
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: 'test', scopes: 'bookings:read' }) as unknown as NextRequest);
+  expect(res.status).toBe(400);
+});
+
+test('POST: newKey が null かつ error なし → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain(null, null));
+  const res = await POST(makePostRequest() as unknown as NextRequest);
+  expect(res.status).toBe(500);
+});
+
+test('POST: x-forwarded-for ヘッダ → IP抽出', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'X', key_prefix: 'ck_live_xxxx' }));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new Request('http://localhost/api/admin/api-keys', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+    body: JSON.stringify({ facility_id: FACILITY_UUID, name: 'X', scopes: ['bookings:read'] }),
+  });
+  await POST(req as unknown as NextRequest);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});
+
+test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(adminListChain([]));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const url = new URL('http://localhost/api/admin/api-keys');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});
+
+test('POST: customers:read スコープ → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'X', key_prefix: 'ck_live_xxxx' }));
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: 'X', scopes: ['customers:read'] }) as unknown as NextRequest);
+  expect(res.status).toBe(201);
+});
+
 test('GET: レートリミット params (20/60s)', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'admin' }));
   mockAdminFrom.mockReturnValue(adminListChain([]));

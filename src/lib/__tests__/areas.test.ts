@@ -107,4 +107,16 @@ describe('getAreaBreadcrumb', () => {
     const result = await getAreaBreadcrumb(ROOT_AREA);
     expect(result).toEqual([ROOT_AREA]);
   });
+
+  test('breaks loop when parent_id points to non-existent area', async () => {
+    // child の parent_id が allAreas にない → !parent ブランチで break
+    const ORPHAN: Area = { id: 'orphan-1', slug: 'orphan', name: '孤児区', parent_id: 'missing-parent-id', sort_order: 1 } as Area;
+    const mockSelect = jest.fn().mockResolvedValue({ data: [ORPHAN] });
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: mockSelect }),
+    });
+    const result = await getAreaBreadcrumb(ORPHAN);
+    // missing-parent-id は areaMap になく filter で外れるので、結果は ORPHAN のみ
+    expect(result).toEqual([ORPHAN]);
+  });
 });

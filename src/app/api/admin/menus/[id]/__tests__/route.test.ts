@@ -32,6 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { PATCH, DELETE } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(method: string, body?: object, facilityId: string | null = FACILITY_UUID) {
   const url = new URL(`http://localhost/api/admin/menus/${MENU_UUID}`);
@@ -222,4 +223,95 @@ test('DELETE: DB削除失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(deleteSingleChain({ message: 'DB error' }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('DELETE: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: facility_id が UUID 形式でない → 401', async () => {
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }, 'not-uuid'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: data null → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return maybeSingleChain(null);
+    return updateSingleChain(null, null);
+  });
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return maybeSingleChain(null);
+    return updateSingleChain({ id: MENU_UUID }, null);
+  });
+  const url = new URL(`http://localhost/api/admin/menus/${MENU_UUID}`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+    body: JSON.stringify({ name: 'x' }),
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const url = new URL(`http://localhost/api/admin/menus/${MENU_UUID}`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: name 未指定でも更新可 (重複チェックスキップ)', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateSingleChain({ id: MENU_UUID }, null));
+  const res = await PATCH(makeRequest('PATCH', { price: 1000 }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+// Branch coverage: line 37 — verifyMenuAdmin が data=null のとき null を返す（false 分岐 → 401）
+test('PATCH: facility_members が null → verifyMenuAdmin null → 401（line 37 false 分岐）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain(null));
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(401);
 });

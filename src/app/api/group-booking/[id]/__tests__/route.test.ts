@@ -252,3 +252,130 @@ test('GET: レスポンスが group オブジェクト直接返却', async () =>
   expect(json.id).toBe(GROUP_UUID);
   expect(json.organizer_id).toBe(ORGANIZER_ID);
 });
+
+// ─── Branch coverage 追加 ───────────────────────────────────────────────────
+
+test('PATCH: 不正なUUID → 400', async () => {
+  const res = await PATCH(makeRequest('PATCH', 'not-uuid', { status: 'confirmed' }), makeProps('not-uuid'));
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: 不正なUUID → 400', async () => {
+  const res = await DELETE(makeRequest('DELETE', 'not-uuid'), makeProps('not-uuid'));
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { status: 'confirmed' }), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: グループが存在しない → 404', async () => {
+  mockAdminFrom.mockReturnValue(singleChain(null));
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { status: 'confirmed' }), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('DELETE: グループが存在しない → 404', async () => {
+  mockAdminFrom.mockReturnValue(singleChain(null));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: notes に文字列 → 500文字以内に切り詰め', async () => {
+  let callNum = 0;
+  const longNotes = 'a'.repeat(600);
+  const updateMock = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn(() => Promise.resolve({ data: { id: GROUP_UUID, notes: 'a'.repeat(500) }, error: null })),
+      }),
+    }),
+  });
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ organizer_id: ORGANIZER_ID });
+    return { update: updateMock };
+  });
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { notes: longNotes }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateMock).toHaveBeenCalledWith({ notes: 'a'.repeat(500) });
+});
+
+test('PATCH: notes に非文字列 → null に変換', async () => {
+  let callNum = 0;
+  const updateMock = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn(() => Promise.resolve({ data: { id: GROUP_UUID }, error: null })),
+      }),
+    }),
+  });
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ organizer_id: ORGANIZER_ID });
+    return { update: updateMock };
+  });
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { notes: 12345 }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateMock).toHaveBeenCalledWith({ notes: null });
+});
+
+test('PATCH: body の status が allowed リスト外 → 無視', async () => {
+  let callNum = 0;
+  const updateMock = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn(() => Promise.resolve({ data: { id: GROUP_UUID }, error: null })),
+      }),
+    }),
+  });
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ organizer_id: ORGANIZER_ID });
+    return { update: updateMock };
+  });
+  const res = await PATCH(makeRequest('PATCH', GROUP_UUID, { status: 'invalid-status' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateMock).toHaveBeenCalledWith({});
+});
+
+test('PATCH: body 不正JSON → catch で空オブジェクト → 200', async () => {
+  let callNum = 0;
+  const updateMock = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        single: jest.fn(() => Promise.resolve({ data: { id: GROUP_UUID }, error: null })),
+      }),
+    }),
+  });
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ organizer_id: ORGANIZER_ID });
+    return { update: updateMock };
+  });
+  const req = new Request(`http://localhost/api/group-booking/${GROUP_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json{',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('GET: x-forwarded-for ヘッダから IP 取得', async () => {
+  mockAdminFrom.mockReturnValue(singleChain(OPEN_GROUP));
+  const req = new Request(`http://localhost/api/group-booking/${GROUP_UUID}`, {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '203.0.113.5, 10.0.0.1' },
+  });
+  const res = await GET(req, makeProps());
+  expect(res.status).toBe(200);
+});

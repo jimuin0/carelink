@@ -245,3 +245,28 @@ test('DELETE: レートリミット → 429', async () => {
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(429);
 });
+
+test('PATCH: is_published=true → published_at が設定されて 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateFacilityChain({ id: POST_UUID, is_published: true }));
+  const res = await PATCH(makeRequest('PATCH', { is_published: true }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 不正JSON → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL(`http://localhost/api/admin/blog/${POST_UUID}`);
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: facility_id なし → 401', async () => {
+  const res = await DELETE(makeRequest('DELETE', undefined, null), makeProps());
+  expect(res.status).toBe(401);
+});

@@ -236,6 +236,37 @@ test('GET: DB エラー → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(429);
+});
+
+test('POST: 不正JSON → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/coupons');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_id が不正UUID → 401', async () => {
+  const res = await POST(makePostRequest(validPostBody(), 'bad-uuid'));
+  expect(res.status).toBe(401);
+});
+
+test('POST: is_active が明示的に false → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', is_active: false }));
+  const res = await POST(makePostRequest(validPostBody({ is_active: false })));
+  expect(res.status).toBe(201);
+});
+
 test('POST: レスポンスが { coupon: ... } 形式', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa', name: 'テストクーポン' }));

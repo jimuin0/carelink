@@ -243,3 +243,61 @@ test('POST: レスポンスが { flag: ... } 形式', async () => {
   expect(json.flag).toBeDefined();
   expect(json.flag.id).toBe('f4');
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: profile が null → 403', async () => {
+  mockAnonFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(403);
+});
+
+test('GET: data が null → 200 with []', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(buildListChain(null as unknown as unknown[]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.flags).toEqual([]);
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest({ key: 'test_flag' }));
+  expect(res.status).toBe(429);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  const req = new NextRequest('http://localhost/api/admin/feature-flags', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: 全フィールド指定 (enabled, description) → 201', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(insertFlagSingle({ id: 'f5', key: 'test_flag', enabled: true, description: 'desc' }));
+  const res = await POST(makePostRequest({ key: 'test_flag', enabled: true, rollout_pct: 50, description: 'desc' }));
+  expect(res.status).toBe(201);
+});
+
+test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(buildListChain([]));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const url = new URL('http://localhost/api/admin/feature-flags');
+  const req = new NextRequest(url.toString(), {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});

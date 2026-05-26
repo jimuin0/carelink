@@ -248,4 +248,26 @@ describe('POST /api/liff/auth', () => {
 
     expect(res.status).toBe(200);
   });
+
+  test('CSRF check failed → returns CSRF error', async () => {
+    const { checkCsrf } = require('@/lib/csrf');
+    const csrfResp = new Response(JSON.stringify({ e: 'CSRF' }), { status: 403 });
+    checkCsrf.mockReturnValueOnce(csrfResp);
+    const res = await POST(makeRequest({ access_token: 'token' }) as any);
+    expect(res.status).toBe(403);
+  });
+
+  test('LINE profile without pictureUrl → picture_url null', async () => {
+    global.fetch = jest.fn(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({ userId: 'lu', displayName: 'D' }), // no pictureUrl
+          { ok: true, status: 200 }
+        )
+      )
+    ) as jest.Mock;
+    const res = await POST(makeRequest({ access_token: 'token' }) as any);
+    const json = await res.json();
+    expect(json.picture_url).toBeNull();
+  });
 });

@@ -491,6 +491,174 @@ describe('cookie callbacks and body parse catch', () => {
     expect(mockCookieStore.getAll).toHaveBeenCalled();
   });
 
+  test('GET: missing x-forwarded-for → "unknown" IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/referral');
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
+    await GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('GET: insert error → 500', async () => {
+    mockAdminFrom = jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+      insert: jest.fn().mockResolvedValue({ error: { message: 'insert failed' } }),
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/referral');
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
+    const res = await GET(req as any);
+    expect(res.status).toBe(500);
+    consoleSpy.mockRestore();
+  });
+
+  test('POST: code > 100 chars → 400', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'x'.repeat(101) }),
+    }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('POST: code not string → 400', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 12345 }),
+    }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('POST: selfResult.error path → 500', async () => {
+    let tableCallNum = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      tableCallNum++;
+      if (table === 'referral_codes' && tableCallNum === 1) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'r1', used_count: 0 } }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses' && tableCallNum === 2) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses') {
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      if (table === 'user_points') {
+        // First call (referrer) succeeds, second (self) fails
+        if (tableCallNum === 4) {
+          return { insert: jest.fn().mockResolvedValue({ error: { message: 'self fail' } }) };
+        }
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
+    });
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'VALID123' }),
+    }) as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('POST: used_count null (?? 0) → increment works', async () => {
+    let tableCallNum = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      tableCallNum++;
+      if (table === 'referral_codes' && tableCallNum === 1) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'r1', used_count: null } }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses' && tableCallNum === 2) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses') {
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      if (table === 'user_points') {
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
+    });
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'VALID123' }),
+    }) as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('POST: countErr truthy → logs but still 200', async () => {
+    let tableCallNum = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      tableCallNum++;
+      if (table === 'referral_codes' && tableCallNum === 1) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'r1', used_count: 3 } }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses' && tableCallNum === 2) {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses') {
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      if (table === 'user_points') {
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      // referral_codes update returns error
+      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'count err' } }) }) }) };
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'VALID123' }),
+    }) as any);
+    expect(res.status).toBe(200);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
   test('POST: invalid JSON body → 400 (via .catch(() => ({})))', async () => {
     const { POST } = await import('../route');
     const req = new Request('http://localhost/api/referral', {
@@ -500,5 +668,46 @@ describe('cookie callbacks and body parse catch', () => {
     });
     const res = await POST(req as any);
     expect(res.status).toBe(400);
+  });
+
+  // Branch coverage: line 118 — refResult.error が null のとき ?? selfResult.error を使用（false 分岐）
+  test('POST: refResult.error=null・selfResult.error=truthy → ?? 右辺を使用して 500（line 118 false 分岐）', async () => {
+    let insertCallNum = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'referral_codes') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'r1', used_count: 0 } }),
+            }),
+          }),
+        };
+      }
+      if (table === 'referral_uses') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+          insert: jest.fn().mockResolvedValue({ error: null }),
+        };
+      }
+      if (table === 'user_points') {
+        insertCallNum++;
+        // First insert (refResult) succeeds, second insert (selfResult) fails
+        if (insertCallNum === 1) return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        return { insert: jest.fn().mockResolvedValue({ error: { message: 'self fail' } }) };
+      }
+      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', {
+      method: 'POST',
+      body: JSON.stringify({ code: 'VALID123' }),
+    }) as any);
+    expect(res.status).toBe(500);
+    consoleSpy.mockRestore();
   });
 });

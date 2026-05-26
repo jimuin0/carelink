@@ -249,6 +249,98 @@ test('GET: レスポンスが { applications: [] } 形式', async () => {
   expect(Array.isArray(json.applications)).toBe(true);
 });
 
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('POST: applicant_email 欠落 → 400', async () => {
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, applicant_name: '山田' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: applications が null → 200 with []', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') return membersChain([FACILITY_UUID]);
+    return listChain(null as unknown as unknown[]);
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.applications).toEqual([]);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  const req = new NextRequest('http://localhost/api/admin/job-applications', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: ログイン中ユーザーで応募 → 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain([]);
+    return insertSingle({ id: 'app-2' });
+  });
+  // user is logged in (default mock)
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(201);
+});
+
+test('POST: 未ログインで応募 → 201 (applicant_user_id=null)', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain([]);
+    return insertSingle({ id: 'app-3' });
+  });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(201);
+});
+
+test('POST: applicant_phone と cover_letter 付き → 201', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain([]);
+    return insertSingle({ id: 'app-4' });
+  });
+  const res = await POST(makePostRequest(validPostBody({
+    applicant_phone: '09012345678',
+    cover_letter: 'これは志望動機です',
+  })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: existing が null → 201 (length checkの分岐)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null as unknown as unknown[]);
+    return insertSingle({ id: 'app-5' });
+  });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(201);
+});
+
+test('GET: x-forwarded-for ヘッダあり → IP抽出', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') return membersChain([FACILITY_UUID]);
+    return listChain([]);
+  });
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/job-applications', {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
+  });
+  await GET(req);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[0]).toBe('10.0.0.1');
+});
+
 test('POST: レスポンスが { application.id } 形式', async () => {
   const APP_UUID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
   let callNum = 0;
@@ -260,4 +352,26 @@ test('POST: レスポンスが { application.id } 形式', async () => {
   const res = await POST(makePostRequest(validPostBody()));
   const json = await res.json();
   expect(json.application.id).toBe(APP_UUID);
+});
+
+// Branch coverage: line 44 branch 0 (TRUE) — POST の checkCsrf が non-null を返すとき (CSRF失敗)
+test('POST: CSRF検証失敗 → csrfError をそのまま返す', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(
+    new Response(JSON.stringify({ error: 'csrf' }), { status: 403 })
+  );
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(403);
+});
+
+// Branch coverage: line 15 — getFacilityIds returns data=null → (data ?? []) right side → empty array []
+// Branch coverage: line 44 — facilityIds.length === 0 → 403
+test('GET: facility_members から data=null 返却 → facilityIds が空配列 → 403', async () => {
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(403);
 });

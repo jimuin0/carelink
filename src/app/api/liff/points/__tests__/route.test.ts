@@ -276,4 +276,76 @@ describe('GET /api/liff/points', () => {
 
     expect(res.status).toBe(500);
   });
+
+  test('logs null (?? []) → total=0 and logs=[]', async () => {
+    // Override service-role mock to return data: null for user_points
+    global.fetch = jest.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ userId: 'line-user-456' }), { status: 200 }))
+    ) as jest.Mock;
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: null }),
+              }),
+            }),
+          }),
+        };
+      }),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.logs).toEqual([]);
+    expect(json.total).toBe(0);
+  });
+
+  test('log.points null (?? 0) → skipped in total', async () => {
+    global.fetch = jest.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ userId: 'line-user-456' }), { status: 200 }))
+    ) as jest.Mock;
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({
+                  data: [
+                    { id: 'log-x', points: null, reason: 'x', created_at: '2026-01-01' },
+                    { id: 'log-y', points: 100, reason: 'y', created_at: '2026-01-02' },
+                  ],
+                }),
+              }),
+            }),
+          }),
+        };
+      }),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    const json = await res.json();
+    expect(json.total).toBe(100);
+  });
 });

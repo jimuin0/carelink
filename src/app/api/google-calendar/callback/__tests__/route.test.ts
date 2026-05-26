@@ -465,4 +465,45 @@ describe('GET /api/google-calendar/callback', () => {
 
     expect(res.status).toBe(307);
   });
+
+  // Branch coverage: line 81 — tokens.refresh_token is falsy → null (right side of ||)
+  // Branch coverage: line 83 — tokens.scope is falsy → null (right side of ||)
+  test('refresh_token と scope が未提供 → upsert に null が渡る', async () => {
+    setupDefaultMocks(false, true, true, true, true);
+
+    // Override fetch to return tokens without refresh_token and scope
+    global.fetch = jest.fn((url: string) => {
+      if (url.includes('oauth2.googleapis.com/token')) {
+        return Promise.resolve(
+          new Response(
+            JSON.stringify({
+              access_token: 'access-only-token',
+              // refresh_token omitted → falsy → null (line 81 right branch)
+              expires_in: 3600,
+              // scope omitted → falsy → null (line 83 right branch)
+            }),
+            { ok: true, status: 200 }
+          )
+        );
+      }
+      return Promise.resolve(new Response('{}'));
+    }) as jest.Mock;
+
+    const res = await GET(
+      makeRequest({ code: 'code-123', state: createValidState() }) as any
+    );
+
+    // Should still redirect to success
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('gcal=success');
+
+    // Verify upsert was called with null for refresh_token and scope
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        refresh_token: null,  // line 81: undefined || null = null
+        scope: null,          // line 83: undefined || null = null
+      }),
+      expect.anything()
+    );
+  });
 });

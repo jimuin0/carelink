@@ -332,6 +332,150 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(call[0].processed_at).toBeDefined();
   });
 
+  test('unknown webhook_type → success without sending', async () => {
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jx',
+        webhook_type: 'unknown_type',
+        payload: {},
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
+                }),
+              }),
+            }),
+            update: (data: any) => {
+              if (data.status === 'processing') return mockClaimUpdate(data);
+              if (data.status === 'success') return mockSuccessUpdate(data);
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            },
+          };
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSuccessUpdate).toHaveBeenCalled();
+  });
+
+  test('email webhook with resend null → success update without send', async () => {
+    delete process.env.RESEND_API_KEY;
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'je',
+        webhook_type: 'email',
+        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>' },
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
+                }),
+              }),
+            }),
+            update: (data: any) => {
+              if (data.status === 'processing') return mockClaimUpdate(data);
+              if (data.status === 'success') return mockSuccessUpdate(data);
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            },
+          };
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBeGreaterThan(0);
+  });
+
+  test('email payload with explicit from → uses payload.from', async () => {
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jf',
+        webhook_type: 'email',
+        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>', from: 'Custom <c@x.com>' },
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const sendSpy = jest.fn().mockResolvedValue({ success: true });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
+                }),
+              }),
+            }),
+            update: (data: any) => {
+              if (data.status === 'processing') return mockClaimUpdate(data);
+              if (data.status === 'success') return mockSuccessUpdate(data);
+              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            },
+          };
+        }
+        return {};
+      }),
+    });
+
+    await GET(makeRequest() as any);
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ from: 'Custom <c@x.com>' }));
+  });
+
+  test('non-Error throw inside per-job → scheduleRetry with String fallback', async () => {
+    (sendLineText as jest.Mock).mockImplementationOnce(() => { throw 'string-err'; });
+    setupDefaultMocks(1, false, false);
+
+    await GET(makeRequest() as any);
+    const call = (scheduleRetry as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe('string-err');
+  });
+
+  test('non-Error throw in outer catch → String fallback', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => { throw 'outer-string'; }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'webhook-retry', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'outer-string' }),
+    );
+  });
+
   test('uses scheduled_at for job timing (not created_at)', async () => {
     setupDefaultMocks(1);
 
