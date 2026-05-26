@@ -16,6 +16,8 @@
  *  - 任意で種別ごとに SLACK_CHANNEL_* 環境変数を追加して channel パラメータで切替可能
  */
 
+import { createServiceRoleClient } from './supabase-server';
+
 const SLACK_API_BASE = 'https://slack.com/api';
 
 export interface SlackPostOptions {
@@ -101,6 +103,74 @@ export async function replyInThread(
   options: Omit<SlackPostOptions, 'channel' | 'text' | 'thread_ts'> = {}
 ): Promise<SlackPostResult> {
   return postToSlack({ channel, thread_ts, text, ...options });
+}
+
+// ===== Phase 7c: Incident thread 集約 =====
+
+/**
+ * 同じ thread_key で連発する通知を Slack スレッドに集約する。
+ *
+ * 動作:
+ *  1. supabase RPC get_incident_thread(thread_key) で既存スレッド ts を取得
+ *  2. 見つかれば thread_ts 指定で reply（同スレッド内に追加）
+ *  3. 見つからなければ通常投稿 → record_incident_thread(...) で ts 保存
+ *
+ * 期限: 24h（migration で設定）。それを超えると新スレッドが立つ。
+ *
+ * 例: thread_key = `alert:route=/api/profile:commit=abc1234`
+ *     → 同 route + 同 commit の 500 連発が 1 スレッドにまとまる
+ */
+export async function postToSlackWithThreadGrouping(opts: {
+  thread_key: string;
+  channel?: string;
+  text?: string;
+  blocks?: unknown[];
+}): Promise<SlackPostResult> {
+  const channel = opts.channel || process.env.SLACK_DEFAULT_CHANNEL;
+  if (!channel) return { ok: false, error: 'no_channel' };
+
+  // 1. 既存スレッド ts を取得
+  let existingTs: string | null = null;
+  try {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase.rpc('get_incident_thread', {
+      p_key: opts.thread_key,
+    });
+    if (!error && Array.isArray(data) && data.length > 0) {
+      existingTs = data[0].thread_ts;
+    }
+  } catch (e) {
+    // RPC 失敗時は thread 集約なしで通常投稿にフォールバック
+    console.error('[slack-thread] get_incident_thread failed:', e instanceof Error ? e.message : String(e));
+  }
+
+  // 2. 既存スレッドがあれば reply、なければ親として post
+  const postResult = await postToSlack({
+    channel,
+    text: opts.text,
+    blocks: opts.blocks,
+    ...(existingTs ? { thread_ts: existingTs } : {}),
+  });
+
+  if (!postResult.ok || !postResult.ts) return postResult;
+
+  // 3. 親メッセージとして post した場合のみ ts を DB に保存
+  //    （reply の場合は親 ts を上書きしてはいけない）
+  if (!existingTs) {
+    try {
+      const supabase = createServiceRoleClient();
+      await supabase.rpc('record_incident_thread', {
+        p_key: opts.thread_key,
+        p_channel: postResult.channel || channel,
+        p_thread_ts: postResult.ts,
+      });
+    } catch (e) {
+      // 記録失敗は致命ではない（次回も親として post されるだけ）
+      console.error('[slack-thread] record_incident_thread failed:', e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  return postResult;
 }
 
 // ===== Block Kit ヘルパー（Phase 7b で活用） =====

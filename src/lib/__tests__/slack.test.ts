@@ -9,9 +9,17 @@
  * - 失敗時 throw しない（fire-and-forget 安全）
  */
 
+// Phase 7c: postToSlackWithThreadGrouping は supabase RPC を呼ぶ
+// テストでは RPC 戻り値を差し替えて挙動を検証する
+const mockRpc = jest.fn();
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({ rpc: mockRpc }),
+}));
+
 import {
   postToSlack,
   replyInThread,
+  postToSlackWithThreadGrouping,
   sectionBlock,
   dividerBlock,
   buttonElement,
@@ -169,6 +177,108 @@ describe('replyInThread', () => {
     expect(body.channel).toBe('C0AAAA');
     expect(body.thread_ts).toBe('999.000');
     expect(body.text).toBe('follow-up');
+  });
+});
+
+describe('postToSlackWithThreadGrouping (Phase 7c)', () => {
+  let originalFetch: typeof fetch;
+  let mockFetch: jest.Mock;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    mockFetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, ts: '999.111', channel: 'C0TESTCHAN' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    global.fetch = mockFetch as unknown as typeof fetch;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+    process.env.SLACK_DEFAULT_CHANNEL = 'C0TESTCHAN';
+    mockRpc.mockReset();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('既存スレッド無し → 親メッセージとして post + record_incident_thread を呼ぶ', async () => {
+    // get_incident_thread → 空（既存なし）
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    // record_incident_thread → 成功
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+
+    const res = await postToSlackWithThreadGrouping({
+      thread_key: 'alert:error:route=/api/profile:commit=abc1234',
+      text: 'first 500',
+    });
+
+    expect(res.ok).toBe(true);
+    expect(res.ts).toBe('999.111');
+
+    // 1 回目: get_incident_thread
+    expect(mockRpc).toHaveBeenNthCalledWith(1, 'get_incident_thread', {
+      p_key: 'alert:error:route=/api/profile:commit=abc1234',
+    });
+    // 2 回目: record_incident_thread
+    expect(mockRpc).toHaveBeenNthCalledWith(2, 'record_incident_thread', {
+      p_key: 'alert:error:route=/api/profile:commit=abc1234',
+      p_channel: 'C0TESTCHAN',
+      p_thread_ts: '999.111',
+    });
+
+    // 親 post なので thread_ts は付かない
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.thread_ts).toBeUndefined();
+  });
+
+  test('既存スレッド有り → reply (thread_ts 付与)、record は呼ばない', async () => {
+    mockRpc.mockResolvedValueOnce({
+      data: [{ channel: 'C0TESTCHAN', thread_ts: '555.222' }],
+      error: null,
+    });
+
+    const res = await postToSlackWithThreadGrouping({
+      thread_key: 'alert:error:route=/api/profile:commit=abc1234',
+      text: 'second 500',
+    });
+
+    expect(res.ok).toBe(true);
+    // RPC は get_incident_thread のみ（record は呼ばれない）
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+    expect(mockRpc).toHaveBeenCalledWith('get_incident_thread', {
+      p_key: 'alert:error:route=/api/profile:commit=abc1234',
+    });
+
+    // thread_ts 付き reply
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.thread_ts).toBe('555.222');
+  });
+
+  test('RPC 失敗 → 通常投稿にフォールバック', async () => {
+    mockRpc.mockRejectedValueOnce(new Error('RPC down'));
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+
+    const res = await postToSlackWithThreadGrouping({
+      thread_key: 'alert:error',
+      text: 'fallback test',
+    });
+
+    expect(res.ok).toBe(true);
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.thread_ts).toBeUndefined();
+    consoleSpy.mockRestore();
+  });
+
+  test('チャンネル env 未設定 → no_channel', async () => {
+    delete process.env.SLACK_DEFAULT_CHANNEL;
+    const res = await postToSlackWithThreadGrouping({
+      thread_key: 'x',
+      text: 'no channel',
+    });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('no_channel');
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(mockFetch).not.toHaveBeenCalled();
   });
 });
 

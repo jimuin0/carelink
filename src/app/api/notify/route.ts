@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { notifyRateLimit } from '@/lib/rate-limit';
 import { withRoute } from '@/lib/with-route';
-import { postToSlack } from '@/lib/slack';
+import {
+  postToSlack,
+  sectionBlock,
+  actionsBlock,
+  linkButtonElement,
+  contextBlock,
+} from '@/lib/slack';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,6 +21,29 @@ type NotifyPayload =
   | { type: 'contact'; data: { name: string; inquiry_type: string; email: string; message: string } }
   | { type: 'facility_inquiry'; data: { facility_name: string; name: string; email: string; phone: string; message: string } }
   | { type: 'facility'; data: { facility_name: string; contact_name: string; email: string; phone: string; business_type: string } };
+
+// Phase 7b: 通知種別に応じた管理画面 URL を返す（リンクボタン用）
+function adminUrlFor(type: NotifyPayload['type']): string {
+  const base = process.env.NEXT_PUBLIC_BASE_URL || 'https://carelink-jp.com';
+  switch (type) {
+    case 'contact':
+      return `${base}/admin/inquiries`;
+    case 'salon':
+    case 'facility':
+      return `${base}/admin/registrations`;
+    case 'facility_inquiry':
+      return `${base}/admin/inquiries`;
+  }
+}
+
+function buildSlackBlocks(payload: NotifyPayload, text: string): unknown[] {
+  const adminUrl = adminUrlFor(payload.type);
+  return [
+    sectionBlock(text),
+    contextBlock([`type: \`${payload.type}\``, `${new Date().toISOString()}`]),
+    actionsBlock([linkButtonElement('管理画面で開く', adminUrl)]),
+  ];
+}
 
 function buildSlackMessage(payload: NotifyPayload): string {
   switch (payload.type) {
@@ -85,9 +114,10 @@ export const POST = withRoute(async (request) => {
   const payload = result.data as NotifyPayload;
   const text = buildSlackMessage(payload);
 
+  // Phase 7b: 通知種別に応じて管理画面リンクボタンを追加（Block Kit）
   // 種別ごとのチャンネル振り分けは将来 env 追加で可能（Phase 7a は単一チャンネル）
-  // 例: process.env.SLACK_CHANNEL_CONTACTS || SLACK_DEFAULT_CHANNEL
-  const slackResult = await postToSlack({ text });
+  const blocks = buildSlackBlocks(payload, text);
+  const slackResult = await postToSlack({ text, blocks });
 
   if (!slackResult.ok) {
     return NextResponse.json({ error: 'Slack通知の送信に失敗しました', detail: slackResult.error }, { status: 502 });
