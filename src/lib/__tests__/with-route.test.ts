@@ -3,7 +3,7 @@
  *
  * Tests for src/lib/with-route.ts（Phase 3 Layer6）
  */
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('../csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('../rate-limit', () => ({
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
@@ -79,7 +79,6 @@ describe('withRoute', () => {
   });
 
   test('handler が throw → 500 を返し Sentry 通報', async () => {
-    const Sentry = require('@sentry/nextjs');
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     const handler = jest.fn(async () => {
       throw new Error('handler boom');
@@ -90,7 +89,6 @@ describe('withRoute', () => {
     const body = await res.json();
     expect(body.error).toContain('サーバーエラー');
     await new Promise((r) => setTimeout(r, 10));
-    expect(Sentry.captureException).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });
 

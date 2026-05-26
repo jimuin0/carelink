@@ -22,7 +22,7 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self'",
               "img-src 'self' data: https: blob:",
-              "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://*.upstash.io https://*.ingest.sentry.io https://zipcloud.ibsnet.co.jp",
+              "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp",
               "worker-src 'self'",
               "manifest-src 'self'",
               "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",

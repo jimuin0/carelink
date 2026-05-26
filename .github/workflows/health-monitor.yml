@@ -1,0 +1,197 @@
+name: Health Monitor
+
+# UptimeRobot 代替: 5分毎に /api/health を叩き、unhealthy → Slack 通知。
+# carelinkBot 経由で直接投稿（Phase 7a で導入した SLACK_BOT_TOKEN を使用）。
+#
+# 状態管理: GitHub Issue "🔴 health monitor: down" の open/close で表現。
+#   - 初回 unhealthy 検知: Issue を open + Slack 通知
+#   - 連続 unhealthy: Issue にコメント追加（Slack 通知は抑制）
+#   - 復旧: Issue を close + Slack 通知（recovered）
+#
+# 必要な GitHub Secrets:
+#   - SLACK_BOT_TOKEN      (Vercel と同じ xoxb- トークン)
+#   - SLACK_DEFAULT_CHANNEL (Vercel と同じ C0...)
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'   # 5分毎
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  HEALTH_URL: https://carelink-jp.com/api/health
+  ISSUE_TITLE: '🔴 health monitor: production unhealthy'
+  ISSUE_LABEL: health-monitor
+
+jobs:
+  check:
+    name: Health check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch /api/health
+        id: fetch
+        run: |
+          STATUS_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$HEALTH_URL" || echo "000")
+          BODY=$(cat /tmp/health.json 2>/dev/null || echo '{}')
+          STATUS=$(echo "$BODY" | python3 -c "import sys,json
+          try:
+              print(json.load(sys.stdin).get('status','unknown'))
+          except Exception:
+              print('unknown')")
+          {
+            echo "http_code=$STATUS_CODE"
+            echo "health_status=$STATUS"
+            echo "body<<BODYEOF"
+            echo "$BODY"
+            echo "BODYEOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "📊 HTTP $STATUS_CODE / status=$STATUS"
+
+      - name: Check existing open issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          ISSUE_NUM=$(gh issue list --repo "$GITHUB_REPOSITORY" \
+            --label "$ISSUE_LABEL" --state open --limit 1 \
+            --json number --jq '.[0].number // ""')
+          echo "number=$ISSUE_NUM" >> "$GITHUB_OUTPUT"
+          [ -n "$ISSUE_NUM" ] && echo "📌 既存 open issue #$ISSUE_NUM あり" || echo "✅ 既存 open issue 無し"
+
+      - name: Decide action
+        id: decide
+        env:
+          HTTP: ${{ steps.fetch.outputs.http_code }}
+          STATUS: ${{ steps.fetch.outputs.health_status }}
+          EXISTING: ${{ steps.issue.outputs.number }}
+        run: |
+          if [ "$HTTP" = "200" ] && [ "$STATUS" = "healthy" ]; then
+            HEALTHY="true"
+          else
+            HEALTHY="false"
+          fi
+
+          if [ "$HEALTHY" = "false" ] && [ -z "$EXISTING" ]; then
+            ACTION="open"
+          elif [ "$HEALTHY" = "false" ] && [ -n "$EXISTING" ]; then
+            ACTION="continue"
+          elif [ "$HEALTHY" = "true" ] && [ -n "$EXISTING" ]; then
+            ACTION="close"
+          else
+            ACTION="noop"
+          fi
+          echo "action=$ACTION" >> "$GITHUB_OUTPUT"
+          echo "決定: $ACTION (healthy=$HEALTHY existing=$EXISTING)"
+
+      - name: Open Issue + Slack 通知 (新規ダウン)
+        if: steps.decide.outputs.action == 'open'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+          HTTP: ${{ steps.fetch.outputs.http_code }}
+          STATUS: ${{ steps.fetch.outputs.health_status }}
+          BODY: ${{ steps.fetch.outputs.body }}
+        run: |
+          # Issue 本文を一時ファイルに書く（複数行のため）
+          cat > /tmp/issue_body.md <<EOF
+          ## 🔴 Production health check failed
+
+          - URL: \`$HEALTH_URL\`
+          - HTTP code: \`$HTTP\`
+          - health status: \`$STATUS\`
+          - detected at: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+          ### Response body
+          \`\`\`json
+          $BODY
+          \`\`\`
+
+          ### 対応
+          1. 5分以内に自動再チェック（このまま継続なら継続ダウン）
+          2. Vercel Dashboard: https://vercel.com/jimuin/carelink/deployments
+          3. Supabase Status: https://status.supabase.com
+          4. 復旧したら本 Issue が自動 close されます
+          EOF
+
+          ISSUE_URL=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "$ISSUE_TITLE" \
+            --label "$ISSUE_LABEL,priority:high" \
+            --body-file /tmp/issue_body.md | tail -1)
+
+          echo "🚨 Issue created: $ISSUE_URL"
+
+          # Slack 通知 - python で安全に JSON 作成
+          python3 <<PY
+          import json, os, urllib.request
+          token = os.environ['SLACK_BOT_TOKEN']
+          channel = os.environ['SLACK_DEFAULT_CHANNEL']
+          http = os.environ['HTTP']
+          status = os.environ['STATUS']
+          issue = "$ISSUE_URL"
+          text = f"🔴 *CareLink production unhealthy*\n> HTTP: \`{http}\`, status: \`{status}\`\n> Issue: {issue}"
+          req = urllib.request.Request(
+              'https://slack.com/api/chat.postMessage',
+              data=json.dumps({'channel': channel, 'text': text}).encode('utf-8'),
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json; charset=utf-8',
+              },
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+              print("✅ Slack notified")
+          except Exception as e:
+              print(f"⚠️ Slack post failed: {e}")
+          PY
+
+      - name: Note continue (連続ダウン中)
+        if: steps.decide.outputs.action == 'continue'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+          HTTP: ${{ steps.fetch.outputs.http_code }}
+          STATUS: ${{ steps.fetch.outputs.health_status }}
+        run: |
+          gh issue comment "$ISSUE_NUM" --repo "$GITHUB_REPOSITORY" \
+            --body "🔁 continue down: HTTP=\`$HTTP\` status=\`$STATUS\` at $(date -u +%FT%TZ)"
+          echo "🔁 Issue #$ISSUE_NUM にコメント追加（Slack 通知抑制）"
+
+      - name: Close Issue + Slack 通知 (復旧)
+        if: steps.decide.outputs.action == 'close'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+        run: |
+          gh issue close "$ISSUE_NUM" --repo "$GITHUB_REPOSITORY" \
+            --comment "✅ recovered at $(date -u +%FT%TZ)"
+
+          python3 <<PY
+          import json, os, urllib.request
+          token = os.environ['SLACK_BOT_TOKEN']
+          channel = os.environ['SLACK_DEFAULT_CHANNEL']
+          issue = os.environ['ISSUE_NUM']
+          text = f"✅ *CareLink production recovered* (issue #{issue} closed)"
+          req = urllib.request.Request(
+              'https://slack.com/api/chat.postMessage',
+              data=json.dumps({'channel': channel, 'text': text}).encode('utf-8'),
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json; charset=utf-8',
+              },
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+              print("✅ Recovery notified")
+          except Exception as e:
+              print(f"⚠️ Slack post failed: {e}")
+          PY
+
+      - name: Noop (healthy)
+        if: steps.decide.outputs.action == 'noop'
+        run: echo "✅ healthy, no action"

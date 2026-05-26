@@ -11,7 +11,7 @@
  *   - DELETE: facility_id defence-in-depth in DELETE WHERE
  */
 
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
   checkRateLimit: jest.fn(() => Promise.resolve(false)),

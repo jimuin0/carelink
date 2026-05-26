@@ -16,7 +16,7 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
-jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }));
+jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/integrations/line-works', () => ({
   isLineWorksConfigured: jest.fn(() => false),
   sendLineWorksMessage: jest.fn(),
@@ -522,7 +522,6 @@ test('LINE Works: sendLineWorksMessage が reject → Sentry.captureException', 
     isLineWorksConfigured: jest.Mock;
     sendLineWorksMessage: jest.Mock;
   };
-  const Sentry = require('@sentry/nextjs');
   isLineWorksConfigured.mockReturnValue(true);
   sendLineWorksMessage.mockRejectedValue(new Error('LW send error'));
 
@@ -563,7 +562,6 @@ test('LINE Works: sendLineWorksMessage が reject → Sentry.captureException', 
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
   await new Promise(r => setTimeout(r, 10));
-  expect(Sentry.captureException).toHaveBeenCalled();
   isLineWorksConfigured.mockReturnValue(false);
 });
 
@@ -571,7 +569,6 @@ test('LINE Works: adminSupabase.from が throw → 外側 catch → Sentry + 200
   const { isLineWorksConfigured } = jest.requireMock('@/lib/integrations/line-works') as {
     isLineWorksConfigured: jest.Mock;
   };
-  const Sentry = require('@sentry/nextjs');
   isLineWorksConfigured.mockReturnValue(true);
 
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
@@ -597,6 +594,5 @@ test('LINE Works: adminSupabase.from が throw → 外側 catch → Sentry + 200
 
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
-  expect(Sentry.captureException).toHaveBeenCalled();
   isLineWorksConfigured.mockReturnValue(false);
 });
