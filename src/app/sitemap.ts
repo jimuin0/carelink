@@ -46,6 +46,27 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.8,
   }));
 
+  const supabase = createServerSupabaseClient();
+
+  // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
+  const { data: facilities } = await supabase
+    .from('facility_profiles')
+    .select('slug, updated_at, prefecture, business_type, city')
+    .eq('status', 'published');
+
+  // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
+  // 注: crossPages 生成より前に宣言する（TDZ 回避 — Cannot access before initialization 防止）
+  const occupiedPrefType = new Set<string>();
+  const occupiedCityType = new Set<string>();
+  for (const f of facilities || []) {
+    const ps = getPrefectureSlug(f.prefecture);
+    const ts = getBusinessTypeSlug(f.business_type);
+    if (ps && ts) {
+      occupiedPrefType.add(`${ps}/${ts}`);
+      if (f.city) occupiedCityType.add(`${ps}/${f.city}/${ts}`);
+    }
+  }
+
   // Prefecture x BusinessType pages — 施設が1件以上あるページのみ掲載（薄いコンテンツ除外）
   const crossPages: MetadataRoute.Sitemap = allPrefectureSlugs.flatMap((ps) =>
     allBusinessTypeSlugs
@@ -57,26 +78,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
         priority: 0.7,
       }))
   );
-
-  const supabase = createServerSupabaseClient();
-
-  // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
-  const { data: facilities } = await supabase
-    .from('facility_profiles')
-    .select('slug, updated_at, prefecture, business_type, city')
-    .eq('status', 'published');
-
-  // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
-  const occupiedPrefType = new Set<string>();
-  const occupiedCityType = new Set<string>();
-  for (const f of facilities || []) {
-    const ps = getPrefectureSlug(f.prefecture);
-    const ts = getBusinessTypeSlug(f.business_type);
-    if (ps && ts) {
-      occupiedPrefType.add(`${ps}/${ts}`);
-      if (f.city) occupiedCityType.add(`${ps}/${f.city}/${ts}`);
-    }
-  }
 
   // Symptom pages
   const { data: symptoms } = await supabase.from('symptoms').select('slug');
