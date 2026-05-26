@@ -1,0 +1,85 @@
+name: Monthly Batch Watcher
+
+# 品質スタック L7-C: 月次バッチが所定時刻を過ぎても未発火なら Slack 通知。
+# CareLink の月次 cron は newsletter-digest（毎月 1日 16:00 UTC = JST 01:00 翌日）。
+#
+# 仕組み:
+#   - 毎月 2日 03:00 UTC（JST 12:00）に発火
+#   - Supabase cron_logs を service_role 経由で参照
+#   - 前日（1日）以降の newsletter-digest 成功記録が無ければ Slack 通知
+
+on:
+  schedule:
+    - cron: '0 3 2 * *'   # 毎月 2 日 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  HEALTH_URL: https://carelink-jp.com/api/health
+
+jobs:
+  check-monthly-batch:
+    name: Verify monthly newsletter-digest fired
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch latest cron log via Supabase REST
+        id: fetch
+        env:
+          SUPABASE_URL: https://xzafxiupbflvgbarrihe.supabase.co
+          SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          # 前日 00:00 UTC 以降の newsletter-digest success ログを取得
+          SINCE=$(date -u -d "yesterday 00:00:00" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-1d +"%Y-%m-%dT00:00:00Z")
+          echo "since=$SINCE"
+          RESP=$(curl -s -w "\n%{http_code}" --max-time 30 \
+            -H "apikey: $SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SERVICE_ROLE_KEY" \
+            "$SUPABASE_URL/rest/v1/cron_logs?job_name=eq.newsletter-digest&status=eq.success&started_at=gte.$SINCE&select=id,started_at&order=started_at.desc&limit=1")
+          BODY=$(echo "$RESP" | head -n -1)
+          CODE=$(echo "$RESP" | tail -n 1)
+          echo "http=$CODE"
+          COUNT=$(echo "$BODY" | python3 -c "import sys,json
+try:
+    print(len(json.load(sys.stdin)))
+except Exception:
+    print(0)")
+          echo "fired_count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "since=$SINCE" >> "$GITHUB_OUTPUT"
+          echo "📊 newsletter-digest fired in last 24h: $COUNT"
+
+      - name: Alert if not fired
+        if: steps.fetch.outputs.fired_count == '0'
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+          SINCE: ${{ steps.fetch.outputs.since }}
+        run: |
+          python3 <<PY
+          import json, os, urllib.request
+          token = os.environ['SLACK_BOT_TOKEN']
+          channel = os.environ['SLACK_DEFAULT_CHANNEL']
+          since = os.environ['SINCE']
+          text = (
+              "🟡 *Monthly batch alert: newsletter-digest 未発火*\n"
+              f"> 期間: {since} 以降\n"
+              f"> 期待: 毎月 1日 16:00 UTC に発火 → cron_logs に成功記録\n"
+              "> 確認: GitHub Actions の cron.yml ログ + Supabase cron_logs テーブル\n"
+              "> 原因候補: GitHub Actions 障害 / Supabase 接続不能 / Resend 障害"
+          )
+          req = urllib.request.Request(
+              'https://slack.com/api/chat.postMessage',
+              data=json.dumps({'channel': channel, 'text': text}).encode('utf-8'),
+              headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json; charset=utf-8'},
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+              print("🟡 Slack alerted: newsletter-digest 未発火")
+          except Exception as e:
+              print(f"⚠️ Slack post failed: {e}")
+          PY
+
+      - name: OK
+        if: steps.fetch.outputs.fired_count != '0'
+        run: echo "✅ newsletter-digest 発火確認済 (last 24h)"
