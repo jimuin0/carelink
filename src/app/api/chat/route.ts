@@ -4,10 +4,10 @@
  * CareLink全般・施設検索・予約サポートのAIアシスタント
  */
 
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
-import { checkCsrf } from '@/lib/csrf';
+import { withRoute } from '@/lib/with-route';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -31,10 +31,7 @@ CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予
 - 緊急性のある症状（胸痛・麻痺など）は必ず医療機関への受診を勧める
 - 3文以内に収める（詳細が必要な場合は箇条書きを使う）`;
 
-export async function POST(request: NextRequest) {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-
+export const POST = withRoute(async (request) => {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown';
   if (inMemoryRateLimit(ip, 5, 60000, 'chat')) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
@@ -70,4 +67,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'AIサービスに接続できませんでした' }, { status: 503 });
   }
-}
+}, {
+  csrf: true,
+  sentryTag: 'chat',
+});

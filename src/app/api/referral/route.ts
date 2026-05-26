@@ -4,12 +4,12 @@
  * POST: 紹介コード使用（新規ユーザーが初回予約完了時に呼ぶ）
  */
 
-import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from "@/lib/rate-limit";
+import { mutationRateLimit, inMemoryRateLimit } from "@/lib/rate-limit";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { checkCsrf } from '@/lib/csrf';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { withRoute } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,14 +56,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ code, used_count: 0 });
 }
 
-export async function POST(request: NextRequest) {
-  const csrfError = checkCsrf(request);
-  if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, 'referral')) {
-    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
-  }
-
+export const POST = withRoute(async (request) => {
   const cookieStore = await cookies();
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -139,4 +132,8 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ success: true, message: '紹介コードが適用されました！300ポイントを獲得しました。' });
-}
+}, {
+  csrf: true,
+  rateLimit: { limiter: mutationRateLimit, limit: 5, windowMs: 60_000, prefix: 'referral' },
+  sentryTag: 'referral',
+});
