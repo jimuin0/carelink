@@ -19,7 +19,13 @@ permissions:
 jobs:
   notify-deploy-failure:
     name: Notify Deploy Failure
-    if: ${{ github.event_name == 'deployment_status' && github.event.deployment_status.state == 'failure' }}
+    # Production deployment の失敗のみ Issue 化（Preview 失敗はノイズになるため除外）
+    # Preview デプロイは PR 毎に走るため失敗時の自動 Issue は spam 源だった。
+    # Preview 失敗は PR の Vercel Bot コメントで開発者が直接確認できる。
+    if: >
+      ${{ github.event_name == 'deployment_status'
+          && github.event.deployment_status.state == 'failure'
+          && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production') }}
     runs-on: ubuntu-latest
     steps:
       - name: Create issue
@@ -28,7 +34,7 @@ jobs:
           script: |
             const ds = context.payload.deployment_status;
             const d = context.payload.deployment;
-            const title = `🔴 Deploy failed: ${d.environment} (${d.sha.slice(0,7)})`;
+            const title = `🔴 Production deploy failed (${d.sha.slice(0,7)})`;
             const body = [
               `**Environment:** ${d.environment}`,
               `**Commit:** ${d.sha}`,
@@ -37,8 +43,10 @@ jobs:
               `**Description:** ${ds.description || '(none)'}`,
               `**Creator:** @${d.creator?.login || 'unknown'}`,
               '',
-              '担当 runbook: docs/runbooks/deploy-failure.md（Phase 3 で整備予定）',
-              '即時対応: Vercel ダッシュボードでビルドログ確認 → 原因特定 → 修正 PR',
+              '即時対応:',
+              '1. Vercel ダッシュボードでビルドログ確認: https://vercel.com/jimuin/carelink/deployments',
+              '2. 直前の Production deploy を Promote to Production で即時ロールバック',
+              '3. 原因特定して修正 PR → マージ → 再デプロイ',
             ].join('\n');
             await github.rest.issues.create({
               owner: context.repo.owner,
