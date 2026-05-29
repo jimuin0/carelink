@@ -76,19 +76,19 @@ const businessTypeNameToSlug = Object.fromEntries(
 /* Stryker restore ArrayDeclaration */
 
 export function getPrefectureSlug(name: string): string | undefined {
-  return prefectureNameToSlug[name];
+  return Object.hasOwn(prefectureNameToSlug, name) ? prefectureNameToSlug[name] : undefined;
 }
 
 export function getBusinessTypeSlug(name: string): string | undefined {
-  return businessTypeNameToSlug[name];
+  return Object.hasOwn(businessTypeNameToSlug, name) ? businessTypeNameToSlug[name] : undefined;
 }
 
 export function getPrefectureName(slug: string): string | undefined {
-  return prefectureSlugs[slug];
+  return Object.hasOwn(prefectureSlugs, slug) ? prefectureSlugs[slug] : undefined;
 }
 
 export function getBusinessTypeName(slug: string): string | undefined {
-  return businessTypeSlugs[slug];
+  return Object.hasOwn(businessTypeSlugs, slug) ? businessTypeSlugs[slug] : undefined;
 }
 
 // 全スラッグ配列（generateStaticParams用）
@@ -97,9 +97,9 @@ export const allBusinessTypeSlugs = Object.keys(businessTypeSlugs);
 
 // スラッグ存在チェック（衝突防止用）
 export function isValidPrefectureSlug(slug: string): boolean {
-  return slug in prefectureSlugs;
+  return Object.hasOwn(prefectureSlugs, slug);
 }
 
 export function isValidBusinessTypeSlug(slug: string): boolean {
-  return slug in businessTypeSlugs;
+  return Object.hasOwn(businessTypeSlugs, slug);
 }

@@ -53,7 +53,11 @@ export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
  * （Vercel環境変数に末尾改行が混入してsitemapが壊れた事案への恒久対策）
  */
 export function normalizeSiteUrl(raw: string | undefined): string {
-  const trimmed = (raw || 'https://carelink-jp.com').trim().replace(/\/+$/, '');
-  return trimmed.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
+  // 1. 先にtrim → 空白のみ文字列も falsy 扱いでデフォルトにフォールバック
+  // 2. 末尾スラッシュ除去 → その後 trim（スラッシュ直前の空白を除去）
+  // 3. 空文字になった場合（"/"のみ等）も再度デフォルトにフォールバック
+  const stripped = (raw?.trim() || 'https://carelink-jp.com').replace(/\/+$/, '').trim();
+  const base = stripped || 'https://carelink-jp.com';
+  return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
 export const SITE_URL = normalizeSiteUrl(process.env.NEXT_PUBLIC_BASE_URL);

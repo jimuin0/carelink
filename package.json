@@ -67,6 +67,7 @@
     "eslint": "^8",
     "eslint-config-next": "15.5.15",
     "eslint-plugin-carelink-safety": "file:eslint-plugin-carelink-safety",
+    "fast-check": "^4.8.0",
     "husky": "^9.1.7",
     "jest": "^30.3.0",
     "jest-environment-jsdom": "^30.4.1",
