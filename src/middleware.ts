@@ -151,6 +151,9 @@ export async function middleware(request: NextRequest) {
   return supabaseResponse;
 }
 
+// テスト用エクスポート（L6 認証バイパステスト）
+export { signCacheValue, verifyCacheValue, getMembershipCacheKey };
+
 export const config = {
   matcher: [
     '/((?!_next/static|_next/image|api/|favicon\\.svg|favicon\\.ico|apple-touch-icon\\.png|og-image\\.png|manifest\\.json|sw\\.js|.*\\.(?:svg|png|jpg|jpeg|gif|ico|webp)$).*)',

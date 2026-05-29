@@ -93,5 +93,5 @@ npm run lint  # ESLint
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 5426/5426 branches（2026-05-26 達成） |
 | L4 | Stryker ミューテーション | ✅ | Survived=0（全10ファイル）2026-05-29 達成 |
 | L5 | fast-check プロパティベース | ✅ | 26テスト全通過、バグ3件修正 2026-05-29 達成 |
-| L6 | npm audit / 認証テスト | ⬜ | 未着手 |
+| L6 | npm audit / 認証テスト | ✅ | critical=0・high=0、認証バイパステスト 21件（HMAC検証・middleware） 2026-05-29 達成 |
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
