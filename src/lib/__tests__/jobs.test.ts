@@ -153,6 +153,17 @@ describe('jobFormSchema — salary fields union transform', () => {
     });
     expect(r.success).toBe(false);
   });
+
+  test('salary_max が空文字 → null に変換される（L18 ConditionalExpression / StringLiteral mutation kill）', () => {
+    const r = jobFormSchema.safeParse({
+      title: 'OK',
+      job_type: 'x',
+      employment_type: '正社員',
+      salary_max: '',
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.salary_max).toBeNull();
+  });
 });
 
 describe('jobFormSchema — salary_min <= salary_max refine', () => {

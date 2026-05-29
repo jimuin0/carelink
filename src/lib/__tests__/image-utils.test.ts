@@ -34,6 +34,13 @@ describe('getTransformUrl', () => {
     expect(getTransformUrl(externalUrl)).toBe(externalUrl);
   });
 
+  test('非Supabase URL にオプションを渡してもそのまま返す（クエリパラメータを付加しない）', () => {
+    // L22 StringLiteral "" mutation: includes('') が常に true になり early return しなくなる
+    // → オプションがあるとクエリパラメータが付加されてしまう
+    expect(getTransformUrl(externalUrl, { width: 400 })).toBe(externalUrl);
+    expect(getTransformUrl(externalUrl, { width: 200, height: 200 })).toBe(externalUrl);
+  });
+
   test('converts Supabase URL to render path', () => {
     const result = getTransformUrl(supabaseUrl);
     expect(result).toContain('/storage/v1/render/image/public/');

@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/slack.ts (Phase 7a)
  * - chat.postMessage を Bearer token 付きで叩く

@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/safe.ts (Phase 8: Sentry 廃止後)
  *   - fn の戻り値透過

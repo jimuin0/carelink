@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/alert.ts (Phase 7a: Bot Token 経由に更新)
  * - SLACK_BOT_TOKEN/SLACK_DEFAULT_CHANNEL 未設定時は無投稿

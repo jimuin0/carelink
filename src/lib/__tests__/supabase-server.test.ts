@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
 
 const mockCreateClient = jest.fn().mockReturnValue({ from: jest.fn() });

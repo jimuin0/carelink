@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/area-seo.ts
  * Covers: getAreaSeoContent (fallback chain), enrichSeoContent

@@ -36,3 +36,10 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# stryker / mutation testing
+.stryker-tmp/
+reports/mutation/
+
+# claude code
+.claude/

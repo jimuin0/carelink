@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/feature-flags.ts
  * Covers: isFeatureEnabled, getAllFlags, clearFlagCache

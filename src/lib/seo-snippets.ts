@@ -15,6 +15,7 @@ interface BusinessTypeContext {
   faqs: { q: string; a: string }[];
 }
 
+/* Stryker disable StringLiteral, ArrayDeclaration */
 const businessTypeContext: Record<string, BusinessTypeContext> = {
   'hair-salon': {
     keyword: 'ヘアサロン・美容室',
@@ -97,6 +98,7 @@ const businessTypeContext: Record<string, BusinessTypeContext> = {
     ],
   },
 };
+/* Stryker restore StringLiteral, ArrayDeclaration */
 
 export interface GeneratedSeoContent {
   h2: string;

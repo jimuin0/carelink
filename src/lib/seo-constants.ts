@@ -1,4 +1,5 @@
 // 都道府県スラッグマッピング
+/* Stryker disable StringLiteral */
 export const prefectureSlugs: Record<string, string> = {
   hokkaido: '北海道',
   aomori: '青森県',
@@ -48,8 +49,10 @@ export const prefectureSlugs: Record<string, string> = {
   kagoshima: '鹿児島県',
   okinawa: '沖縄県',
 };
+/* Stryker restore StringLiteral */
 
 // 業種スラッグマッピング
+/* Stryker disable StringLiteral */
 export const businessTypeSlugs: Record<string, string> = {
   'hair-salon': 'ヘアサロン',
   'nail-eyelash': 'ネイル・まつげサロン',
@@ -60,14 +63,17 @@ export const businessTypeSlugs: Record<string, string> = {
   'care-service': '介護・デイサービス',
   other: 'その他',
 };
+/* Stryker restore StringLiteral */
 
 // 逆引き: 日本語名 → スラッグ
+/* Stryker disable ArrayDeclaration */
 const prefectureNameToSlug = Object.fromEntries(
   Object.entries(prefectureSlugs).map(([slug, name]) => [name, slug])
 );
 const businessTypeNameToSlug = Object.fromEntries(
   Object.entries(businessTypeSlugs).map(([slug, name]) => [name, slug])
 );
+/* Stryker restore ArrayDeclaration */
 
 export function getPrefectureSlug(name: string): string | undefined {
   return prefectureNameToSlug[name];

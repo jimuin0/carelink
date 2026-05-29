@@ -1,4 +1,4 @@
-import { bookingSchema } from '../validations-booking';
+import { bookingSchema, getTodayString, getMaxDateString } from '../validations-booking';
 
 const validBooking = {
   facility_id: '550e8400-e29b-41d4-a716-446655440000',
@@ -157,5 +157,95 @@ describe('bookingSchema — deep tests', () => {
 
   test('start_time の分が 60 → エラー', () => {
     expect(bookingSchema.safeParse({ ...validBooking, start_time: '10:60' }).success).toBe(false);
+  });
+
+  test('booking_date が 1年を超える未来（2100-01-01）→ エラー（L42 ConditionalExpression mutation kill）', () => {
+    // ConditionalExpression → true mutation: 上限チェックが消えると通過してしまう
+    expect(bookingSchema.safeParse({ ...validBooking, booking_date: '2100-01-01' }).success).toBe(false);
+  });
+});
+
+describe('getTodayString — JST変換精度テスト（L15/L17/L18 mutation kill）', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('UTC 23:00 → JST 翌日 08:00 → 翌日の日付を返す', () => {
+    // UTC 2026-01-04T23:00:00Z → JST 2026-01-05T08:00:00+09:00
+    // +→- mutation: UTC-9 = 2026-01-04T14:00 → '2026-01-04' になり失敗する
+    // *→/ mutation: offset ≈ 0ms → UTC date '2026-01-04' になり失敗する
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    expect(getTodayString()).toBe('2026-01-05');
+  });
+
+  test('月のゼロパディング（1月 → "01"）', () => {
+    // padStart(2, '') mutation: '1' が返り '2026-1-05' になり失敗する
+    // +1 → -1 mutation: month = -1 → '-1' になり失敗する
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    expect(getTodayString()).toBe('2026-01-05');
+  });
+
+  test('日のゼロパディング（5日 → "05"）', () => {
+    // padStart(2, '') mutation: '5' が返り '2026-01-5' になり失敗する
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    expect(getTodayString()).toMatch(/-05$/);
+  });
+});
+
+describe('getMaxDateString — JST変換精度テスト（L24/L25/L27/L28 mutation kill）', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('1年後の正確な日付を返す', () => {
+    // UTC 2026-01-04T23:00:00Z → JST 2026-01-05 → max = '2027-01-05'
+    // +→- mutation: UTC-9日付 '2026-01-04' + 1年 = '2027-01-04' になり失敗する
+    // setUTCFullYear → setUTCMonth mutation: 年が加算されず月が狂い失敗する
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    expect(getMaxDateString()).toBe('2027-01-05');
+  });
+
+  test('getMaxDateString の月ゼロパディング（1月 → "01"）', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    expect(getMaxDateString()).toMatch(/^2027-01-/);
+  });
+
+  test('getMaxDateString の日ゼロパディング（5日 → "05"）', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    expect(getMaxDateString()).toMatch(/-05$/);
+  });
+});
+
+describe('bookingSchema — getMaxDateString との境界値テスト（L42 EqualityOperator mutation kill）', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('booking_date が getMaxDateString() と等しい → 通過（<= が必要）', () => {
+    // EqualityOperator <= → < mutation: 等値で fail になり失敗する
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    const maxDate = getMaxDateString(); // '2027-01-05'
+    expect(bookingSchema.safeParse({ ...validBooking, booking_date: maxDate }).success).toBe(true);
+  });
+});
+
+describe('bookingSchema — getTodayString との境界値テスト（L41 EqualityOperator mutation kill）', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  test('booking_date が getTodayString() と等しい → 通過（>= が必要）', () => {
+    // EqualityOperator >= → > mutation: 等値で fail になり失敗する
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T23:00:00.000Z'));
+    const today = getTodayString(); // '2026-01-05'
+    expect(bookingSchema.safeParse({ ...validBooking, booking_date: today }).success).toBe(true);
   });
 });
