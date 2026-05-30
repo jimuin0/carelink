@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ListingBoard from './ListingBoard';
 import {
   SALON_OPEN_HOUR,
   SALON_CLOSE_HOUR,
@@ -690,43 +691,13 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </div>
       )}
 
-      {/* ===== 掲載管理セクション（掲載状況・既存データから集計） ===== */}
+      {/* ===== 掲載管理セクション（HPB準拠：二次ナビ＋10サブ画面） ===== */}
       {section === 'listing' && (
-        <div className="flex-1 overflow-auto bg-gray-50 p-4">
-          {listingLoading || !listing ? (
-            <div className="animate-pulse"><div className="h-48 bg-gray-200 rounded max-w-2xl" /></div>
-          ) : (
-            <div className="max-w-2xl space-y-4">
-              <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
-                <div>
-                  <div className="text-xs text-gray-400">掲載中のサロン</div>
-                  <div className="text-base font-bold text-gray-800">{listing.name}</div>
-                </div>
-                <span className={`px-3 py-1 rounded-full text-xs font-bold ${listing.status === 'published' ? 'bg-emerald-100 text-emerald-700' : listing.status === 'suspended' ? 'bg-rose-100 text-rose-700' : 'bg-gray-200 text-gray-600'}`}>
-                  {listing.status === 'published' ? '公開中' : listing.status === 'suspended' ? '停止中' : '下書き'}
-                </span>
-              </div>
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                <div className="px-4 py-2 bg-gray-100 text-xs font-bold text-gray-600 border-b border-gray-200">掲載情報</div>
-                {[
-                  { label: 'サロン掲載情報（基本情報）', val: '登録済み', href: '/admin/settings' },
-                  { label: 'スタッフ掲載情報', val: `${listing.staff} 名`, href: '/admin/staff' },
-                  { label: 'フォトギャラリー掲載情報', val: `${listing.photos} 枚`, href: '/admin/photos' },
-                  { label: 'メニュー掲載情報', val: `${listing.menus} 件`, href: '/admin/menus' },
-                ].map((row) => (
-                  <div key={row.label} className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0">
-                    <span className="text-sm text-gray-700">{row.label}</span>
-                    <span className="flex items-center gap-3">
-                      <span className="text-sm font-bold text-gray-800">{row.val}</span>
-                      <Link href={row.href} className="text-xs px-3 py-1 border border-sky-400 text-sky-600 rounded hover:bg-sky-50">編集</Link>
-                    </span>
-                  </div>
-                ))}
-              </div>
-              <p className="text-[11px] text-gray-400">各項目の編集は対応する管理ページで行います。掲載のオン/オフは「設定」から変更できます。</p>
-            </div>
-          )}
-        </div>
+        listingLoading || !listing ? (
+          <div className="flex-1 overflow-auto bg-gray-50 p-4"><div className="animate-pulse"><div className="h-48 bg-gray-200 rounded max-w-2xl" /></div></div>
+        ) : (
+          <ListingBoard facilityId={facilityId} salonName={listing.name} status={listing.status} onToast={(message) => setToast({ type: 'success', message })} />
+        )
       )}
 
       {/* ===== 売上管理セクション（予約データから集計） ===== */}
