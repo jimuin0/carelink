@@ -59,6 +59,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [view, setView] = useState<'day' | 'week' | 'month'>('day');
   const [staffFilter, setStaffFilter] = useState<string>('');
   const [tab, setTab] = useState<'schedule' | 'list' | 'accept' | 'suspend'>('schedule');
+  const [listFilter, setListFilter] = useState<string>('all');
   const [priorKeys, setPriorKeys] = useState<Set<string>>(new Set());
   const [section, setSection] = useState<'reservation' | 'customers' | 'listing' | 'sales' | 'settings'>('reservation');
   const [sales, setSales] = useState<{ monthCount: number; monthSum: number; todayCount: number; todaySum: number; byDay: Record<string, { c: number; s: number }> } | null>(null);
@@ -66,6 +67,16 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [customers, setCustomers] = useState<{ key: string; name: string; email: string | null; phone: string | null; count: number; last: string }[]>([]);
   const [custLoading, setCustLoading] = useState(false);
   const [custSearch, setCustSearch] = useState('');
+  const [custDetail, setCustDetail] = useState<{ name: string; rows: { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string }[] } | null>(null);
+
+  const openCustomerHistory = async (c: { key: string; name: string; email: string | null }) => {
+    setCustDetail({ name: c.name, rows: [] });
+    const supabase = createBrowserSupabaseClient();
+    let q = supabase.from('bookings').select('id, booking_date, start_time, end_time, menu_id, staff_id, status').eq('facility_id', facilityId).neq('status', 'cancelled').order('booking_date', { ascending: false });
+    q = c.email ? q.eq('email', c.email) : q.eq('customer_name', c.name);
+    const { data } = await q;
+    setCustDetail({ name: c.name, rows: (data as { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string }[]) ?? [] });
+  };
   const [listing, setListing] = useState<{ name: string; status: string; staff: number; photos: number; menus: number } | null>(null);
   const [listingLoading, setListingLoading] = useState(false);
   const dateRef = useRef<HTMLInputElement>(null);
@@ -403,9 +414,17 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
 
       {/* 予約一覧タブ（サロンボードの枠内に表示・別画面へ遷移しない） */}
       {tab === 'list' && (
-        <div className="flex-1 overflow-auto bg-white p-3">
+        <div className="flex-1 overflow-auto bg-white">
+          {/* ステータス絞り込み */}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 sticky top-0 bg-white z-10">
+            {[['all', '全て'], ['confirmed', '確定'], ['completed', '完了'], ['no_show', '無断ｷｬﾝｾﾙ']].map(([v, l]) => (
+              <button key={v} type="button" onClick={() => setListFilter(v)}
+                className={`px-3 py-1 text-xs rounded-full font-medium ${listFilter === v ? 'bg-sky-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>{l}</button>
+            ))}
+            <span className="ml-auto text-[11px] text-gray-400">{bookings.filter((b) => listFilter === 'all' || b.status === listFilter).length} 件</span>
+          </div>
           <table className="w-full text-xs border-collapse">
-            <thead className="bg-gray-100 text-gray-600 sticky top-0">
+            <thead className="bg-gray-100 text-gray-600 sticky top-[41px]">
               <tr>
                 {['時間', 'お客様', 'メニュー', '担当', '経路', 'ステータス'].map((h) => (
                   <th key={h} className="text-left px-3 py-2 border-b border-gray-300 font-bold whitespace-nowrap">{h}</th>
@@ -413,7 +432,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               </tr>
             </thead>
             <tbody>
-              {[...bookings].sort((a, b) => a.start_time.localeCompare(b.start_time)).map((bk) => (
+              {[...bookings].filter((b) => listFilter === 'all' || b.status === listFilter).sort((a, b) => a.start_time.localeCompare(b.start_time)).map((bk) => (
                 <tr key={bk.id} className="hover:bg-sky-50 cursor-pointer border-b border-gray-100" onClick={() => setModal({ mode: 'edit', booking: bk })}>
                   <td className="px-3 py-2 whitespace-nowrap">{bk.start_time.slice(0, 5)}〜{bk.end_time.slice(0, 5)}</td>
                   <td className="px-3 py-2 font-bold whitespace-nowrap">{bk.customer_name} 様</td>
@@ -423,8 +442,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                   <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-white text-[10px] font-bold ${statusStyle(bk.status).bar}`}>{STATUS_LABEL[bk.status] || bk.status}</span></td>
                 </tr>
               ))}
-              {bookings.length === 0 && (
-                <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">この日の予約はありません</td></tr>
+              {bookings.filter((b) => listFilter === 'all' || b.status === listFilter).length === 0 && (
+                <tr><td colSpan={6} className="px-3 py-10 text-center text-gray-400">該当する予約はありません</td></tr>
               )}
             </tbody>
           </table>
@@ -524,7 +543,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                   const q = custSearch.trim().toLowerCase();
                   return !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q);
                 }).map((c) => (
-                  <tr key={c.key} className="border-b border-gray-100 hover:bg-sky-50">
+                  <tr key={c.key} className="border-b border-gray-100 hover:bg-sky-50 cursor-pointer" onClick={() => openCustomerHistory(c)}>
                     <td className="px-3 py-2 font-bold whitespace-nowrap">{c.name} 様</td>
                     <td className="px-3 py-2 whitespace-nowrap">{c.phone || '—'}</td>
                     <td className="px-3 py-2">{c.email || '—'}</td>
@@ -657,6 +676,31 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <Link href="/admin/help" className="hover:text-gray-600">ヘルプ</Link>
         <span>© CareLink</span>
       </div>
+
+      {/* お客様の来店履歴モーダル */}
+      {custDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCustDetail(null)}>
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white">
+              <h2 className="text-base font-bold">{custDetail.name} 様 の来店履歴</h2>
+              <button type="button" onClick={() => setCustDetail(null)} aria-label="閉じる" className="text-gray-400 hover:text-gray-600">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <table className="w-full text-xs">
+                <thead className="text-gray-500"><tr><th className="text-left py-1">日付</th><th className="text-left py-1">時間</th><th className="text-left py-1">メニュー</th><th className="text-left py-1">状態</th></tr></thead>
+                <tbody>
+                  {custDetail.rows.map((r) => (
+                    <tr key={r.id} className="border-t border-gray-100"><td className="py-1.5">{r.booking_date}</td><td className="py-1.5">{r.start_time.slice(0, 5)}</td><td className="py-1.5">{menuName(r.menu_id) || '—'}</td><td className="py-1.5">{STATUS_LABEL[r.status] || r.status}</td></tr>
+                  ))}
+                  {custDetail.rows.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-gray-400">読み込み中…</td></tr>}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
 
       {modal && (
         <BookingModal init={modal} facilityId={facilityId} date={date} staffList={staffList} menuList={menuList}
