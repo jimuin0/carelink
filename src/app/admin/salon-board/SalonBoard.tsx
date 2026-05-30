@@ -61,6 +61,10 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [staffFilter, setStaffFilter] = useState<string>('');
   const [tab, setTab] = useState<'schedule' | 'list'>('schedule');
   const [priorKeys, setPriorKeys] = useState<Set<string>>(new Set());
+  const [section, setSection] = useState<'reservation' | 'customers'>('reservation');
+  const [customers, setCustomers] = useState<{ key: string; name: string; email: string | null; phone: string | null; count: number; last: string }[]>([]);
+  const [custLoading, setCustLoading] = useState(false);
+  const [custSearch, setCustSearch] = useState('');
 
   // 新規（初回来店）判定キー
   const custKey = (b: { email: string | null; customer_name: string }) =>
@@ -99,6 +103,29 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     const timer = setInterval(update, 60_000);
     return () => clearInterval(timer);
   }, []);
+
+  // お客様管理：全予約から顧客一覧を集計（来店回数・最終来店）。DB追加不要。
+  useEffect(() => {
+    if (section !== 'customers') return;
+    let cancelled = false;
+    (async () => {
+      setCustLoading(true);
+      const supabase = createBrowserSupabaseClient();
+      const { data } = await supabase.from('bookings')
+        .select('customer_name, email, phone, booking_date')
+        .eq('facility_id', facilityId).neq('status', 'cancelled')
+        .order('booking_date', { ascending: false });
+      const map = new Map<string, { key: string; name: string; email: string | null; phone: string | null; count: number; last: string }>();
+      for (const b of (data as { customer_name: string; email: string | null; phone: string | null; booking_date: string }[] ?? [])) {
+        const key = (b.email || b.customer_name || '').toLowerCase();
+        const ex = map.get(key);
+        if (ex) { ex.count++; if (b.booking_date > ex.last) ex.last = b.booking_date; }
+        else map.set(key, { key, name: b.customer_name, email: b.email, phone: b.phone, count: 1, last: b.booking_date });
+      }
+      if (!cancelled) { setCustomers(Array.from(map.values()).sort((a, b) => b.last.localeCompare(a.last))); setCustLoading(false); }
+    })().catch(() => { if (!cancelled) setCustLoading(false); });
+    return () => { cancelled = true; };
+  }, [section, facilityId]);
 
   // 全画面オーバーレイ表示中は背後 body/html のスクロール（無用なスクロールバー）を無効化
   useEffect(() => {
@@ -156,11 +183,15 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
           サロンボード
         </span>
         <nav className="flex items-center gap-2 text-xs ml-4 overflow-x-auto">
-          {NAV.map((m, i) => (
+          {NAV.map((m, i) => {
+            const isActive = (i === 0 && section === 'reservation') || (i === 2 && section === 'customers');
+            const onClickNav = i === 0 ? () => setSection('reservation') : i === 2 ? () => setSection('customers') : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
+            return (
             <button key={m} type="button"
-              onClick={() => i === 0 ? undefined : setToast({ type: 'success', message: `「${m}」は準備中です` })}
-              className={`px-3 py-1.5 rounded whitespace-nowrap tracking-wide ${i === 0 ? 'bg-sky-700' : 'hover:bg-sky-500/60'}`}>{m}</button>
-          ))}
+              onClick={onClickNav}
+              className={`px-3 py-1.5 rounded whitespace-nowrap tracking-wide ${isActive ? 'bg-sky-700' : 'hover:bg-sky-500/60'}`}>{m}</button>
+            );
+          })}
         </nav>
         <div className="flex-1" />
         <span className="hidden lg:inline text-xs opacity-90 shrink-0">店舗管理</span>
@@ -168,6 +199,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <Link href="/admin" className="text-xs underline hover:no-underline shrink-0">← 管理画面へ戻る</Link>
       </div>
 
+      {/* ===== 予約管理セクション（スケジュール/予約一覧タブ） ===== */}
+      {section === 'reservation' && (<>
       {/* タブ */}
       <div className="shrink-0 flex items-stretch gap-1 bg-sky-200/50 border-b border-sky-300 px-2 pt-1.5">
         <Tab label="スケジュール" active={tab === 'schedule'} onClick={() => setTab('schedule')} />
@@ -351,6 +384,47 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <button type="button" onClick={() => setModal({ mode: 'create', staffId: visibleStaff[0]?.id ?? null, startTime: `${String(SHOP_OPEN_MIN / 60).padStart(2, '0')}:00` })}
           className="px-4 py-1.5 text-xs font-bold text-white bg-sky-500 rounded hover:bg-sky-600 shrink-0">予約登録</button>
       </div>
+      </>)}
+
+      {/* ===== お客様管理セクション（顧客一覧・既存予約から集計） ===== */}
+      {section === 'customers' && (
+        <div className="flex-1 overflow-auto bg-white">
+          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-300 bg-white sticky top-0 z-10">
+            <span className="text-sm font-bold text-gray-800">お客様一覧</span>
+            <input type="text" value={custSearch} onChange={(e) => setCustSearch(e.target.value)} placeholder="氏名・電話・メールで検索"
+              className="px-3 py-1.5 border border-gray-300 rounded text-xs w-64" />
+            <span className="text-[11px] text-gray-400">全 {customers.length} 名</span>
+          </div>
+          {custLoading ? (
+            <div className="animate-pulse p-3"><div className="h-64 bg-gray-200 rounded" /></div>
+          ) : (
+            <table className="w-full text-xs border-collapse">
+              <thead className="bg-gray-100 text-gray-600 sticky top-[45px]">
+                <tr>{['お客様名', '電話', 'メール', '来店回数', '最終来店'].map((h) => (
+                  <th key={h} className="text-left px-3 py-2 border-b border-gray-300 font-bold whitespace-nowrap">{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {customers.filter((c) => {
+                  const q = custSearch.trim().toLowerCase();
+                  return !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q);
+                }).map((c) => (
+                  <tr key={c.key} className="border-b border-gray-100 hover:bg-sky-50">
+                    <td className="px-3 py-2 font-bold whitespace-nowrap">{c.name} 様</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{c.phone || '—'}</td>
+                    <td className="px-3 py-2">{c.email || '—'}</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{c.count} 回</td>
+                    <td className="px-3 py-2 whitespace-nowrap">{c.last}</td>
+                  </tr>
+                ))}
+                {customers.length === 0 && (
+                  <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">お客様データがありません</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* 最下部フッターリンク（控えめ・HPB準拠の淡色） */}
       <div className="shrink-0 flex items-center justify-center gap-3 px-3 py-0.5 bg-gray-50 border-t border-gray-200 text-gray-400 text-[10px]">
