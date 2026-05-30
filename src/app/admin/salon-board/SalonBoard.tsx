@@ -92,7 +92,10 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [listingLoading, setListingLoading] = useState(false);
   const [acceptStatus, setAcceptStatus] = useState<string | null>(null);
   const [acceptBusy, setAcceptBusy] = useState(false);
-  const dateRef = useRef<HTMLInputElement>(null);
+  const [showPicker, setShowPicker] = useState(false);
+  const [pickerYM, setPickerYM] = useState(() => getTodayString().slice(0, 7)); // 左側に表示する月 YYYY-MM
+  const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
+  const dateBtnRef = useRef<HTMLButtonElement>(null);
 
   const fetchAcceptStatus = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -115,7 +118,18 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     } finally { setAcceptBusy(false); }
   };
-  const openDatePicker = () => { const el = dateRef.current; if (!el) return; (el.showPicker ? el.showPicker() : el.focus()); };
+  const openDatePicker = () => {
+    setPickerYM(date.slice(0, 7));
+    const r = dateBtnRef.current?.getBoundingClientRect();
+    if (r) setPickerPos({ top: r.bottom + 4, left: r.left });
+    setShowPicker((s) => !s);
+  };
+  // 月文字列(YYYY-MM)を delta ヶ月ずらす
+  const shiftYM = (ym: string, delta: number) => {
+    const [y, m] = ym.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+  };
 
   // 新規（初回来店）判定キー
   const custKey = (b: { email: string | null; customer_name: string }) =>
@@ -276,6 +290,34 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     return href ? <Link href={href} className={cls}>{label}</Link> : <button type="button" onClick={onClick} className={cls}>{label}</button>;
   };
 
+  // 日付ピッカー用の1ヶ月カレンダー（HPB準拠：日=赤/土=青・今日強調・選択強調）
+  const MonthCal = ({ ym }: { ym: string }) => {
+    const [y, mo] = ym.split('-').map(Number);
+    const startWd = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay();
+    const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+    const cells: (number | null)[] = [...Array(startWd).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+    const wd = ['日', '月', '火', '水', '木', '金', '土'];
+    const today = getTodayString();
+    return (
+      <div className="w-56">
+        <div className="text-center text-sm font-bold text-gray-700 mb-1">{y}年 {mo}月</div>
+        <div className="grid grid-cols-7 gap-y-0.5">
+          {wd.map((w, i) => <div key={w} className={`text-center text-[10px] py-0.5 ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-sky-500' : 'text-gray-500'}`}>{w}</div>)}
+          {cells.map((d, idx) => {
+            if (d === null) return <div key={`b${idx}`} className="h-7" />;
+            const ds = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const wcol = (startWd + d - 1) % 7;
+            const isSel = ds === date, isToday = ds === today;
+            return (
+              <button key={ds} type="button" onClick={() => { setDate(ds); setShowPicker(false); }}
+                className={`h-7 text-xs rounded ${isSel ? 'bg-sky-500 text-white font-bold' : isToday ? 'bg-sky-100 text-sky-700 font-bold' : wcol === 0 ? 'text-rose-500 hover:bg-gray-100' : wcol === 6 ? 'text-sky-600 hover:bg-gray-100' : 'text-gray-700 hover:bg-gray-100'}`}>{d}</button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-50 bg-gray-100 flex flex-col text-[12px] text-gray-800">
       {/* ブランドバー */}
@@ -318,15 +360,29 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
           <button type="button" onClick={() => setDate((d) => shiftDate(d, -1))} aria-label="前日" className="px-1.5 py-1.5 border border-gray-300 rounded-l bg-white hover:bg-gray-50">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <button type="button" onClick={openDatePicker} className="flex items-center gap-1.5 px-3 py-1.5 border-y border-gray-300 bg-white hover:bg-gray-50">
+          <button ref={dateBtnRef} type="button" onClick={openDatePicker} className="flex items-center gap-1.5 px-3 py-1.5 border-y border-gray-300 bg-white hover:bg-gray-50">
             <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
             <span className="text-sm font-bold text-gray-800">{formatDateLabel(date)}</span>
           </button>
           <button type="button" onClick={() => setDate((d) => shiftDate(d, 1))} aria-label="翌日" className="px-1.5 py-1.5 border border-gray-300 rounded-r bg-white hover:bg-gray-50">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </button>
-          {/* 隠し日付入力（カレンダーアイコンから起動） */}
-          <input ref={dateRef} type="date" value={date} onChange={(e) => setDate(e.target.value)} className="absolute opacity-0 w-0 h-0 left-1/2 bottom-0 pointer-events-none" tabIndex={-1} aria-hidden />
+          {/* 2ヶ月並びカレンダー日付ピッカー（HPB準拠） */}
+          {showPicker && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowPicker(false)} />
+              <div className="fixed z-50 bg-white border border-gray-300 rounded-lg shadow-xl p-3" style={{ top: pickerPos.top, left: pickerPos.left }}>
+                <div className="flex items-center justify-between mb-2">
+                  <button type="button" onClick={() => setPickerYM((ym) => shiftYM(ym, -1))} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">前の月</button>
+                  <button type="button" onClick={() => setPickerYM((ym) => shiftYM(ym, 1))} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">次の月</button>
+                </div>
+                <div className="flex gap-4">
+                  <MonthCal ym={pickerYM} />
+                  <MonthCal ym={shiftYM(pickerYM, 1)} />
+                </div>
+              </div>
+            </>
+          )}
         </div>
         <button type="button" onClick={() => setDate(getTodayString())} className="px-2 py-1.5 border border-gray-300 rounded bg-white hover:bg-gray-50 text-xs shrink-0">今日</button>
         <div className="flex rounded overflow-hidden border border-gray-300 shrink-0">
@@ -486,71 +542,80 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </div>
       )}
 
-      {/* 毎月の受付設定タブ：月間カレンダー（日クリックでその日のスケジュールへ） */}
+      {/* 毎月の受付設定タブ（HPB準拠：受付設定ハブ） */}
       {tab === 'accept' && (() => {
         const [y, mo] = date.split('-').map(Number);
-        const startWd = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay();
-        const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
-        const cells: (number | null)[] = [...Array(startWd).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
-        const wd = ['日', '月', '火', '水', '木', '金', '土'];
-        const today = getTodayString();
+        const months = Array.from({ length: 4 }, (_, i) => { const d = new Date(Date.UTC(y, mo - 1 + i, 1)); return `${d.getUTCFullYear()}年${String(d.getUTCMonth() + 1).padStart(2, '0')}月`; });
+        const MonthTable = ({ rowLabel }: { rowLabel: string }) => (
+          <div className="border border-gray-300 rounded overflow-hidden bg-white">
+            <div className="grid grid-cols-5 text-[11px]">
+              <div className="bg-amber-50 border-r border-b border-gray-200 px-2 py-2 font-bold text-gray-600 flex items-center">{rowLabel}</div>
+              {months.map((m, i) => (
+                <div key={m} className={`border-b border-gray-200 px-2 py-2 text-center ${i < 3 ? 'border-r' : ''}`}>
+                  <div className="text-gray-500 mb-1">{m}</div>
+                  <button type="button" onClick={() => setToast({ type: 'success', message: `${m}の詳細設定は準備中です` })} className="px-3 py-1 text-[11px] border border-sky-400 text-sky-600 rounded hover:bg-sky-50">設定</button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
         return (
           <div className="flex-1 overflow-auto bg-gray-50 p-4">
-            <div className="max-w-2xl">
-              <div className="flex items-center justify-between mb-3">
-                <button type="button" onClick={() => setDate(shiftDate(date, -28))} className="px-2 py-1 text-xs border border-gray-300 rounded bg-white">前月</button>
-                <span className="text-sm font-bold text-gray-800">{y}年{mo}月 受付カレンダー</span>
-                <button type="button" onClick={() => setDate(shiftDate(date, 28))} className="px-2 py-1 text-xs border border-gray-300 rounded bg-white">翌月</button>
+            <div className="max-w-3xl space-y-5">
+              <p className="text-xs text-gray-600 leading-relaxed">サロンの営業時間枠・受付枠数を日別に設定します。シフトも日別に設定できます。設定が完了すると、スケジュール画面で予約を登録・管理できるようになり、ネット予約の受付が開始されます。</p>
+              <div>
+                <h3 className="text-sm font-bold text-gray-800 mb-1">■ サロンの受付設定 <span className="text-[11px] text-emerald-600">【自動延長中】</span></h3>
+                <p className="text-[11px] text-gray-500 mb-2">1ヶ月単位で、サロン全体の受付可能枠を日別に設定します。予約が受付枠数に達した日はネット予約の受付が自動停止します。</p>
+                <MonthTable rowLabel="サロンの営業時間帯・受付可能枠数（日別）" />
+                <button type="button" onClick={() => setToast({ type: 'success', message: '時間別設定は準備中です' })} className="mt-2 px-3 py-1.5 text-xs font-bold bg-sky-100 text-sky-700 rounded hover:bg-sky-200">サロンの受付可能枠数を時間別に設定する場合はこちら</button>
               </div>
-              <div className="grid grid-cols-7 gap-1 bg-white p-2 rounded-lg border border-gray-200">
-                {wd.map((w, i) => <div key={w} className={`text-center text-[11px] font-bold py-1 ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-sky-500' : 'text-gray-500'}`}>{w}</div>)}
-                {cells.map((d, idx) => {
-                  if (d === null) return <div key={`b${idx}`} />;
-                  const ds = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-                  const isToday = ds === today, isSel = ds === date;
-                  return (
-                    <button key={ds} type="button" onClick={() => { setDate(ds); setTab('schedule'); }}
-                      className={`h-16 rounded border text-left p-1 hover:bg-sky-50 ${isSel ? 'border-sky-400 bg-sky-50' : 'border-gray-200'}`}>
-                      <span className={`text-xs font-bold ${isToday ? 'text-sky-600' : 'text-gray-700'}`}>{d}{isToday ? '(今日)' : ''}</span>
-                      <span className="block text-[9px] text-emerald-600 mt-1">受付中</span>
-                    </button>
-                  );
-                })}
+              <div>
+                <h3 className="text-sm font-bold text-gray-800 mb-1">■ スタッフの受付設定 <span className="text-[11px] text-emerald-600">【自動延長中】</span></h3>
+                <p className="text-[11px] text-gray-500 mb-2">スタッフの1ヶ月分のシフトを設定します。休暇や枠を設定すると、ネット予約の受付が停止できます。</p>
+                <MonthTable rowLabel="勤務パターン設定・シフト設定" />
               </div>
-              <p className="text-[11px] text-gray-400 mt-2">日付をクリックするとその日のスケジュールを開きます。日別の受付停止設定は今後対応予定です。</p>
             </div>
           </div>
         );
       })()}
 
-      {/* 一括停止・再開タブ（ネット予約受付のライブ切替） */}
+      {/* 一括停止・再開タブ（HPB準拠：日時指定フォーム） */}
       {tab === 'suspend' && (
         <div className="flex-1 overflow-auto bg-gray-50 p-4">
-          <div className="max-w-2xl space-y-4">
-            <div className="text-sm font-bold text-gray-800">オンライン予約の一括停止・再開</div>
-            <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600">現在のネット予約 受付状態</span>
-                {acceptStatus === null ? (
-                  <span className="text-sm text-gray-400">読み込み中…</span>
-                ) : acceptStatus === 'suspended' ? (
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">受付停止中</span>
-                ) : acceptStatus === 'published' ? (
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">受付中</span>
-                ) : (
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-gray-200 text-gray-600">下書き（未公開）</span>
-                )}
+          <div className="max-w-3xl space-y-5">
+            <h2 className="text-base font-bold text-gray-800">ネット予約の一括停止・再開設定</h2>
+            <div>
+              <h3 className="text-sm font-bold text-gray-700 mb-2">■ 日時を指定してネット予約受付を一括で停止・再開します。</h3>
+              <div className="bg-white border border-gray-200 rounded-lg p-4 space-y-3">
+                <div className="flex flex-wrap items-center gap-3 text-sm">
+                  <span className="bg-amber-50 px-3 py-1.5 rounded text-gray-600 text-xs font-bold">年月日</span>
+                  <span className="font-bold text-gray-800">{formatDateLabel(date)}</span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <span className="bg-amber-50 px-3 py-1.5 rounded text-gray-600 text-xs font-bold">時間</span>
+                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{Array.from({ length: 14 }, (_, i) => i + 9).map((h) => <option key={h}>{h}</option>)}</select><span>時</span>
+                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{['00', '30'].map((m) => <option key={m}>{m}</option>)}</select><span>分</span>
+                  <span className="px-1">から</span>
+                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{Array.from({ length: 14 }, (_, i) => i + 9).map((h) => <option key={h}>{h}</option>)}</select><span>時</span>
+                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{['00', '30'].map((m) => <option key={m}>{m}</option>)}</select><span>分</span>
+                  <span className="px-1">まで</span>
+                </div>
+                <div className="flex items-center gap-3 pt-1">
+                  <span className="text-xs text-gray-500">上記日時のネット予約受付を一括で</span>
+                  <button type="button" disabled={acceptBusy || acceptStatus === 'suspended'} onClick={() => toggleAccept('suspend')}
+                    className="px-6 py-2 rounded text-sm font-bold border border-gray-400 text-gray-700 hover:bg-gray-50 disabled:opacity-40 bg-white">{acceptBusy ? '処理中…' : '停止する'}</button>
+                  <button type="button" disabled={acceptBusy || acceptStatus === 'published'} onClick={() => toggleAccept('resume')}
+                    className="px-6 py-2 rounded text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 disabled:opacity-40">{acceptBusy ? '処理中…' : '再開する'}</button>
+                </div>
               </div>
-              <p className="text-xs text-gray-500">臨時休業やイベント時に、ネット予約の受付を一括で停止／再開できます。停止中はお客様からのネット予約を受け付けません。</p>
-              <div className="flex gap-3">
-                <button type="button" disabled={acceptBusy || acceptStatus === 'suspended'} onClick={() => toggleAccept('suspend')}
-                  className="flex-1 py-2.5 rounded-lg text-sm font-bold border border-rose-400 text-rose-600 hover:bg-rose-50 disabled:opacity-40 bg-white">
-                  {acceptBusy ? '処理中…' : '受付を停止する'}
-                </button>
-                <button type="button" disabled={acceptBusy || acceptStatus === 'published'} onClick={() => toggleAccept('resume')}
-                  className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 disabled:opacity-40">
-                  {acceptBusy ? '処理中…' : '受付を再開する'}
-                </button>
+              <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">※一括停止できるのは、前日から数日後までです。それ以降の調整は「毎月の受付設定」から行ってください。<br />※時間帯ごとの細かな指定は今後対応予定で、現在は受付全体の停止/再開を切り替えます。</p>
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-gray-700 mb-2">■ 一括停止中の時間帯一覧</h3>
+              <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
+                {acceptStatus === 'suspended'
+                  ? <span className="text-rose-600 font-bold">現在、ネット予約の受付を停止中です。</span>
+                  : <span className="text-gray-400">現在、ネット予約受付を一括停止中の時間帯はありません。</span>}
               </div>
             </div>
           </div>
