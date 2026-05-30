@@ -342,6 +342,55 @@ describe('generatePrefTypeContent / generateCityContent — prefSeo null branch'
     });
     expect(result).not.toBeNull();
     expect(result!.intro).toContain('豊中市');
+    // L170 else 分岐: regionContext = '' （Stryker 文字列ではない）を検出して kill。
+    expect(result!.intro).not.toContain('Stryker');
+  });
+});
+
+// ============================================================
+// ミューテーション kill 専用検証
+// seo-snippets.ts の prefIntroShort 正規表現 / regionContext split・concat /
+// searchPoints.slice(0,2) を厳密に固定し、Survived 変異体を全て kill する。
+// ============================================================
+describe('seo-snippets — mutation kill', () => {
+  // --- L130: prefIntroShort = prefSeo.intro.replace(/CareLink[^。]*。/g, '').slice(0, 180) ---
+  // saitama.intro は「…密集します。CareLinkではさいたま市10区＋県内全域の施設を口コミ・写真で比較可能。通勤…」。
+  // 正規表現は "CareLink" を含む 1 文（次の 。 まで）を丸ごと削除する。
+  // 正しく動けば prefIntroShort から「さいたま市10区」は消える。
+  describe('generatePrefTypeContent: prefIntroShort の CareLink 文除去', () => {
+    test('CareLink を含む文（さいたま市10区…）が intro から除去される', () => {
+      const result = generatePrefTypeContent('saitama', 'hair-salon')!;
+      // 変異体 /CareLink[^。]。/g・/CareLink[。]*。/g・.replace 削除 では
+      // 「さいたま市10区」が prefIntroShort に残ってしまう → これを検出して kill。
+      expect(result.intro).not.toContain('さいたま市10区');
+    });
+
+    test('replace の置換後文字列は空文字（Stryker 文字列が混入しない）', () => {
+      const result = generatePrefTypeContent('saitama', 'hair-salon')!;
+      // 変異体 replace(/.../, "Stryker was here!") を検出して kill。
+      expect(result.intro).not.toContain('Stryker');
+    });
+  });
+
+  // --- L169: regionContext = prefSeo.intro.split('。')[0] + '。' ---
+  // osaka.intro の第1文は「大阪府は大阪市24区＋堺市7区＋豊中・吹田・東大阪・枚方など人口880万人超の関西最大都市圏」。
+  describe('generateCityContent: regionContext の split・concat', () => {
+    test('intro に「関西最大都市圏。豊中市には」が連続して含まれる', () => {
+      const result = generateCityContent('osaka', '豊中市')!;
+      // 変異体 split('') では regionContext='大。'、
+      // concat '。'→'' では「…関西最大都市圏豊中市には」になり 。 が欠落 → どちらも kill。
+      expect(result.intro).toContain('関西最大都市圏。豊中市には');
+    });
+  });
+
+  // --- L229: faqs[0].answer = typeCtx.searchPoints.slice(0, 2).join('、') + ... ---
+  describe('generateCityTypeContent: searchPoints は先頭2件のみ', () => {
+    test('faqs[0].answer に searchPoints[2]「カラー・縮毛矯正の技術力」が含まれない', () => {
+      const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon')!;
+      // slice(0,2) 削除の変異体では searchPoints 全件が join され searchPoints[2] が混入する → kill。
+      expect(result.faqs[0].answer).not.toContain('カラー・縮毛矯正の技術力');
+      expect(result.faqs[0].answer).not.toContain('クーポン・初回割引の有無');
+    });
   });
 });
 

@@ -91,7 +91,7 @@ npm run lint  # ESLint
 | L1 | ESLint / tsc | ✅ | エラー 0 |
 | L2 | Jest ユニットテスト | ✅ | 4047 テスト全通過、180 スイート |
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 5426/5426 branches（2026-05-26 達成） |
-| L4 | Stryker ミューテーション | ✅ | Survived=0（全10ファイル）2026-05-29 達成 |
-| L5 | fast-check プロパティベース | ✅ | 26テスト全通過、バグ3件修正 2026-05-29 達成 |
+| L4 | Stryker ミューテーション | 🔄 | json-ld.ts を対象追加（11ファイル）。seo-snippets.ts の Survived 8件＋Timeout 3件を変異直接 kill 検証で全 KILLED 確認（2026-05-30）。公式 agent 一括再実行は低負荷時に実施予定 |
+| L5 | fast-check プロパティベース | ✅ | 26テスト＋safeJsonLd プロパティ7件、バグ3件修正 2026-05-29／json-ld 追加 2026-05-30 |
 | L6 | npm audit / 認証テスト | ✅ | critical=0・high=0、認証バイパステスト 21件（HMAC検証・middleware） 2026-05-29 達成 |
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
