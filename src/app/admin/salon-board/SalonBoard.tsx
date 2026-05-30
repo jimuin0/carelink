@@ -61,10 +61,12 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [staffFilter, setStaffFilter] = useState<string>('');
   const [tab, setTab] = useState<'schedule' | 'list'>('schedule');
   const [priorKeys, setPriorKeys] = useState<Set<string>>(new Set());
-  const [section, setSection] = useState<'reservation' | 'customers'>('reservation');
+  const [section, setSection] = useState<'reservation' | 'customers' | 'listing'>('reservation');
   const [customers, setCustomers] = useState<{ key: string; name: string; email: string | null; phone: string | null; count: number; last: string }[]>([]);
   const [custLoading, setCustLoading] = useState(false);
   const [custSearch, setCustSearch] = useState('');
+  const [listing, setListing] = useState<{ name: string; status: string; staff: number; photos: number; menus: number } | null>(null);
+  const [listingLoading, setListingLoading] = useState(false);
 
   // 新規（初回来店）判定キー
   const custKey = (b: { email: string | null; customer_name: string }) =>
@@ -127,6 +129,28 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     return () => { cancelled = true; };
   }, [section, facilityId]);
 
+  // 掲載管理：施設の掲載状況（基本情報・スタッフ数・写真数・メニュー数）を集計。DB追加不要。
+  useEffect(() => {
+    if (section !== 'listing') return;
+    let cancelled = false;
+    (async () => {
+      setListingLoading(true);
+      const supabase = createBrowserSupabaseClient();
+      const [fac, st, ph, mn] = await Promise.all([
+        supabase.from('facility_profiles').select('name, status').eq('id', facilityId).maybeSingle(),
+        supabase.from('staff_profiles').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('is_active', true),
+        supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+        supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
+      ]);
+      if (!cancelled) {
+        const f = fac.data as { name: string; status: string } | null;
+        setListing({ name: f?.name ?? '—', status: f?.status ?? 'draft', staff: st.count ?? 0, photos: ph.count ?? 0, menus: mn.count ?? 0 });
+        setListingLoading(false);
+      }
+    })().catch(() => { if (!cancelled) setListingLoading(false); });
+    return () => { cancelled = true; };
+  }, [section, facilityId]);
+
   // 全画面オーバーレイ表示中は背後 body/html のスクロール（無用なスクロールバー）を無効化
   useEffect(() => {
     const html = document.documentElement;
@@ -184,8 +208,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </span>
         <nav className="flex items-center gap-2 text-xs ml-4 overflow-x-auto">
           {NAV.map((m, i) => {
-            const isActive = (i === 0 && section === 'reservation') || (i === 2 && section === 'customers');
-            const onClickNav = i === 0 ? () => setSection('reservation') : i === 2 ? () => setSection('customers') : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
+            const isActive = (i === 0 && section === 'reservation') || (i === 1 && section === 'listing') || (i === 2 && section === 'customers');
+            const onClickNav = i === 0 ? () => setSection('reservation') : i === 1 ? () => setSection('listing') : i === 2 ? () => setSection('customers') : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
             return (
             <button key={m} type="button"
               onClick={onClickNav}
@@ -422,6 +446,45 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                 )}
               </tbody>
             </table>
+          )}
+        </div>
+      )}
+
+      {/* ===== 掲載管理セクション（掲載状況・既存データから集計） ===== */}
+      {section === 'listing' && (
+        <div className="flex-1 overflow-auto bg-gray-50 p-4">
+          {listingLoading || !listing ? (
+            <div className="animate-pulse"><div className="h-48 bg-gray-200 rounded max-w-2xl" /></div>
+          ) : (
+            <div className="max-w-2xl space-y-4">
+              <div className="bg-white rounded-lg border border-gray-200 p-4 flex items-center justify-between">
+                <div>
+                  <div className="text-xs text-gray-400">掲載中のサロン</div>
+                  <div className="text-base font-bold text-gray-800">{listing.name}</div>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-xs font-bold ${listing.status === 'published' ? 'bg-emerald-100 text-emerald-700' : listing.status === 'suspended' ? 'bg-rose-100 text-rose-700' : 'bg-gray-200 text-gray-600'}`}>
+                  {listing.status === 'published' ? '公開中' : listing.status === 'suspended' ? '停止中' : '下書き'}
+                </span>
+              </div>
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2 bg-gray-100 text-xs font-bold text-gray-600 border-b border-gray-200">掲載情報</div>
+                {[
+                  { label: 'サロン掲載情報（基本情報）', val: '登録済み', href: '/admin/settings' },
+                  { label: 'スタッフ掲載情報', val: `${listing.staff} 名`, href: '/admin/staff' },
+                  { label: 'フォトギャラリー掲載情報', val: `${listing.photos} 枚`, href: '/admin/photos' },
+                  { label: 'メニュー掲載情報', val: `${listing.menus} 件`, href: '/admin/menus' },
+                ].map((row) => (
+                  <div key={row.label} className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0">
+                    <span className="text-sm text-gray-700">{row.label}</span>
+                    <span className="flex items-center gap-3">
+                      <span className="text-sm font-bold text-gray-800">{row.val}</span>
+                      <Link href={row.href} className="text-xs px-3 py-1 border border-sky-400 text-sky-600 rounded hover:bg-sky-50">編集</Link>
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[11px] text-gray-400">各項目の編集は対応する管理ページで行います。掲載のオン/オフは「設定」から変更できます。</p>
+            </div>
           )}
         </div>
       )}
