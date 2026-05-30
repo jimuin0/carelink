@@ -67,19 +67,54 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [customers, setCustomers] = useState<{ key: string; name: string; email: string | null; phone: string | null; count: number; last: string }[]>([]);
   const [custLoading, setCustLoading] = useState(false);
   const [custSearch, setCustSearch] = useState('');
-  const [custDetail, setCustDetail] = useState<{ name: string; rows: { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string }[] } | null>(null);
+  const [custSearchVisit, setCustSearchVisit] = useState('');
+  const [custSearchSince, setCustSearchSince] = useState('');
+  const [custDetail, setCustDetail] = useState<{
+    name: string; email: string | null; phone: string | null; loading: boolean;
+    totalSum: number; profile: { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null;
+    rows: { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string; total_price: number | null }[];
+  } | null>(null);
 
-  const openCustomerHistory = async (c: { key: string; name: string; email: string | null }) => {
-    setCustDetail({ name: c.name, rows: [] });
+  const openCustomerHistory = async (c: { key: string; name: string; email: string | null; phone: string | null }) => {
+    setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: true, totalSum: 0, profile: null, rows: [] });
     const supabase = createBrowserSupabaseClient();
-    let q = supabase.from('bookings').select('id, booking_date, start_time, end_time, menu_id, staff_id, status').eq('facility_id', facilityId).neq('status', 'cancelled').order('booking_date', { ascending: false });
+    let q = supabase.from('bookings').select('id, booking_date, start_time, end_time, menu_id, staff_id, status, total_price').eq('facility_id', facilityId).neq('status', 'cancelled').order('booking_date', { ascending: false });
     q = c.email ? q.eq('email', c.email) : q.eq('customer_name', c.name);
-    const { data } = await q;
-    setCustDetail({ name: c.name, rows: (data as { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string }[]) ?? [] });
+    const [bk, pr] = await Promise.all([
+      q,
+      c.email ? supabase.from('profiles').select('birth_date, gender, prefecture, city').eq('email', c.email).maybeSingle() : Promise.resolve({ data: null }),
+    ]);
+    const rows = (bk.data as { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string; total_price: number | null }[]) ?? [];
+    const totalSum = rows.filter((r) => r.status === 'confirmed' || r.status === 'completed').reduce((s, r) => s + (r.total_price ?? 0), 0);
+    setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: false, totalSum, profile: (pr.data as { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null) ?? null, rows });
   };
   const [listing, setListing] = useState<{ name: string; status: string; staff: number; photos: number; menus: number } | null>(null);
   const [listingLoading, setListingLoading] = useState(false);
+  const [acceptStatus, setAcceptStatus] = useState<string | null>(null);
+  const [acceptBusy, setAcceptBusy] = useState(false);
   const dateRef = useRef<HTMLInputElement>(null);
+
+  const fetchAcceptStatus = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    const { data } = await supabase.from('facility_profiles').select('status').eq('id', facilityId).maybeSingle();
+    setAcceptStatus((data as { status: string } | null)?.status ?? 'draft');
+  }, [facilityId]);
+
+  const toggleAccept = async (action: 'suspend' | 'resume') => {
+    if (acceptBusy) return;
+    setAcceptBusy(true);
+    try {
+      const res = await fetch(`/api/admin/facility-status?facility_id=${facilityId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { setToast({ type: 'error', message: data.error || '更新に失敗しました' }); setAcceptBusy(false); return; }
+      setAcceptStatus(data.status);
+      setToast({ type: 'success', message: action === 'suspend' ? 'ネット予約の受付を停止しました' : 'ネット予約の受付を再開しました' });
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally { setAcceptBusy(false); }
+  };
   const openDatePicker = () => { const el = dateRef.current; if (!el) return; (el.showPicker ? el.showPicker() : el.focus()); };
 
   // 新規（初回来店）判定キー
@@ -109,6 +144,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   }, [facilityId, date]);
 
   useEffect(() => { loadData().catch(() => setLoading(false)); }, [loadData]);
+  useEffect(() => { if (tab === 'suspend') fetchAcceptStatus().catch(() => {}); }, [tab, fetchAcceptStatus]);
 
   useEffect(() => {
     const update = () => {
@@ -487,17 +523,34 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         );
       })()}
 
-      {/* 一括停止・再開タブ */}
+      {/* 一括停止・再開タブ（ネット予約受付のライブ切替） */}
       {tab === 'suspend' && (
         <div className="flex-1 overflow-auto bg-gray-50 p-4">
           <div className="max-w-2xl space-y-4">
             <div className="text-sm font-bold text-gray-800">オンライン予約の一括停止・再開</div>
-            <div className="bg-white rounded-lg border border-gray-200 p-4 text-sm text-gray-700 space-y-3">
-              <p>臨時休業やイベント時に、ネット予約の受付を一括で停止／再開できます。</p>
-              <p className="text-xs text-gray-500">受付状態（公開/停止）の切替は、施設の掲載ステータスとして「設定」または「掲載管理」から変更します。</p>
-              <div className="flex gap-2 pt-1">
-                <button type="button" onClick={() => setSection('settings')} className="px-4 py-2 text-xs font-bold border border-sky-500 text-sky-600 rounded hover:bg-sky-50">設定を開く</button>
-                <button type="button" onClick={() => setSection('listing')} className="px-4 py-2 text-xs font-bold border border-gray-300 text-gray-600 rounded hover:bg-gray-50">掲載管理を開く</button>
+            <div className="bg-white rounded-lg border border-gray-200 p-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-gray-600">現在のネット予約 受付状態</span>
+                {acceptStatus === null ? (
+                  <span className="text-sm text-gray-400">読み込み中…</span>
+                ) : acceptStatus === 'suspended' ? (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-700">受付停止中</span>
+                ) : acceptStatus === 'published' ? (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-700">受付中</span>
+                ) : (
+                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-gray-200 text-gray-600">下書き（未公開）</span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">臨時休業やイベント時に、ネット予約の受付を一括で停止／再開できます。停止中はお客様からのネット予約を受け付けません。</p>
+              <div className="flex gap-3">
+                <button type="button" disabled={acceptBusy || acceptStatus === 'suspended'} onClick={() => toggleAccept('suspend')}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-bold border border-rose-400 text-rose-600 hover:bg-rose-50 disabled:opacity-40 bg-white">
+                  {acceptBusy ? '処理中…' : '受付を停止する'}
+                </button>
+                <button type="button" disabled={acceptBusy || acceptStatus === 'published'} onClick={() => toggleAccept('resume')}
+                  className="flex-1 py-2.5 rounded-lg text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 disabled:opacity-40">
+                  {acceptBusy ? '処理中…' : '受付を再開する'}
+                </button>
               </div>
             </div>
           </div>
@@ -523,17 +576,26 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       {/* ===== お客様管理セクション（顧客一覧・既存予約から集計） ===== */}
       {section === 'customers' && (
         <div className="flex-1 overflow-auto bg-white">
-          <div className="flex items-center gap-3 px-4 py-2.5 border-b border-gray-300 bg-white sticky top-0 z-10">
-            <span className="text-sm font-bold text-gray-800">お客様一覧</span>
-            <input type="text" value={custSearch} onChange={(e) => setCustSearch(e.target.value)} placeholder="氏名・電話・メールで検索"
-              className="px-3 py-1.5 border border-gray-300 rounded text-xs w-64" />
-            <span className="text-[11px] text-gray-400">全 {customers.length} 名</span>
+          <div className="px-4 py-2.5 border-b border-gray-300 bg-gray-50 sticky top-0 z-10 space-y-2">
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-gray-800">お客様一覧</span>
+              <span className="text-[11px] text-gray-400">全 {customers.length} 名</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <input type="text" value={custSearch} onChange={(e) => setCustSearch(e.target.value)} placeholder="氏名・電話・メール" className="px-3 py-1.5 border border-gray-300 rounded w-56" />
+              <label className="text-gray-500">来店回数</label>
+              <input type="number" min={0} value={custSearchVisit} onChange={(e) => setCustSearchVisit(e.target.value)} placeholder="以上" className="px-2 py-1.5 border border-gray-300 rounded w-20" />
+              <label className="text-gray-500">最終来店</label>
+              <input type="date" value={custSearchSince} onChange={(e) => setCustSearchSince(e.target.value)} className="px-2 py-1.5 border border-gray-300 rounded" />
+              <span className="text-gray-500">以降</span>
+              <button type="button" onClick={() => { setCustSearch(''); setCustSearchVisit(''); setCustSearchSince(''); }} className="px-3 py-1.5 border border-gray-300 rounded bg-white hover:bg-gray-50">条件をクリア</button>
+            </div>
           </div>
           {custLoading ? (
             <div className="animate-pulse p-3"><div className="h-64 bg-gray-200 rounded" /></div>
           ) : (
             <table className="w-full text-xs border-collapse">
-              <thead className="bg-gray-100 text-gray-600 sticky top-[45px]">
+              <thead className="bg-gray-100 text-gray-600 sticky top-[88px]">
                 <tr>{['お客様名', '電話', 'メール', '来店回数', '最終来店'].map((h) => (
                   <th key={h} className="text-left px-3 py-2 border-b border-gray-300 font-bold whitespace-nowrap">{h}</th>
                 ))}</tr>
@@ -541,7 +603,10 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               <tbody>
                 {customers.filter((c) => {
                   const q = custSearch.trim().toLowerCase();
-                  return !q || c.name.toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q);
+                  if (q && !(c.name.toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q))) return false;
+                  if (custSearchVisit && c.count < Number(custSearchVisit)) return false;
+                  if (custSearchSince && c.last < custSearchSince) return false;
+                  return true;
                 }).map((c) => (
                   <tr key={c.key} className="border-b border-gray-100 hover:bg-sky-50 cursor-pointer" onClick={() => openCustomerHistory(c)}>
                     <td className="px-3 py-2 font-bold whitespace-nowrap">{c.name} 様</td>
@@ -677,26 +742,52 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <span>© CareLink</span>
       </div>
 
-      {/* お客様の来店履歴モーダル */}
+      {/* お客様カルテ（属性＋来店履歴） */}
       {custDetail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setCustDetail(null)}>
-          <div className="bg-white w-full max-w-md rounded-2xl shadow-xl max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white">
-              <h2 className="text-base font-bold">{custDetail.name} 様 の来店履歴</h2>
+          <div className="bg-white w-full max-w-lg rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
+              <h2 className="text-base font-bold">{custDetail.name} 様 のカルテ</h2>
               <button type="button" onClick={() => setCustDetail(null)} aria-label="閉じる" className="text-gray-400 hover:text-gray-600">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
-            <div className="p-4">
-              <table className="w-full text-xs">
-                <thead className="text-gray-500"><tr><th className="text-left py-1">日付</th><th className="text-left py-1">時間</th><th className="text-left py-1">メニュー</th><th className="text-left py-1">状態</th></tr></thead>
-                <tbody>
-                  {custDetail.rows.map((r) => (
-                    <tr key={r.id} className="border-t border-gray-100"><td className="py-1.5">{r.booking_date}</td><td className="py-1.5">{r.start_time.slice(0, 5)}</td><td className="py-1.5">{menuName(r.menu_id) || '—'}</td><td className="py-1.5">{STATUS_LABEL[r.status] || r.status}</td></tr>
-                  ))}
-                  {custDetail.rows.length === 0 && <tr><td colSpan={4} className="py-6 text-center text-gray-400">読み込み中…</td></tr>}
-                </tbody>
-              </table>
+            <div className="p-5 space-y-4">
+              {/* 顧客属性カード */}
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {[
+                  ['電話', custDetail.phone || '—'],
+                  ['メール', custDetail.email || '—'],
+                  ['来店回数', `${custDetail.rows.length} 回`],
+                  ['累計売上', `¥${custDetail.totalSum.toLocaleString()}`],
+                  ['誕生日', custDetail.profile?.birth_date || '—'],
+                  ['性別', custDetail.profile?.gender === 'male' ? '男性' : custDetail.profile?.gender === 'female' ? '女性' : custDetail.profile?.gender ? 'その他' : '—'],
+                  ['エリア', [custDetail.profile?.prefecture, custDetail.profile?.city].filter(Boolean).join(' ') || '—'],
+                ].map(([k, v]) => (
+                  <div key={k} className="bg-gray-50 rounded p-2"><div className="text-gray-400 text-[10px]">{k}</div><div className="font-medium text-gray-800">{v}</div></div>
+                ))}
+              </div>
+              {/* 来店履歴 */}
+              <div>
+                <div className="text-xs font-bold text-gray-600 mb-1">来店履歴</div>
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500"><tr><th className="text-left py-1">日付</th><th className="text-left py-1">時間</th><th className="text-left py-1">メニュー</th><th className="text-left py-1">担当</th><th className="text-right py-1">金額</th><th className="text-left py-1 pl-2">状態</th></tr></thead>
+                  <tbody>
+                    {custDetail.rows.map((r) => (
+                      <tr key={r.id} className="border-t border-gray-100">
+                        <td className="py-1.5">{r.booking_date}</td>
+                        <td className="py-1.5">{r.start_time.slice(0, 5)}</td>
+                        <td className="py-1.5">{menuName(r.menu_id) || '—'}</td>
+                        <td className="py-1.5">{staffName(r.staff_id) || 'フリー'}</td>
+                        <td className="py-1.5 text-right">{r.total_price != null ? `¥${r.total_price.toLocaleString()}` : '—'}</td>
+                        <td className="py-1.5 pl-2">{STATUS_LABEL[r.status] || r.status}</td>
+                      </tr>
+                    ))}
+                    {custDetail.loading && <tr><td colSpan={6} className="py-6 text-center text-gray-400">読み込み中…</td></tr>}
+                    {!custDetail.loading && custDetail.rows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-gray-400">来店履歴がありません</td></tr>}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
