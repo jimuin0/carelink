@@ -11,6 +11,8 @@ export const SALON_OPEN_HOUR = 9;
 export const SALON_CLOSE_HOUR = 22;
 /** 予約の最小刻み（分）。 */
 export const SLOT_MINUTES = 15;
+/** タイムライングリッドの刻み（分）。SALON BOARD と同じ 30 分。 */
+export const GRID_MINUTES = 30;
 
 /** "HH:MM" / "HH:MM:SS" を 0時起点の分に変換。不正値は NaN。 */
 export function timeToMinutes(time: string): number {
@@ -184,6 +186,31 @@ export function formatDateLabel(dateStr: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr;
   const d = new Date(dateStr + 'T00:00:00Z');
   return `${d.getUTCFullYear()}年${d.getUTCMonth() + 1}月${d.getUTCDate()}日（${JP_WEEKDAYS[d.getUTCDay()]}）`;
+}
+
+/**
+ * 営業時間内の空き枠数（受付可能数）を求める。
+ * 全枠数（(close-open)*60/slot）から、予約と重なる枠を除いた数。
+ */
+export function availableSlotCount(
+  items: TimeRangeItem[],
+  openHour = SALON_OPEN_HOUR,
+  closeHour = SALON_CLOSE_HOUR,
+  slotMin = GRID_MINUTES,
+): number {
+  const openMin = openHour * 60;
+  const closeMin = closeHour * 60;
+  const total = Math.floor((closeMin - openMin) / slotMin);
+  let free = 0;
+  for (let i = 0; i < total; i++) {
+    const slotStart = openMin + i * slotMin;
+    const slotEnd = slotStart + slotMin;
+    const occupied = items.some((it) =>
+      rangesOverlap(timeToMinutes(it.start_time), timeToMinutes(it.end_time), slotStart, slotEnd),
+    );
+    if (!occupied) free++;
+  }
+  return free;
 }
 
 /** "YYYY-MM-DD" に日数を加減算した "YYYY-MM-DD"。UTC 基準で計算しタイムゾーンずれを避ける。 */

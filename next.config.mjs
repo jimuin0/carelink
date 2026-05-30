@@ -15,14 +15,20 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // strict-dynamic: modern browsers ignore unsafe-inline when strict-dynamic is present.
-              // Legacy browsers fall back to unsafe-inline + allowlisted domains.
-              // Next step: migrate to nonce-based CSP when ready to remove unsafe-inline entirely.
-              "script-src 'self' 'unsafe-inline' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com",
+              // NOTE: 'strict-dynamic' was removed because it disables 'self' and host
+              // allowlisting in modern browsers, requiring a per-request nonce/hash. No nonce
+              // is generated here, so 'strict-dynamic' blocked ALL Next.js script chunks
+              // (the entire app failed to hydrate). 'self' + 'unsafe-inline' + allowlisted
+              // analytics domains is the working baseline.
+              // TODO(security hardening): migrate to nonce-based CSP via middleware to drop
+              // 'unsafe-inline' entirely (then 'strict-dynamic' can be reintroduced with a nonce).
+              "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self'",
               "img-src 'self' data: https: blob:",
-              "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp",
+              // wss://...supabase.co を追加（Supabase Realtime の WebSocket 接続用。
+              // これが無いと RealtimeBookingListener の接続が CSP でブロックされる）
+              "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co wss://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp",
               "worker-src 'self'",
               "manifest-src 'self'",
               "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",

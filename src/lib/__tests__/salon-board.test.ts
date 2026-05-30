@@ -2,6 +2,8 @@ import {
   SALON_OPEN_HOUR,
   SALON_CLOSE_HOUR,
   SLOT_MINUTES,
+  GRID_MINUTES,
+  availableSlotCount,
   timeToMinutes,
   minutesToTime,
   addMinutes,
@@ -22,6 +24,30 @@ describe('salon-board pure functions', () => {
       expect(SALON_OPEN_HOUR).toBe(9);
       expect(SALON_CLOSE_HOUR).toBe(22);
       expect(SLOT_MINUTES).toBe(15);
+      expect(GRID_MINUTES).toBe(30);
+    });
+  });
+
+  describe('availableSlotCount', () => {
+    it('予約なしは全枠空き（9-22時/30分 = 26枠）', () => {
+      expect(availableSlotCount([])).toBe(26);
+    });
+    it('1時間の予約は2枠埋まる', () => {
+      expect(availableSlotCount([{ start_time: '10:00', end_time: '11:00' }])).toBe(24);
+    });
+    it('複数予約の重複枠は二重に数えない', () => {
+      // 10:00-11:00 と 10:30-11:30 → 10:00,10:30,11:00 の3枠が埋まる
+      expect(availableSlotCount([
+        { start_time: '10:00', end_time: '11:00' },
+        { start_time: '10:30', end_time: '11:30' },
+      ])).toBe(23);
+    });
+    it('営業時間外の予約は空き数に影響しない', () => {
+      expect(availableSlotCount([{ start_time: '06:00', end_time: '07:00' }])).toBe(26);
+    });
+    it('カスタム営業時間と刻み', () => {
+      // 10-12時/60分 = 2枠、10-11時予約で1枠
+      expect(availableSlotCount([{ start_time: '10:00', end_time: '11:00' }], 10, 12, 60)).toBe(1);
     });
   });
 

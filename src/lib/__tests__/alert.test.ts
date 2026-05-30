@@ -226,7 +226,7 @@ describe('alert', () => {
   test('postToSlackWithThreadGrouping が非 Error 値を throw → catch の String(e) ブランチ', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockImplementation(() => {
-      // eslint-disable-next-line @typescript-eslint/no-throw-literal
+      // eslint-disable-next-line @typescript-eslint/only-throw-error
       throw 'non-error-string';
     });
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
