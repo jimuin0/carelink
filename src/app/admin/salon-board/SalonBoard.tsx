@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -14,7 +14,6 @@ import {
   nowLinePosition,
   formatDateLabel,
   shiftDate,
-  availableSlotCount,
 } from '@/lib/salon-board';
 import { getTodayString } from '@/lib/validations-booking';
 import BookingModal, { type ModalInit, type StaffOption, type MenuOption, type BoardBooking } from './BookingModal';
@@ -59,14 +58,18 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [showLegend, setShowLegend] = useState(false);
   const [view, setView] = useState<'day' | 'week' | 'month'>('day');
   const [staffFilter, setStaffFilter] = useState<string>('');
-  const [tab, setTab] = useState<'schedule' | 'list'>('schedule');
+  const [tab, setTab] = useState<'schedule' | 'list' | 'accept' | 'suspend'>('schedule');
   const [priorKeys, setPriorKeys] = useState<Set<string>>(new Set());
-  const [section, setSection] = useState<'reservation' | 'customers' | 'listing'>('reservation');
+  const [section, setSection] = useState<'reservation' | 'customers' | 'listing' | 'sales' | 'settings'>('reservation');
+  const [sales, setSales] = useState<{ monthCount: number; monthSum: number; todayCount: number; todaySum: number; byDay: Record<string, { c: number; s: number }> } | null>(null);
+  const [salesLoading, setSalesLoading] = useState(false);
   const [customers, setCustomers] = useState<{ key: string; name: string; email: string | null; phone: string | null; count: number; last: string }[]>([]);
   const [custLoading, setCustLoading] = useState(false);
   const [custSearch, setCustSearch] = useState('');
   const [listing, setListing] = useState<{ name: string; status: string; staff: number; photos: number; menus: number } | null>(null);
   const [listingLoading, setListingLoading] = useState(false);
+  const dateRef = useRef<HTMLInputElement>(null);
+  const openDatePicker = () => { const el = dateRef.current; if (!el) return; (el.showPicker ? el.showPicker() : el.focus()); };
 
   // 新規（初回来店）判定キー
   const custKey = (b: { email: string | null; customer_name: string }) =>
@@ -131,7 +134,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
 
   // 掲載管理：施設の掲載状況（基本情報・スタッフ数・写真数・メニュー数）を集計。DB追加不要。
   useEffect(() => {
-    if (section !== 'listing') return;
+    if (section !== 'listing' && section !== 'settings') return;
     let cancelled = false;
     (async () => {
       setListingLoading(true);
@@ -150,6 +153,34 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     })().catch(() => { if (!cancelled) setListingLoading(false); });
     return () => { cancelled = true; };
   }, [section, facilityId]);
+
+  // 売上管理：当月の予約から件数・売上(total_price)を集計。DB追加不要。
+  useEffect(() => {
+    if (section !== 'sales') return;
+    let cancelled = false;
+    (async () => {
+      setSalesLoading(true);
+      const supabase = createBrowserSupabaseClient();
+      const month = date.slice(0, 7); // YYYY-MM
+      const today = getTodayString();
+      const { data } = await supabase.from('bookings')
+        .select('booking_date, total_price, status')
+        .eq('facility_id', facilityId).gte('booking_date', `${month}-01`).lte('booking_date', `${month}-31`)
+        .in('status', ['confirmed', 'completed']);
+      const rows = (data as { booking_date: string; total_price: number | null }[] ?? []);
+      const byDay: Record<string, { c: number; s: number }> = {};
+      let mc = 0, ms = 0, tc = 0, ts = 0;
+      for (const r of rows) {
+        const price = r.total_price ?? 0;
+        mc++; ms += price;
+        byDay[r.booking_date] = byDay[r.booking_date] || { c: 0, s: 0 };
+        byDay[r.booking_date].c++; byDay[r.booking_date].s += price;
+        if (r.booking_date === today) { tc++; ts += price; }
+      }
+      if (!cancelled) { setSales({ monthCount: mc, monthSum: ms, todayCount: tc, todaySum: ts, byDay }); setSalesLoading(false); }
+    })().catch(() => { if (!cancelled) setSalesLoading(false); });
+    return () => { cancelled = true; };
+  }, [section, facilityId, date]);
 
   // 全画面オーバーレイ表示中は背後 body/html のスクロール（無用なスクロールバー）を無効化
   useEffect(() => {
@@ -208,8 +239,9 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </span>
         <nav className="flex items-center gap-2 text-xs ml-4 overflow-x-auto">
           {NAV.map((m, i) => {
-            const isActive = (i === 0 && section === 'reservation') || (i === 1 && section === 'listing') || (i === 2 && section === 'customers');
-            const onClickNav = i === 0 ? () => setSection('reservation') : i === 1 ? () => setSection('listing') : i === 2 ? () => setSection('customers') : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
+            const navSection = (['reservation', 'listing', 'customers', 'sales', null, 'settings'] as const)[i];
+            const isActive = navSection != null && section === navSection;
+            const onClickNav = navSection != null ? () => setSection(navSection) : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
             return (
             <button key={m} type="button"
               onClick={onClickNav}
@@ -229,23 +261,27 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       <div className="shrink-0 flex items-stretch gap-1 bg-sky-200/50 border-b border-sky-300 px-2 pt-1.5">
         <Tab label="スケジュール" active={tab === 'schedule'} onClick={() => setTab('schedule')} />
         <Tab label="予約一覧" active={tab === 'list'} onClick={() => setTab('list')} />
-        <Tab label="毎月の受付設定" onClick={() => setToast({ type: 'success', message: '受付設定は準備中です' })} />
-        <Tab label="一括停止・再開" onClick={() => setToast({ type: 'success', message: '一括停止・再開は準備中です' })} />
+        <Tab label="毎月の受付設定" active={tab === 'accept'} onClick={() => setTab('accept')} />
+        <Tab label="一括停止・再開" active={tab === 'suspend'} onClick={() => setTab('suspend')} />
       </div>
 
       {/* ツールバー */}
       <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-white border-b border-gray-300 overflow-x-auto whitespace-nowrap">
-        <div className="flex items-center shrink-0">
-          <button type="button" onClick={() => setDate((d) => shiftDate(d, -1))} aria-label="前日" className="px-1.5 py-1 border border-gray-300 rounded-l bg-white hover:bg-gray-50">
+        <div className="flex items-center shrink-0 relative">
+          <button type="button" onClick={() => setDate((d) => shiftDate(d, -1))} aria-label="前日" className="px-1.5 py-1.5 border border-gray-300 rounded-l bg-white hover:bg-gray-50">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
-          <input type="date" lang="ja" value={date} onChange={(e) => setDate(e.target.value)} className="px-1.5 py-1 border-y border-gray-300 bg-white text-xs" />
-          <button type="button" onClick={() => setDate((d) => shiftDate(d, 1))} aria-label="翌日" className="px-1.5 py-1 border border-gray-300 rounded-r bg-white hover:bg-gray-50">
+          <button type="button" onClick={openDatePicker} className="flex items-center gap-1.5 px-3 py-1.5 border-y border-gray-300 bg-white hover:bg-gray-50">
+            <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <span className="text-sm font-bold text-gray-800">{formatDateLabel(date)}</span>
+          </button>
+          <button type="button" onClick={() => setDate((d) => shiftDate(d, 1))} aria-label="翌日" className="px-1.5 py-1.5 border border-gray-300 rounded-r bg-white hover:bg-gray-50">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </button>
+          {/* 隠し日付入力（カレンダーアイコンから起動） */}
+          <input ref={dateRef} type="date" value={date} onChange={(e) => setDate(e.target.value)} className="absolute opacity-0 w-0 h-0 left-1/2 bottom-0 pointer-events-none" tabIndex={-1} aria-hidden />
         </div>
-        <button type="button" onClick={() => setDate(getTodayString())} className="px-2 py-1 border border-gray-300 rounded bg-white hover:bg-gray-50 text-xs shrink-0">今日</button>
-        <span className="text-sm font-bold text-gray-800 shrink-0">{formatDateLabel(date)}</span>
+        <button type="button" onClick={() => setDate(getTodayString())} className="px-2 py-1.5 border border-gray-300 rounded bg-white hover:bg-gray-50 text-xs shrink-0">今日</button>
         <div className="flex rounded overflow-hidden border border-gray-300 shrink-0">
           {(['day', 'week', 'month'] as const).map((v) => (
             <button key={v} type="button" disabled={v !== 'day'}
@@ -309,13 +345,12 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                 ? bookings.filter((b) => b.staff_id === row.id)
                 : bookings.filter((b) => !b.staff_id);
               const laid = layoutRow(rowBookings);
-              const free = availableSlotCount(rowBookings);
               const rowKey = row.kind === 'staff' ? row.id : '__free__';
               return (
                 <div key={rowKey} className="flex border-b border-gray-200 relative" style={{ height: ROW_H }}>
                   <div className="shrink-0 sticky left-0 z-20 border-r border-gray-300 bg-gray-50 px-2 flex flex-col justify-center" style={{ width: LABEL_W }}>
-                    <span className="font-bold text-gray-800 truncate text-[12px] leading-tight">{row.name}{('sub' in row && row.sub) ? `（${row.sub}）` : ''}</span>
-                    <span className="text-[10px] text-gray-400 leading-tight truncate">受付可能数：{free}</span>
+                    <span className="font-bold text-gray-800 truncate text-[13px] leading-tight">{row.name}</span>
+                    {('sub' in row && row.sub) && <span className="text-[10px] text-gray-400 leading-tight truncate">{row.sub}</span>}
                   </div>
                   <div className="relative cursor-pointer" style={{ width: trackWidth }} onClick={(e) => handleCellClick(targetStaffId, e)}>
                     <GridLines />
@@ -396,7 +431,62 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </div>
       )}
 
+      {/* 毎月の受付設定タブ：月間カレンダー（日クリックでその日のスケジュールへ） */}
+      {tab === 'accept' && (() => {
+        const [y, mo] = date.split('-').map(Number);
+        const startWd = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay();
+        const days = new Date(Date.UTC(y, mo, 0)).getUTCDate();
+        const cells: (number | null)[] = [...Array(startWd).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+        const wd = ['日', '月', '火', '水', '木', '金', '土'];
+        const today = getTodayString();
+        return (
+          <div className="flex-1 overflow-auto bg-gray-50 p-4">
+            <div className="max-w-2xl">
+              <div className="flex items-center justify-between mb-3">
+                <button type="button" onClick={() => setDate(shiftDate(date, -28))} className="px-2 py-1 text-xs border border-gray-300 rounded bg-white">前月</button>
+                <span className="text-sm font-bold text-gray-800">{y}年{mo}月 受付カレンダー</span>
+                <button type="button" onClick={() => setDate(shiftDate(date, 28))} className="px-2 py-1 text-xs border border-gray-300 rounded bg-white">翌月</button>
+              </div>
+              <div className="grid grid-cols-7 gap-1 bg-white p-2 rounded-lg border border-gray-200">
+                {wd.map((w, i) => <div key={w} className={`text-center text-[11px] font-bold py-1 ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-sky-500' : 'text-gray-500'}`}>{w}</div>)}
+                {cells.map((d, idx) => {
+                  if (d === null) return <div key={`b${idx}`} />;
+                  const ds = `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+                  const isToday = ds === today, isSel = ds === date;
+                  return (
+                    <button key={ds} type="button" onClick={() => { setDate(ds); setTab('schedule'); }}
+                      className={`h-16 rounded border text-left p-1 hover:bg-sky-50 ${isSel ? 'border-sky-400 bg-sky-50' : 'border-gray-200'}`}>
+                      <span className={`text-xs font-bold ${isToday ? 'text-sky-600' : 'text-gray-700'}`}>{d}{isToday ? '(今日)' : ''}</span>
+                      <span className="block text-[9px] text-emerald-600 mt-1">受付中</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-2">日付をクリックするとその日のスケジュールを開きます。日別の受付停止設定は今後対応予定です。</p>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* 一括停止・再開タブ */}
+      {tab === 'suspend' && (
+        <div className="flex-1 overflow-auto bg-gray-50 p-4">
+          <div className="max-w-2xl space-y-4">
+            <div className="text-sm font-bold text-gray-800">オンライン予約の一括停止・再開</div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4 text-sm text-gray-700 space-y-3">
+              <p>臨時休業やイベント時に、ネット予約の受付を一括で停止／再開できます。</p>
+              <p className="text-xs text-gray-500">受付状態（公開/停止）の切替は、施設の掲載ステータスとして「設定」または「掲載管理」から変更します。</p>
+              <div className="flex gap-2 pt-1">
+                <button type="button" onClick={() => setSection('settings')} className="px-4 py-2 text-xs font-bold border border-sky-500 text-sky-600 rounded hover:bg-sky-50">設定を開く</button>
+                <button type="button" onClick={() => setSection('listing')} className="px-4 py-2 text-xs font-bold border border-gray-300 text-gray-600 rounded hover:bg-gray-50">掲載管理を開く</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* フッター：日付ナビ＋アクション（右下のチャットウィジェットと被らないよう右余白を確保） */}
+      {(tab === 'schedule' || tab === 'list') && (
       <div className="shrink-0 flex items-center gap-2 pl-3 pr-24 py-1.5 bg-gray-100 border-t border-gray-300 overflow-x-auto whitespace-nowrap">
         <button type="button" onClick={() => setDate((d) => shiftDate(d, -1))} className="px-2 py-1 text-[11px] bg-white border border-gray-300 rounded hover:bg-gray-50 shrink-0">前の日</button>
         <span className="px-1 text-[11px] font-bold text-gray-600 shrink-0">{formatDateLabel(date)}</span>
@@ -408,6 +498,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <button type="button" onClick={() => setModal({ mode: 'create', staffId: visibleStaff[0]?.id ?? null, startTime: `${String(SHOP_OPEN_MIN / 60).padStart(2, '0')}:00` })}
           className="px-4 py-1.5 text-xs font-bold text-white bg-sky-500 rounded hover:bg-sky-600 shrink-0">予約登録</button>
       </div>
+      )}
       </>)}
 
       {/* ===== お客様管理セクション（顧客一覧・既存予約から集計） ===== */}
@@ -486,6 +577,76 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               <p className="text-[11px] text-gray-400">各項目の編集は対応する管理ページで行います。掲載のオン/オフは「設定」から変更できます。</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ===== 売上管理セクション（予約データから集計） ===== */}
+      {section === 'sales' && (
+        <div className="flex-1 overflow-auto bg-gray-50 p-4">
+          {salesLoading || !sales ? (
+            <div className="animate-pulse"><div className="h-40 bg-gray-200 rounded max-w-3xl" /></div>
+          ) : (
+            <div className="max-w-3xl space-y-4">
+              <div className="text-sm font-bold text-gray-800">売上管理（{date.slice(0, 7).replace('-', '年')}月）</div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { l: '当月 予約件数', v: `${sales.monthCount} 件` },
+                  { l: '当月 売上合計', v: `¥${sales.monthSum.toLocaleString()}` },
+                  { l: '本日 予約件数', v: `${sales.todayCount} 件` },
+                  { l: '本日 売上合計', v: `¥${sales.todaySum.toLocaleString()}` },
+                ].map((c) => (
+                  <div key={c.l} className="bg-white rounded-lg border border-gray-200 p-3">
+                    <div className="text-[11px] text-gray-400">{c.l}</div>
+                    <div className="text-lg font-bold text-gray-800 mt-1">{c.v}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2 bg-gray-100 text-xs font-bold text-gray-600 border-b border-gray-200">日別 売上（確定・完了のみ）</div>
+                <table className="w-full text-xs">
+                  <thead className="text-gray-500"><tr><th className="text-left px-4 py-2">日付</th><th className="text-right px-4 py-2">件数</th><th className="text-right px-4 py-2">売上</th></tr></thead>
+                  <tbody>
+                    {Object.keys(sales.byDay).sort().map((d) => (
+                      <tr key={d} className="border-t border-gray-100"><td className="px-4 py-2">{d}</td><td className="px-4 py-2 text-right">{sales.byDay[d].c}</td><td className="px-4 py-2 text-right">¥{sales.byDay[d].s.toLocaleString()}</td></tr>
+                    ))}
+                    {sales.monthCount === 0 && <tr><td colSpan={3} className="px-4 py-8 text-center text-gray-400">当月の売上データがありません</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-gray-400">売上は予約のメニュー料金（total_price）の合計です。詳細な会計連携は「会計連携」をご利用ください。</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ===== 設定セクション ===== */}
+      {section === 'settings' && (
+        <div className="flex-1 overflow-auto bg-gray-50 p-4">
+          <div className="max-w-2xl space-y-4">
+            <div className="text-sm font-bold text-gray-800">設定</div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="text-xs text-gray-400">サロン名</div>
+              <div className="text-base font-bold text-gray-800">{listing?.name ?? '—'}</div>
+              <div className="text-xs text-gray-400 mt-2">掲載ステータス</div>
+              <div className="text-sm font-medium text-gray-800">{listing?.status === 'published' ? '公開中' : listing?.status === 'suspended' ? '停止中' : '下書き'}</div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+              <div className="px-4 py-2 bg-gray-100 text-xs font-bold text-gray-600 border-b border-gray-200">各種設定</div>
+              {[
+                { l: '店舗・基本情報', href: '/admin/settings' },
+                { l: 'スタッフ管理', href: '/admin/staff' },
+                { l: 'メニュー管理', href: '/admin/menus' },
+                { l: 'クーポン', href: '/admin/coupons' },
+                { l: '写真管理', href: '/admin/photos' },
+                { l: '決済設定', href: '/admin/payments' },
+              ].map((row) => (
+                <Link key={row.l} href={row.href} className="flex items-center justify-between px-4 py-3 border-b border-gray-100 last:border-0 hover:bg-sky-50">
+                  <span className="text-sm text-gray-700">{row.l}</span>
+                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+                </Link>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
