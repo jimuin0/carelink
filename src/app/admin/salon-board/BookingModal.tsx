@@ -224,7 +224,7 @@ export default function BookingModal({ init, facilityId, date, staffList, menuLi
           {!isEdit && step === 4 && (
             <div className="space-y-2 text-sm">
               <p className="text-xs text-gray-400 mb-2">内容を確認して登録してください</p>
-              {[['お客様', `${customerName || '—'} 様`], ['メニュー', menuName(menuId)], ['日時', `${date} ${startTime}〜${endTime}`], ['担当', staffName(staffId)], ['経路', source === 'walk_in' ? '店頭' : '電話'], ['備考', note || '—']].map(([k, v]) => (
+              {[['お客様', `${customerName || '—'} 様`], ['メニュー', menuName(menuId)], ['料金', (() => { const pr = menuList.find((m) => m.id === menuId)?.price; return pr != null ? `¥${pr.toLocaleString()}` : '—'; })()], ['日時', `${date} ${startTime}〜${endTime}`], ['担当', staffName(staffId)], ['経路', source === 'walk_in' ? '店頭' : '電話'], ['備考', note || '—']].map(([k, v]) => (
                 <div key={k} className="flex justify-between border-b border-gray-100 py-1.5"><span className="text-gray-500">{k}</span><span className="font-medium text-right">{v}</span></div>
               ))}
             </div>
