@@ -152,6 +152,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     setMenus((data as MenuRow[]) ?? []);
   }, [facilityId]);
 
+  const reloadBlogs = useCallback(async () => {
+    const sb = createBrowserSupabaseClient();
+    const { data } = await sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    setBlogs((data as BlogRow[]) ?? []);
+  }, [facilityId]);
+
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 
   return (
@@ -177,7 +183,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
             {tab === 'coupon' && <CouponListPage rows={coupons} facilityId={facilityId} onReload={reloadCoupons} onToast={onToast} />}
-            {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} onToast={onToast} />}
+            {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} facilityId={facilityId} onReload={reloadBlogs} onToast={onToast} />}
             {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} onToast={onToast} />}
           </>
         )}
@@ -782,10 +788,19 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
 }
 
 /* ========================= ブログ一覧 ========================= */
-function BlogListPage({ rows, staff, onToast }: { rows: BlogRow[]; staff: StaffRow[]; onToast: (m: string) => void }) {
+function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: BlogRow[]; staff: StaffRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const [editing, setEditing] = useState<BlogRow | 'new' | null>(null);
+  const [busy, setBusy] = useState(false);
   const authorName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
-  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onToast={onToast} />;
+  const remove = async (b: BlogRow) => {
+    if (busy) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/blog/${b.id}?facility_id=${facilityId}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); return; }
+      onToast('ブログを削除しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">ブログ一覧</h2>
@@ -818,7 +833,7 @@ function BlogListPage({ rows, staff, onToast }: { rows: BlogRow[]; staff: StaffR
                 <td className="border border-slate-200 px-2 py-3 text-center">{b.thumbnail_url ? <img src={b.thumbnail_url} alt="" className="w-16 h-12 object-cover mx-auto" /> : <div className="w-16 h-12 bg-gray-100 mx-auto" />}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">スタッフ<br /><span className="text-gray-400">({authorName(b.author_id)})</span></td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(b.published_at ?? b.created_at)}<br /><span className={b.is_published ? 'text-emerald-600' : 'text-gray-400'}>{b.is_published ? '掲載中' : '非掲載'}</span></td>
-                <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => setEditing(b)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除</button></td>
+                <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => setEditing(b)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button disabled={busy} onClick={() => { if (confirm('このブログを削除しますか？')) remove(b); }} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs disabled:opacity-40">削除</button></td>
               </tr>
             ))}
           </tbody>
@@ -829,10 +844,26 @@ function BlogListPage({ rows, staff, onToast }: { rows: BlogRow[]; staff: StaffR
 }
 
 /* ========================= ブログ編集 入力 ========================= */
-function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose: () => void; onToast: (m: string) => void }) {
+function BlogEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const [title, setTitle] = useState(row?.title ?? '');
   const [body, setBody] = useState(row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : '');
+  const [saving, setSaving] = useState(false);
   const lineCount = body ? body.split('\n').length : 0;
+  const save = async () => {
+    if (saving) return;
+    if (!title.trim()) { onToast('タイトルを入力してください'); return; }
+    if (!body.trim()) { onToast('本文を入力してください'); return; }
+    setSaving(true);
+    try {
+      const payload = { title: title.trim(), content: body.trim(), is_published: !!row?.is_published };
+      const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
+      const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+      onToast(row ? 'ブログを更新しました' : 'ブログを投稿しました');
+      onSaved(); onClose();
+    } catch { onToast('通信エラーが発生しました'); setSaving(false); }
+  };
   return (
     <div className="max-w-4xl space-y-4">
       <h2 className="text-base font-bold text-gray-800">ブログ編集 入力</h2>
@@ -842,7 +873,7 @@ function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose:
         <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
         <FormRow label="投稿者"><select className={`${input} bg-white`}><option>スタッフ</option></select> <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
         <FormRow label="カテゴリ"><select className={`${input} bg-white`}><option>ビューティー</option></select></FormRow>
-        <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
+        <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" onValueChange={setTitle} /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
           <button onClick={() => onToast('画像アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1">画像アップロード</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
           <div className="flex items-start gap-2">
@@ -857,7 +888,7 @@ function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose:
         <FormRow label="クーポン"><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">クーポン選択</button><p className="text-[11px] text-rose-500 mt-1">※クーポンの有効期限・受付期間がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
       </div>
       <div className="flex items-center justify-end gap-2">
-        <button onClick={() => { onToast(row ? 'ブログを更新しました（デモ）' : 'ブログを投稿しました（デモ）'); onClose(); }} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button>
+        <button disabled={saving} onClick={save} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button>
         <button onClick={onClose} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button>
       </div>
     </div>

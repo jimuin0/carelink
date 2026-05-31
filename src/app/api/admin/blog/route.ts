@@ -50,10 +50,13 @@ export async function POST(request: NextRequest) {
 
   const isPublished = parsed.data.is_published ?? false;
   const admin = createServiceRoleClient();
+  // slug は NOT NULL・UNIQUE(facility_id, slug)。タイトルは日本語のため一意な ASCII slug を自動生成。
+  const slug = `post-${globalThis.crypto.randomUUID()}`;
   const { data, error } = await admin.from('blog_posts').insert({
     facility_id: auth.facilityId,
     title: parsed.data.title,
     content: parsed.data.content,
+    slug,
     is_published: isPublished,
     published_at: isPublished ? new Date().toISOString() : null,
   }).select().single();
