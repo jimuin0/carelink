@@ -10,6 +10,7 @@ import { writeAuditLog } from '@/lib/audit-logger';
 const VALID_PHOTO_TYPES = ['main', 'interior', 'exterior', 'staff', 'menu', 'other'] as const;
 
 const updateSchema = z.object({
+  photo_url: z.string().min(1).max(200000).optional(),
   photo_type: z.enum(VALID_PHOTO_TYPES).optional(),
   caption: z.string().max(200).optional().nullable(),
   sort_order: z.number().int().min(0).optional(),

@@ -190,7 +190,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
-            {tab === 'photo' && <PhotoEditPage rows={photos} onReload={reloadPhotos} onToast={onToast} />}
+            {tab === 'photo' && <PhotoEditPage rows={photos} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
             {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
@@ -320,15 +320,20 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   const [saving, setSaving] = useState(false);
   const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '' });
   const website = useRef<string>(''); // 既存値を保持して保存時に消さない（settingsは未送信でnull化するため）
+  const featureSet = useRef<Set<string>>(new Set()); // こだわり条件/サービス/支払い/メンズ等のチェック集約 → features配列
+  const counts = useRef({ seat: '', staff: '' }); // 設備総数 → seat_count, スタッフ総数 → staff_count
+  const toggleFeature = (label: string, on: boolean) => { if (on) featureSet.current.add(label); else featureSet.current.delete(label); };
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const sb = createBrowserSupabaseClient();
-      const { data } = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url').eq('id', facilityId).maybeSingle();
+      const { data } = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle();
       if (!cancelled) {
-        const d = (data as Record<string, string | null> | null) ?? {};
-        fields.current = { catch_copy: d.catch_copy ?? '', description: d.description ?? '', access_info: d.access_info ?? '', regular_holiday: d.regular_holiday ?? '' };
-        website.current = d.website_url ?? '';
+        const d = (data as Record<string, unknown> | null) ?? {};
+        fields.current = { catch_copy: (d.catch_copy as string) ?? '', description: (d.description as string) ?? '', access_info: (d.access_info as string) ?? '', regular_holiday: (d.regular_holiday as string) ?? '' };
+        website.current = (d.website_url as string) ?? '';
+        featureSet.current = new Set(Array.isArray(d.features) ? (d.features as string[]) : []);
+        counts.current = { seat: d.seat_count != null ? String(d.seat_count) : '', staff: d.staff_count != null ? String(d.staff_count) : '' };
         setLoaded(true);
       }
     })().catch(() => setLoaded(true));
@@ -338,12 +343,25 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   const save = async () => {
     if (saving) return; setSaving(true);
     try {
-      const payload = { name: salonName, ...fields.current, website_url: website.current || '' };
+      const features = Array.from(featureSet.current);
+      const cardTypes = ['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'];
+      const payload = {
+        name: salonName, ...fields.current, website_url: website.current || '',
+        features,
+        seat_count: counts.current.seat ? parseInt(counts.current.seat, 10) : null,
+        staff_count: counts.current.staff ? parseInt(counts.current.staff, 10) : null,
+        parking: features.includes('駐車場あり'),
+        credit_card: features.some((f) => cardTypes.includes(f)),
+      };
       const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       onToast('サロン掲載情報を保存しました'); setSaving(false);
     } catch { onToast('通信エラーが発生しました'); setSaving(false); }
   };
+  // こだわり/サービス/支払い等のチェック（features集約・初期値プリフィル）
+  const Feat = ({ label }: { label: string }) => (
+    <label className="flex items-center gap-1"><input type="checkbox" defaultChecked={featureSet.current.has(label)} onChange={(e) => toggleFeature(label, e.target.checked)} />{label}</label>
+  );
 
   const SaveBar = () => (
     <div className="flex items-center justify-end gap-2">
@@ -427,20 +445,20 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" /></FormRow>
         <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below defaultValue={fields.current.regular_holiday} onValueChange={(v) => { fields.current.regular_holiday = v; }} /></FormRow>
         <FormRow label="支払い方法">
-          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <label key={c} className="flex items-center gap-1 whitespace-nowrap"><input type="checkbox" />{c}</label>)}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <span key={c} className="whitespace-nowrap"><Feat label={c} /></span>)}</div>
           <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" />その他</label>
           <div className="mt-1"><CharInput max={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" below /></div>
         </FormRow>
         <FormRow label="設備">
           <div className="flex gap-8">
             <div>
-              <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={0} /></div>
+              <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={counts.current.seat} onChange={(e) => { counts.current.seat = e.target.value.replace(/[^0-9]/g, ''); }} /></div>
               {[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><input type="checkbox" /><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-40 bg-white`}><option>リクライニングチェア</option></select><input className={`${input} w-12`} placeholder="数" /></div>)}
               <button onClick={() => onToast('追加は準備中です')} className="text-sky-600 underline text-xs">追加する</button>
             </div>
             <div>
               <div className="text-xs font-bold text-gray-600 mb-1">スタッフ数</div>
-              <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={0} /> 人</div>
+              <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={counts.current.staff} onChange={(e) => { counts.current.staff = e.target.value.replace(/[^0-9]/g, ''); }} /> 人</div>
               {[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><input type="checkbox" /><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-36 bg-white`}><option>施術者（まつげ）</option></select><input className={`${input} w-12`} placeholder="数" /><span className="text-xs">人</span></div>)}
               <button onClick={() => onToast('追加は準備中です')} className="text-sky-600 underline text-xs">追加する</button>
             </div>
@@ -458,30 +476,30 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       </Panel>
 
       <Panel title="メンズにもオススメ表示・メンズ用切替設定">
-        <FormRow label="メンズ"><label className="flex items-center gap-1 text-xs"><input type="checkbox" />メンズ利用OK</label><p className="text-[11px] text-gray-400 mt-1">※メンズ向け特集に参画されている場合は、設定内容に関わらずサロンデータに「メンズにもオススメ」と表示されます。</p></FormRow>
+        <FormRow label="メンズ"><div className="text-xs"><Feat label="メンズ利用OK" /></div><p className="text-[11px] text-gray-400 mt-1">※メンズ向け特集に参画されている場合は、設定内容に関わらずサロンデータに「メンズにもオススメ」と表示されます。</p></FormRow>
       </Panel>
 
       <Panel title="こだわり条件(サロンデータ)">
         <FormRow label="こだわり条件">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['夜20時以降も受付OK', '当日受付OK', '2名以上の利用OK', '女性専用', '個室あり', '駐車場あり', '駅から徒歩5分以内', '2回目以降特典あり', '店頭でのカード支払いOK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['夜20時以降も受付OK', '当日受付OK', '2名以上の利用OK', '女性専用', '個室あり', '駐車場あり', '駅から徒歩5分以内', '2回目以降特典あり', '店頭でのカード支払いOK'].map((o) => <Feat key={o} label={o} />)}</div>
         </FormRow>
         <FormRow label="サロン設備・サービス">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['24時間営業', '始発まで営業している', '朝10時前でも受付OK', '年中無休', '女性スタッフ在籍', '完全予約制', '指名予約OK', '1人で貸切OK', 'ショッピングモール内にある', 'ドリンクサービスあり', 'DVDが視聴できる', '喫煙OK', 'お子さま同伴可', 'キッズスペースあり', 'リクライニングチェア（ベッド）', 'メイクルームあり', '着替えあり', 'アメニティまたはコスメが充実', '3席（ベッド）以下の小型サロン', '10席（ベッド）以上の大型サロン', 'つけ放題メニューあり', '都度払いメニューあり', '体験メニューあり', 'ブライダルメニューあり', '回数券あり', 'スクール併設', 'COIN+支払いOK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['24時間営業', '始発まで営業している', '朝10時前でも受付OK', '年中無休', '女性スタッフ在籍', '完全予約制', '指名予約OK', '1人で貸切OK', 'ショッピングモール内にある', 'ドリンクサービスあり', 'DVDが視聴できる', '喫煙OK', 'お子さま同伴可', 'キッズスペースあり', 'リクライニングチェア（ベッド）', 'メイクルームあり', '着替えあり', 'アメニティまたはコスメが充実', '3席（ベッド）以下の小型サロン', '10席（ベッド）以上の大型サロン', 'つけ放題メニューあり', '都度払いメニューあり', '体験メニューあり', 'ブライダルメニューあり', '回数券あり', 'スクール併設', 'COIN+支払いOK'].map((o) => <Feat key={o} label={o} />)}</div>
         </FormRow>
       </Panel>
 
       <Panel title="こだわり条件(メニュー)">
         <FormRow label="まつげ・メイクなど">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['まつげメニュー（要美容師免許※1）', 'ヘアセット', 'メイク', '着付け', '眉カット（要美容師免許※1）', 'シェービング（要理容師免許※1）', 'ネイル同時施術OK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['まつげメニュー（要美容師免許※1）', 'ヘアセット', 'メイク', '着付け', '眉カット（要美容師免許※1）', 'シェービング（要理容師免許※1）', 'ネイル同時施術OK'].map((o) => <Feat key={o} label={o} />)}</div>
         </FormRow>
         <FormRow label="エステ（フェイシャル）">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['毛穴ケア', '小顔・リフトアップ', 'はり・つや', '美白ケア', '乾燥肌・保湿ケア', '黒ずみ・くすみ', 'シェービング（要理容師免許※1）'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['毛穴ケア', '小顔・リフトアップ', 'はり・つや', '美白ケア', '乾燥肌・保湿ケア', '黒ずみ・くすみ', 'シェービング（要理容師免許※1）'].map((o) => <Feat key={o} label={o} />)}</div>
         </FormRow>
         <FormRow label="エステ（脱毛）">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['ワキ', '腕（ヒジ上・ヒジ下）', '脚（ヒザ上・ヒザ下）', 'V・I・Oライン', '全身', 'その他（顔・指・胸・背中など）'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['ワキ', '腕（ヒジ上・ヒジ下）', '脚（ヒザ上・ヒザ下）', 'V・I・Oライン', '全身', 'その他（顔・指・胸・背中など）'].map((o) => <Feat key={o} label={o} />)}</div>
         </FormRow>
         <FormRow label="エステ（ボディ）">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['痩身', '美脚（太もも・ふくらはぎ・足首）', '小尻・ヒップアップ', '二の腕', '背中', 'ウエスト', 'バスト', 'シェービング（要理容師免許※1）', '美肌ケア', '耳つぼ', 'ボディトレーニング'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['痩身', '美脚（太もも・ふくらはぎ・足首）', '小尻・ヒップアップ', '二の腕', '背中', 'ウエスト', 'バスト', 'シェービング（要理容師免許※1）', '美肌ケア', '耳つぼ', 'ボディトレーニング'].map((o) => <Feat key={o} label={o} />)}</div>
           <p className="text-[11px] text-gray-400 mt-2">※1 資格が必要な施術を掲載する際は、理美容業のジャンル申請を行わなければ登録できません。ジャンル申請の追加については営業担当にお問い合わせください。</p>
         </FormRow>
       </Panel>
@@ -570,10 +588,35 @@ function StaffListPage({ rows, facilityId, onReload, onToast }: { rows: StaffRow
 }
 
 /* ========================= フォトギャラリー掲載情報編集 ========================= */
-function PhotoEditPage({ rows, onReload, onToast }: { rows: PhotoRow[]; onReload: () => void; onToast: (m: string) => void }) {
+function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((p) => [p.id, p.caption ?? ''])));
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const targetRef = useRef<string | null>(null); // null=新規, id=差し替え
+
+  const pickFile = (target: string | null) => { targetRef.current = target; fileRef.current?.click(); };
+  const onFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { onToast('JPG, PNG, WebPのみ対応しています'); return; }
+    if (file.size > 5 * 1024 * 1024) { onToast('ファイルサイズは5MB以下にしてください'); return; }
+    setUploading(true);
+    try {
+      // service-role 経由でアップロード（carelink-uploads は anon 専用ポリシーのため）
+      const fd = new FormData(); fd.append('file', file);
+      const upRes = await fetch(`/api/admin/photos/upload?facility_id=${facilityId}`, { method: 'POST', body: fd });
+      if (!upRes.ok) { const d = await upRes.json().catch(() => ({})); onToast(d.error || '画像のアップロードに失敗しました'); setUploading(false); return; }
+      const { url } = await upRes.json();
+      const target = targetRef.current;
+      const res = target
+        ? await fetch(`/api/admin/photos/${target}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_url: url }) })
+        : await fetch(`/api/admin/photos?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_url: url, photo_type: 'other' }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setUploading(false); return; }
+      onToast(target ? '画像を差し替えました' : '写真を追加しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
+  };
   const saveAll = async () => {
     if (saving) return; setSaving(true);
     try {
@@ -597,7 +640,8 @@ function PhotoEditPage({ rows, onReload, onToast }: { rows: PhotoRow[]; onReload
       <h2 className="text-base font-bold text-gray-800">フォトギャラリー掲載情報編集</h2>
       <p className="text-[11px] text-gray-500">※「画像応募」にチェックをすると、Hot Pepper Beautyサイトの特集/メルマガ/装飾・バナー/公式Facebookページ等に使用される対象となります <button onClick={() => onToast('使用事例は準備中です')} className="text-sky-600 underline">使用事例はこちら</button></p>
       <div className="flex justify-end gap-2"><button disabled={saving} onClick={saveAll} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button><button onClick={onReload} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
-      <button onClick={() => onToast('画像アップロードは今後対応予定です')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">入力欄を追加する</button>
+      <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onFile} />
+      <button disabled={uploading} onClick={() => pickFile(null)} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded disabled:opacity-50">{uploading ? 'アップロード中…' : '入力欄を追加する'}</button>
       <button onClick={() => onToast('使用できる写真は準備中です')} className="block text-sky-600 underline text-xs">? 使用できる写真について</button>
       <Panel title="フォトギャラリー設定" plan>
         {rows.length === 0 ? (
@@ -608,7 +652,7 @@ function PhotoEditPage({ rows, onReload, onToast }: { rows: PhotoRow[]; onReload
               <div className="text-xs font-bold text-gray-500">No.<input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></div>
               {p.photo_url ? <img src={p.photo_url} alt="" className="w-24 h-20 object-cover mt-1" /> : <div className="w-24 h-20 bg-gray-100 mt-1" />}
               <div className="text-[9px] text-gray-400 mt-0.5">画像ID: C{p.id.slice(0, 8).toUpperCase()}</div>
-              <button onClick={() => onToast('画像アップロードは今後対応予定です')} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded block mx-auto">アップロード</button>
+              <button disabled={uploading} onClick={() => pickFile(p.id)} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded block mx-auto disabled:opacity-50">アップロード</button>
               <button disabled={saving} onClick={() => { if (confirm('この写真を削除しますか？')) remove(p); }} className="mt-0.5 px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded block mx-auto disabled:opacity-40">削除</button>
               <label className="flex items-center gap-1 text-[10px] text-gray-500 mt-1 justify-center"><input type="checkbox" />画像応募</label>
             </div>
