@@ -39,7 +39,7 @@ function statusStyle(status: string) {
 const STATUS_LABEL: Record<string, string> = {
   confirmed: '確定', pending: '仮予約', completed: '完了', no_show: '無断ｷｬﾝｾﾙ', cancelled: 'ｷｬﾝｾﾙ',
 };
-const NAV =['予約管理', '掲載管理', 'お客様管理', '売上管理', '集計・分析', '設定'];
+const NAV =['予約管理', '掲載管理', 'お客様管理', 'メッセージ管理', '売上管理', '集計・分析', 'サロンダイレクト', '振込・請求', '設定'];
 
 type Row =
   | { kind: 'header'; label: string }
@@ -329,7 +329,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </span>
         <nav className="flex items-center gap-2 text-xs ml-4 overflow-x-auto">
           {NAV.map((m, i) => {
-            const navSection = (['reservation', 'listing', 'customers', 'sales', null, 'settings'] as const)[i];
+            const navSection = (['reservation', 'listing', 'customers', null, 'sales', null, null, null, 'settings'] as const)[i];
             const isActive = navSection != null && section === navSection;
             const onClickNav = navSection != null ? () => setSection(navSection) : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
             return (
