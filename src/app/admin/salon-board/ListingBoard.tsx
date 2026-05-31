@@ -523,7 +523,7 @@ function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: str
               <tr key={c.id} className="text-center align-middle">
                 <td className="border border-slate-200 px-2 py-3">No <input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></td>
                 <td className="border border-slate-200 px-2 py-3"><div className="w-14 h-12 bg-gray-100 mx-auto" /></td>
-                <td className="border border-slate-200 px-2 py-3 text-xs">{c.coupon_type ?? '新規'}</td>
+                <td className="border border-slate-200 px-2 py-3 text-xs">{({ new_customer: '新規', repeat: '再来', limited_time: '期間限定', all: '全員' } as Record<string, string>)[c.coupon_type ?? ''] ?? '新規'}</td>
                 <td className="border border-slate-200 px-2 py-3 text-left text-xs">{c.name}{c.special_price != null && <span className="ml-1 font-bold">¥{c.special_price.toLocaleString()}</span>}</td>
                 <td className="border border-slate-200 px-2 py-3 text-xs">{c.valid_until ? fmtDate(c.valid_until) : 'なし'}</td>
                 <td className="border border-slate-200 px-2 py-3 text-emerald-600 text-xs">OK</td>
@@ -603,8 +603,8 @@ function ReviewListPage({ rows, onToast }: { rows: ReviewRow[]; onToast: (m: str
                 <td className="border border-slate-200 px-2 py-3 text-center"><input type="radio" name="pickup" defaultChecked={i === 0} /></td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.id.slice(0, 8)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(r.created_at)}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(r.created_at)}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.reviewer_name ?? '—'}</td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">—</td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">—</td>
                 <td className="border border-slate-200 px-2 py-3 text-left text-xs max-w-xs">{r.comment ?? '—'}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => onToast('返信は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">返信する</button></td>
               </tr>
