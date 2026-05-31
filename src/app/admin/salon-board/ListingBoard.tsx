@@ -136,12 +136,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 /* ========================= 掲載管理TOP ========================= */
 function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: string; statusLabel: string; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void }) {
   const today = '2026/05/29';
-  const rows = [
+  const rows: { label: string; label2?: string; editor: string; date: string; check: string; empty?: boolean; reflect: { applied: boolean; at: string } | null }[] = [
     { label: 'サロン掲載情報', editor: '太田由香利', date: '2026/02/10', check: '要確認', reflect: { applied: true, at: '2026/05/02 15:25' } },
-    { label: 'スタッフ掲載情報一覧', editor: '太田由香利', date: '2024/09/14', check: '', reflect: null },
+    { label: 'スタッフ掲載情報一覧', label2: 'スタッフ掲載情報', editor: '太田由香利', date: '2024/09/14', check: '', reflect: null },
     { label: 'フォトギャラリー掲載情報', editor: '太田由香利', date: '2024/12/13', check: '', reflect: null },
     { label: 'メニュー掲載情報', editor: '太田由香利', date: '2026/05/02', check: '', reflect: null },
-    { label: 'こだわり掲載情報一覧', editor: '', date: '', check: '', empty: true, reflect: null },
+    { label: 'こだわり掲載情報一覧', label2: 'こだわり掲載情報', editor: '', date: '', check: '', empty: true, reflect: null },
     { label: '特集用掲載情報', editor: '太田由香利', date: '2026/04/23', check: '', reflect: { applied: true, at: '2026/04/23 16:17' } },
     { label: 'クーポン掲載情報', editor: '太田由香利', date: '2026/05/29', check: '', reflect: { applied: true, at: '2026/05/29 20:32' } },
   ];
@@ -203,7 +203,7 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
           <tbody>
             {rows.map((r) => (
               <tr key={r.label} className={r.empty ? 'text-gray-400' : ''}>
-                <td className="border border-slate-200 px-3 py-3"><button onClick={() => onToast(`${r.label} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label}</button></td>
+                <td className="border border-slate-200 px-3 py-3"><button onClick={() => onToast(`${r.label} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label}</button>{r.label2 && <><br /><button onClick={() => onToast(`${r.label2} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label2}</button></>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center text-xs">{r.empty ? '' : <>{r.editor}<br />({r.date})</>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? <span className="text-rose-500 text-xs">現在、こだわり掲載情報はありません。</span> : r.check ? <button onClick={() => onToast('掲載チェックは準備中です')} className="text-rose-500 underline text-xs">{r.check}</button> : ''}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? '' : <button onClick={() => onToast('詳細は準備中です')} className="text-xs text-sky-600 underline">詳細</button>}</td>
@@ -214,6 +214,8 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
             ))}
           </tbody>
         </table>
+        <p className="text-[11px] text-gray-500 mt-3">反映までに通常15分程度かかります。システムメンテナンスなどによっては15分以上かかる場合があります。</p>
+        <div className="text-right mt-2"><button onClick={() => onToast('ページ上部へ')} className="text-[11px] text-sky-600 underline">← ページのトップへ</button></div>
         <p className="text-[11px] text-gray-400 mt-3">掲載中サロン：<span className="font-bold text-gray-600">{salonName}</span>（{statusLabel}） / スタッフ {counts.staff}名・写真 {counts.photos}枚・メニュー {counts.menus}件・クーポン {counts.coupons}件</p>
       </div>
     </div>
