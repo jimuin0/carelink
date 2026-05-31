@@ -44,6 +44,10 @@ function SectionBar({ children, sub }: { children: React.ReactNode; sub?: boolea
 
 // 必須マーク
 const Req = () => <span className="inline-block w-2 h-2 rounded-full bg-rose-500 ml-1 align-middle" />;
+// 外部リンクアイコン（別ページ遷移を示す ↗）
+const ExtIcon = () => <svg className="inline w-3 h-3 ml-0.5 -mt-0.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>;
+// ヘルプ(?)アイコン
+const HelpIcon = ({ onClick }: { onClick: () => void }) => <button type="button" onClick={onClick} className="w-5 h-5 rounded-full border border-sky-400 text-sky-500 text-xs leading-none">?</button>;
 // 表示プラン確認の小バッジ
 const PlanBadge = () => <button type="button" className="text-[10px] text-sky-600 border border-sky-300 rounded px-1.5 py-0.5 hover:bg-sky-50">表示プランを確認</button>;
 // 文字数カウンタ
@@ -179,13 +183,13 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
   ];
   return (
     <div className="max-w-4xl space-y-5">
-      <h2 className="text-base font-bold text-gray-800">掲載管理TOP</h2>
+      <div className="flex items-center justify-between"><h2 className="text-base font-bold text-gray-800">掲載管理TOP</h2><HelpIcon onClick={() => onToast('ヘルプは準備中です')} /></div>
 
       <div>
         <SectionBar>サロンレポート</SectionBar>
         <div className="border border-t-0 border-slate-300 bg-white px-4 py-3 text-sm space-y-1.5 rounded-b">
-          <p><button onClick={() => onToast('サロンレポート ダウンロード画面は準備中です')} className="text-sky-600 underline">サロンレポート ダウンロード画面</button> <span className="text-gray-500 text-xs">月ごとのレポートを作成してダウンロードすることができます。</span></p>
-          <p><button onClick={() => onToast('HOT PEPPER Beauty レポートは準備中です')} className="text-sky-600 underline">HOT PEPPER Beauty レポート</button> <span className="text-gray-500 text-xs">レポート作成を待たずに概要を確認することができます。</span></p>
+          <p><button onClick={() => onToast('サロンレポート ダウンロード画面は準備中です')} className="text-sky-600 underline">サロンレポート ダウンロード画面<ExtIcon /></button> <span className="text-gray-500 text-xs">月ごとのレポートを作成してダウンロードすることができます。</span></p>
+          <p><button onClick={() => onToast('HOT PEPPER Beauty レポートは準備中です')} className="text-sky-600 underline">HOT PEPPER Beauty レポート<ExtIcon /></button> <span className="text-gray-500 text-xs">レポート作成を待たずに概要を確認することができます。</span></p>
         </div>
       </div>
 
@@ -193,7 +197,7 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
         <SectionBar>営業が設定しているページの確認</SectionBar>
         <div className="border border-t-0 border-slate-300 bg-white px-4 py-3 text-sm rounded-b">
           <SectionBar sub>サロン基本情報</SectionBar>
-          <button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline text-sm">プレビューを見る</button>
+          <button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline text-sm">プレビューを見る<ExtIcon /></button>
         </div>
       </div>
 
@@ -210,7 +214,7 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
             <tbody><tr className="text-center">
               <td className="border border-slate-200 px-3 py-2">{today}</td>
               <td className="border border-slate-200 px-3 py-2">太田由香利</td>
-              <td className="border border-slate-200 px-3 py-2"><button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline">掲載中のページを見る</button></td>
+              <td className="border border-slate-200 px-3 py-2"><button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline">掲載中のページを見る<ExtIcon /></button></td>
             </tr></tbody>
           </table>
         </div>
@@ -235,10 +239,10 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
           <tbody>
             {rows.map((r) => (
               <tr key={r.label} className={r.empty ? 'text-gray-400' : ''}>
-                <td className="border border-slate-200 px-3 py-3"><button onClick={() => onToast(`${r.label} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label}</button>{r.label2 && <><br /><button onClick={() => onToast(`${r.label2} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label2}</button></>}</td>
+                <td className="border border-slate-200 px-3 py-3"><button onClick={() => onToast(`${r.label} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label}<ExtIcon /></button>{r.label2 && <><br /><button onClick={() => onToast(`${r.label2} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label2}<ExtIcon /></button></>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center text-xs">{r.empty ? '' : <>{r.editor}<br />({r.date})</>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? <span className="text-rose-500 text-xs">現在、こだわり掲載情報はありません。</span> : r.check ? <button onClick={() => onToast('掲載チェックは準備中です')} className="text-rose-500 underline text-xs">{r.check}</button> : ''}</td>
-                <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? '' : <button onClick={() => onToast('詳細は準備中です')} className="text-xs text-sky-600 underline">詳細</button>}</td>
+                <td className="border border-slate-200 px-3 py-3 text-center"></td>
                 <td className="border border-slate-200 px-3 py-3 text-center text-xs">
                   {r.reflect ? (<><span className="text-emerald-600 font-bold">反映済み</span><br /><button onClick={() => onToast('反映申請は準備中です')} className="mt-1 px-2 py-0.5 bg-gray-200 rounded text-gray-600">反映申請</button><br />({r.reflect.at})</>) : ''}
                 </td>
@@ -357,7 +361,7 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
         <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" /></FormRow>
         <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below /></FormRow>
         <FormRow label="支払い方法">
-          <div className="grid grid-cols-3 gap-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <label key={c} className="flex items-center gap-1"><input type="checkbox" />{c}</label>)}</div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <label key={c} className="flex items-center gap-1 whitespace-nowrap"><input type="checkbox" />{c}</label>)}</div>
           <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" />その他</label>
           <div className="mt-1"><CharInput max={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" below /></div>
         </FormRow>
@@ -544,7 +548,7 @@ function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string)
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><CharTextarea max={70} rows={2} defaultValue={m.description ?? ''} below={false} /></div>
               <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} defaultValue={m.search_category ?? ''}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格</span><span className="text-xs">¥</span><input className={`${input} w-24`} defaultValue={m.price ?? ''} />
+                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格（税込）</span><span className="text-xs">¥</span><input className={`${input} w-24`} defaultValue={m.price ?? ''} />
                 <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「〜」を表示</label>
                 <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「要問い合わせ」として表示する</label>
               </div>
@@ -553,7 +557,7 @@ function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string)
                 <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">所要目安時間</span><DurationInput defaultValue={m.duration_minutes} />
               </div>
               <div className="flex items-center gap-3"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">予約</span><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} defaultChecked />予約可</label><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} />予約不可</label>
-                <span className="ml-auto flex items-center gap-3 text-xs"><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">削除</button><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} />非掲載</label></span>
+                <span className="ml-auto flex flex-col items-end gap-1 text-xs"><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">削除</button><span className="flex items-center gap-3"><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} />非掲載</label></span></span>
               </div>
             </div>
           </div>
@@ -644,7 +648,7 @@ function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onCl
   );
   return (
     <div className="max-w-4xl space-y-4">
-      <h2 className="text-base font-bold text-gray-800">クーポン掲載情報編集</h2>
+      <div className="flex items-center justify-between"><h2 className="text-base font-bold text-gray-800">クーポン掲載情報編集</h2><HelpIcon onClick={() => onToast('ヘルプは準備中です')} /></div>
       <p className="text-[11px] text-gray-500">※「画像応募」にチェックをすると、Hot Pepper Beautyサイトの特集/メルマガ/装飾・バナー/公式Facebookページ等に使用される対象となります <button onClick={() => onToast('使用事例は準備中です')} className="text-sky-600 underline">使用事例はこちら</button></p>
       <SaveBar />
       <Panel title="クーポン情報">
@@ -722,6 +726,8 @@ function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string)
 /* ========================= ブログ編集 入力 ========================= */
 function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const [body, setBody] = useState(row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : '');
+  const lineCount = body ? body.split('\n').length : 0;
   return (
     <div className="max-w-4xl space-y-4">
       <h2 className="text-base font-bold text-gray-800">ブログ編集 入力</h2>
@@ -734,9 +740,16 @@ function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose:
         <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
           <button onClick={() => onToast('画像アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1">画像アップロード</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
-          <CharTextarea max={1000} rows={8} defaultValue={row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : ''} placeholder="本文" />
+          <div className="flex items-start gap-2">
+            <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} maxLength={1000} placeholder="本文" className={`${input} flex-1`} />
+            <div className="flex flex-col gap-3 text-[10px] text-gray-400 shrink-0">
+              <span>{hpbLen(body)}<br />/1000</span>
+              <span>{lineCount}<br />/80</span>
+              <span>0<br />/4</span>
+            </div>
+          </div>
         </FormRow>
-        <FormRow label="クーポン"><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">クーポン選択</button><p className="text-[11px] text-gray-400 mt-1">※クーポンの非掲載後・発行設定がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
+        <FormRow label="クーポン"><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">クーポン選択</button><p className="text-[11px] text-rose-500 mt-1">※クーポンの有効期限・受付期間がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
       </div>
       <div className="flex items-center justify-end gap-2">
         <button onClick={() => { onToast(row ? 'ブログを更新しました（デモ）' : 'ブログを投稿しました（デモ）'); onClose(); }} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button>
