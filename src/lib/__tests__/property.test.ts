@@ -8,6 +8,7 @@
  *   - getPrefectureSlug / getPrefectureName   (seo-constants.ts)
  *   - getBusinessTypeSlug / getBusinessTypeName (seo-constants.ts)
  *   - safeJsonLd          (json-ld.ts)
+ *   - truncateText        (seo-snippets.ts)
  */
 
 import * as fc from 'fast-check';
@@ -15,6 +16,7 @@ import { formatPhone } from '../validations';
 import { normalizeSiteUrl } from '../constants';
 import { getTransformUrl } from '../image-utils';
 import { safeJsonLd } from '../json-ld';
+import { truncateText } from '../seo-snippets';
 import {
   getPrefectureSlug,
   getPrefectureName,
@@ -423,6 +425,63 @@ describe('safeJsonLd — property tests', () => {
         const result = safeJsonLd({ x: payload });
         expect(result).not.toContain('</script>');
         expect(result).not.toMatch(/[<>&]/);
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// truncateText
+// ---------------------------------------------------------------------------
+
+describe('truncateText — property tests', () => {
+  test('定義一致: truncateText(t, m) === t.slice(0, m)（任意 t / 任意 m）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.integer(), (t, m) => {
+        expect(truncateText(t, m)).toBe(t.slice(0, m));
+      }),
+    );
+  });
+
+  test('長さ不変条件: result.length === min(t.length, m)（m >= 0）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.nat({ max: 500 }), (t, m) => {
+        // slice も length も UTF-16 code unit 基準のため、サロゲートペアでも成立
+        expect(truncateText(t, m).length).toBe(Math.min(t.length, m));
+      }),
+    );
+  });
+
+  test('プレフィックス性: t は常に truncateText(t, m) で始まる（m >= 0）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.nat({ max: 500 }), (t, m) => {
+        expect(t.startsWith(truncateText(t, m))).toBe(true);
+      }),
+    );
+  });
+
+  test('冪等性: 同じ m での二重適用は不変（m >= 0）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.nat({ max: 500 }), (t, m) => {
+        const once = truncateText(t, m);
+        expect(truncateText(once, m)).toBe(once);
+      }),
+    );
+  });
+
+  test('m = 0 のとき常に空文字（任意 t）', () => {
+    fc.assert(
+      fc.property(fc.string(), (t) => {
+        expect(truncateText(t, 0)).toBe('');
+      }),
+    );
+  });
+
+  test('上限 m 以下の長さの入力は変化しない（m >= t.length）', () => {
+    fc.assert(
+      fc.property(fc.string(), (t) => {
+        expect(truncateText(t, t.length)).toBe(t);
+        expect(truncateText(t, t.length + 5)).toBe(t);
       }),
     );
   });

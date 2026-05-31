@@ -12,6 +12,7 @@ import {
   truncateText,
   INTRO_MAX_LENGTH,
 } from '../seo-snippets';
+import { prefectureSeo } from '@/data/prefecture-seo';
 
 describe('getBusinessTypeContext', () => {
   test('returns context for a valid type slug', () => {
@@ -726,4 +727,32 @@ describe('truncateText / INTRO_MAX_LENGTH（180字上限の防御を到達可能
     expect(truncateText(text, 0)).toBe('');
     expect(truncateText(text, 1)).toBe('a');
   });
+});
+
+describe('prefectureSeo データ不変条件（発症前検知ガード）', () => {
+  // seo-snippets.ts:generatePrefTypeContent の prefIntroShort と同じ CareLink 宣伝文除去ロジック。
+  // production 側を変更したらこの正規表現も追従させること。
+  const stripPromo = (intro: string) => intro.replace(/CareLink[^。]*。/g, '');
+
+  const entries = Object.entries(prefectureSeo);
+
+  test('prefectureSeo は1件以上存在する（空配列でテストが空振りしない保証）', () => {
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  // 真の予防の本体:
+  // 誰かが prefecture-seo.ts に長い intro を追加し、CareLink 文除去後でも
+  // INTRO_MAX_LENGTH を超えると、generatePrefTypeContent の prefIntroShort が
+  // truncateText によって「。」の途中で黙って切られ、SEO 本文が日本語として
+  // 不自然なブツ切れになる（fail-silent）。それを「本番に出る前」にこのテストで
+  // 赤くして検知する。
+  test.each(entries)(
+    'prefectureSeo[%s].intro は CareLink 文除去後 INTRO_MAX_LENGTH 以下（truncateText が発動しない）',
+    (slug, data) => {
+      const stripped = stripPromo(data.intro);
+      expect(stripped.length).toBeLessThanOrEqual(INTRO_MAX_LENGTH);
+      // truncateText が no-op であること（＝データが上限内である正常状態）を明示的に固定
+      expect(truncateText(stripped, INTRO_MAX_LENGTH)).toBe(stripped);
+    },
+  );
 });
