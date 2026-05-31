@@ -17,7 +17,7 @@ interface Props {
 
 interface StaffRow { id: string; name: string; position: string | null; specialties: string[] | null; years_experience: number | null; photo_url: string | null; sort_order: number | null; is_active: boolean; bio: string | null; }
 interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; }
-interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; }
+interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; }
 interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
@@ -83,7 +83,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     const [st, ph, mn, cp, bl, rv] = await Promise.all([
       sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('facility_photos').select('id,photo_url,photo_type,caption,sort_order').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('facility_menus').select('id,category,name,description,price,price_note,duration_minutes,is_featured').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
+      sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url').eq('facility_id', facilityId).order('created_at', { ascending: false }),
       sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
@@ -506,10 +506,11 @@ function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string)
           <div key={m.id} className="flex gap-3 border-b border-slate-200 last:border-0 p-3 text-sm">
             <div className="shrink-0 text-xs font-bold text-gray-500 w-10 text-center">No.<br /><input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></div>
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">カテゴリ</span><select className={`${input} bg-white`} defaultValue={m.category ?? ''}><option value="">まつげ・メイクなど</option>{m.category && <option value={m.category}>{m.category}</option>}</select>
+              <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">カテゴリ</span>
+                <div className="space-y-1"><select className={`${input} bg-white block`} defaultValue={m.category ?? 'まつげ・メイクなど'}><option>まつげ・メイクなど</option><option>エステ</option></select><select className={`${input} bg-white block`} defaultValue={m.subcategory ?? ''}><option value="">その他まつげメニュー</option>{m.subcategory && <option value={m.subcategory}>{m.subcategory}</option>}</select></div>
                 <span className="w-16 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2">メニュー名</span><input className={`${input} flex-1`} defaultValue={m.name} maxLength={40} /><span className="text-[10px] text-gray-400 whitespace-nowrap">{hpbLen(m.name)}<br />/40</span></div>
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><textarea className={`${input} flex-1`} rows={2} defaultValue={m.description ?? ''} maxLength={70} /><span className="text-[10px] text-gray-400 whitespace-nowrap">{hpbLen(m.description ?? '')}<br />/70</span></div>
-              <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`}><option>まつげ・メイクなど：まつげデザイン・ケア</option></select></div>
+              <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} defaultValue={m.search_category ?? ''}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格</span><span className="text-xs">¥</span><input className={`${input} w-24`} defaultValue={m.price ?? ''} />
                 <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「〜」を表示</label>
