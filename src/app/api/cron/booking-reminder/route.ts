@@ -33,7 +33,7 @@ export async function GET(request: Request) {
 
     if (!bookings || bookings.length === 0) {
       await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0 });
-      return NextResponse.json({ sent: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, sent: 0 });
     }
 
     // Get facility names

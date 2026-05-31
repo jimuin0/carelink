@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
     if (!facilities) {
       await logCronRun('customer-segment', 'skipped', startedAt, { processed: 0, skipped: 0 });
-      return NextResponse.json({ status: 'ok', count: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }
 
     // Build facility lookup map once (avoids per-facility re-fetch in email section)

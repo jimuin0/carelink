@@ -45,7 +45,10 @@ async function verifyCacheValue(userId: string, cookieVal: string): Promise<bool
 }
 
 function getMembershipCacheKey(userId: string): string {
-  // UUID全体（36文字）をキーに含める。先頭8文字のみだと衝突率が高く別ユーザーのキャッシュを参照するリスクがある
+  // ハイフン除去後の先頭16桁（64bit相当）をキーに含める。先頭8文字のみだと衝突率が
+  // 高くなるため16桁まで広げている。なお別ユーザーのキャッシュ値を流用しても
+  // HMAC署名（verifyCacheValue 内で userId をペイロードに含めて検証）で弾かれるため、
+  // キー衝突が起きても誤った権限昇格にはつながらない。
   return `_cm_mbr_${userId.replace(/-/g, '').slice(0, 16)}`;
 }
 
@@ -113,13 +116,16 @@ export async function middleware(request: NextRequest) {
 
     if (hasAccess === null) {
       // キャッシュミス or 署名検証失敗: DBで確認してクッキーにキャッシュ
+      // owner/admin ロールの行のみを対象に絞る（複数施設に所属し、別施設では
+      // staff/viewer の場合に .limit(1) が任意の行を返して誤判定するのを防ぐ）
       const { data: membership } = await supabase
         .from('facility_members')
         .select('role')
         .eq('user_id', user.id)
+        .in('role', ['owner', 'admin'])
         .limit(1)
-        .single();
-      hasAccess = !!(membership && ['owner', 'admin'].includes(membership.role));
+        .maybeSingle();
+      hasAccess = !!membership;
 
       // キャッシュを設定（5分TTL、HttpOnly + HMAC署名）— ADMIN_COOKIE_SECRET 未設定時はキャッシュしない
       const signedVal = await signCacheValue(user.id, hasAccess ? '1' : '0');

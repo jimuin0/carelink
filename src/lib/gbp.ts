@@ -55,7 +55,7 @@ export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails |
     'opening_hours', 'photos', 'reviews', 'url',
   ].join(',');
 
-  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&language=ja&key=${apiKey}`;
+  const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=${fields}&language=ja&key=${apiKey}`;
 
   try {
     const res = await fetch(url, { next: { revalidate: 3600 } }); // 1時間キャッシュ

@@ -47,8 +47,8 @@ export async function GET(request: Request) {
       .limit(500);
 
     if (!profiles || profiles.length === 0) {
-      await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0 });
-      return NextResponse.json({ status: 'ok', sent: 0 });
+      await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
 
     let sent = 0;

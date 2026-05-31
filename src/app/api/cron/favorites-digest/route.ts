@@ -48,8 +48,8 @@ export async function GET(request: Request) {
       .limit(500);
 
     if (!favUsers || favUsers.length === 0) {
-      await logCronRun('favorites-digest', 'skipped', startedAt, { processed: 0 });
-      return NextResponse.json({ success: true, sent: 0 });
+      await logCronRun('favorites-digest', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, success: true, sent: 0 });
     }
 
     // ユーザーごとにお気に入り施設をグループ化
