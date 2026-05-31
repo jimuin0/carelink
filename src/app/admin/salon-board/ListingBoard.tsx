@@ -74,18 +74,21 @@ function hpbLen(s: string): number {
 const fieldCls = 'border border-gray-300 rounded px-2 py-1 text-sm';
 
 // 入力に応じて文字数カウンタがリアルタイム更新される制御テキスト入力（HPB準拠）
-function CharInput({ max, defaultValue = '', placeholder, w = 'flex-1', below = false }: { max: number; defaultValue?: string; placeholder?: string; w?: string; below?: boolean }) {
+// onValueChange を渡すと親へ最新値を通知（保存フォーム用）
+function CharInput({ max, defaultValue = '', placeholder, w = 'flex-1', below = false, onValueChange }: { max: number; defaultValue?: string; placeholder?: string; w?: string; below?: boolean; onValueChange?: (v: string) => void }) {
   const [v, setV] = useState(defaultValue);
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => { setV(e.target.value); onValueChange?.(e.target.value); };
   const counter = <Counter n={hpbLen(v)} max={max} />;
-  const field = <input value={v} onChange={(e) => setV(e.target.value)} maxLength={max} placeholder={placeholder} className={`${fieldCls} ${w}`} />;
+  const field = <input value={v} onChange={onChange} maxLength={max} placeholder={placeholder} className={`${fieldCls} ${w}`} />;
   return below
     ? <><div className="w-full">{field}</div><div className="text-right">{counter}</div></>
     : <div className="flex items-start gap-2 w-full">{field}{counter}</div>;
 }
-function CharTextarea({ max, defaultValue = '', placeholder, rows = 3, below = true }: { max: number; defaultValue?: string; placeholder?: string; rows?: number; below?: boolean }) {
+function CharTextarea({ max, defaultValue = '', placeholder, rows = 3, below = true, onValueChange }: { max: number; defaultValue?: string; placeholder?: string; rows?: number; below?: boolean; onValueChange?: (v: string) => void }) {
   const [v, setV] = useState(defaultValue);
+  const onChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => { setV(e.target.value); onValueChange?.(e.target.value); };
   const counter = <Counter n={hpbLen(v)} max={max} />;
-  const field = <textarea value={v} onChange={(e) => setV(e.target.value)} rows={rows} maxLength={max} placeholder={placeholder} className={`${fieldCls} w-full`} />;
+  const field = <textarea value={v} onChange={onChange} rows={rows} maxLength={max} placeholder={placeholder} className={`${fieldCls} w-full`} />;
   return below
     ? <>{field}<div className="text-right">{counter}</div></>
     : <div className="flex items-start gap-2 w-full">{field}{counter}</div>;
@@ -135,6 +138,13 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 
   useEffect(() => { load().catch(() => setLoading(false)); }, [load]);
 
+  // クーポンのみ軽量再取得（全画面スケルトンを出さず保存後に一覧反映）
+  const reloadCoupons = useCallback(async () => {
+    const sb = createBrowserSupabaseClient();
+    const { data } = await sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    setCoupons((data as CouponRow[]) ?? []);
+  }, [facilityId]);
+
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 
   return (
@@ -159,7 +169,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'menu' && <MenuEditPage rows={menus} onToast={onToast} />}
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
-            {tab === 'coupon' && <CouponListPage rows={coupons} onToast={onToast} />}
+            {tab === 'coupon' && <CouponListPage rows={coupons} facilityId={facilityId} onReload={reloadCoupons} onToast={onToast} />}
             {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} onToast={onToast} />}
             {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} onToast={onToast} />}
           </>
@@ -592,9 +602,26 @@ function TokushuPage() {
 }
 
 /* ========================= クーポン掲載情報一覧 ========================= */
-function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: string) => void }) {
+function CouponListPage({ rows, facilityId, onReload, onToast }: { rows: CouponRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const [editing, setEditing] = useState<CouponRow | 'new' | null>(null);
-  if (editing) return <CouponEditPage row={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onToast={onToast} />;
+  const [busy, setBusy] = useState(false);
+  const toggleActive = async (c: CouponRow) => {
+    if (busy) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/coupons/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !c.is_active }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '更新に失敗しました'); return; }
+      onToast(c.is_active ? '非掲載にしました' : '掲載しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  const remove = async (c: CouponRow) => {
+    if (busy) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/coupons/${c.id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); return; }
+      onToast('クーポンを削除しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  if (editing) return <CouponEditPage row={editing === 'new' ? null : editing} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">クーポン掲載情報一覧</h2>
@@ -624,8 +651,8 @@ function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: str
                 <td className="border border-slate-200 px-2 py-3 text-emerald-600 text-xs">OK</td>
                 <td className="border border-slate-200 px-2 py-3"><button onClick={() => setEditing(c)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">詳細</button></td>
                 <td className="border border-slate-200 px-2 py-3 space-y-1">
-                  <button onClick={() => onToast('非掲載設定は準備中です')} className="block w-full px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">非掲載にする</button>
-                  <button onClick={() => onToast('削除は準備中です')} className="block w-full px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除する</button>
+                  <button disabled={busy} onClick={() => toggleActive(c)} className="block w-full px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs disabled:opacity-40">{c.is_active ? '非掲載にする' : '掲載する'}</button>
+                  <button disabled={busy} onClick={() => { if (confirm('このクーポンを削除しますか？')) remove(c); }} className="block w-full px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs disabled:opacity-40">削除する</button>
                 </td>
               </tr>
             ))}
@@ -637,12 +664,48 @@ function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: str
 }
 
 /* ========================= クーポン掲載情報編集 ========================= */
-function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onClose: () => void; onToast: (m: string) => void }) {
+function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: CouponRow | null; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const [name, setName] = useState(row?.name ?? '');
+  const [description, setDescription] = useState(row?.description ?? '');
+  const [couponType, setCouponType] = useState(row?.coupon_type ?? 'new_customer');
+  const [special, setSpecial] = useState(row?.special_price != null ? String(row.special_price) : '');
+  const [noExpiry, setNoExpiry] = useState(!row?.valid_until);
+  const [vy, setVy] = useState(row?.valid_until ? row.valid_until.slice(0, 4) : '');
+  const [vm, setVm] = useState(row?.valid_until ? row.valid_until.slice(5, 7) : '');
+  const [vd, setVd] = useState(row?.valid_until ? row.valid_until.slice(8, 10) : '');
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (saving) return;
+    if (!name.trim()) { onToast('クーポン名を入力してください'); return; }
+    let valid_until: string | null = null;
+    if (!noExpiry) {
+      if (!vy || !vm || !vd) { onToast('有効期限を入力するか「設定しない」を選択してください'); return; }
+      valid_until = `${vy.padStart(4, '0')}-${vm.padStart(2, '0')}-${vd.padStart(2, '0')}`;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        name: name.trim(),
+        description: description.trim() || null,
+        coupon_type: couponType,
+        discount_type: 'special_price' as const,
+        special_price: special ? parseInt(special, 10) : null,
+        valid_until,
+      };
+      const url = row ? `/api/admin/coupons/${row.id}` : `/api/admin/coupons?facility_id=${facilityId}`;
+      const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+      onToast(row ? 'クーポンを更新しました' : 'クーポンを登録しました');
+      onSaved(); onClose();
+    } catch { onToast('通信エラーが発生しました'); setSaving(false); }
+  };
+
   const SaveBar = () => (
     <div className="flex items-center justify-end gap-2">
       <span className="text-[11px] text-rose-500 mr-auto flex items-center"><Req />必須項目</span>
-      <button onClick={() => { onToast(row ? 'クーポンを更新しました（デモ）' : 'クーポンを登録しました（デモ）'); onClose(); }} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button>
+      <button disabled={saving} onClick={save} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button>
       <button onClick={onClose} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button>
     </div>
   );
@@ -652,19 +715,19 @@ function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onCl
       <p className="text-[11px] text-gray-500">※「画像応募」にチェックをすると、Hot Pepper Beautyサイトの特集/メルマガ/装飾・バナー/公式Facebookページ等に使用される対象となります <button onClick={() => onToast('使用事例は準備中です')} className="text-sky-600 underline">使用事例はこちら</button></p>
       <SaveBar />
       <Panel title="クーポン情報">
-        <FormRow label="種別" required><select className={`${input} bg-white`} defaultValue={row?.coupon_type ?? 'new_customer'}><option value="new_customer">新規</option><option value="repeat">再来</option><option value="limited_time">期間限定</option><option value="all">全員</option></select></FormRow>
+        <FormRow label="種別" required><select className={`${input} bg-white`} value={couponType} onChange={(e) => setCouponType(e.target.value)}><option value="new_customer">新規</option><option value="repeat">再来</option><option value="limited_time">期間限定</option><option value="all">全員</option></select></FormRow>
         <FormRow label="クーポン名" required>
           <div className="flex gap-3">
-            <div className="flex-1"><CharInput max={36} defaultValue={row?.name ?? ''} placeholder="クーポン名" /></div>
+            <div className="flex-1"><CharInput max={36} defaultValue={row?.name ?? ''} placeholder="クーポン名" onValueChange={setName} /></div>
             <div className="w-28 text-center"><div className="w-24 h-20 bg-gray-100 relative mx-auto"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div><div className="text-[9px] text-gray-400 mt-0.5">画像ID:C043307344</div><label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label></div>
           </div>
         </FormRow>
-        <FormRow label="クーポン内容" required><CharTextarea max={90} rows={3} defaultValue={row?.description ?? ''} placeholder="クーポン内容" /></FormRow>
+        <FormRow label="クーポン内容" required><CharTextarea max={90} rows={3} defaultValue={row?.description ?? ''} placeholder="クーポン内容" onValueChange={setDescription} /></FormRow>
         <FormRow label="提示条件" required><select className={`${input} bg-white`}><option>予約時</option><option>来店時</option></select></FormRow>
         <FormRow label="利用条件" required><CharInput max={20} placeholder="新規＆まつげパーマ/アイブロウ/マツパ/眉" below /></FormRow>
         <FormRow label="有効期限">
-          <label className="flex items-center gap-1 text-xs"><input type="radio" name="cvalid" defaultChecked={!row?.valid_until} />設定しない</label>
-          <label className="flex items-center gap-1 text-xs mt-1"><input type="radio" name="cvalid" defaultChecked={!!row?.valid_until} /><input className={`${input} w-16`} placeholder="年" />年<input className={`${input} w-12`} placeholder="月" />月<input className={`${input} w-12`} placeholder="日" />日</label>
+          <label className="flex items-center gap-1 text-xs"><input type="radio" name="cvalid" checked={noExpiry} onChange={() => setNoExpiry(true)} />設定しない</label>
+          <label className="flex items-center gap-1 text-xs mt-1"><input type="radio" name="cvalid" checked={!noExpiry} onChange={() => setNoExpiry(false)} /><input className={`${input} w-16`} placeholder="年" value={vy} onChange={(e) => { setVy(e.target.value); setNoExpiry(false); }} />年<input className={`${input} w-12`} placeholder="月" value={vm} onChange={(e) => { setVm(e.target.value); setNoExpiry(false); }} />月<input className={`${input} w-12`} placeholder="日" value={vd} onChange={(e) => { setVd(e.target.value); setNoExpiry(false); }} />日</label>
         </FormRow>
         <FormRow label="検索用カテゴリ">
           <div className="flex gap-2"><select className={`${input} bg-white`}><option>まつげ・メイクなど</option></select><select className={`${input} bg-white`}><option>アイブロウ</option></select></div>
@@ -673,7 +736,7 @@ function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onCl
         <FormRow label="メニュー指定">
           <div className="text-xs text-gray-600 mb-1">あり</div>
           <div className="flex items-center gap-2 mb-2"><span className="text-xs text-gray-500">アイコン用カテゴリ</span><button onClick={() => onToast('カテゴリ選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">カテゴリ選択</button><span className="text-xs">まつげ・メイクなど－その他まつげメニュー</span></div>
-          <div className="flex items-center gap-3"><span className="text-xs text-gray-500">価格（税込）</span>¥<input className={`${input} w-24`} defaultValue={row?.special_price ?? ''} /><span className="text-xs text-gray-500">所要目安時間</span><input className={`${input} w-16`} defaultValue={120} />分</div>
+          <div className="flex items-center gap-3"><span className="text-xs text-gray-500">価格（税込）</span>¥<input className={`${input} w-24`} value={special} onChange={(e) => setSpecial(e.target.value.replace(/[^0-9]/g, ''))} /><span className="text-xs text-gray-500">所要目安時間</span><input className={`${input} w-16`} defaultValue={120} />分</div>
         </FormRow>
       </Panel>
       <SaveBar />
