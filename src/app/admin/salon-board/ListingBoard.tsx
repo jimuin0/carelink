@@ -329,11 +329,14 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
     let cancelled = false;
     (async () => {
       const sb = createBrowserSupabaseClient();
-      const { data } = await sb.from('facility_profiles').select('*').eq('id', facilityId).maybeSingle();
+      // 拡張カラムを明示selectし、エラー(マイグレーション未適用)なら基本カラムのみで再取得
+      let d: Record<string, unknown> = {};
+      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres';
+      const extRes = await sb.from('facility_profiles').select(extCols).eq('id', facilityId).maybeSingle();
+      if (!extRes.error) { extEnabled.current = true; d = (extRes.data as Record<string, unknown> | null) ?? {}; }
+      else { extEnabled.current = false; const base = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle(); d = (base.data as Record<string, unknown> | null) ?? {}; }
       if (!cancelled) {
-        const d = (data as Record<string, unknown> | null) ?? {};
         const s = (k: string) => (d[k] as string) ?? '';
-        extEnabled.current = 'directions' in d;
         fields.current = { catch_copy: s('catch_copy'), description: s('description'), access_info: s('access_info'), regular_holiday: s('regular_holiday'), business_hours_text: s('business_hours_text'), directions: s('directions'), remarks: s('remarks'), owner_name: s('owner_name'), owner_title: s('owner_title'), owner_message: s('owner_message') };
         website.current = s('website_url');
         featureSet.current = new Set(Array.isArray(d.features) ? (d.features as string[]) : []);
