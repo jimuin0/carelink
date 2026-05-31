@@ -164,6 +164,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     setPhotos((data as PhotoRow[]) ?? []);
   }, [facilityId]);
 
+  const reloadStaff = useCallback(async () => {
+    const sb = createBrowserSupabaseClient();
+    const { data } = await sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    setStaff((data as StaffRow[]) ?? []);
+  }, [facilityId]);
+
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 
   return (
@@ -183,8 +189,8 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
           <>
             {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
-            {tab === 'staff' && <StaffListPage rows={staff} onToast={onToast} />}
-            {tab === 'photo' && <PhotoEditPage rows={photos} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
+            {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
+            {tab === 'photo' && <PhotoEditPage rows={photos} onReload={reloadPhotos} onToast={onToast} />}
             {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
@@ -491,7 +497,24 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
 }
 
 /* ========================= スタッフ掲載情報一覧 ========================= */
-function StaffListPage({ rows, onToast }: { rows: StaffRow[]; onToast: (m: string) => void }) {
+function StaffListPage({ rows, facilityId, onReload, onToast }: { rows: StaffRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const toggleActive = async (s: StaffRow) => {
+    if (busy) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/staff/${s.id}?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_active: !s.is_active }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '更新に失敗しました'); return; }
+      onToast(s.is_active ? '非掲載にしました' : '掲載しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  const remove = async (s: StaffRow) => {
+    if (busy) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/staff/${s.id}?facility_id=${facilityId}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); return; }
+      onToast('スタッフを削除しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">スタッフ掲載情報一覧</h2>
@@ -533,8 +556,8 @@ function StaffListPage({ rows, onToast }: { rows: StaffRow[]; onToast: (m: strin
                 </td>
                 <td className="border border-slate-200 px-2 py-3"><button onClick={() => onToast('詳細は準備中です')} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">詳細</button></td>
                 <td className="border border-slate-200 px-2 py-3 space-y-1">
-                  <button onClick={() => onToast('非掲載設定は準備中です')} className="block w-full px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">{s.is_active ? '非掲載にする' : '掲載にする'}</button>
-                  <button onClick={() => onToast('削除は準備中です')} className="block w-full px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除する</button>
+                  <button disabled={busy} onClick={() => toggleActive(s)} className="block w-full px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs disabled:opacity-40">{s.is_active ? '非掲載にする' : '掲載にする'}</button>
+                  <button disabled={busy} onClick={() => { if (confirm('このスタッフを削除しますか？')) remove(s); }} className="block w-full px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs disabled:opacity-40">削除する</button>
                 </td>
               </tr>
             ))}
@@ -547,7 +570,7 @@ function StaffListPage({ rows, onToast }: { rows: StaffRow[]; onToast: (m: strin
 }
 
 /* ========================= フォトギャラリー掲載情報編集 ========================= */
-function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
+function PhotoEditPage({ rows, onReload, onToast }: { rows: PhotoRow[]; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((p) => [p.id, p.caption ?? ''])));
   const [saving, setSaving] = useState(false);
