@@ -7,10 +7,15 @@ import { getSymptomSeo } from '@/data/symptom-seo';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+// page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+// "supabaseUrl is required" で落ちるため、関数として定義し利用時に生成する。
+function getSupabase() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -18,6 +23,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params;
+  const supabase = getSupabase();
   const { data: symptom } = await supabase
     .from('symptoms')
     .select('name, category')
@@ -40,6 +46,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 
 export default async function SymptomPage({ params }: Props) {
   const { slug } = await params;
+  const supabase = getSupabase();
   const { data: symptom } = await supabase
     .from('symptoms')
     .select('id, name, slug, category')

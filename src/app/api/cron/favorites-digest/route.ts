@@ -12,11 +12,6 @@ import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 /** Returns the ISO week string "YYYY-WNN" for a given date. */
 function isoWeek(date: Date): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -30,6 +25,14 @@ function isoWeek(date: Date): string {
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
+
+  // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+  // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+  // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   let sent = 0;
   let skipped = 0;
