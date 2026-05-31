@@ -139,6 +139,24 @@ export function truncateText(text: string, max: number): string {
   return text.slice(0, max);
 }
 
+/**
+ * 都道府県イントロから CareLink 宣伝文（「CareLink…。」の一文）を除去する純粋関数。
+ *
+ * 挙動: `intro.replace(/CareLink[^。]*。/g, '')` と等価。
+ *   「CareLink」で始まり最初の「。」までを 1 つの宣伝文とみなし全て除去する。
+ *
+ * 単一ソース化の理由（重複コピー禁止）: この除去ロジックは
+ *   (1) generatePrefTypeContent の prefIntroShort 生成（実行時）
+ *   (2) seo-snippets.test.ts のデータ不変条件ガード（181 字超を発症前に検知）
+ * の両方で必要だが、正規表現を 2 箇所にコピーすると「片方だけ変更されてガードが
+ * 実態とズレる」人手依存の穴になる。production から純粋関数として export し、両者が
+ * 同一実装を参照することで構造的に同期させる（症状追従コメントではなく予防）。
+ * したがってこの関数を呼び出し元へ inline 展開で戻してはならない。
+ */
+export function stripPromoSentences(intro: string): string {
+  return intro.replace(/CareLink[^。]*。/g, '');
+}
+
 export function getBusinessTypeContext(typeSlug: string): BusinessTypeContext | null {
   return businessTypeContext[typeSlug] ?? null;
 }
@@ -159,7 +177,7 @@ export function generatePrefTypeContent(
   if (!prefName || !typeName || !typeCtx) return null;
 
   const prefIntroShort = prefSeo
-    ? truncateText(prefSeo.intro.replace(/CareLink[^。]*。/g, ''), INTRO_MAX_LENGTH)
+    ? truncateText(stripPromoSentences(prefSeo.intro), INTRO_MAX_LENGTH)
     : `${prefName}は医療・美容・福祉施設が広く点在するエリアです。`;
 
   const intro = `${prefName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${prefIntroShort} CareLinkでは${prefName}全域の${typeName}を口コミ・メニュー・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地域・予算・目的に合わせて選べます。`;

@@ -10,6 +10,7 @@ import {
   generateCityContent,
   generateCityTypeContent,
   truncateText,
+  stripPromoSentences,
   INTRO_MAX_LENGTH,
 } from '../seo-snippets';
 import { prefectureSeo } from '@/data/prefecture-seo';
@@ -729,11 +730,28 @@ describe('truncateText / INTRO_MAX_LENGTH（180字上限の防御を到達可能
   });
 });
 
-describe('prefectureSeo データ不変条件（発症前検知ガード）', () => {
-  // seo-snippets.ts:generatePrefTypeContent の prefIntroShort と同じ CareLink 宣伝文除去ロジック。
-  // production 側を変更したらこの正規表現も追従させること。
-  const stripPromo = (intro: string) => intro.replace(/CareLink[^。]*。/g, '');
+describe('stripPromoSentences（CareLink 宣伝文除去・単一ソース）', () => {
+  test('CareLink で始まり「。」までの一文を除去する', () => {
+    expect(stripPromoSentences('東京は医療が充実。CareLinkで探そう。便利です。')).toBe(
+      '東京は医療が充実。便利です。',
+    );
+  });
 
+  test('CareLink 文が複数あれば全て除去する（global フラグ）', () => {
+    expect(
+      stripPromoSentences('CareLink紹介1。本文。CareLink紹介2。'),
+    ).toBe('本文。');
+  });
+
+  test('CareLink を含まない文字列はそのまま返す', () => {
+    const plain = '東京は医療・美容・福祉施設が広く点在するエリアです。';
+    expect(stripPromoSentences(plain)).toBe(plain);
+  });
+});
+
+describe('prefectureSeo データ不変条件（発症前検知ガード）', () => {
+  // 除去ロジックは production の stripPromoSentences を単一ソースとして参照する。
+  // 正規表現をここにコピーすると片方だけ変更されてガードが実態とズレるため、import で同期する。
   const entries = Object.entries(prefectureSeo);
 
   test('prefectureSeo は1件以上存在する（空配列でテストが空振りしない保証）', () => {
@@ -749,7 +767,7 @@ describe('prefectureSeo データ不変条件（発症前検知ガード）', ()
   test.each(entries)(
     'prefectureSeo[%s].intro は CareLink 文除去後 INTRO_MAX_LENGTH 以下（truncateText が発動しない）',
     (slug, data) => {
-      const stripped = stripPromo(data.intro);
+      const stripped = stripPromoSentences(data.intro);
       expect(stripped.length).toBeLessThanOrEqual(INTRO_MAX_LENGTH);
       // truncateText が no-op であること（＝データが上限内である正常状態）を明示的に固定
       expect(truncateText(stripped, INTRO_MAX_LENGTH)).toBe(stripped);
