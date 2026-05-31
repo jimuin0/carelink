@@ -20,7 +20,7 @@ interface PhotoRow { id: string; photo_url: string | null; photo_type: string | 
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; }
 interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; }
-interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; }
+interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
   { key: 'top', label: '掲載管理TOP' },
@@ -73,7 +73,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
       sb.from('facility_menus').select('id,category,name,description,price,price_note,duration_minutes,is_featured').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url').eq('facility_id', facilityId).order('created_at', { ascending: false }),
-      sb.from('facility_reviews').select('id,reviewer_name,rating,comment,status,created_at').eq('facility_id', facilityId).order('created_at', { ascending: false }),
+      sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
     ]);
     setStaff((st.data as StaffRow[]) ?? []);
     setPhotos((ph.data as PhotoRow[]) ?? []);
@@ -112,7 +112,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'tokushu' && <TokushuPage />}
             {tab === 'coupon' && <CouponListPage rows={coupons} onToast={onToast} />}
             {tab === 'blog' && <BlogListPage rows={blogs} onToast={onToast} />}
-            {tab === 'review' && <ReviewListPage rows={reviews} onToast={onToast} />}
+            {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} onToast={onToast} />}
           </>
         )}
       </div>
@@ -579,7 +579,8 @@ function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string)
 }
 
 /* ========================= 口コミ一覧 ========================= */
-function ReviewListPage({ rows, onToast }: { rows: ReviewRow[]; onToast: (m: string) => void }) {
+function ReviewListPage({ rows, staff, onToast }: { rows: ReviewRow[]; staff: StaffRow[]; onToast: (m: string) => void }) {
+  const staffName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">口コミ一覧</h2>
@@ -603,10 +604,12 @@ function ReviewListPage({ rows, onToast }: { rows: ReviewRow[]; onToast: (m: str
                 <td className="border border-slate-200 px-2 py-3 text-center"><input type="radio" name="pickup" defaultChecked={i === 0} /></td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.id.slice(0, 8)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(r.created_at)}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">—</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">—</td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.visit_date ? fmtDate(r.visit_date) : '—'}<br /><span className="text-gray-400">{r.booking_id ? `(${r.booking_id.slice(0, 8)})` : ''}</span></td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{staffName(r.staff_id)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-left text-xs max-w-xs">{r.comment ?? '—'}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => onToast('返信は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">返信する</button></td>
+                <td className="border border-slate-200 px-2 py-3 text-center">
+                  {r.reply ? <span className="text-emerald-600 text-xs font-bold">返信済み</span> : <button onClick={() => onToast('返信は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">返信する</button>}
+                </td>
               </tr>
             ))}
           </tbody>
