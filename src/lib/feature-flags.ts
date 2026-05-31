@@ -64,8 +64,9 @@ export async function isFeatureEnabled(key: string, userId?: string | null): Pro
   if (!flag.enabled) return false;
 
   // ホワイトリスト確認（metadata.allowed_user_ids）
-  const allowedIds = flag.metadata?.allowed_user_ids as string[] | undefined;
-  if (allowedIds && userId && allowedIds.includes(userId)) return true;
+  // 不正な型（配列でない）でも .includes で throw しないよう Array.isArray でガード
+  const allowedIds = flag.metadata?.allowed_user_ids;
+  if (Array.isArray(allowedIds) && userId && allowedIds.includes(userId)) return true;
 
   // ロールアウト割合が100%なら全員有効
   if (flag.rollout_pct >= 100) return true;
@@ -73,9 +74,10 @@ export async function isFeatureEnabled(key: string, userId?: string | null): Pro
 
   // ユーザーIDベースの決定的ハッシュ（A/Bテスト安定性）
   if (userId) {
-    // 簡易ハッシュ: ユーザーID末尾2文字を16進数として0-99にマップ
-    const hashByte = parseInt(userId.slice(-2), 16) % 100;
-    return hashByte < flag.rollout_pct;
+    // 文字コードの加算で決定的に 0-99 へマップ（非16進ID・末尾ハイフン等でも NaN にならない）
+    let sum = 0;
+    for (let i = 0; i < userId.length; i++) sum = (sum + userId.charCodeAt(i)) % 100;
+    return sum < flag.rollout_pct;
   }
 
   // ユーザー不明の場合はロールアウト割合をランダム判定

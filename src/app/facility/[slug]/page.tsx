@@ -597,7 +597,7 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
               <span>{facility.prefecture}{facility.city}{facility.address}</span>
               <a
                 href={facility.gbp_place_id
-                  ? `https://www.google.com/maps/place/?q=place_id:${facility.gbp_place_id}`
+                  ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(facility.gbp_place_id)}`
                   : `https://www.google.com/maps/search/${encodeURIComponent(`${facility.prefecture}${facility.city}${facility.address}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"

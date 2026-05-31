@@ -32,8 +32,8 @@ export async function GET(request: Request) {
       .limit(50);
 
     if (!jobs || jobs.length === 0) {
-      await logCronRun('webhook-retry', 'skipped', startedAt);
-      return NextResponse.json({ processed: 0 });
+      await logCronRun('webhook-retry', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0 });
     }
 
     // processing に変更（二重実行防止）

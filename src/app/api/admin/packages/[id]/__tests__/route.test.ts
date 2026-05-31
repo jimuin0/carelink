@@ -175,7 +175,7 @@ test('DELETE: 購入済みユーザーがいる → 非公開化 → 200', async
     }
     // deactivate update
     return {
-      update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }),
     };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
@@ -199,7 +199,7 @@ test('DELETE: 購入済みユーザーあり・非公開化失敗 → 500', asyn
       };
     }
     return {
-      update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }) }),
     };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
@@ -222,7 +222,7 @@ test('DELETE: 購入ユーザーなし → 完全削除 → 200', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
 
@@ -244,7 +244,7 @@ test('DELETE: 完全削除失敗 → 500', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }) };
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
 
@@ -337,7 +337,7 @@ test('DELETE: count=null → ハード削除', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());

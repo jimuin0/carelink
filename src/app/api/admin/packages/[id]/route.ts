@@ -91,12 +91,12 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   // 購入済みユーザーがいる場合は無効化のみ（削除しない）
   const { count } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
   if (count && count > 0) {
-    const { error: deactivateErr } = await admin.from('service_packages').update({ is_active: false }).eq('id', params.id);
+    const { error: deactivateErr } = await admin.from('service_packages').update({ is_active: false }).eq('id', params.id).eq('facility_id', auth.facilityId);
     if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     return NextResponse.json({ message: '購入済みユーザーがいるため非公開にしました' });
   }
 
-  const { error } = await admin.from('service_packages').delete().eq('id', params.id);
+  const { error } = await admin.from('service_packages').delete().eq('id', params.id).eq('facility_id', auth.facilityId);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   void writeAuditLog({

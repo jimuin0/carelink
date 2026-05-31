@@ -128,7 +128,7 @@ export async function sendLineWorksMessage(
 
   try {
     const res = await fetch(
-      `${LINE_WORKS_API_BASE}/bots/${botId}/channels/${channelId}/messages`,
+      `${LINE_WORKS_API_BASE}/bots/${botId}/channels/${encodeURIComponent(channelId)}/messages`,
       {
         method: 'POST',
         headers: {

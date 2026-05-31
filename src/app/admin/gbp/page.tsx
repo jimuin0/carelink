@@ -197,7 +197,7 @@ export default function AdminGbpPage() {
     : [];
 
   const gbpManageUrl = placeId
-    ? `https://business.google.com/dashboard/l/${gbpCid || placeId}`
+    ? `https://business.google.com/dashboard/l/${encodeURIComponent(gbpCid || placeId)}`
     : 'https://business.google.com/';
 
   return (

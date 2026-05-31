@@ -120,7 +120,9 @@ export const POST = withRoute(async (request) => {
   const slackResult = await postToSlack({ text, blocks });
 
   if (!slackResult.ok) {
-    return NextResponse.json({ error: 'Slack通知の送信に失敗しました', detail: slackResult.error }, { status: 502 });
+    // 内部 Slack エラーコードはクライアントに返さずサーバーログにのみ記録する
+    console.error('[notify] Slack post failed', { error: slackResult.error });
+    return NextResponse.json({ error: 'Slack通知の送信に失敗しました' }, { status: 502 });
   }
 
   return NextResponse.json({ ok: true, ts: slackResult.ts });
