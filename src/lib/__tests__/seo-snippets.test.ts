@@ -9,6 +9,8 @@ import {
   generatePrefTypeContent,
   generateCityContent,
   generateCityTypeContent,
+  truncateText,
+  INTRO_MAX_LENGTH,
 } from '../seo-snippets';
 
 describe('getBusinessTypeContext', () => {
@@ -676,5 +678,52 @@ describe('businessTypeContext — exact data verification', () => {
     expect(ctx.faqs[2].a).toBe(
       '実際の利用者による口コミのみ掲載しています。来店確認バッジ付きの口コミは予約履歴と紐付いています。',
     );
+  });
+});
+
+describe('truncateText / INTRO_MAX_LENGTH（180字上限の防御を到達可能化）', () => {
+  test('INTRO_MAX_LENGTH は 180', () => {
+    // 上限値を契約として固定（マジックナンバー変異の検出）
+    expect(INTRO_MAX_LENGTH).toBe(180);
+  });
+
+  test('max 以下の文字列はそのまま返す', () => {
+    expect(truncateText('あいうえお', 180)).toBe('あいうえお');
+    expect(truncateText('', 180)).toBe('');
+  });
+
+  test('長さがちょうど max の文字列はそのまま返す（境界）', () => {
+    const exact = 'a'.repeat(180);
+    const result = truncateText(exact, 180);
+    expect(result).toBe(exact);
+    expect(result.length).toBe(180);
+  });
+
+  test('max を超える文字列は先頭から max 文字に切り詰める（slice 発動）', () => {
+    // 200字入力 → 180字に切られることを保証。
+    // .slice(0, max) を削除する変異はここで KILL される（200 !== 180）。
+    const longText = 'あ'.repeat(200);
+    const result = truncateText(longText, INTRO_MAX_LENGTH);
+    expect(result.length).toBe(180);
+    expect(result).toBe('あ'.repeat(180));
+    expect(result.length).toBeLessThan(longText.length);
+  });
+
+  test('max+1 字の入力は max 字に切られる（オフバイワン境界）', () => {
+    // slice の第2引数（上限）を ±1 する変異を検出する境界ケース。
+    const overByOne = 'b'.repeat(INTRO_MAX_LENGTH + 1);
+    const result = truncateText(overByOne, INTRO_MAX_LENGTH);
+    expect(result.length).toBe(INTRO_MAX_LENGTH);
+    expect(result).toBe('b'.repeat(INTRO_MAX_LENGTH));
+    // 第1引数が 0 以外に変異すると先頭文字が落ちるため、先頭一致も固定
+    expect(result.startsWith('b')).toBe(true);
+    expect(result[0]).toBe('b');
+  });
+
+  test('任意の max でも先頭 max 文字に一致する（slice 第1引数=0 を固定）', () => {
+    const text = 'abcdefghij';
+    expect(truncateText(text, 3)).toBe('abc');
+    expect(truncateText(text, 0)).toBe('');
+    expect(truncateText(text, 1)).toBe('a');
   });
 });

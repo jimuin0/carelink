@@ -107,6 +107,24 @@ export interface GeneratedSeoContent {
   faqs: { question: string; answer: string }[];
 }
 
+/**
+ * 都道府県イントロ短縮文の最大長（SEO本文が冗長になりすぎないための上限）。
+ * prefSeo.intro が将来この長さを超えても確実に切り詰める防御値。
+ */
+export const INTRO_MAX_LENGTH = 180;
+
+/**
+ * 文字列を最大長 max で切り詰める純粋関数。
+ * - text の長さが max 以下ならそのまま返す
+ * - max を超える場合は先頭から max 文字に切り詰める
+ *
+ * 防御コード（180字上限）を到達可能・テスト可能にするために分離した関数。
+ * これにより「将来データが上限を超えても確実に切られる」ことを単体テストで保証する。
+ */
+export function truncateText(text: string, max: number): string {
+  return text.slice(0, max);
+}
+
 export function getBusinessTypeContext(typeSlug: string): BusinessTypeContext | null {
   return businessTypeContext[typeSlug] ?? null;
 }
@@ -127,7 +145,7 @@ export function generatePrefTypeContent(
   if (!prefName || !typeName || !typeCtx) return null;
 
   const prefIntroShort = prefSeo
-    ? prefSeo.intro.replace(/CareLink[^。]*。/g, '').slice(0, 180)
+    ? truncateText(prefSeo.intro.replace(/CareLink[^。]*。/g, ''), INTRO_MAX_LENGTH)
     : `${prefName}は医療・美容・福祉施設が広く点在するエリアです。`;
 
   const intro = `${prefName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${prefIntroShort} CareLinkでは${prefName}全域の${typeName}を口コミ・メニュー・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地域・予算・目的に合わせて選べます。`;
