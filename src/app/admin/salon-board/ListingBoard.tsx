@@ -276,59 +276,71 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
       </Panel>
 
       <Panel title="サロントップ" plan>
-        <FormRow label="キャッチ">
-          <div className="flex items-start gap-2">
-            <input className={`${input} flex-1`} placeholder="キャッチコピー" defaultValue="" maxLength={50} />
-            <Counter n={0} max={50} />
-          </div>
-          <textarea className={`${input} w-full mt-2`} rows={3} placeholder="サロンの紹介文" maxLength={150} />
-          <div className="text-right"><Counter n={0} max={150} /></div>
-        </FormRow>
-        <FormRow label="ＴＯＰ写真">
+        <FormRow label="キャッチ" required><input className={`${input} flex-1 w-full`} placeholder="キャッチコピー" maxLength={50} /><div className="text-right"><Counter n={0} max={50} /></div></FormRow>
+        <FormRow label="コピー" required><textarea className={`${input} w-full`} rows={3} placeholder="サロンの紹介文" maxLength={150} /><div className="text-right"><Counter n={0} max={150} /></div></FormRow>
+        <FormRow label="ＴＯＰ写真" required>
           <div className="flex flex-wrap gap-2">
-            {[0, 1, 2, 3].map((i) => <div key={i} className="w-24 h-20 border border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 cursor-pointer hover:bg-gray-100" onClick={() => onToast('写真の追加は準備中です')}>＋写真</div>)}
+            {[0, 1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="w-24 text-center">
+                <div className="w-24 h-20 bg-gray-100 relative"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div>
+                <div className="text-[9px] text-gray-400 mt-0.5">画像ID:C0419048{60 + i}</div>
+                <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label>
+                <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">前へ</button><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">後ろへ</button></div>
+              </div>
+            ))}
+            <div className="w-24 h-20 border border-gray-300 bg-sky-50 flex items-center justify-center text-[10px] text-sky-600 cursor-pointer" onClick={() => onToast('写真の追加は準備中です')}>画像を<br />アップロードする</div>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">※最低1枚は内観写真を設定してください</p>
         </FormRow>
       </Panel>
 
       <Panel title="サロンからの一言" plan>
-        <FormRow label="メッセージ写真"><div className="w-24 h-20 border border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 cursor-pointer" onClick={() => onToast('アップロードは準備中です')}>アップロード</div></FormRow>
+        <FormRow label="メッセージ写真"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
         <FormRow label="氏名"><input className={input} maxLength={20} placeholder="氏名" /> <Counter n={0} max={20} /></FormRow>
         <FormRow label="肩書き"><input className={`${input} w-72`} maxLength={25} placeholder="肩書き" /> <Counter n={0} max={25} /></FormRow>
         <FormRow label="メッセージ"><textarea className={`${input} w-full`} rows={3} maxLength={180} placeholder="メッセージ" /><div className="text-right"><Counter n={0} max={180} /></div></FormRow>
       </Panel>
 
       <Panel title="サロンの雰囲気・メニューなど" plan>
-        <FormRow label="雰囲気写真・メニューなど">
-          <div className="flex flex-wrap gap-3">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="w-40">
-                <div className="w-full h-24 border border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 cursor-pointer" onClick={() => onToast('写真の追加は準備中です')}>＋写真</div>
-                <input className={`${input} w-full mt-1 text-xs`} maxLength={30} placeholder="キャプション" />
-              </div>
-            ))}
-          </div>
-        </FormRow>
+        <div className="px-3 py-2 bg-amber-50/50 border-b border-slate-200 text-xs text-gray-600">雰囲気写真・メニューなど ／ キャプション</div>
+        <div className="flex flex-wrap gap-4 p-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="w-44 text-center">
+              <div className="w-full h-28 bg-gray-100 relative"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div>
+              <div className="text-[9px] text-gray-400 mt-0.5">画像ID：C0310666{36 + i}</div>
+              <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label>
+              <div className="flex items-start gap-1 mt-1"><textarea className={`${input} flex-1 text-xs`} rows={2} maxLength={30} placeholder="キャプション" /><Counter n={0} max={30} /></div>
+              <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">前へ</button><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">後ろへ</button></div>
+            </div>
+          ))}
+        </div>
       </Panel>
 
       <Panel title="サロン情報" plan>
-        <FormRow label="お店ロゴ"><div className="w-24 h-20 border border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 cursor-pointer" onClick={() => onToast('アップロードは準備中です')}>アップロード</div></FormRow>
+        <FormRow label="お店ロゴ"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
         <FormRow label="アクセス" required><input className={`${input} w-full`} maxLength={40} placeholder="最寄駅からのアクセス" /> <Counter n={0} max={40} /></FormRow>
         <FormRow label="道案内・アクセス"><textarea className={`${input} w-full`} rows={3} maxLength={200} placeholder="道案内" /><div className="text-right"><Counter n={0} max={200} /></div></FormRow>
-        <FormRow label="営業時間" required><input className={`${input} w-full`} maxLength={100} placeholder="9:00〜19:00" /></FormRow>
-        <FormRow label="定休日" required><input className={`${input} w-full`} maxLength={50} placeholder="日曜日・年末年始" /></FormRow>
+        <FormRow label="営業時間" required><textarea className={`${input} w-full`} rows={2} maxLength={100} placeholder="9:00〜19:00" /><div className="text-right"><Counter n={0} max={100} /></div></FormRow>
+        <FormRow label="定休日" required><input className={`${input} w-full`} maxLength={50} placeholder="日曜日・年末年始" /> <Counter n={0} max={50} /></FormRow>
         <FormRow label="支払い方法">
           <div className="grid grid-cols-3 gap-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <label key={c} className="flex items-center gap-1"><input type="checkbox" />{c}</label>)}</div>
-          <input className={`${input} w-full mt-2`} maxLength={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" />
+          <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" />その他</label>
+          <input className={`${input} w-full mt-1`} maxLength={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" /> <Counter n={0} max={40} />
         </FormRow>
         <FormRow label="設備">
-          <div className="space-y-1">{[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-6">{n}</span><input className={`${input} w-56`} placeholder="設備名" /><input className={`${input} w-14`} placeholder="数" /></div>)}</div>
-          <button onClick={() => onToast('設備の追加は準備中です')} className="text-sky-600 underline text-xs mt-1">追加する</button>
-        </FormRow>
-        <FormRow label="スタッフ数">
-          <div className="space-y-1">{[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-6">{n}</span><input className={`${input} w-56`} placeholder="施術者区分" /><input className={`${input} w-14`} placeholder="人数" /><span className="text-xs">人</span></div>)}</div>
-          <button onClick={() => onToast('スタッフ数の追加は準備中です')} className="text-sky-600 underline text-xs mt-1">追加する</button>
+          <div className="flex gap-8">
+            <div>
+              <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={0} /></div>
+              {[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><input type="checkbox" /><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-40 bg-white`}><option>リクライニングチェア</option></select><input className={`${input} w-12`} placeholder="数" /></div>)}
+              <button onClick={() => onToast('追加は準備中です')} className="text-sky-600 underline text-xs">追加する</button>
+            </div>
+            <div>
+              <div className="text-xs font-bold text-gray-600 mb-1">スタッフ数</div>
+              <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={0} /> 人</div>
+              {[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><input type="checkbox" /><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-36 bg-white`}><option>施術者（まつげ）</option></select><input className={`${input} w-12`} placeholder="数" /><span className="text-xs">人</span></div>)}
+              <button onClick={() => onToast('追加は準備中です')} className="text-sky-600 underline text-xs">追加する</button>
+            </div>
+          </div>
         </FormRow>
         <FormRow label="駐車場"><input className={`${input} w-full`} maxLength={20} placeholder="提携駐車場あり 等" /> <Counter n={0} max={20} /></FormRow>
         <FormRow label="備考"><textarea className={`${input} w-full`} rows={3} maxLength={100} placeholder="備考" /><div className="text-right"><Counter n={0} max={100} /></div></FormRow>
@@ -336,23 +348,42 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
 
       <Panel title="お店情報" plan>
         <FormRow label="ジャンル" required>
-          <div className="space-y-1">{[1, 2, 3, 4, 5, 6].map((n) => <div key={n} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-56 bg-white`}><option>未選択</option><option>まつげ・メイクなど</option><option>エステ</option></select></div>)}</div>
+          <div className="space-y-1">{[1, 2, 3, 4, 5, 6].map((n) => <div key={n} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-56 bg-white`} defaultValue={n === 1 ? 'まつげ・メイクなど' : n === 2 ? 'エステ' : '未選択'}><option>未選択</option><option>まつげ・メイクなど</option><option>エステ</option></select></div>)}</div>
         </FormRow>
-        <FormRow label="男性施術者区分"><div className="flex gap-4 text-xs">{['男性施術者のみ', '男性施術者もいる', '表示なし'].map((o) => <label key={o} className="flex items-center gap-1"><input type="radio" name="male" />{o}</label>)}</div></FormRow>
+        <FormRow label="男性施術者区分"><div className="flex gap-4 text-xs">{['男性施術者のみ', '男性施術者もいる', '表示なし'].map((o) => <label key={o} className="flex items-center gap-1"><input type="radio" name="male" defaultChecked={o === '表示なし'} />{o}</label>)}</div></FormRow>
+      </Panel>
+
+      <Panel title="メンズにもオススメ表示・メンズ用切替設定">
         <FormRow label="メンズ"><label className="flex items-center gap-1 text-xs"><input type="checkbox" />メンズ利用OK</label><p className="text-[11px] text-gray-400 mt-1">※メンズ向け特集に参画されている場合は、設定内容に関わらずサロンデータに「メンズにもオススメ」と表示されます。</p></FormRow>
       </Panel>
 
       <Panel title="こだわり条件(サロンデータ)">
         <FormRow label="こだわり条件">
-          <div className="grid grid-cols-2 gap-1 text-xs">{['夜20時以降も受付OK', '当日受付OK', '2名以上の利用OK', '女性専用', '個室あり', '駐車場あり', '駅から徒歩5分以内', '2回目以降特典あり', '店頭でのカード支払いOK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <div className="grid grid-cols-3 gap-1 text-xs">{['夜20時以降も受付OK', '当日受付OK', '2名以上の利用OK', '女性専用', '個室あり', '駐車場あり', '駅から徒歩5分以内', '2回目以降特典あり', '店頭でのカード支払いOK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
         </FormRow>
-        <FormRow label="サービス">
-          <div className="grid grid-cols-2 gap-1 text-xs">{['24時間営業', '年中無休', '女性スタッフ在籍', '完全予約制', '指名予約OK', '1人で貸切OK', 'ドリンクサービスあり', 'お子さま同伴可', 'キッズスペースあり', 'メイクルームあり', '体験メニューあり', '回数券あり'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+        <FormRow label="サロン設備・サービス">
+          <div className="grid grid-cols-3 gap-1 text-xs">{['24時間営業', '始発まで営業している', '朝10時前でも受付OK', '年中無休', '女性スタッフ在籍', '完全予約制', '指名予約OK', '1人で貸切OK', 'ショッピングモール内にある', 'ドリンクサービスあり', 'DVDが視聴できる', '喫煙OK', 'お子さま同伴可', 'キッズスペースあり', 'リクライニングチェア（ベッド）', 'メイクルームあり', '着替えあり', 'アメニティまたはコスメが充実', '3席（ベッド）以下の小型サロン', '10席（ベッド）以上の大型サロン', 'つけ放題メニューあり', '都度払いメニューあり', '体験メニューあり', 'ブライダルメニューあり', '回数券あり', 'スクール併設', 'COIN+支払いOK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+        </FormRow>
+      </Panel>
+
+      <Panel title="こだわり条件(メニュー)">
+        <FormRow label="まつげ・メイクなど">
+          <div className="grid grid-cols-3 gap-1 text-xs">{['まつげメニュー（要美容師免許※1）', 'ヘアセット', 'メイク', '着付け', '眉カット（要美容師免許※1）', 'シェービング（要理容師免許※1）', 'ネイル同時施術OK'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+        </FormRow>
+        <FormRow label="エステ（フェイシャル）">
+          <div className="grid grid-cols-3 gap-1 text-xs">{['毛穴ケア', '小顔・リフトアップ', 'はり・つや', '美白ケア', '乾燥肌・保湿ケア', '黒ずみ・くすみ', 'シェービング（要理容師免許※1）'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+        </FormRow>
+        <FormRow label="エステ（脱毛）">
+          <div className="grid grid-cols-3 gap-1 text-xs">{['ワキ', '腕（ヒジ上・ヒジ下）', '脚（ヒザ上・ヒザ下）', 'V・I・Oライン', '全身', 'その他（顔・指・胸・背中など）'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+        </FormRow>
+        <FormRow label="エステ（ボディ）">
+          <div className="grid grid-cols-3 gap-1 text-xs">{['痩身', '美脚（太もも・ふくらはぎ・足首）', '小尻・ヒップアップ', '二の腕', '背中', 'ウエスト', 'バスト', 'シェービング（要理容師免許※1）', '美肌ケア', '耳つぼ', 'ボディトレーニング'].map((o) => <label key={o} className="flex items-center gap-1"><input type="checkbox" />{o}</label>)}</div>
+          <p className="text-[11px] text-gray-400 mt-2">※1 資格が必要な施術を掲載する際は、理美容業のジャンル申請を行わなければ登録できません。ジャンル申請の追加については営業担当にお問い合わせください。</p>
         </FormRow>
       </Panel>
 
       <Panel title="掲載情報表示の自動最適化">
-        <FormRow label="自動最適化"><label className="flex items-center gap-1 text-xs"><input type="checkbox" />掲載情報表示を自動で最適化する</label><p className="text-[11px] text-gray-400 mt-1">※チェックを入れると、クーポンやサロン画像をはじめとした掲載情報がお客様1人ひとりの嗜好性に合うように自動で優先的に表示されます。</p></FormRow>
+        <FormRow label="自動最適化"><label className="flex items-center gap-1 text-xs"><input type="checkbox" defaultChecked />掲載情報表示を自動で最適化する</label><p className="text-[11px] text-gray-400 mt-1">※チェックを入れると、クーポンやサロン画像をはじめとした掲載情報がお客様1人ひとりの嗜好性に合うように自動で優先的に表示されます。</p></FormRow>
       </Panel>
 
       <SaveBar />
