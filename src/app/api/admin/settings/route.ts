@@ -36,6 +36,13 @@ const settingsSchema = z.object({
   business_hours: z.record(z.string(), businessHoursDaySchema).optional().nullable(),
   booking_auto_confirm: z.boolean().optional(),
   booking_buffer_minutes: z.number().int().min(0).max(120).optional(),
+  business_hours_text: z.string().max(200).optional().nullable(),
+  directions: z.string().max(500).optional().nullable(),
+  remarks: z.string().max(500).optional().nullable(),
+  owner_name: z.string().max(50).optional().nullable(),
+  owner_title: z.string().max(50).optional().nullable(),
+  owner_message: z.string().max(500).optional().nullable(),
+  genres: z.array(z.string().max(50)).max(6).optional(),
 });
 
 const statusSchema = z.object({

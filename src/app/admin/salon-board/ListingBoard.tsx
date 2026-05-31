@@ -318,22 +318,28 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   // 単純カラムに対応する主要項目を保存対象とする（キャッチ/コピー/アクセス/定休日）
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
-  const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '' });
+  const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '', business_hours_text: '', directions: '', remarks: '', owner_name: '', owner_title: '', owner_message: '' });
   const website = useRef<string>(''); // 既存値を保持して保存時に消さない（settingsは未送信でnull化するため）
   const featureSet = useRef<Set<string>>(new Set()); // こだわり条件/サービス/支払い/メンズ等のチェック集約 → features配列
   const counts = useRef({ seat: '', staff: '' }); // 設備総数 → seat_count, スタッフ総数 → staff_count
+  const genres = useRef<string[]>(['', '', '', '', '', '']); // ジャンル6枠
+  const extEnabled = useRef(false); // 拡張カラム(business_hours_text等)がDBに存在するか
   const toggleFeature = (label: string, on: boolean) => { if (on) featureSet.current.add(label); else featureSet.current.delete(label); };
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const sb = createBrowserSupabaseClient();
-      const { data } = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle();
+      const { data } = await sb.from('facility_profiles').select('*').eq('id', facilityId).maybeSingle();
       if (!cancelled) {
         const d = (data as Record<string, unknown> | null) ?? {};
-        fields.current = { catch_copy: (d.catch_copy as string) ?? '', description: (d.description as string) ?? '', access_info: (d.access_info as string) ?? '', regular_holiday: (d.regular_holiday as string) ?? '' };
-        website.current = (d.website_url as string) ?? '';
+        const s = (k: string) => (d[k] as string) ?? '';
+        extEnabled.current = 'directions' in d;
+        fields.current = { catch_copy: s('catch_copy'), description: s('description'), access_info: s('access_info'), regular_holiday: s('regular_holiday'), business_hours_text: s('business_hours_text'), directions: s('directions'), remarks: s('remarks'), owner_name: s('owner_name'), owner_title: s('owner_title'), owner_message: s('owner_message') };
+        website.current = s('website_url');
         featureSet.current = new Set(Array.isArray(d.features) ? (d.features as string[]) : []);
         counts.current = { seat: d.seat_count != null ? String(d.seat_count) : '', staff: d.staff_count != null ? String(d.staff_count) : '' };
+        const g = Array.isArray(d.genres) ? (d.genres as string[]) : [];
+        genres.current = [0, 1, 2, 3, 4, 5].map((i) => g[i] ?? '');
         setLoaded(true);
       }
     })().catch(() => setLoaded(true));
@@ -345,14 +351,20 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
     try {
       const features = Array.from(featureSet.current);
       const cardTypes = ['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'];
-      const payload = {
-        name: salonName, ...fields.current, website_url: website.current || '',
+      const base = {
+        name: salonName, catch_copy: fields.current.catch_copy, description: fields.current.description, access_info: fields.current.access_info, regular_holiday: fields.current.regular_holiday, website_url: website.current || '',
         features,
         seat_count: counts.current.seat ? parseInt(counts.current.seat, 10) : null,
         staff_count: counts.current.staff ? parseInt(counts.current.staff, 10) : null,
         parking: features.includes('駐車場あり'),
         credit_card: features.some((f) => cardTypes.includes(f)),
       };
+      const ext = extEnabled.current ? {
+        business_hours_text: fields.current.business_hours_text, directions: fields.current.directions, remarks: fields.current.remarks,
+        owner_name: fields.current.owner_name, owner_title: fields.current.owner_title, owner_message: fields.current.owner_message,
+        genres: genres.current.filter((x) => x && x !== '未選択'),
+      } : {};
+      const payload = { ...base, ...ext };
       const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       onToast('サロン掲載情報を保存しました'); setSaving(false);
@@ -418,9 +430,9 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
 
       <Panel title="サロンからの一言" plan>
         <FormRow label="メッセージ写真"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
-        <FormRow label="氏名"><CharInput max={20} placeholder="氏名" w="w-60" /></FormRow>
-        <FormRow label="肩書き"><CharInput max={25} placeholder="肩書き" w="w-72" /></FormRow>
-        <FormRow label="メッセージ"><CharTextarea max={180} rows={3} placeholder="メッセージ" /></FormRow>
+        <FormRow label="氏名"><CharInput max={20} placeholder="氏名" w="w-60" defaultValue={fields.current.owner_name} onValueChange={(v) => { fields.current.owner_name = v; }} /></FormRow>
+        <FormRow label="肩書き"><CharInput max={25} placeholder="肩書き" w="w-72" defaultValue={fields.current.owner_title} onValueChange={(v) => { fields.current.owner_title = v; }} /></FormRow>
+        <FormRow label="メッセージ"><CharTextarea max={180} rows={3} placeholder="メッセージ" defaultValue={fields.current.owner_message} onValueChange={(v) => { fields.current.owner_message = v; }} /></FormRow>
       </Panel>
 
       <Panel title="サロンの雰囲気・メニューなど" plan>
@@ -441,8 +453,8 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       <Panel title="サロン情報" plan>
         <FormRow label="お店ロゴ"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
         <FormRow label="アクセス" required><CharInput max={40} placeholder="最寄駅からのアクセス" below defaultValue={fields.current.access_info} onValueChange={(v) => { fields.current.access_info = v; }} /></FormRow>
-        <FormRow label="道案内・アクセス"><CharTextarea max={200} rows={3} placeholder="道案内" /></FormRow>
-        <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" /></FormRow>
+        <FormRow label="道案内・アクセス"><CharTextarea max={200} rows={3} placeholder="道案内" defaultValue={fields.current.directions} onValueChange={(v) => { fields.current.directions = v; }} /></FormRow>
+        <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" defaultValue={fields.current.business_hours_text} onValueChange={(v) => { fields.current.business_hours_text = v; }} /></FormRow>
         <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below defaultValue={fields.current.regular_holiday} onValueChange={(v) => { fields.current.regular_holiday = v; }} /></FormRow>
         <FormRow label="支払い方法">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <span key={c} className="whitespace-nowrap"><Feat label={c} /></span>)}</div>
@@ -465,12 +477,12 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
           </div>
         </FormRow>
         <FormRow label="駐車場"><CharInput max={20} placeholder="提携駐車場あり 等" below /></FormRow>
-        <FormRow label="備考"><CharTextarea max={100} rows={3} placeholder="備考" /></FormRow>
+        <FormRow label="備考"><CharTextarea max={100} rows={3} placeholder="備考" defaultValue={fields.current.remarks} onValueChange={(v) => { fields.current.remarks = v; }} /></FormRow>
       </Panel>
 
       <Panel title="お店情報" plan>
         <FormRow label="ジャンル" required>
-          <div className="space-y-1">{[1, 2, 3, 4, 5, 6].map((n) => <div key={n} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-56 bg-white`} defaultValue={n === 1 ? 'まつげ・メイクなど' : n === 2 ? 'エステ' : '未選択'}><option>未選択</option><option>まつげ・メイクなど</option><option>エステ</option></select></div>)}</div>
+          <div className="space-y-1">{[1, 2, 3, 4, 5, 6].map((n) => <div key={n} className="flex items-center gap-2"><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-56 bg-white`} defaultValue={genres.current[n - 1] || '未選択'} onChange={(e) => { genres.current[n - 1] = e.target.value; }}><option>未選択</option><option>まつげ・メイクなど</option><option>エステ</option></select></div>)}</div>
         </FormRow>
         <FormRow label="男性施術者区分"><div className="flex gap-4 text-xs">{['男性施術者のみ', '男性施術者もいる', '表示なし'].map((o) => <label key={o} className="flex items-center gap-1"><input type="radio" name="male" defaultChecked={o === '表示なし'} />{o}</label>)}</div></FormRow>
       </Panel>
