@@ -10,11 +10,6 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function POST(request: Request) {
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -37,6 +32,14 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
+
+  // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+  // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+  // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   // 冪等性: 既処理イベントはスキップ
   const { data: inserted, error: idemErr } = await supabase

@@ -12,11 +12,6 @@ import { createClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 interface LineEvent {
   type: string;
   replyToken?: string;
@@ -83,6 +78,14 @@ async function handleFollow(lineUserId: string) {
     if (!res.ok) return;
 
     const profile = await res.json();
+
+    // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+    // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+    // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
 
     // line_user_linksに仮登録（user_id=NULLの状態、後でアカウント連携時に紐づけ）
     // → RLSがuser_id必須なので、service_roleで直接INSERT

@@ -13,11 +13,6 @@ import { escSubject } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 function classifySegment(totalVisits: number, daysSinceLastVisit: number): string {
   if (totalVisits >= 5 && daysSinceLastVisit <= 30) return 'vip';
   if (totalVisits >= 2 && daysSinceLastVisit <= 60) return 'regular';
@@ -29,6 +24,14 @@ function classifySegment(totalVisits: number, daysSinceLastVisit: number): strin
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
+
+  // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+  // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+  // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   const startedAt = new Date();
   try {
