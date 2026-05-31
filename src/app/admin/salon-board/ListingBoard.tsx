@@ -158,6 +158,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     setBlogs((data as BlogRow[]) ?? []);
   }, [facilityId]);
 
+  const reloadPhotos = useCallback(async () => {
+    const sb = createBrowserSupabaseClient();
+    const { data } = await sb.from('facility_photos').select('id,photo_url,photo_type,caption,sort_order').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    setPhotos((data as PhotoRow[]) ?? []);
+  }, [facilityId]);
+
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 
   return (
@@ -178,7 +184,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} onToast={onToast} />}
-            {tab === 'photo' && <PhotoEditPage rows={photos} onToast={onToast} />}
+            {tab === 'photo' && <PhotoEditPage rows={photos} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
             {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
@@ -510,14 +516,34 @@ function StaffListPage({ rows, onToast }: { rows: StaffRow[]; onToast: (m: strin
 }
 
 /* ========================= フォトギャラリー掲載情報編集 ========================= */
-function PhotoEditPage({ rows, onToast }: { rows: PhotoRow[]; onToast: (m: string) => void }) {
+function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((p) => [p.id, p.caption ?? ''])));
+  const [saving, setSaving] = useState(false);
+  const saveAll = async () => {
+    if (saving) return; setSaving(true);
+    try {
+      for (const p of rows) {
+        const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caption: caps[p.id] ?? '' }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+      }
+      onToast('写真情報を保存しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
+  };
+  const remove = async (p: PhotoRow) => {
+    if (saving) return; setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); setSaving(false); return; }
+      onToast('写真を削除しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
+  };
   return (
     <div className="max-w-4xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">フォトギャラリー掲載情報編集</h2>
       <p className="text-[11px] text-gray-500">※「画像応募」にチェックをすると、Hot Pepper Beautyサイトの特集/メルマガ/装飾・バナー/公式Facebookページ等に使用される対象となります <button onClick={() => onToast('使用事例は準備中です')} className="text-sky-600 underline">使用事例はこちら</button></p>
-      <div className="flex justify-end gap-2"><button onClick={() => onToast('登録しました（デモ）')} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button><button onClick={() => onToast('キャンセルしました')} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
-      <button onClick={() => onToast('入力欄の追加は準備中です')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">入力欄を追加する</button>
+      <div className="flex justify-end gap-2"><button disabled={saving} onClick={saveAll} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button><button onClick={onReload} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
+      <button onClick={() => onToast('画像アップロードは今後対応予定です')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">入力欄を追加する</button>
       <button onClick={() => onToast('使用できる写真は準備中です')} className="block text-sky-600 underline text-xs">? 使用できる写真について</button>
       <Panel title="フォトギャラリー設定" plan>
         {rows.length === 0 ? (
@@ -528,13 +554,13 @@ function PhotoEditPage({ rows, onToast }: { rows: PhotoRow[]; onToast: (m: strin
               <div className="text-xs font-bold text-gray-500">No.<input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></div>
               {p.photo_url ? <img src={p.photo_url} alt="" className="w-24 h-20 object-cover mt-1" /> : <div className="w-24 h-20 bg-gray-100 mt-1" />}
               <div className="text-[9px] text-gray-400 mt-0.5">画像ID: C{p.id.slice(0, 8).toUpperCase()}</div>
-              <button onClick={() => onToast('アップロードは準備中です')} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded block mx-auto">アップロード</button>
-              <button onClick={() => onToast('削除は準備中です')} className="mt-0.5 px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded block mx-auto">削除</button>
+              <button onClick={() => onToast('画像アップロードは今後対応予定です')} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded block mx-auto">アップロード</button>
+              <button disabled={saving} onClick={() => { if (confirm('この写真を削除しますか？')) remove(p); }} className="mt-0.5 px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded block mx-auto disabled:opacity-40">削除</button>
               <label className="flex items-center gap-1 text-[10px] text-gray-500 mt-1 justify-center"><input type="checkbox" />画像応募</label>
             </div>
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><CharInput max={15} placeholder="タイトル" /><button onClick={() => onToast('クリアは準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] whitespace-nowrap shrink-0">クリア</button></div>
-              <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><CharTextarea max={30} rows={2} defaultValue={p.caption ?? ''} below={false} /></div>
+              <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><CharTextarea max={30} rows={2} defaultValue={p.caption ?? ''} below={false} onValueChange={(v) => setCaps((c) => ({ ...c, [p.id]: v }))} /></div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">ジャンル</span><select className={`${input} bg-white`}><option>まつげ・メイクなど</option><option>エステ</option></select>
                 <span className="ml-auto flex flex-col items-start gap-1 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} />非掲載</label></span>
               </div>
