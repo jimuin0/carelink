@@ -67,6 +67,38 @@ function hpbLen(s: string): number {
   return n;
 }
 
+const fieldCls = 'border border-gray-300 rounded px-2 py-1 text-sm';
+
+// 入力に応じて文字数カウンタがリアルタイム更新される制御テキスト入力（HPB準拠）
+function CharInput({ max, defaultValue = '', placeholder, w = 'flex-1', below = false }: { max: number; defaultValue?: string; placeholder?: string; w?: string; below?: boolean }) {
+  const [v, setV] = useState(defaultValue);
+  const counter = <Counter n={hpbLen(v)} max={max} />;
+  const field = <input value={v} onChange={(e) => setV(e.target.value)} maxLength={max} placeholder={placeholder} className={`${fieldCls} ${w}`} />;
+  return below
+    ? <><div className="w-full">{field}</div><div className="text-right">{counter}</div></>
+    : <div className="flex items-start gap-2 w-full">{field}{counter}</div>;
+}
+function CharTextarea({ max, defaultValue = '', placeholder, rows = 3, below = true }: { max: number; defaultValue?: string; placeholder?: string; rows?: number; below?: boolean }) {
+  const [v, setV] = useState(defaultValue);
+  const counter = <Counter n={hpbLen(v)} max={max} />;
+  const field = <textarea value={v} onChange={(e) => setV(e.target.value)} rows={rows} maxLength={max} placeholder={placeholder} className={`${fieldCls} w-full`} />;
+  return below
+    ? <>{field}<div className="text-right">{counter}</div></>
+    : <div className="flex items-start gap-2 w-full">{field}{counter}</div>;
+}
+// 所要目安時間：入力分数に応じて「N時間M分」をリアルタイム換算表示
+function DurationInput({ defaultValue }: { defaultValue?: number | null }) {
+  const [v, setV] = useState(defaultValue != null ? String(defaultValue) : '');
+  const hm = minToHM(parseInt(v, 10) || 0);
+  return (
+    <span className="flex items-center gap-3">
+      <input value={v} onChange={(e) => setV(e.target.value.replace(/[^0-9]/g, ''))} className={`${fieldCls} w-16`} /><span className="text-xs">分</span>
+      {hm && <span className="text-xs text-gray-600">{hm}</span>}
+      <span className="text-[10px] text-gray-400">※予約時の時間計算に利用します</span>
+    </span>
+  );
+}
+
 export default function ListingBoard({ facilityId, salonName, status, onToast }: Props) {
   const [tab, setTab] = useState<ListingTab>('top');
   const [loading, setLoading] = useState(true);
@@ -278,8 +310,8 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
       </Panel>
 
       <Panel title="サロントップ" plan>
-        <FormRow label="キャッチ" required><input className={`${input} flex-1 w-full`} placeholder="キャッチコピー" maxLength={50} /><div className="text-right"><Counter n={0} max={50} /></div></FormRow>
-        <FormRow label="コピー" required><textarea className={`${input} w-full`} rows={3} placeholder="サロンの紹介文" maxLength={150} /><div className="text-right"><Counter n={0} max={150} /></div></FormRow>
+        <FormRow label="キャッチ" required><CharInput max={50} placeholder="キャッチコピー" below /></FormRow>
+        <FormRow label="コピー" required><CharTextarea max={150} rows={3} placeholder="サロンの紹介文" /></FormRow>
         <FormRow label="ＴＯＰ写真" required>
           <div className="flex flex-wrap gap-2">
             {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -298,9 +330,9 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
 
       <Panel title="サロンからの一言" plan>
         <FormRow label="メッセージ写真"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
-        <FormRow label="氏名"><input className={input} maxLength={20} placeholder="氏名" /> <Counter n={0} max={20} /></FormRow>
-        <FormRow label="肩書き"><input className={`${input} w-72`} maxLength={25} placeholder="肩書き" /> <Counter n={0} max={25} /></FormRow>
-        <FormRow label="メッセージ"><textarea className={`${input} w-full`} rows={3} maxLength={180} placeholder="メッセージ" /><div className="text-right"><Counter n={0} max={180} /></div></FormRow>
+        <FormRow label="氏名"><CharInput max={20} placeholder="氏名" w="w-60" /></FormRow>
+        <FormRow label="肩書き"><CharInput max={25} placeholder="肩書き" w="w-72" /></FormRow>
+        <FormRow label="メッセージ"><CharTextarea max={180} rows={3} placeholder="メッセージ" /></FormRow>
       </Panel>
 
       <Panel title="サロンの雰囲気・メニューなど" plan>
@@ -311,7 +343,7 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
               <div className="w-full h-28 bg-gray-100 relative"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div>
               <div className="text-[9px] text-gray-400 mt-0.5">画像ID：C0310666{36 + i}</div>
               <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label>
-              <div className="flex items-start gap-1 mt-1"><textarea className={`${input} flex-1 text-xs`} rows={2} maxLength={30} placeholder="キャプション" /><Counter n={0} max={30} /></div>
+              <div className="flex items-start gap-1 mt-1"><CharTextarea max={30} rows={2} placeholder="キャプション" below={false} /></div>
               <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">前へ</button><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">後ろへ</button></div>
             </div>
           ))}
@@ -320,14 +352,14 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
 
       <Panel title="サロン情報" plan>
         <FormRow label="お店ロゴ"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
-        <FormRow label="アクセス" required><input className={`${input} w-full`} maxLength={40} placeholder="最寄駅からのアクセス" /> <Counter n={0} max={40} /></FormRow>
-        <FormRow label="道案内・アクセス"><textarea className={`${input} w-full`} rows={3} maxLength={200} placeholder="道案内" /><div className="text-right"><Counter n={0} max={200} /></div></FormRow>
-        <FormRow label="営業時間" required><textarea className={`${input} w-full`} rows={2} maxLength={100} placeholder="9:00〜19:00" /><div className="text-right"><Counter n={0} max={100} /></div></FormRow>
-        <FormRow label="定休日" required><input className={`${input} w-full`} maxLength={50} placeholder="日曜日・年末年始" /> <Counter n={0} max={50} /></FormRow>
+        <FormRow label="アクセス" required><CharInput max={40} placeholder="最寄駅からのアクセス" below /></FormRow>
+        <FormRow label="道案内・アクセス"><CharTextarea max={200} rows={3} placeholder="道案内" /></FormRow>
+        <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" /></FormRow>
+        <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below /></FormRow>
         <FormRow label="支払い方法">
           <div className="grid grid-cols-3 gap-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <label key={c} className="flex items-center gap-1"><input type="checkbox" />{c}</label>)}</div>
           <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" />その他</label>
-          <input className={`${input} w-full mt-1`} maxLength={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" /> <Counter n={0} max={40} />
+          <div className="mt-1"><CharInput max={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" below /></div>
         </FormRow>
         <FormRow label="設備">
           <div className="flex gap-8">
@@ -344,8 +376,8 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
             </div>
           </div>
         </FormRow>
-        <FormRow label="駐車場"><input className={`${input} w-full`} maxLength={20} placeholder="提携駐車場あり 等" /> <Counter n={0} max={20} /></FormRow>
-        <FormRow label="備考"><textarea className={`${input} w-full`} rows={3} maxLength={100} placeholder="備考" /><div className="text-right"><Counter n={0} max={100} /></div></FormRow>
+        <FormRow label="駐車場"><CharInput max={20} placeholder="提携駐車場あり 等" below /></FormRow>
+        <FormRow label="備考"><CharTextarea max={100} rows={3} placeholder="備考" /></FormRow>
       </Panel>
 
       <Panel title="お店情報" plan>
@@ -474,8 +506,8 @@ function PhotoEditPage({ rows, onToast }: { rows: PhotoRow[]; onToast: (m: strin
               <label className="flex items-center gap-1 text-[10px] text-gray-500 mt-1 justify-center"><input type="checkbox" />画像応募</label>
             </div>
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><input className={`${input} flex-1`} maxLength={15} placeholder="タイトル" /><Counter n={0} max={15} /><button onClick={() => onToast('クリアは準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px]">クリア</button></div>
-              <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><textarea className={`${input} flex-1`} rows={2} maxLength={30} defaultValue={p.caption ?? ''} /><Counter n={(p.caption ?? '').length} max={30} /></div>
+              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><CharInput max={15} placeholder="タイトル" /><button onClick={() => onToast('クリアは準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px]">クリア</button></div>
+              <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><CharTextarea max={30} rows={2} defaultValue={p.caption ?? ''} below={false} /></div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">ジャンル</span><select className={`${input} bg-white`}><option>まつげ・メイクなど</option><option>エステ</option></select>
                 <span className="ml-auto flex items-center gap-3 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} />非掲載</label></span>
               </div>
@@ -508,8 +540,8 @@ function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string)
             <div className="flex-1 space-y-2">
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">カテゴリ</span>
                 <div className="space-y-1"><select className={`${input} bg-white block`} defaultValue={m.category ?? 'まつげ・メイクなど'}><option>まつげ・メイクなど</option><option>エステ</option></select><select className={`${input} bg-white block`} defaultValue={m.subcategory ?? ''}><option value="">その他まつげメニュー</option>{m.subcategory && <option value={m.subcategory}>{m.subcategory}</option>}</select></div>
-                <span className="w-16 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2">メニュー名</span><input className={`${input} flex-1`} defaultValue={m.name} maxLength={40} /><span className="text-[10px] text-gray-400 whitespace-nowrap">{hpbLen(m.name)}<br />/40</span></div>
-              <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><textarea className={`${input} flex-1`} rows={2} defaultValue={m.description ?? ''} maxLength={70} /><span className="text-[10px] text-gray-400 whitespace-nowrap">{hpbLen(m.description ?? '')}<br />/70</span></div>
+                <span className="w-16 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2">メニュー名</span><CharInput max={40} defaultValue={m.name} /></div>
+              <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><CharTextarea max={70} rows={2} defaultValue={m.description ?? ''} below={false} /></div>
               <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} defaultValue={m.search_category ?? ''}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格</span><span className="text-xs">¥</span><input className={`${input} w-24`} defaultValue={m.price ?? ''} />
@@ -518,9 +550,7 @@ function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string)
               </div>
               <p className="text-[10px] text-gray-400 pl-24">※チェックして掲載する場合、予約不可メニューとして掲載されます。</p>
               <div className="flex items-center gap-3">
-                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">所要目安時間</span><input className={`${input} w-16`} defaultValue={m.duration_minutes ?? ''} /><span className="text-xs">分</span>
-                {m.duration_minutes ? <span className="text-xs text-gray-600">{minToHM(m.duration_minutes)}</span> : null}
-                <span className="text-[10px] text-gray-400">※予約時の時間計算に利用します</span>
+                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">所要目安時間</span><DurationInput defaultValue={m.duration_minutes} />
               </div>
               <div className="flex items-center gap-3"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">予約</span><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} defaultChecked />予約可</label><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} />予約不可</label>
                 <span className="ml-auto flex items-center gap-3 text-xs"><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">削除</button><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} />非掲載</label></span>
@@ -621,13 +651,13 @@ function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onCl
         <FormRow label="種別" required><select className={`${input} bg-white`} defaultValue={row?.coupon_type ?? 'new_customer'}><option value="new_customer">新規</option><option value="repeat">再来</option><option value="limited_time">期間限定</option><option value="all">全員</option></select></FormRow>
         <FormRow label="クーポン名" required>
           <div className="flex gap-3">
-            <div className="flex-1"><div className="flex items-start gap-2"><input className={`${input} flex-1`} defaultValue={row?.name ?? ''} maxLength={36} placeholder="クーポン名" /><Counter n={hpbLen(row?.name ?? '')} max={36} /></div></div>
+            <div className="flex-1"><CharInput max={36} defaultValue={row?.name ?? ''} placeholder="クーポン名" /></div>
             <div className="w-28 text-center"><div className="w-24 h-20 bg-gray-100 relative mx-auto"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div><div className="text-[9px] text-gray-400 mt-0.5">画像ID:C043307344</div><label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label></div>
           </div>
         </FormRow>
-        <FormRow label="クーポン内容" required><textarea className={`${input} w-full`} rows={3} defaultValue={row?.description ?? ''} maxLength={90} placeholder="クーポン内容" /><div className="text-right"><Counter n={hpbLen(row?.description ?? '')} max={90} /></div></FormRow>
+        <FormRow label="クーポン内容" required><CharTextarea max={90} rows={3} defaultValue={row?.description ?? ''} placeholder="クーポン内容" /></FormRow>
         <FormRow label="提示条件" required><select className={`${input} bg-white`}><option>予約時</option><option>来店時</option></select></FormRow>
-        <FormRow label="利用条件" required><input className={`${input} w-full`} maxLength={20} placeholder="新規＆まつげパーマ/アイブロウ/マツパ/眉" /> <Counter n={0} max={20} /></FormRow>
+        <FormRow label="利用条件" required><CharInput max={20} placeholder="新規＆まつげパーマ/アイブロウ/マツパ/眉" below /></FormRow>
         <FormRow label="有効期限">
           <label className="flex items-center gap-1 text-xs"><input type="radio" name="cvalid" defaultChecked={!row?.valid_until} />設定しない</label>
           <label className="flex items-center gap-1 text-xs mt-1"><input type="radio" name="cvalid" defaultChecked={!!row?.valid_until} /><input className={`${input} w-16`} placeholder="年" />年<input className={`${input} w-12`} placeholder="月" />月<input className={`${input} w-12`} placeholder="日" />日</label>
@@ -701,11 +731,10 @@ function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose:
         <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
         <FormRow label="投稿者"><select className={`${input} bg-white`}><option>スタッフ</option></select> <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
         <FormRow label="カテゴリ"><select className={`${input} bg-white`}><option>ビューティー</option></select></FormRow>
-        <FormRow label="タイトル"><div className="flex items-center gap-2"><input className={`${input} flex-1`} defaultValue={row?.title ?? ''} maxLength={25} placeholder="タイトル" /><Counter n={hpbLen(row?.title ?? '')} max={25} /></div><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
+        <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
           <button onClick={() => onToast('画像アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1">画像アップロード</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
-          <textarea className={`${input} w-full mt-1`} rows={8} defaultValue={row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : ''} maxLength={1000} placeholder="本文" />
-          <div className="text-right"><Counter n={0} max={1000} /></div>
+          <CharTextarea max={1000} rows={8} defaultValue={row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : ''} placeholder="本文" />
         </FormRow>
         <FormRow label="クーポン"><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">クーポン選択</button><p className="text-[11px] text-gray-400 mt-1">※クーポンの非掲載後・発行設定がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
       </div>
