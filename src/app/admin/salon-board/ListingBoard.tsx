@@ -19,7 +19,7 @@ interface StaffRow { id: string; name: string; position: string | null; specialt
 interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; }
-interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; }
+interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
@@ -49,7 +49,7 @@ const ExtIcon = () => <svg className="inline w-3 h-3 ml-0.5 -mt-0.5 text-sky-500
 // ヘルプ(?)アイコン
 const HelpIcon = ({ onClick }: { onClick: () => void }) => <button type="button" onClick={onClick} className="w-5 h-5 rounded-full border border-sky-400 text-sky-500 text-xs leading-none">?</button>;
 // 表示プラン確認の小バッジ
-const PlanBadge = () => <button type="button" className="text-[10px] text-sky-600 border border-sky-300 rounded px-1.5 py-0.5 hover:bg-sky-50">表示プランを確認</button>;
+const PlanBadge = () => <button type="button" className="text-[10px] text-sky-600 border border-sky-300 rounded px-1.5 py-0.5 hover:bg-sky-50">表示プランを確認 ▼</button>;
 // 文字数カウンタ
 const Counter = ({ n, max }: { n: number; max: number }) => <span className="text-[10px] text-gray-400">{n}<br />/{max}</span>;
 
@@ -121,7 +121,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
       sb.from('facility_photos').select('id,photo_url,photo_type,caption,sort_order').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url').eq('facility_id', facilityId).order('created_at', { ascending: false }),
+      sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id').eq('facility_id', facilityId).order('created_at', { ascending: false }),
       sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
     ]);
     setStaff((st.data as StaffRow[]) ?? []);
@@ -160,7 +160,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
             {tab === 'coupon' && <CouponListPage rows={coupons} onToast={onToast} />}
-            {tab === 'blog' && <BlogListPage rows={blogs} onToast={onToast} />}
+            {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} onToast={onToast} />}
             {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} onToast={onToast} />}
           </>
         )}
@@ -510,10 +510,10 @@ function PhotoEditPage({ rows, onToast }: { rows: PhotoRow[]; onToast: (m: strin
               <label className="flex items-center gap-1 text-[10px] text-gray-500 mt-1 justify-center"><input type="checkbox" />画像応募</label>
             </div>
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><CharInput max={15} placeholder="タイトル" /><button onClick={() => onToast('クリアは準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px]">クリア</button></div>
+              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><CharInput max={15} placeholder="タイトル" /><button onClick={() => onToast('クリアは準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] whitespace-nowrap shrink-0">クリア</button></div>
               <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><CharTextarea max={30} rows={2} defaultValue={p.caption ?? ''} below={false} /></div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">ジャンル</span><select className={`${input} bg-white`}><option>まつげ・メイクなど</option><option>エステ</option></select>
-                <span className="ml-auto flex items-center gap-3 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} />非掲載</label></span>
+                <span className="ml-auto flex flex-col items-start gap-1 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} />非掲載</label></span>
               </div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">検索用カテゴリ</span><select className={`${input} bg-white`}><option>その他</option><option>まつエク［こだわり素材］</option></select></div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">クーポン</span><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">クーポン選択</button></div>
@@ -544,7 +544,7 @@ function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string)
             <div className="flex-1 space-y-2">
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">カテゴリ</span>
                 <div className="space-y-1"><select className={`${input} bg-white block`} defaultValue={m.category ?? 'まつげ・メイクなど'}><option>まつげ・メイクなど</option><option>エステ</option></select><select className={`${input} bg-white block`} defaultValue={m.subcategory ?? ''}><option value="">その他まつげメニュー</option>{m.subcategory && <option value={m.subcategory}>{m.subcategory}</option>}</select></div>
-                <span className="w-16 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2">メニュー名</span><CharInput max={40} defaultValue={m.name} /></div>
+                <span className="w-20 shrink-0 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2 whitespace-nowrap">メニュー名</span><CharInput max={40} defaultValue={m.name} /></div>
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><CharTextarea max={70} rows={2} defaultValue={m.description ?? ''} below={false} /></div>
               <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} defaultValue={m.search_category ?? ''}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -682,8 +682,9 @@ function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onCl
 }
 
 /* ========================= ブログ一覧 ========================= */
-function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string) => void }) {
+function BlogListPage({ rows, staff, onToast }: { rows: BlogRow[]; staff: StaffRow[]; onToast: (m: string) => void }) {
   const [editing, setEditing] = useState<BlogRow | 'new' | null>(null);
+  const authorName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
   if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
@@ -702,16 +703,20 @@ function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string)
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
         <table className="w-full text-sm">
           <thead><tr className="bg-amber-50 text-gray-600 text-xs">
-            {['タイトル/カテゴリ/クーポン', '画像(1枚目)', '掲載者(最終更新者)', '初回掲載日時(最終更新日時)/ステータス', '詳細/削除'].map((h) => <th key={h} className="border border-slate-200 px-2 py-1.5 font-bold">{h}</th>)}
+            <th className="border border-slate-200 px-2 py-1.5 font-bold">タイトル/カテゴリ<br />クーポン</th>
+            <th className="border border-slate-200 px-2 py-1.5 font-bold">画像(1枚目)</th>
+            <th className="border border-slate-200 px-2 py-1.5 font-bold">投稿者(最終更新者)</th>
+            <th className="border border-slate-200 px-2 py-1.5 font-bold">初回掲載日時(最終更新日時)/ステータス</th>
+            <th className="border border-slate-200 px-2 py-1.5 font-bold">詳細/削除</th>
           </tr></thead>
           <tbody>
             {rows.length === 0 ? (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">ブログが登録されていません</td></tr>
             ) : rows.map((b) => (
               <tr key={b.id} className="align-top">
-                <td className="border border-slate-200 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button><div className="text-[10px] text-gray-400 mt-1">ビューティー</div></td>
+                <td className="border border-slate-200 px-0 py-0"><div className="flex h-full"><div className="flex-1 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button></div><div className="w-24 px-2 py-3 border-l border-slate-200 text-[10px] text-gray-500">ビューティー</div></div></td>
                 <td className="border border-slate-200 px-2 py-3 text-center">{b.thumbnail_url ? <img src={b.thumbnail_url} alt="" className="w-16 h-12 object-cover mx-auto" /> : <div className="w-16 h-12 bg-gray-100 mx-auto" />}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">スタッフ</td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">スタッフ<br /><span className="text-gray-400">({authorName(b.author_id)})</span></td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(b.published_at ?? b.created_at)}<br /><span className={b.is_published ? 'text-emerald-600' : 'text-gray-400'}>{b.is_published ? '掲載中' : '非掲載'}</span></td>
                 <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => setEditing(b)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除</button></td>
               </tr>
