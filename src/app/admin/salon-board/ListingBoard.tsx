@@ -1,7 +1,7 @@
 'use client';
 /* eslint-disable @next/next/no-img-element -- Supabase Storage の動的URLのため next/image 非対応。掲載写真はサムネイル表示用 */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 export type ListingTab =
@@ -182,7 +182,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
         ) : (
           <>
             {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
-            {tab === 'salon' && <SalonEditPage salonName={salonName} onToast={onToast} />}
+            {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} onToast={onToast} />}
             {tab === 'photo' && <PhotoEditPage rows={photos} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
             {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
@@ -308,15 +308,46 @@ function Panel({ title, children, plan }: { title: string; children: React.React
   );
 }
 
-function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m: string) => void }) {
+function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; facilityId: string; onToast: (m: string) => void }) {
+  // 単純カラムに対応する主要項目を保存対象とする（キャッチ/コピー/アクセス/定休日）
+  const [loaded, setLoaded] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '' });
+  const website = useRef<string>(''); // 既存値を保持して保存時に消さない（settingsは未送信でnull化するため）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const sb = createBrowserSupabaseClient();
+      const { data } = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url').eq('id', facilityId).maybeSingle();
+      if (!cancelled) {
+        const d = (data as Record<string, string | null> | null) ?? {};
+        fields.current = { catch_copy: d.catch_copy ?? '', description: d.description ?? '', access_info: d.access_info ?? '', regular_holiday: d.regular_holiday ?? '' };
+        website.current = d.website_url ?? '';
+        setLoaded(true);
+      }
+    })().catch(() => setLoaded(true));
+    return () => { cancelled = true; };
+  }, [facilityId]);
+
+  const save = async () => {
+    if (saving) return; setSaving(true);
+    try {
+      const payload = { name: salonName, ...fields.current, website_url: website.current || '' };
+      const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+      onToast('サロン掲載情報を保存しました'); setSaving(false);
+    } catch { onToast('通信エラーが発生しました'); setSaving(false); }
+  };
+
   const SaveBar = () => (
     <div className="flex items-center justify-end gap-2">
       <span className="text-[11px] text-rose-500 mr-auto flex items-center"><Req />必須項目</span>
-      <button onClick={() => onToast('登録しました（デモ）')} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded hover:bg-sky-600">登録</button>
-      <button onClick={() => onToast('キャンセルしました')} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded hover:bg-gray-500">キャンセル</button>
+      <button disabled={saving} onClick={save} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded hover:bg-sky-600 disabled:opacity-50">{saving ? '保存中…' : '登録'}</button>
+      <button onClick={() => onToast('変更を取り消しました')} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded hover:bg-gray-500">キャンセル</button>
     </div>
   );
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  if (!loaded) return <div className="max-w-4xl"><div className="animate-pulse h-40 bg-gray-200 rounded" /></div>;
   return (
     <div className="max-w-4xl space-y-4">
       <h2 className="text-base font-bold text-gray-800">サロン掲載情報編集</h2>
@@ -343,8 +374,8 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
       </Panel>
 
       <Panel title="サロントップ" plan>
-        <FormRow label="キャッチ" required><CharInput max={50} placeholder="キャッチコピー" below /></FormRow>
-        <FormRow label="コピー" required><CharTextarea max={150} rows={3} placeholder="サロンの紹介文" /></FormRow>
+        <FormRow label="キャッチ" required><CharInput max={50} placeholder="キャッチコピー" below defaultValue={fields.current.catch_copy} onValueChange={(v) => { fields.current.catch_copy = v; }} /></FormRow>
+        <FormRow label="コピー" required><CharTextarea max={150} rows={3} placeholder="サロンの紹介文" defaultValue={fields.current.description} onValueChange={(v) => { fields.current.description = v; }} /></FormRow>
         <FormRow label="ＴＯＰ写真" required>
           <div className="flex flex-wrap gap-2">
             {[0, 1, 2, 3, 4, 5].map((i) => (
@@ -385,10 +416,10 @@ function SalonEditPage({ salonName, onToast }: { salonName: string; onToast: (m:
 
       <Panel title="サロン情報" plan>
         <FormRow label="お店ロゴ"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
-        <FormRow label="アクセス" required><CharInput max={40} placeholder="最寄駅からのアクセス" below /></FormRow>
+        <FormRow label="アクセス" required><CharInput max={40} placeholder="最寄駅からのアクセス" below defaultValue={fields.current.access_info} onValueChange={(v) => { fields.current.access_info = v; }} /></FormRow>
         <FormRow label="道案内・アクセス"><CharTextarea max={200} rows={3} placeholder="道案内" /></FormRow>
         <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" /></FormRow>
-        <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below /></FormRow>
+        <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below defaultValue={fields.current.regular_holiday} onValueChange={(v) => { fields.current.regular_holiday = v; }} /></FormRow>
         <FormRow label="支払い方法">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <label key={c} className="flex items-center gap-1 whitespace-nowrap"><input type="checkbox" />{c}</label>)}</div>
           <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" />その他</label>
