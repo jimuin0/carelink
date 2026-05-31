@@ -94,12 +94,13 @@ function CharTextarea({ max, defaultValue = '', placeholder, rows = 3, below = t
     : <div className="flex items-start gap-2 w-full">{field}{counter}</div>;
 }
 // 所要目安時間：入力分数に応じて「N時間M分」をリアルタイム換算表示
-function DurationInput({ defaultValue }: { defaultValue?: number | null }) {
+function DurationInput({ defaultValue, onValueChange }: { defaultValue?: number | null; onValueChange?: (v: string) => void }) {
   const [v, setV] = useState(defaultValue != null ? String(defaultValue) : '');
   const hm = minToHM(parseInt(v, 10) || 0);
+  const onChange = (e: React.ChangeEvent<HTMLInputElement>) => { const nv = e.target.value.replace(/[^0-9]/g, ''); setV(nv); onValueChange?.(nv); };
   return (
     <span className="flex items-center gap-3">
-      <input value={v} onChange={(e) => setV(e.target.value.replace(/[^0-9]/g, ''))} className={`${fieldCls} w-16`} /><span className="text-xs">分</span>
+      <input value={v} onChange={onChange} className={`${fieldCls} w-16`} /><span className="text-xs">分</span>
       {hm && <span className="text-xs text-gray-600">{hm}</span>}
       <span className="text-[10px] text-gray-400">※予約時の時間計算に利用します</span>
     </span>
@@ -145,6 +146,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     setCoupons((data as CouponRow[]) ?? []);
   }, [facilityId]);
 
+  const reloadMenus = useCallback(async () => {
+    const sb = createBrowserSupabaseClient();
+    const { data } = await sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    setMenus((data as MenuRow[]) ?? []);
+  }, [facilityId]);
+
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 
   return (
@@ -166,7 +173,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'salon' && <SalonEditPage salonName={salonName} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} onToast={onToast} />}
             {tab === 'photo' && <PhotoEditPage rows={photos} onToast={onToast} />}
-            {tab === 'menu' && <MenuEditPage rows={menus} onToast={onToast} />}
+            {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
             {tab === 'coupon' && <CouponListPage rows={coupons} facilityId={facilityId} onReload={reloadCoupons} onToast={onToast} />}
@@ -536,38 +543,68 @@ function PhotoEditPage({ rows, onToast }: { rows: PhotoRow[]; onToast: (m: strin
 }
 
 /* ========================= メニュー掲載情報編集 ========================= */
-function MenuEditPage({ rows, onToast }: { rows: MenuRow[]; onToast: (m: string) => void }) {
+interface MenuDraft { id: string; category: string; subcategory: string; search_category: string; name: string; description: string; price: string; duration: string; }
+function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const [items, setItems] = useState<MenuDraft[]>(() => rows.map((m) => ({
+    id: m.id, category: m.category ?? 'まつげ・メイクなど', subcategory: m.subcategory ?? '', search_category: m.search_category ?? '',
+    name: m.name, description: m.description ?? '', price: m.price != null ? String(m.price) : '', duration: m.duration_minutes != null ? String(m.duration_minutes) : '',
+  })));
+  const [saving, setSaving] = useState(false);
+  const upd = (i: number, k: keyof MenuDraft, v: string) => setItems((arr) => arr.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
+
+  const saveAll = async () => {
+    if (saving) return; setSaving(true);
+    try {
+      for (const it of items) {
+        if (!it.name.trim() || !it.category.trim()) { onToast('カテゴリとメニュー名は必須です'); setSaving(false); return; }
+        const payload = { category: it.category, subcategory: it.subcategory || null, search_category: it.search_category || null, name: it.name.trim(), description: it.description.trim() || null, price: it.price ? parseInt(it.price, 10) : null, duration_minutes: it.duration ? parseInt(it.duration, 10) : null };
+        const res = await fetch(`/api/admin/menus/${it.id}?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+      }
+      onToast('メニューを保存しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
+  };
+  const remove = async (it: MenuDraft) => {
+    if (saving) return; setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/menus/${it.id}?facility_id=${facilityId}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); setSaving(false); return; }
+      setItems((arr) => arr.filter((x) => x.id !== it.id));
+      onToast('メニューを削除しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
+  };
+
   return (
     <div className="max-w-4xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">メニュー掲載情報編集</h2>
-      <div className="flex justify-end gap-2"><button onClick={() => onToast('登録しました（デモ）')} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button><button onClick={() => onToast('キャンセルしました')} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
+      <div className="flex justify-end gap-2"><button disabled={saving} onClick={saveAll} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button><button onClick={onReload} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
       <Panel title="メニュー備考">
         <FormRow label="備考"><textarea className={`${input} w-full`} rows={4} maxLength={500} placeholder="メニュー全体の備考" /><div className="text-right"><Counter n={0} max={500} /></div></FormRow>
       </Panel>
       <Panel title="メニュー設定">
-        {rows.length === 0 ? (
+        {items.length === 0 ? (
           <div className="px-4 py-10 text-center text-gray-400 text-sm">メニューが登録されていません</div>
-        ) : rows.map((m, i) => (
+        ) : items.map((m, i) => (
           <div key={m.id} className="flex gap-3 border-b border-slate-200 last:border-0 p-3 text-sm">
             <div className="shrink-0 text-xs font-bold text-gray-500 w-10 text-center">No.<br /><input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></div>
             <div className="flex-1 space-y-2">
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">カテゴリ</span>
-                <div className="space-y-1"><select className={`${input} bg-white block`} defaultValue={m.category ?? 'まつげ・メイクなど'}><option>まつげ・メイクなど</option><option>エステ</option></select><select className={`${input} bg-white block`} defaultValue={m.subcategory ?? ''}><option value="">その他まつげメニュー</option>{m.subcategory && <option value={m.subcategory}>{m.subcategory}</option>}</select></div>
-                <span className="w-20 shrink-0 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2 whitespace-nowrap">メニュー名</span><CharInput max={40} defaultValue={m.name} /></div>
-              <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><CharTextarea max={70} rows={2} defaultValue={m.description ?? ''} below={false} /></div>
-              <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} defaultValue={m.search_category ?? ''}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
+                <div className="space-y-1"><select className={`${input} bg-white block`} value={m.category} onChange={(e) => upd(i, 'category', e.target.value)}><option>まつげ・メイクなど</option><option>エステ</option></select><select className={`${input} bg-white block`} value={m.subcategory} onChange={(e) => upd(i, 'subcategory', e.target.value)}><option value="">その他まつげメニュー</option>{m.subcategory && <option value={m.subcategory}>{m.subcategory}</option>}</select></div>
+                <span className="w-20 shrink-0 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded ml-2 whitespace-nowrap">メニュー名</span><CharInput max={40} defaultValue={m.name} onValueChange={(v) => upd(i, 'name', v)} /></div>
+              <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">メニュー説明</span><CharTextarea max={70} rows={2} defaultValue={m.description} below={false} onValueChange={(v) => upd(i, 'description', v)} /></div>
+              <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} value={m.search_category} onChange={(e) => upd(i, 'search_category', e.target.value)}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
               <div className="flex items-center gap-3 flex-wrap">
-                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格（税込）</span><span className="text-xs">¥</span><input className={`${input} w-24`} defaultValue={m.price ?? ''} />
+                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格（税込）</span><span className="text-xs">¥</span><input className={`${input} w-24`} value={m.price} onChange={(e) => upd(i, 'price', e.target.value.replace(/[^0-9]/g, ''))} />
                 <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「〜」を表示</label>
                 <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「要問い合わせ」として表示する</label>
               </div>
               <p className="text-[10px] text-gray-400 pl-24">※チェックして掲載する場合、予約不可メニューとして掲載されます。</p>
               <div className="flex items-center gap-3">
-                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">所要目安時間</span><DurationInput defaultValue={m.duration_minutes} />
+                <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">所要目安時間</span><DurationInput defaultValue={m.duration ? parseInt(m.duration, 10) : null} onValueChange={(v) => upd(i, 'duration', v)} />
               </div>
               <div className="flex items-center gap-3"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">予約</span><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} defaultChecked />予約可</label><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} />予約不可</label>
-                <span className="ml-auto flex flex-col items-end gap-1 text-xs"><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded">削除</button><span className="flex items-center gap-3"><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} />非掲載</label></span></span>
+                <span className="ml-auto flex flex-col items-end gap-1 text-xs"><button disabled={saving} onClick={() => { if (confirm('このメニューを削除しますか？')) remove(m); }} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded disabled:opacity-40">削除</button><span className="flex items-center gap-3"><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} />非掲載</label></span></span>
               </div>
             </div>
           </div>

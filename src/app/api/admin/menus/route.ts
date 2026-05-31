@@ -16,6 +16,8 @@ const menuSchema = z.object({
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
   sort_order: z.number().int().min(0).optional(),
+  subcategory: z.string().max(100).optional().nullable(),
+  search_category: z.string().max(100).optional().nullable(),
 });
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
@@ -94,7 +96,6 @@ export async function POST(request: NextRequest) {
     ...parsed.data,
     photo_url: parsed.data.photo_url || null,
     sort_order: parsed.data.sort_order ?? (count ?? 0),
-    updated_at: new Date().toISOString(),
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

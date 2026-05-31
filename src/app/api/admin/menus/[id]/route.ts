@@ -16,6 +16,8 @@ const menuUpdateSchema = z.object({
   duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
+  subcategory: z.string().max(100).optional().nullable(),
+  search_category: z.string().max(100).optional().nullable(),
 });
 
 async function getAdminContext(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
@@ -70,9 +72,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if (existing) return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
   }
 
+  const updateData: Record<string, unknown> = { ...parsed.data };
+  if ('photo_url' in updateData) updateData.photo_url = updateData.photo_url || null;
   const { data, error } = await admin
     .from('facility_menus')
-    .update({ ...parsed.data, photo_url: parsed.data.photo_url || null, updated_at: new Date().toISOString() })
+    .update(updateData)
     .eq('id', params.id)
     .eq('facility_id', ctx.facilityId)
     .select()
