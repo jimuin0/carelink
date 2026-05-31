@@ -530,6 +530,55 @@ describe('POST /api/group-booking - success flow', () => {
       ])
     );
   });
+
+  test('POST: x-forwarded-for なし → unknown IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    const req = new Request('http://localhost/api/group-booking', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validGroupBookingForSuccess),
+    });
+    await POST(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('POST: 空の guest_members 配列 → guest insert スキップ', async () => {
+    mockMemberInsert.mockClear();
+    mockMemberInsert.mockResolvedValue({ error: null });
+    const res = await POST(makeRequest({ ...validGroupBookingForSuccess, guest_members: [] }) as any);
+    expect(res.status).toBe(201);
+    // organizer 1回のみ（guest はスキップ）
+    expect(mockMemberInsert).toHaveBeenCalledTimes(1);
+  });
+
+  test('POST: notes/menu_id/staff_id 未指定 → null フォールバック', async () => {
+    let inserted: any = null;
+    const mockGroupSelectInsert = jest.fn().mockReturnValue({
+      single: jest.fn().mockResolvedValue({ data: { id: 'group-1', share_code: 'ABC123' }, error: null }),
+    });
+    const mockGroupInsert = jest.fn((data: any) => {
+      inserted = data;
+      return { select: mockGroupSelectInsert };
+    });
+    mockFromFn.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({ single: mockFacilitySingle }),
+          }),
+        };
+      }
+      if (table === 'group_bookings') return { insert: mockGroupInsert };
+      if (table === 'group_booking_members') return { insert: mockMemberInsert };
+    });
+    const res = await POST(makeRequest(validGroupBookingForSuccess) as any);
+    expect(res.status).toBe(201);
+    expect(inserted.menu_id).toBeNull();
+    expect(inserted.staff_id).toBeNull();
+    expect(inserted.notes).toBeNull();
+  });
 });
 
 describe('GET /api/group-booking', () => {
@@ -711,6 +760,16 @@ describe('GET /api/group-booking', () => {
     expect(call[1]).toBe(30);
     expect(call[2]).toBe(60_000);
     expect(call[3]).toBe('group-booking-get');
+  });
+
+  test('GET: x-forwarded-for なし → unknown IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    const req = new Request('http://localhost/api/group-booking?code=ABC123', { method: 'GET' });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    await GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
   });
 
   test('group data is included in response', async () => {

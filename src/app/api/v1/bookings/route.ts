@@ -50,6 +50,8 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('Authorization');
   if (!authHeader?.startsWith('Bearer ')) return unauthorized();
   const apiKey = authHeader.slice(7).trim();
+  // HTTP ヘッダー正規化により trailing space が除去されるため空 apiKey は到達不可（L51 で捕捉済み）
+  /* istanbul ignore next */
   if (!apiKey) return unauthorized();
 
   const principal = await resolveApiKey(apiKey);

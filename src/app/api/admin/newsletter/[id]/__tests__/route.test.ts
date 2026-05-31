@@ -225,6 +225,18 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       const json = await res.json();
       expect(json.error).toMatch(/unknown action/i);
     });
+
+    test('不正な JSON body → action undefined → 400 (unknown action)', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      mockAdminFrom.mockReturnValue(campaignFetchChain(buildCampaign()));
+      const req = new NextRequest(`http://localhost/api/admin/newsletter/${CAMPAIGN_UUID}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'not-json',
+      });
+      const res = await PATCH(req, makeProps());
+      expect(res.status).toBe(400);
+    });
   });
 
   // ─── cancel ─────────────────────────────────────────────────────────────────
@@ -495,6 +507,171 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       const json = await res.json();
       expect(json.sentCount).toBe(0);
       expect(json.bouncedCount).toBe(0);
+    });
+
+    test('claimed=null (not just []) → 409', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({ claimedRows: null });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(409);
+    });
+
+    test('owner_monthly: facility_members fetch error でも処理は続行 (ログのみ)', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'sub@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
+        };
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+    });
+
+    test('owner_monthly: profiles が配列形式', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([]);
+        if (callNum === 4) return facilityMembersChain([
+          { profiles: [{ email: 'arr@example.com' }] as unknown as { email: string } },
+          { profiles: null },
+        ]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+    });
+
+    test('text_content が空 → undefined として送信', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        campaignOverrides: { text_content: null },
+        subscribers: [{ email: 'x@example.com', user_id: 'u1' }],
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const [messages] = mockBatchSend.mock.calls[0];
+      expect(messages[0].text).toBeUndefined();
+    });
+
+    test('subscribers email が null/undefined はフィルタされる', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      const subs = [
+        { email: 'valid@example.com', user_id: 'u1' },
+        { email: null as unknown as string, user_id: 'u2' },
+      ];
+      buildSendMocks({ subscribers: subs });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+    });
+
+    // Branch coverage: line 14 — makeUnsubToken throws when NEWSLETTER_UNSUBSCRIBE_SECRET missing
+    // chunk.map() は try/catch 外なのでエラーが伝播する（テストでは rejects で検証）
+    test('NEWSLETTER_UNSUBSCRIBE_SECRET 未設定 → unsubToken生成でthrow', async () => {
+      delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [{ email: 'a@example.com', user_id: 'u1' }],
+      });
+      await expect(
+        PATCH(makeRequest({ action: 'send' }), makeProps())
+      ).rejects.toThrow('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
+    });
+
+    // Branch coverage: line 129/133 — user_digest campaign emails built from subscribers only
+    test('user_digest: subscribers の email のみ使用 (owner fetch なし)', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        // newsletter_subscriptions
+        if (callNum === 3) return subscribersChain([{ email: 'digest@example.com', user_id: 'u1' }]);
+        // final update
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+      // facility_members query should NOT have been called (callNum should be 4, not 5)
+      expect(callNum).toBe(4);
+    });
+
+    // Branch coverage: line 129 — owner_monthly: subscribers is null → (subscribers || []) uses fallback []
+    test('owner_monthly: subscribers が null → [] にフォールバック', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        // newsletter_subscriptions returns null (not [])
+        if (callNum === 3) return {
+          select: jest.fn().mockReturnThis(),
+          or: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        };
+        if (callNum === 4) return facilityMembersChain([{ profiles: { email: 'owner@example.com' } }]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      // owner email only (subscribers null treated as [])
+      expect(json.sentCount).toBe(1);
+    });
+
+    // Branch coverage: line 133 — user_digest: subscribers is null → (subscribers || []) uses fallback []
+    test('user_digest: subscribers が null → [] にフォールバック', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        // newsletter_subscriptions returns null
+        if (callNum === 3) return {
+          select: jest.fn().mockReturnThis(),
+          or: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        };
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(0);
     });
 
     test('subscribers > 100 → sent in batches', async () => {

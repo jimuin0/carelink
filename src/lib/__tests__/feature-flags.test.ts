@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/feature-flags.ts
  * Covers: isFeatureEnabled, getAllFlags, clearFlagCache
@@ -96,5 +96,84 @@ describe('clearFlagCache', () => {
     clearFlagCache();
     await isFeatureEnabled('my_flag');
     expect(createServerSupabaseClient).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('isFeatureEnabled — extra branch coverage', () => {
+  test('allowed_user_ids exists but userId is undefined → falls through to rollout', async () => {
+    buildMock([{
+      key: 'my_flag',
+      enabled: true,
+      rollout_pct: 100,
+      description: null,
+      metadata: { allowed_user_ids: ['only-this-user'] },
+    }]);
+    // no userId arg → allowedIds && userId is false → continues to rollout_pct >= 100 → true
+    expect(await isFeatureEnabled('my_flag')).toBe(true);
+  });
+
+  test('allowed_user_ids exists, userId not in list, rollout 0 → false', async () => {
+    buildMock([{
+      key: 'my_flag',
+      enabled: true,
+      rollout_pct: 0,
+      description: null,
+      metadata: { allowed_user_ids: ['other'] },
+    }]);
+    expect(await isFeatureEnabled('my_flag', 'me')).toBe(false);
+  });
+
+  test('no userId at non-edge rollout uses Math.random branch', async () => {
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 50, description: null, metadata: {} }]);
+    const spy = jest.spyOn(Math, 'random').mockReturnValue(0.1); // 10 < 50 → true
+    expect(await isFeatureEnabled('my_flag')).toBe(true);
+    spy.mockReturnValue(0.99); // 99 < 50 → false
+    clearFlagCache();
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 50, description: null, metadata: {} }]);
+    expect(await isFeatureEnabled('my_flag')).toBe(false);
+    spy.mockRestore();
+  });
+
+  test('DB error → loadFlags catches and returns existing (empty) cache', async () => {
+    createServerSupabaseClient.mockImplementation(() => {
+      throw new Error('db down');
+    });
+    expect(await isFeatureEnabled('any')).toBe(false);
+  });
+
+  test('cache TTL expiry triggers reload', async () => {
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 100, description: null, metadata: {} }]);
+    await isFeatureEnabled('my_flag');
+    // Advance time past TTL (5min)
+    const realNow = Date.now;
+    Date.now = () => realNow() + 6 * 60 * 1000;
+    try {
+      await isFeatureEnabled('my_flag');
+      expect(createServerSupabaseClient).toHaveBeenCalledTimes(2);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  test('hash-based rollout: userId hash below threshold returns true', async () => {
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 99, description: null, metadata: {} }]);
+    // userId ending in "00" → parseInt("00", 16)=0 → 0<99 true
+    expect(await isFeatureEnabled('my_flag', 'user00')).toBe(true);
+  });
+
+  test('hash-based rollout: userId hash above threshold returns false', async () => {
+    buildMock([{ key: 'my_flag', enabled: true, rollout_pct: 1, description: null, metadata: {} }]);
+    // userId ending in "ff" → 255 % 100 = 55 → 55 < 1 false
+    expect(await isFeatureEnabled('my_flag', 'userff')).toBe(false);
+  });
+
+  // Branch coverage: line 40 — data が null のとき if (data) false 分岐 → キャッシュ更新なし
+  test('data が null → if(data) false 分岐 → キャッシュ更新スキップ（line 40 false 分岐）', async () => {
+    const mockSelect = jest.fn().mockResolvedValue({ data: null });
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: mockSelect }),
+    });
+    // data=null → キャッシュ更新なし → 存在しないフラグ → false
+    expect(await isFeatureEnabled('any_flag')).toBe(false);
   });
 });

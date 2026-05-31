@@ -216,3 +216,41 @@ test('PATCH: booking_buffer_minutes が 120 (上限ぴったり) → 200', async
   const res = await PATCH(makePatchRequest({ name: '施設', booking_buffer_minutes: 120 }));
   expect(res.status).toBe(200);
 });
+
+test('PATCH: business_hours の hours が null → ループスキップして 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({
+    name: 'test',
+    business_hours: { sun: null, mon: { open: '09:00', close: '18:00' } },
+  }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: business_hours が valid (close > open) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({
+    name: 'test',
+    business_hours: { mon: { open: '09:00', close: '18:00' } },
+  }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 不正JSON → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/settings');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req);
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: facility_id が不正UUID → 401', async () => {
+  const res = await PATCH(makePatchRequest(VALID_BODY, { facility_id: 'bad-uuid' }));
+  expect(res.status).toBe(401);
+});

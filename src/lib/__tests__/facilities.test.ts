@@ -637,6 +637,85 @@ describe('null data fallbacks', () => {
     expect(result).toEqual({});
   });
 
+  test('searchFacilities: lat のみ指定（geo検索とみなさない）', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    // lat だけで lng が null → isGeoSearch=false → range が呼ばれる
+    await searchFacilities({ lat: 35.0 });
+    expect(chain.range).toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('searchFacilities: lng のみ指定（geo検索とみなさない）', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ lng: 139.0 });
+    expect(chain.range).toHaveBeenCalled();
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('searchFacilities: geo 検索 + data が undefined → 空配列', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: undefined, error: null });
+    const result = await searchFacilities({ lat: 34.7, lng: 135.5, page: 1 });
+    expect(result.facilities).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  test('searchFacilities: keyword に %, _, \\ が含まれる場合エスケープされる', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+    await searchFacilities({ keyword: '100%_off\\test' });
+    // fluent() の全メソッドは同一 handler を共有するため
+    // ilike を含む呼び出しが OR 条件の呼び出しを特定する
+    const allCalls = (chain.or as jest.Mock).mock.calls as unknown[][];
+    const orCallArgs = allCalls.find((c) => typeof c[0] === 'string' && (c[0] as string).includes('ilike'));
+    expect(orCallArgs).toBeDefined();
+    expect(orCallArgs![0]).toContain('\\%');
+    expect(orCallArgs![0]).toContain('\\_');
+    expect(orCallArgs![0]).toContain('\\\\');
+  });
+
+  test('getAvailableFacilityIds: 時刻フォーマット h のみ (分なし) も処理する', async () => {
+    // timeToMinutes が "10" → h*60 + 0 を返す経路を踏む
+    mockFrom.mockImplementation((table: string) => {
+      const map: Record<string, unknown[]> = {
+        staff_schedules: [{ staff_id: 's-1', start_time: '10', end_time: '11' }],
+        staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
+        schedule_overrides: [],
+        bookings: [],
+      };
+      const data = map[table] ?? [];
+      const chain = fluent({ data });
+      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+      (chain as unknown as PromiseLike<unknown>).then =
+        (resolve: (v: unknown) => unknown) => Promise.resolve({ data }).then(resolve);
+      return chain;
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
+  test('getAvailableFacilityIds: bookings.start/end 時刻が end <= start → bookedMinutes=0', async () => {
+    // Math.max(0, end-start) の Math.max 分岐をテスト
+    mockFrom.mockImplementation((table: string) => {
+      const map: Record<string, unknown[]> = {
+        staff_schedules: [{ staff_id: 's-1', start_time: '09:00', end_time: '18:00' }],
+        staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
+        schedule_overrides: [],
+        bookings: [{ staff_id: 's-1', start_time: '11:00', end_time: '10:00' }],
+      };
+      const data = map[table] ?? [];
+      const chain = fluent({ data });
+      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+      (chain as unknown as PromiseLike<unknown>).then =
+        (resolve: (v: unknown) => unknown) => Promise.resolve({ data }).then(resolve);
+      return chain;
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
   test('getMonthlyBookingCounts: 12月は翌年1月を計算', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-12-15T00:00:00Z'));
@@ -647,5 +726,41 @@ describe('null data fallbacks', () => {
     const ltCall = (chain.lt as jest.Mock).mock.calls[0];
     expect(ltCall[1]).toBe('2027-01-01');
     jest.useRealTimers();
+  });
+
+  // Branch coverage: line 94 — getPopularFacilities cachedFetch 内部で data が null の場合
+  test('getPopularFacilities: cachedFetch 内部 data が null → 空配列を返す', async () => {
+    // cachedFetch mock が fetcher() を呼ぶので limit() が { data: null } を返すようにする
+    const chain = fluent({ data: null, error: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getPopularFacilities(6);
+    expect(result.facilities).toEqual([]);
+  });
+
+  // Branch coverage: line 108 — getPopularFacilities フォールバック時 data が null
+  test('getPopularFacilities: フォールバック時 data が null → 空配列', async () => {
+    cachedFetch.mockRejectedValueOnce(new Error('Redis down'));
+    const chain = fluent({ data: null, error: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getPopularFacilities(6);
+    expect(result.facilities).toEqual([]);
+  });
+
+  // Branch coverage: line 130 — getFeaturedFacilities で data が null の場合
+  test('getFeaturedFacilities: data が null → 空配列', async () => {
+    const chain = fluentFeatured({ data: null });
+    mockFrom.mockReturnValue(chain);
+    const result = await getFeaturedFacilities();
+    expect(result).toEqual([]);
+  });
+
+  // Branch coverage: line 215 — getLatestFacilities で data が null の場合
+  // .select().eq().order().limit() チェーンのうち limit() を上書きして null data を返す
+  test('getLatestFacilities: limit() が { data: null } を返す → 空配列', async () => {
+    const chain = fluent(null);
+    chain.limit = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getLatestFacilities(6);
+    expect(result.facilities).toEqual([]);
   });
 });

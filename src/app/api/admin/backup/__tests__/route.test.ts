@@ -33,6 +33,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeGetRequest() {
   return new NextRequest('http://localhost/api/admin/backup', { method: 'GET' });
@@ -211,4 +212,95 @@ test('POST: 正常CSVエクスポート → 200 Content-Type: text/csv', async (
   expect(res.status).toBe(200);
   expect(res.headers.get('Content-Type')).toContain('text/csv');
   expect(res.headers.get('Content-Disposition')).toContain('facility_profiles');
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('POST: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await POST(makePostRequest());
+  expect(res).toBe(csrfRes);
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest());
+  expect(res.status).toBe(429);
+});
+
+test('POST: profile レコードなし (null) → 403', async () => {
+  mockAnonFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await POST(makePostRequest());
+  expect(res.status).toBe(403);
+});
+
+test('POST: 不正な JSON body → 400 (table 欠落)', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const req = new NextRequest('http://localhost/api/admin/backup', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: CSV 値に null/undefined/object/カンマ含む → 適切にエスケープ', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      order: jest.fn().mockReturnValue({
+        limit: jest.fn(() => Promise.resolve({
+          data: [{
+            id: '1',
+            nullable: null,
+            undef: undefined,
+            obj: { foo: 'bar' },
+            csv: 'a,b',
+            quote: 'has "quote"',
+            newline: 'a\nb',
+          }],
+          error: null,
+        })),
+      }),
+    }),
+  });
+  const res = await POST(makePostRequest({ table: 'bookings' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('"a,b"');
+  expect(csv).toContain('"has ""quote"""');
+  // JSON オブジェクトは JSON.stringify → CSV クォート（" → ""）でエスケープされる
+  expect(csv).toContain('"{""foo"":""bar""}"');
+});
+
+test('GET: NEXT_PUBLIC_SUPABASE_URL 未設定 → unknown', async () => {
+  delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      then: (fn: (v: unknown) => unknown) => Promise.resolve({ count: 0 }).then(fn),
+    }),
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.supabase_project).toBe('unknown');
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
+});
+
+test('GET: count が null → 0 にフォールバック', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      then: (fn: (v: unknown) => unknown) => Promise.resolve({ count: null }).then(fn),
+    }),
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.table_counts.bookings).toBe(0);
 });

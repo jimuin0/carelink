@@ -231,4 +231,76 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     const res = await GET();
     expect(res).toBeDefined();
   });
+
+  test('Resend 500+ → resend NG (HTTP error branch)', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.RESEND_API_KEY = 're_test_dummy';
+    const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ error: null }) }),
+      }),
+    });
+    createServiceRoleClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
+    });
+    global.fetch = jest.fn(async (url: string | URL | Request) => {
+      const u = url.toString();
+      if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('resend.com')) return new Response(null, { status: 503 });
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+    const res = await GET();
+    const json = await res.json();
+    expect(json.deps.resend.ok).toBe(false);
+    expect(json.deps.resend.error).toContain('HTTP 503');
+  });
+
+  test('Resend 404 → resend OK (key valid even if 404)', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.RESEND_API_KEY = 're_test_dummy';
+    const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ error: null }) }),
+      }),
+    });
+    createServiceRoleClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
+    });
+    global.fetch = jest.fn(async (url: string | URL | Request) => {
+      const u = url.toString();
+      if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('resend.com')) return new Response(null, { status: 404 });
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+    const res = await GET();
+    const json = await res.json();
+    expect(json.deps.resend.ok).toBe(true);
+  });
+
+  test('Resend 未設定 → resend NG (not configured)', async () => {
+    setupDefaultMocks();
+    delete process.env.RESEND_API_KEY;
+    const res = await GET();
+    const json = await res.json();
+    expect(json.deps.resend.ok).toBe(false);
+  });
+
+  test('non-Error thrown in probe → String(e) used', async () => {
+    process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+    process.env.RESEND_API_KEY = 're_test_dummy';
+    const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockImplementation(() => {
+      // throw a non-Error value
+      throw 'string-error';
+    });
+    createServiceRoleClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
+    });
+    const res = await GET();
+    const json = await res.json();
+    expect(json.deps.supabase.ok).toBe(false);
+    expect(json.deps.supabase.error).toBe('string-error');
+  });
 });

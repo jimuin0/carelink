@@ -6,10 +6,11 @@ const timeString = z.string()
   .regex(/^\d{2}:\d{2}$/, '正しい時間形式で入力してください')
   .refine((t) => {
     const [h, m] = t.split(':').map(Number);
-    return h >= 0 && h < 24 && m >= 0 && m < 60;
+    // \d{2} regex guarantees h and m are 0-99, so h >= 0 / m >= 0 are always true (omitted)
+    return h < 24 && m < 60;
   }, '有効な時間を入力してください');
 
-function getTodayString() {
+export function getTodayString() {
   // JST（UTC+9）で今日の日付を取得（Vercel=UTC環境対応）
   const now = new Date();
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -19,7 +20,7 @@ function getTodayString() {
   return `${y}-${m}-${d}`;
 }
 
-function getMaxDateString() {
+export function getMaxDateString() {
   const now = new Date();
   const jst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
   jst.setUTCFullYear(jst.getUTCFullYear() + 1);

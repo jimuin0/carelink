@@ -309,4 +309,17 @@ describe('POST /api/push/subscribe', () => {
 
     expect(res.status).toBe(500);
   });
+
+  // Branch coverage: line 15 — x-forwarded-for ヘッダなし → ?? 'unknown' フォールバック（false 分岐）
+  test('x-forwarded-for ヘッダなし → IP=unknown（line 15 ?? false 分岐）', async () => {
+    (checkRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/push/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: 'https://example.com', keys: { p256dh: 'abc', auth: 'def' } }),
+    });
+    await POST(req as any);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
+  });
 });

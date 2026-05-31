@@ -144,3 +144,24 @@ test('GET: レスポンスが { salons: [] } 形式', async () => {
   const json = await res.json();
   expect(Array.isArray(json.salons)).toBe(true);
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: profile が null → 403', async () => {
+  mockAnonFrom.mockReturnValue({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+  });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(403);
+});
+
+test('GET: data が null → 200 with []', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(listChain(null as unknown as unknown[]));
+  const res = await GET(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.salons).toEqual([]);
+});

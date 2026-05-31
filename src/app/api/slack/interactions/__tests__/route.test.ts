@@ -96,4 +96,19 @@ describe('POST /api/slack/interactions', () => {
     const j = await res.json();
     expect(j.reason).toBe('stale_timestamp');
   });
+
+  // Branch coverage: line 86 — ACTION_HANDLERS は現在空のため if(handler) は常に false
+  // → 未知 action_id は既存テストでカバー済み。true 分岐は等価変異的な dead code
+  // 下記テストで false 分岐（handler=undefined → スキップ）を明示的にアサート
+  test('action_id が handler マップに存在しない → if(handler) false → スキップして 200（line 86 false 分岐）', async () => {
+    const payload = {
+      type: 'block_actions',
+      actions: [{ type: 'button', action_id: 'no_such_handler', value: 'v' }],
+    };
+    const body = `payload=${encodeURIComponent(JSON.stringify(payload))}`;
+    const req = makeSignedRequest(body);
+    const res = await POST(req);
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+  });
 });

@@ -276,6 +276,111 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(json.processed).toBe(0); // updateErr → flagged not incremented
   });
 
+  test('bulkSpam null (not array) → skip bulk check', async () => {
+    mockRpcDelegate.mockResolvedValue({ data: null, error: null });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('dupFacility null → skip self-dealing check', async () => {
+    mockSelectReviews = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: [] }),
+        }),
+      }),
+      not: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_reviews') {
+        return {
+          select: (...args: any[]) => mockSelectReviews(...args),
+          update: (...args: any[]) => mockUpdateReviews(...args),
+        };
+      }
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('self-dealing with only 1 review per IP-facility → not flagged', async () => {
+    mockSelectReviews = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: [] }),
+        }),
+      }),
+      not: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({
+            data: [
+              { id: 'r1', reviewer_ip: '1.1.1.1', facility_id: 'fac-a' },
+              { id: 'r2', reviewer_ip: '1.1.1.1', facility_id: 'fac-b' },
+            ],
+          }),
+        }),
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_reviews') {
+        return {
+          select: (...args: any[]) => mockSelectReviews(...args),
+          update: (...args: any[]) => mockUpdateReviews(...args),
+        };
+      }
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    // bulk spam: select → data:[], self-dealing: 各 IP-facility 1件のみ → 両方 0
+    expect(json.processed).toBe(0);
+  });
+
+  test('self-dealing update error → logs', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockSelectReviews = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: [] }),
+        }),
+      }),
+      not: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({
+            data: [
+              { id: 'r1', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
+              { id: 'r2', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
+            ],
+          }),
+        }),
+      }),
+    });
+    mockUpdateReviews = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({ error: { message: 'self-dealing update failed' } }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_reviews') {
+        return {
+          select: (...args: any[]) => mockSelectReviews(...args),
+          update: (...args: any[]) => mockUpdateReviews(...args),
+        };
+      }
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    consoleSpy.mockRestore();
+  });
+
   test('非 Error スロー → String() フォールバック', async () => {
     mockRpcDelegate.mockImplementation(() => { throw 'rpc string error'; });
 
@@ -285,6 +390,19 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(logCronRun).toHaveBeenCalledWith(
       'flag-reviews', 'error', expect.any(Date),
       expect.objectContaining({ error_msg: 'rpc string error' })
+    );
+  });
+
+  // Branch coverage: line 101 — e instanceof Error の true 分岐（Error オブジェクト → e.message を使用）
+  test('Error オブジェクトスロー → e instanceof Error true → e.message → 500（line 101 true 分岐）', async () => {
+    mockRpcDelegate.mockImplementation(() => { throw new Error('rpc failed'); });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'flag-reviews', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'rpc failed' })
     );
   });
 });

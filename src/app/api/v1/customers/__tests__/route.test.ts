@@ -267,6 +267,177 @@ describe('GET /api/v1/customers', () => {
     expect(json.pagination.page).toBeGreaterThanOrEqual(1);
   });
 
+  test('inactive API key → 401', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: false, expires_at: null },
+            }),
+          }),
+        }),
+      })),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(401);
+  });
+
+  test('null scopes → 403', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: null, is_active: true, expires_at: null },
+            }),
+          }),
+        }),
+      })),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(403);
+  });
+
+  test('missing x-forwarded-for → unknown IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/v1/customers', {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer test-api-key' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    await GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('limit=abc → デフォルト50', async () => {
+    const res = await GET(makeRequest('test-api-key', '?limit=abc') as any);
+    const json = await res.json();
+    expect(json.pagination.limit).toBe(50);
+  });
+
+  test('page=abc → デフォルト1', async () => {
+    const res = await GET(makeRequest('test-api-key', '?page=abc') as any);
+    const json = await res.json();
+    expect(json.pagination.page).toBe(1);
+  });
+
+  test('search パラメータでフィルタ追加', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const orMock = jest.fn().mockReturnValue({
+      range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+    });
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockReturnValue({
+                order: jest.fn().mockReturnValue({
+                  or: orMock,
+                  range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }),
+    });
+    const res = await GET(makeRequest('test-api-key', '?search=tanaka') as any);
+    expect(res.status).toBe(200);
+    expect(orMock).toHaveBeenCalled();
+  });
+
+  test('user_id null + customer_phone あり → phone で dedup', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockReturnValue({
+                order: jest.fn().mockReturnValue({
+                  range: jest.fn().mockResolvedValue({
+                    data: [
+                      { customer_name: 'X', customer_phone: '0901', customer_email: null, user_id: null },
+                      { customer_name: 'X', customer_phone: '0901', customer_email: null, user_id: null },
+                      // 全部 null → スキップ
+                      { customer_name: null, customer_phone: null, customer_email: null, user_id: null },
+                    ],
+                    error: null,
+                    count: 3,
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.data.length).toBe(1);
+  });
+
+  test('data が null → 空配列を返す', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'api_keys') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              not: jest.fn().mockReturnValue({
+                order: jest.fn().mockReturnValue({
+                  range: jest.fn().mockResolvedValue({ data: null, error: null, count: null }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.data).toEqual([]);
+    expect(json.pagination.total).toBe(0);
+  });
+
   test('重複 user_id は dedup される', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({

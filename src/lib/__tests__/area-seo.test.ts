@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/area-seo.ts
  * Covers: getAreaSeoContent (fallback chain), enrichSeoContent
@@ -20,11 +20,17 @@ const MOCK_ROW = {
 
 function buildSupabaseMock(returnData: object | null) {
   const mockMaybeSingle = jest.fn().mockResolvedValue({ data: returnData });
-  const mockIs2 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
+  // Level 4: .is('business_type_slug', null).maybeSingle()
+  const mockIs3 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
+  // Level 3: .is('city_slug', null).eq('business_type_slug', ...).maybeSingle()
+  //          .is('city_slug', null).is('business_type_slug', null).maybeSingle()
   const mockEq3 = jest.fn().mockReturnValue({ maybeSingle: mockMaybeSingle });
-  const mockIs1 = jest.fn().mockReturnValue({ is: mockIs2, maybeSingle: mockMaybeSingle });
-  const mockEq2 = jest.fn().mockReturnValue({ eq: mockEq3, is: mockIs2 });
-  const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2, is: mockIs1 });
+  const mockIs2 = jest.fn().mockReturnValue({ eq: mockEq3, is: mockIs3, maybeSingle: mockMaybeSingle });
+  // Level 2: .eq('city_slug', ...).is('business_type_slug', null).maybeSingle()
+  const mockIs1 = jest.fn().mockReturnValue({ eq: mockEq3, is: mockIs2, maybeSingle: mockMaybeSingle });
+  // Level 1: .eq('city_slug', ...).eq('business_type_slug', ...).maybeSingle()
+  const mockEq2 = jest.fn().mockReturnValue({ eq: mockEq3, is: mockIs1, maybeSingle: mockMaybeSingle });
+  const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2, is: mockIs2, maybeSingle: mockMaybeSingle });
   const mockSelect = jest.fn().mockReturnValue({ eq: mockEq1 });
 
   createServerSupabaseClient.mockReturnValue({
@@ -70,6 +76,30 @@ describe('getAreaSeoContent', () => {
     buildSupabaseMock({ ...MOCK_ROW, h2_title: null });
     const result = await getAreaSeoContent('tokyo');
     expect(result!.h2_title).toBeNull();
+  });
+
+  test('returns content for city + businessType (level 1 hit)', async () => {
+    buildSupabaseMock(MOCK_ROW);
+    const result = await getAreaSeoContent('osaka', 'kita', 'nail');
+    expect(result).not.toBeNull();
+  });
+
+  test('returns content for city only (level 2 hit)', async () => {
+    buildSupabaseMock(MOCK_ROW);
+    const result = await getAreaSeoContent('osaka', 'kita');
+    expect(result).not.toBeNull();
+  });
+
+  test('returns content for businessType only (level 3 hit)', async () => {
+    buildSupabaseMock(MOCK_ROW);
+    const result = await getAreaSeoContent('osaka', null, 'nail');
+    expect(result).not.toBeNull();
+  });
+
+  test('returns null when both city and businessType but no match at any level', async () => {
+    buildSupabaseMock(null);
+    const result = await getAreaSeoContent('osaka', 'kita', 'nail');
+    expect(result).toBeNull();
   });
 });
 
@@ -144,5 +174,19 @@ describe('enrichSeoContent', () => {
     const content = { ...baseContent, h2_title: null };
     const result = await enrichSeoContent(content, '東京都');
     expect(result.h2_title).toBeNull();
+  });
+
+  test('handles null count and null facilities', async () => {
+    buildEnrichMock(null as unknown as { rating_avg: number | null }[], null as unknown as number);
+    const result = await enrichSeoContent(baseContent, '東京都');
+    expect(result.body_text).toContain('0');
+    expect(result.body_text).toContain('—');
+  });
+
+  test('rating_avg null contributes 0', async () => {
+    buildEnrichMock([{ rating_avg: null }, { rating_avg: 5 }], 2);
+    const result = await enrichSeoContent(baseContent, '東京都');
+    // avg = (0 + 5) / 2 = 2.5
+    expect(result.body_text).toContain('2.5');
   });
 });

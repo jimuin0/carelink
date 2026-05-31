@@ -349,6 +349,273 @@ describe('GET /api/cron/newsletter-digest', () => {
     expect(json.skipped).toBeGreaterThan(0);
   });
 
+  test('insert conflict (23505) → skipped 200', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let newsletterCalls = 0;
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          newsletterCalls++;
+          if (newsletterCalls === 1) {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    gte: jest.fn().mockReturnValue({
+                      limit: jest.fn().mockResolvedValue({ data: [] }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          }
+          return {
+            insert: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'unique violation' } }),
+              }),
+            }),
+          };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockResolvedValue({ count: 0 }),
+            }),
+          }),
+        };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.skipped).toBe(true);
+  });
+
+  test('owners with profiles as array → email extracted', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let newsletterCalls = 0;
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          newsletterCalls++;
+          if (newsletterCalls === 1) {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    gte: jest.fn().mockReturnValue({
+                      limit: jest.fn().mockResolvedValue({ data: [] }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          } else if (newsletterCalls === 2) {
+            return {
+              insert: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-arr' }, error: null }),
+                }),
+              }),
+            };
+          }
+          return {
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ error: null }),
+            }),
+          };
+        } else if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({
+                // profiles as array (covers Array.isArray true branch) + null entry (filter)
+                data: [
+                  { profiles: [{ email: 'arr@example.com' }] },
+                  { profiles: null },
+                  { profiles: [] },
+                ],
+              }),
+            }),
+          };
+        } else if (table === 'cron_logs') {
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockResolvedValue({ count: null }),
+            }),
+          }),
+        };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('catch non-Error throw → String fallback', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => { throw 'plain string error'; }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  // Branch coverage: line 10 — makeUnsubToken の if (!secret) throw ブランチ
+  // Line 26 のガードは通過後、送信ループで secret が消えているシナリオ
+  test('secret が送信ループ中に消えた場合 → catch → 500', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let newsletterCalls = 0;
+
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          newsletterCalls++;
+          if (newsletterCalls === 1) {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    gte: jest.fn().mockReturnValue({
+                      limit: jest.fn().mockResolvedValue({ data: [] }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          } else if (newsletterCalls === 2) {
+            return {
+              insert: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-sec' }, error: null }),
+                }),
+              }),
+            };
+          }
+          return {
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ error: null }),
+            }),
+          };
+        } else if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockImplementation(() => {
+                // Delete the secret AFTER the Line 26 guard passes, so makeUnsubToken throws
+                delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+                return Promise.resolve({
+                  data: [{ profiles: { email: 'owner@example.com' } }],
+                });
+              }),
+            }),
+          };
+        } else if (table === 'cron_logs') {
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockResolvedValue({ count: 0 }),
+            }),
+          }),
+        };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    // makeUnsubToken throws → caught at top-level catch → 500
+    expect(res.status).toBe(500);
+    consoleSpy.mockRestore();
+  });
+
+  // Branch coverage: line 168 — owners が null → fallback to []
+  test('facility_members が null データを返す → emails = []', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let newsletterCalls = 0;
+
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          newsletterCalls++;
+          if (newsletterCalls === 1) {
+            return {
+              select: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  eq: jest.fn().mockReturnValue({
+                    gte: jest.fn().mockReturnValue({
+                      limit: jest.fn().mockResolvedValue({ data: [] }),
+                    }),
+                  }),
+                }),
+              }),
+            };
+          } else if (newsletterCalls === 2) {
+            return {
+              insert: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-null' }, error: null }),
+                }),
+              }),
+            };
+          }
+          return {
+            update: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ error: null }),
+            }),
+          };
+        } else if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              // owners data = null → triggers `(owners || [])` fallback
+              eq: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          };
+        } else if (table === 'cron_logs') {
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        }
+        return {
+          select: jest.fn().mockReturnValue({
+            gte: jest.fn().mockReturnValue({
+              lte: jest.fn().mockResolvedValue({ count: 0 }),
+            }),
+          }),
+        };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // No owners → sentCount = 0
+    expect(json.processed).toBe(0);
+  });
+
+  // Branch coverage: line 227 — catch で e instanceof Error false → String(e) ブランチ
+  // (すでに 'catch non-Error throw → String fallback' テストがカバーしているが
+  //  logCronRun が非同期で呼ばれるため、明示的に await してカバーを確実にする)
+  test('logCronRun が呼ばれる中で非Error throwが発生 → String(e)ブランチ到達', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    // cron_logs の insert が throw するパターン（logCronRun 内部）で非Error
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'cron_logs') {
+          return { insert: jest.fn(() => { throw 42; }) };
+        }
+        // Make the main try-block throw a non-Error to reach line 227
+        throw 'non-error-string';
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
   test('campaign update エラー → console.error して 200 続行', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
     const { createServiceRoleClient } = require('@/lib/supabase-server');

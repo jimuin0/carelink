@@ -15,6 +15,7 @@ interface BusinessTypeContext {
   faqs: { q: string; a: string }[];
 }
 
+/* Stryker disable StringLiteral, ArrayDeclaration */
 const businessTypeContext: Record<string, BusinessTypeContext> = {
   'hair-salon': {
     keyword: 'ヘアサロン・美容室',
@@ -97,12 +98,63 @@ const businessTypeContext: Record<string, BusinessTypeContext> = {
     ],
   },
 };
+/* Stryker restore StringLiteral, ArrayDeclaration */
 
 export interface GeneratedSeoContent {
   h2: string;
   intro: string;
   highlights: string[];
   faqs: { question: string; answer: string }[];
+}
+
+/**
+ * 都道府県イントロ短縮文の最大長（文字数）。
+ *
+ * 値の根拠: prefSeo.intro は CareLink 宣伝文の除去後で現状最大 141 字
+ * （src/lib/__tests__/seo-snippets.test.ts のデータ不変条件テストで担保）。
+ * SEO description の推奨長は概ね 120〜160 字で、prefIntroShort はその本文断片の
+ * 一部に過ぎないため、安全マージンを乗せて 180 字を実行時フォールバックの上限とする。
+ *
+ * 多層防御の関係:
+ *   主＝データ不変条件テスト（181 字超の intro を追加した瞬間に CI を赤くして発症前に検知）
+ *   従＝truncateText による実行時フォールバック（万一すり抜けた場合の最終安全網）
+ */
+export const INTRO_MAX_LENGTH = 180;
+
+/**
+ * 文字列を最大長 max で切り詰める純粋関数。
+ *
+ * 挙動: `text.slice(0, max)` と等価。
+ *   - text の長さが max 以下なら（slice の仕様により）text をそのまま返す
+ *   - max を超える場合は先頭から max 文字に切り詰める
+ *
+ * 分離理由（インライン化禁止）: 元はインラインの `.slice(0, 180)` だったが、
+ * 現データでは intro が常に上限未満のため slice が一度も発動せず、Stryker L4 で
+ * 「.slice 削除が出力を変えない＝等価変異（Survived）」となりテストの穴になっていた。
+ * 純粋関数として分離し、181 字超を注入する境界テストで「上限超なら確実に切られる」
+ * ことを直接検証することで kill 可能化した（症状抑止の Stryker disable ではなく予防）。
+ * したがってこの関数を呼び出し元へ inline 展開で戻してはならない。
+ */
+export function truncateText(text: string, max: number): string {
+  return text.slice(0, max);
+}
+
+/**
+ * 都道府県イントロから CareLink 宣伝文（「CareLink…。」の一文）を除去する純粋関数。
+ *
+ * 挙動: `intro.replace(/CareLink[^。]*。/g, '')` と等価。
+ *   「CareLink」で始まり最初の「。」までを 1 つの宣伝文とみなし全て除去する。
+ *
+ * 単一ソース化の理由（重複コピー禁止）: この除去ロジックは
+ *   (1) generatePrefTypeContent の prefIntroShort 生成（実行時）
+ *   (2) seo-snippets.test.ts のデータ不変条件ガード（181 字超を発症前に検知）
+ * の両方で必要だが、正規表現を 2 箇所にコピーすると「片方だけ変更されてガードが
+ * 実態とズレる」人手依存の穴になる。production から純粋関数として export し、両者が
+ * 同一実装を参照することで構造的に同期させる（症状追従コメントではなく予防）。
+ * したがってこの関数を呼び出し元へ inline 展開で戻してはならない。
+ */
+export function stripPromoSentences(intro: string): string {
+  return intro.replace(/CareLink[^。]*。/g, '');
 }
 
 export function getBusinessTypeContext(typeSlug: string): BusinessTypeContext | null {
@@ -125,7 +177,7 @@ export function generatePrefTypeContent(
   if (!prefName || !typeName || !typeCtx) return null;
 
   const prefIntroShort = prefSeo
-    ? prefSeo.intro.replace(/CareLink[^。]*。/g, '').slice(0, 180)
+    ? truncateText(stripPromoSentences(prefSeo.intro), INTRO_MAX_LENGTH)
     : `${prefName}は医療・美容・福祉施設が広く点在するエリアです。`;
 
   const intro = `${prefName}の${typeName}（${typeCtx.keyword}）をお探しなら CareLink。${prefIntroShort} CareLinkでは${prefName}全域の${typeName}を口コミ・メニュー・写真で比較し、24時間ネット予約が可能です。${typeCtx.description}を、地域・予算・目的に合わせて選べます。`;

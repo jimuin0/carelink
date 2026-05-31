@@ -257,4 +257,24 @@ describe('success paths with mocked crypto.subtle', () => {
     });
     expect(result).toBe(true);
   });
+
+  test('getLineWorksToken → token endpoint returns non-ok with valid jwt → null', async () => {
+    // 全 env 設定済み + crypto モック済みなので buildJwt は通る
+    // fetch だけ non-ok を返す → if (!res.ok) return null 経路に入る
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 401 });
+    expect(await getLineWorksToken()).toBeNull();
+  });
+});
+
+describe('buildJwt PRIVATE_KEY 未設定', () => {
+  test('LINE_WORKS_PRIVATE_KEY 未設定 → getLineWorksToken は null (buildJwt throws caught)', async () => {
+    // clientId/secret/serviceAccount は設定するが PRIVATE_KEY は意図的に未設定
+    process.env.LINE_WORKS_CLIENT_ID = 'cid';
+    process.env.LINE_WORKS_CLIENT_SECRET = 'csec';
+    process.env.LINE_WORKS_SERVICE_ACCOUNT = 'sa';
+    delete process.env.LINE_WORKS_PRIVATE_KEY;
+    // fetch は呼ばれない（buildJwt が先に throw する）が一応モック
+    global.fetch = jest.fn();
+    expect(await getLineWorksToken()).toBeNull();
+  });
 });

@@ -357,5 +357,14 @@ describe('POST/DELETE /api/liff/link', () => {
 
       expect(res.status).toBe(500);
     });
+
+    // Branch coverage: line 67 — x-forwarded-for ヘッダなし → 'unknown' を使用（|| right side）
+    test('DELETE: x-forwarded-for ヘッダなし → IP=unknown（line 67 || false 分岐）', async () => {
+      (inMemoryRateLimit as jest.Mock).mockClear();
+      const req = new Request('http://localhost/api/liff/link', { method: 'DELETE' });
+      await DELETE(req as any);
+      const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+      expect(call[0]).toBe('unknown');
+    });
   });
 });

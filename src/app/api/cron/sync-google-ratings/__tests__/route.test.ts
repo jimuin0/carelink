@@ -291,6 +291,69 @@ describe('GET /api/cron/sync-google-ratings', () => {
     expect(updateCall[0].google_review_count).toBe(0);
   });
 
+  test('facilities returns null → loop skipped, returns 200', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                not: jest.fn().mockReturnValue({
+                  limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+                }),
+              }),
+            }),
+            update: mockUpdate,
+          };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+  });
+
+  test('facility with null gbp_place_id slipped through → skipped', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                not: jest.fn().mockReturnValue({
+                  limit: jest.fn().mockResolvedValue({
+                    data: [{ id: 'fac-x', gbp_place_id: null }],
+                    error: null,
+                  }),
+                }),
+              }),
+            }),
+            update: mockUpdate,
+          };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.skipped).toBeGreaterThan(0);
+  });
+
+  test('place data with user_ratings_total only (rating null) → updated', async () => {
+    (fetchPlaceDetails as jest.Mock).mockResolvedValue({
+      rating: null,
+      user_ratings_total: 50,
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.processed).toBeGreaterThan(0);
+  });
+
   test('google_rating as null when missing', async () => {
     (fetchPlaceDetails as jest.Mock).mockResolvedValue({
       rating: null,

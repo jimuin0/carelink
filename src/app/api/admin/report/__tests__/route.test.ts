@@ -214,3 +214,16 @@ test('GET: to の形式が不正 → 400', async () => {
   const res = await GET(makeRequest({ to: '2026/01/31' }));
   expect(res.status).toBe(400);
 });
+
+test('GET: 正規表現は通過するが NaN の日付 → 400', async () => {
+  // '2026-99-99' passes regex but Date parses to NaN
+  const res = await GET(makeRequest({ from: '2026-99-99', to: '2026-99-99' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: rows が null → 404', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain(null as unknown as unknown[]));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(404);
+});

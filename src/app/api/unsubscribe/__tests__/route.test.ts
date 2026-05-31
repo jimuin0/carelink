@@ -217,4 +217,122 @@ describe('Token path (方式A)', () => {
     }));
     expect(res.status).toBe(400);
   });
+
+  test('CSRF check failed → returns CSRF error', async () => {
+    const { checkCsrf } = require('@/lib/csrf');
+    const csrfResp = new Response(JSON.stringify({ e: 'CSRF' }), { status: 403 });
+    checkCsrf.mockReturnValueOnce(csrfResp);
+    const res = await POST(makeRequest({ token: VALID_TOKEN }));
+    expect(res.status).toBe(403);
+  });
+
+  test('missing x-forwarded-for → uses "unknown"', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    mockFrom.mockImplementation(() => ({
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      single: jest.fn(() => Promise.resolve({ data: null, error: { code: 'PGRST116' } })),
+    }));
+    await POST(new Request('http://localhost/api/unsubscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: VALID_TOKEN }),
+    }));
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('NEWSLETTER_UNSUBSCRIBE_SECRET 未設定 → verifyUnsubHmac は false → already:true', async () => {
+    delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+    const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: 'a'.repeat(64) }));
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.already).toBe(true);
+  });
+
+  test('HMAC でも profiles UPDATE 失敗 → ログのみで success', async () => {
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return fluentChain({ is_active: true });
+      if (table === 'newsletter_subscriptions') {
+        return {
+          update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+          eq: jest.fn().mockReturnThis(),
+        };
+      }
+      // profiles UPDATE fails
+      return {
+        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'profile err' } })) })),
+        eq: jest.fn().mockReturnThis(),
+      };
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: makeHmac(TEST_EMAIL) }));
+    expect(res.status).toBe(200);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  test('Token path: profile.email_unsubscribed=true → already:true and token marked used', async () => {
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return {
+          select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+          single: jest.fn(() => Promise.resolve({ data: { user_id: 'u1', used_at: null }, error: null })),
+        };
+      }
+      if (callNum === 2) {
+        return {
+          select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+          single: jest.fn(() => Promise.resolve({ data: { email_unsubscribed: true }, error: null })),
+        };
+      }
+      // token update
+      return {
+        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+        eq: jest.fn().mockReturnThis(),
+      };
+    });
+    const res = await POST(makeRequest({ token: VALID_TOKEN }));
+    const json = await res.json();
+    expect(json.already).toBe(true);
+  });
+
+  test('Token path: token-mark-used エラー → ログのみ 200', async () => {
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return {
+          select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+          single: jest.fn(() => Promise.resolve({ data: { user_id: 'u1', used_at: null }, error: null })),
+        };
+      }
+      if (callNum === 2) {
+        return {
+          select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+          single: jest.fn(() => Promise.resolve({ data: { email_unsubscribed: false }, error: null })),
+        };
+      }
+      if (callNum === 3) {
+        // profile UPDATE success
+        return {
+          update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+          eq: jest.fn().mockReturnThis(),
+        };
+      }
+      // token mark used fails
+      return {
+        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'mark err' } })) })),
+        eq: jest.fn().mockReturnThis(),
+      };
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(makeRequest({ token: VALID_TOKEN }));
+    expect(res.status).toBe(200);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
 });

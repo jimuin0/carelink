@@ -463,6 +463,98 @@ describe('POST /api/facility/setup', () => {
     expect(res.status).toBe(400);
   });
 
+  test('missing x-forwarded-for → uses "unknown"', async () => {
+    (checkRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/facility/setup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ facility_name: 'T', business_type: 'nail' }),
+    });
+    await POST(req as any);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
+  });
+
+  test('phone/prefecture/city/address all set → all truncated', async () => {
+    const res = await POST(
+      makeRequest({
+        facility_name: 'T',
+        business_type: 'nail',
+        phone: '03-1111-2222',
+        prefecture: '東京都',
+        city: '渋谷区',
+        address: '神宮前1-1-1',
+      }) as any
+    );
+    expect(res.status).toBe(200);
+    const call = mockFacilityInsert.mock.calls[0];
+    expect(call[0].phone).toBe('03-1111-2222');
+    expect(call[0].prefecture).toBe('東京都');
+    expect(call[0].city).toBe('渋谷区');
+    expect(call[0].address).toBe('神宮前1-1-1');
+  });
+
+  test('facility_name with only special chars → slug fallback facility-Date.now()', async () => {
+    const res = await POST(
+      makeRequest({ facility_name: '!!!', business_type: 'nail' }) as any
+    );
+    const json = await res.json();
+    expect(json.slug).toMatch(/^facility-\d+-/);
+  });
+
+  test('member insert fails + rollback fails → still 500 with log', async () => {
+    setupDefaultMocks(true, false, false, false, true, true);
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(
+      makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
+    );
+    expect(res.status).toBe(500);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  test('user without email → skips welcome email', async () => {
+    (sendWelcomeEmail as jest.Mock).mockClear();
+    const { createServerClient } = require('@supabase/ssr');
+    createServerClient.mockReturnValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({
+          data: { user: { id: 'user-456', email: null } },
+        }),
+      },
+    });
+    await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
+    expect(sendWelcomeEmail).not.toHaveBeenCalled();
+  });
+
+  test('sendWelcomeEmail rejects → safeCaptureException called silently', async () => {
+    (sendWelcomeEmail as jest.Mock).mockRejectedValue(new Error('SMTP down'));
+    const res = await POST(
+      makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
+    );
+    expect(res.status).toBe(200);
+  });
+
+  test('salonData found but body has facility_name set → keeps body value (||)', async () => {
+    setupDefaultMocks(true, false, true);
+    const res = await POST(
+      makeRequest({
+        facility_name: '未設定の施設', // triggers salon lookup
+        business_type: 'eyelash',
+        phone: '090-1111-2222',
+        address: 'orig address',
+      }) as any
+    );
+    expect(res.status).toBe(200);
+    const call = mockFacilityInsert.mock.calls[0];
+    // salonData provides facility_name; body value '未設定の施設' falls back via `facility_name = facility_name || salonData.facility_name`
+    // But '未設定の施設' is truthy so the OR keeps the body value
+    expect(call[0].name).toBe('未設定の施設');
+    // phone/address: provided in body, so should be kept as body value
+    expect(call[0].phone).toBe('090-1111-2222');
+    expect(call[0].address).toBe('orig address');
+  });
+
   test('auto-fill uses most recent salon record', async () => {
     setupDefaultMocks(true, false, true);
 
@@ -474,5 +566,36 @@ describe('POST /api/facility/setup', () => {
     );
 
     expect(mockSalonSelect).toHaveBeenCalled();
+  });
+
+  // Branch coverage: line 77 — business_type falsy → right side (salonData.business_type) used
+  test('business_type が空文字 → salonData.business_type にフォールバック (line 77 right branch)', async () => {
+    setupDefaultMocks(true, false, true); // salonFound = true; salonData.business_type = 'nail'
+    const res = await POST(
+      makeRequest({
+        facility_name: '未設定の施設', // triggers salon lookup
+        business_type: '',            // falsy → salonData.business_type ('nail') used at line 77
+      }) as any
+    );
+    // salonData.business_type fills in, so validation passes → 200
+    expect(res.status).toBe(200);
+    const call = mockFacilityInsert.mock.calls[0];
+    // business_type should come from salonData ('nail')
+    expect(call[0].business_type).toBe('nail');
+  });
+
+  // Branch coverage: line 76 — facility_name falsy (empty) → right side (salonData.facility_name) used
+  test('facility_name が空文字 → salonData.facility_name にフォールバック (line 76 right branch)', async () => {
+    setupDefaultMocks(true, false, true); // salonData.facility_name = 'Salon from DB', salonData.business_type = 'nail'
+    const res = await POST(
+      makeRequest({
+        facility_name: '',  // !facility_name is true → triggers salon lookup; then '' || salonData.facility_name uses right side
+        business_type: 'nail',
+      }) as any
+    );
+    expect(res.status).toBe(200);
+    const call = mockFacilityInsert.mock.calls[0];
+    // facility_name should come from salonData ('Salon from DB')
+    expect(call[0].name).toBe('Salon from DB');
   });
 });

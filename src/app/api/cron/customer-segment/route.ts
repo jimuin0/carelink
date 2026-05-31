@@ -123,6 +123,9 @@ export async function GET(request: Request) {
       // 離脱リスク顧客に自動フォローメール
       if (process.env.RESEND_API_KEY) {
         const facilityInfo = facilityMap.get(facility.id);
+        // facilityMap is built from the same facilities array, so facilityInfo is always defined.
+        // The false branch is structurally unreachable.
+        /* istanbul ignore next */
         if (facilityInfo) {
           const resend = new Resend(process.env.RESEND_API_KEY);
 

@@ -565,6 +565,178 @@ test('LINE Works: sendLineWorksMessage が reject → Sentry.captureException', 
   isLineWorksConfigured.mockReturnValue(false);
 });
 
+test('x-forwarded-for なし → unknown IP を使う', async () => {
+  (checkRateLimit as jest.Mock).mockClear();
+  await POST(makeRequest(), makeProps());
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe('unknown');
+});
+
+test('LINE Works: staffList 空 → 通知ループに入らず 200', async () => {
+  const { isLineWorksConfigured, sendLineWorksMessage } = jest.requireMock('@/lib/integrations/line-works') as {
+    isLineWorksConfigured: jest.Mock; sendLineWorksMessage: jest.Mock;
+  };
+  isLineWorksConfigured.mockReturnValue(true);
+  sendLineWorksMessage.mockClear();
+  mockAdminFrom.mockImplementation(() => ({
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    not: jest.fn(() => Promise.resolve({ data: [] })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
+  }));
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  expect(sendLineWorksMessage).not.toHaveBeenCalled();
+  isLineWorksConfigured.mockReturnValue(false);
+});
+
+test('LINE Works: customerBooking が null → "不明" フォールバック', async () => {
+  const { isLineWorksConfigured, sendLineWorksMessage } = jest.requireMock('@/lib/integrations/line-works') as {
+    isLineWorksConfigured: jest.Mock; sendLineWorksMessage: jest.Mock;
+  };
+  isLineWorksConfigured.mockReturnValue(true);
+  sendLineWorksMessage.mockResolvedValue(true);
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'staff_profiles') {
+      return {
+        select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+        not: jest.fn(() => Promise.resolve({
+          data: [{ id: STAFF_ID, line_works_channel_id: 'ch-x', line_works_notify_all: true }],
+        })),
+      };
+    }
+    // customer booking lookup returns null
+    return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
+    };
+  });
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  expect(sendLineWorksMessage).toHaveBeenCalledWith('ch-x', expect.objectContaining({
+    content: expect.objectContaining({ text: expect.stringContaining('不明') }),
+  }));
+  isLineWorksConfigured.mockReturnValue(false);
+});
+
+test('LINE Works: menu_id ありで menu name が null → 空文字フォールバック', async () => {
+  const { isLineWorksConfigured, sendLineWorksMessage } = jest.requireMock('@/lib/integrations/line-works') as {
+    isLineWorksConfigured: jest.Mock; sendLineWorksMessage: jest.Mock;
+  };
+  isLineWorksConfigured.mockReturnValue(true);
+  sendLineWorksMessage.mockResolvedValue(true);
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'staff_profiles') {
+      return {
+        select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+        not: jest.fn(() => Promise.resolve({
+          data: [{ id: STAFF_ID, line_works_channel_id: 'ch-y', line_works_notify_all: true }],
+        })),
+      };
+    }
+    if (table === 'bookings') {
+      return {
+        select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn(() => Promise.resolve({ data: { customer_name: '田中', menu_id: 'menu-z' } })),
+      };
+    }
+    // facility_menus: name null
+    return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { name: null } })),
+    };
+  });
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  isLineWorksConfigured.mockReturnValue(false);
+});
+
+test('LINE Works: channel_id null / 担当外&notify_all=false → スキップ', async () => {
+  const { isLineWorksConfigured, sendLineWorksMessage } = jest.requireMock('@/lib/integrations/line-works') as {
+    isLineWorksConfigured: jest.Mock; sendLineWorksMessage: jest.Mock;
+  };
+  isLineWorksConfigured.mockReturnValue(true);
+  sendLineWorksMessage.mockClear();
+  sendLineWorksMessage.mockResolvedValue(true);
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'staff_profiles') {
+      return {
+        select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+        not: jest.fn(() => Promise.resolve({
+          data: [
+            { id: 'other-staff', line_works_channel_id: 'ch-skip', line_works_notify_all: false },
+            { id: 'no-channel', line_works_channel_id: null, line_works_notify_all: true },
+          ],
+        })),
+      };
+    }
+    return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { customer_name: 'X', menu_id: null } })),
+    };
+  });
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  expect(sendLineWorksMessage).not.toHaveBeenCalled();
+  isLineWorksConfigured.mockReturnValue(false);
+});
+
 test('LINE Works: adminSupabase.from が throw → 外側 catch → Sentry + 200', async () => {
   const { isLineWorksConfigured } = jest.requireMock('@/lib/integrations/line-works') as {
     isLineWorksConfigured: jest.Mock;

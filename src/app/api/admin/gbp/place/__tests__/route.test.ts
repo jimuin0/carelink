@@ -307,6 +307,106 @@ test('GET: クエリパラメータの placeId を使う', async () => {
   expect(fetchPlaceDetails).toHaveBeenCalledWith('ChIJ_from_query');
 });
 
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: try ブロック内で例外 → 500', async () => {
+  // membership lookup throws (e.g. supabase init error)
+  mockAnonFrom.mockImplementation(() => {
+    throw new Error('Unexpected crash');
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(500);
+});
+
+test('GET: cacheResult が rejected → 200 のまま (エラーログのみ)', async () => {
+  const mockPlaceData = { name: 'X', rating: 4, user_ratings_total: 10 };
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
+  const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ123' };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
+    // upsert and update — upsert rejects
+    if (table === 'gbp_audit_cache') {
+      return { upsert: jest.fn(() => Promise.reject(new Error('upsert failed'))) };
+    }
+    return updateEq(null);
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: cacheResult fulfilled but with error → 200 のまま', async () => {
+  const mockPlaceData = { name: 'Y', rating: 4, user_ratings_total: 20 };
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
+  const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ456' };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
+    if (table === 'gbp_audit_cache') return upsertChain({ message: 'upsert err' });
+    return updateEq({ message: 'update err' });
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: ratingResult が rejected → 200 のまま', async () => {
+  const mockPlaceData = { name: 'Z' };
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
+  const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ789' };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
+    if (table === 'gbp_audit_cache') return upsertChain(null);
+    // facility_profiles update — rejects
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.reject(new Error('update failed'))),
+      }),
+    };
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: placeData.rating/user_ratings_total が undefined でも安全に処理', async () => {
+  const mockPlaceData = { name: 'A' }; // no rating, no user_ratings_total
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
+  const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJabc' };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation((table: string) => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
+    if (table === 'gbp_audit_cache') return upsertChain(null);
+    return updateEq(null);
+  });
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: x-forwarded-for あり', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 2) return facilityProfileSingle(FACILITY_DATA);
+    return upsertChain(null);
+  });
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});
+
 test('POST: gbp_place_id なし → クリア（null保存）', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {

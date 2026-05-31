@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/slack-verify.ts (Phase 7b)
  * Slack 公式の署名仕様に準拠することを検証

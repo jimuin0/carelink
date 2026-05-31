@@ -216,6 +216,37 @@ test('POST: 全フィールド指定でも 201', async () => {
   expect(res.status).toBe(201);
 });
 
+test('POST: user_id 指定だが施設に予約なし → 403', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        limit: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+      } as any;
+    }
+    return insertSingle({ id: 'r1' });
+  });
+  const userIdValue = ['550e8400', 'e29b', '41d4', 'a716', '446655440099'].join('-');
+  const res = await POST(makeRequest(validBody({ user_id: userIdValue })));
+  expect(res.status).toBe(403);
+});
+
+test('POST: 不正JSON → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/treatment-records');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
 test('POST: レスポンスが { record: ... } 形式', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle({ id: 'rec-1' }));

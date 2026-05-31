@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/user.ts
  * Covers: getUserProfile, updateUserProfile, getUserFavorites,
@@ -165,5 +165,49 @@ describe('toggleFavorite', () => {
     const result = await toggleFavorite(FAC_ID);
     expect(result.error).toBe('認証が必要です');
     expect(result.isFavorited).toBe(false);
+  });
+
+  test('deletes existing favorite and returns isFavorited false', async () => {
+    buildMock({ favoriteExisting: { id: 'fav-1' } });
+    const result = await toggleFavorite(FAC_ID);
+    expect(result.isFavorited).toBe(false);
+    expect(result.error).toBeNull();
+  });
+
+  test('returns delete error message', async () => {
+    buildMock({ favoriteExisting: { id: 'fav-1' }, deleteError: { message: 'del-err' } });
+    const result = await toggleFavorite(FAC_ID);
+    expect(result.isFavorited).toBe(false);
+    expect(result.error).toBe('del-err');
+  });
+
+  test('inserts new favorite and returns isFavorited true', async () => {
+    buildMock({ favoriteExisting: null });
+    const result = await toggleFavorite(FAC_ID);
+    expect(result.isFavorited).toBe(true);
+    expect(result.error).toBeNull();
+  });
+
+  test('returns insert error message', async () => {
+    buildMock({ favoriteExisting: null, insertError: { message: 'ins-err' } });
+    const result = await toggleFavorite(FAC_ID);
+    expect(result.isFavorited).toBe(true);
+    expect(result.error).toBe('ins-err');
+  });
+});
+
+describe('getUserFavorites null data', () => {
+  test('returns empty array when supabase returns null data', async () => {
+    buildMock({ favoritesData: null as unknown as object[] });
+    const result = await getUserFavorites();
+    expect(result).toEqual([]);
+  });
+});
+
+describe('updateUserProfile undefined error fallback', () => {
+  test('returns null error when error is undefined', async () => {
+    buildMock({ updateError: undefined as unknown as object | null });
+    const result = await updateUserProfile({ display_name: 'X' });
+    expect(result.error).toBeNull();
   });
 });

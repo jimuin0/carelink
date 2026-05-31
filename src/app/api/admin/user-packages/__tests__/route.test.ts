@@ -486,6 +486,18 @@ test('PATCH: ログ挿入失敗 → console.error だが 200 を返す', async (
   consoleSpy.mockRestore();
 });
 
+test('GET: facility_id が不正UUID → 400', async () => {
+  const res = await GET(makeGetRequest({ facility_id: 'bad-uuid' }));
+  expect(res.status).toBe(400);
+});
+
+// Branch coverage: line 137 — PATCH で user が null → 401 (true 分岐)
+test('PATCH: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
+  expect(res.status).toBe(401);
+});
+
 test('PATCH: booking_id 付きで正常使用 → 200', async () => {
   const BOOKING_UUID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
   let callNum = 0;

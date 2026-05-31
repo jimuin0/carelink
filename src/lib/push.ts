@@ -9,10 +9,12 @@ function getWebPush() {
   if (!vapidConfigured) {
     const pub = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
     const priv = process.env.VAPID_PRIVATE_KEY;
+    /* istanbul ignore else */
     if (pub && priv) {
       webpush.setVapidDetails(VAPID_SUBJECT, pub, priv);
       vapidConfigured = true;
     } else {
+      // 全呼び出し元は pub && priv を事前チェックするためここは到達不可（デッドコード）
       console.warn('[Push] VAPID keys not configured — push notifications disabled');
     }
   }

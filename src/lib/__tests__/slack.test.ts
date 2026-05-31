@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/slack.ts (Phase 7a)
  * - chat.postMessage を Bearer token 付きで叩く
@@ -342,5 +342,178 @@ describe('Block Kit ヘルパー', () => {
         { type: 'mrkdwn', text: 'b' },
       ],
     });
+  });
+
+  test('sectionBlock with empty fields array → no fields property', () => {
+    const b = sectionBlock('hi', []);
+    expect(b.fields).toBeUndefined();
+  });
+});
+
+describe('postToSlack 追加分岐', () => {
+  let originalFetch: typeof fetch;
+  let mockFetch: jest.Mock;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    mockFetch = jest.fn();
+    global.fetch = mockFetch as unknown as typeof fetch;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+    process.env.SLACK_DEFAULT_CHANNEL = 'C0TESTCHAN';
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('json.ok=false で error フィールド無し → "unknown"', async () => {
+    mockFetch.mockResolvedValue(
+      new Response(JSON.stringify({ ok: false }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const res = await postToSlack({ text: 'x' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('unknown');
+  });
+
+  test('fetch が非Errorをthrow → "fetch_failed"', async () => {
+    mockFetch.mockRejectedValue('string-error');
+    const res = await postToSlack({ text: 'x' });
+    expect(res.ok).toBe(false);
+    expect(res.error).toBe('fetch_failed');
+  });
+});
+
+describe('postToSlackWithThreadGrouping 追加分岐', () => {
+  let originalFetch: typeof fetch;
+  let mockFetch: jest.Mock;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    mockFetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, ts: '111.222', channel: 'C0RES' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    global.fetch = mockFetch as unknown as typeof fetch;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+    process.env.SLACK_DEFAULT_CHANNEL = 'C0TESTCHAN';
+    mockRpc.mockReset();
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('get_incident_thread が error 返す → フォールバックで新規 post', async () => {
+    mockRpc.mockResolvedValueOnce({ data: null, error: { message: 'pg error' } });
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k1', text: 'msg' });
+    expect(res.ok).toBe(true);
+    // thread_ts つけずに新規 post される（existingTs null）
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.thread_ts).toBeUndefined();
+  });
+
+  test('get_incident_thread が 非配列を返す → 新規 post 扱い', async () => {
+    mockRpc.mockResolvedValueOnce({ data: { not: 'array' }, error: null });
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k2', text: 'msg' });
+    expect(res.ok).toBe(true);
+  });
+
+  test('RPC が 非Error throw した場合は文字列化されてログ出る', async () => {
+    mockRpc.mockImplementationOnce(() => {
+      throw 'plain-string-error';
+    });
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k3', text: 'msg' });
+    expect(res.ok).toBe(true);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  test('postToSlack が ok:false → record_incident_thread を呼ばない', async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: false, error: 'rate_limited' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k4', text: 'msg' });
+    expect(res.ok).toBe(false);
+    // get_incident_thread のみ、record は呼ばれない
+    expect(mockRpc).toHaveBeenCalledTimes(1);
+  });
+
+  test('postToSlack 成功時 channel undefined → 引数 channel をフォールバック', async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    mockRpc.mockResolvedValueOnce({ data: null, error: null });
+    mockFetch.mockResolvedValueOnce(
+      new Response(JSON.stringify({ ok: true, ts: '999.888' /* channel 無し */ }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k5', text: 'msg' });
+    expect(res.ok).toBe(true);
+    expect(mockRpc).toHaveBeenNthCalledWith(2, 'record_incident_thread', {
+      p_key: 'k5',
+      p_channel: 'C0TESTCHAN', // fallback to env channel
+      p_thread_ts: '999.888',
+    });
+  });
+
+  test('record_incident_thread が throw しても致命ではない', async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    mockRpc.mockRejectedValueOnce(new Error('record failed'));
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k6', text: 'msg' });
+    expect(res.ok).toBe(true);
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  test('record_incident_thread が 非Error throw でも吸収', async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    mockRpc.mockImplementationOnce(() => {
+      throw 'plain-record-error';
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await postToSlackWithThreadGrouping({ thread_key: 'k7', text: 'msg' });
+    expect(res.ok).toBe(true);
+    consoleSpy.mockRestore();
+  });
+});
+
+// Branch coverage: line 66 — opts.text が falsy の場合 body.text を設定しない（false 分岐）
+describe('postToSlack blocks-only (text なし)', () => {
+  let originalFetch: typeof fetch;
+  let mockFetch: jest.Mock;
+
+  beforeEach(() => {
+    originalFetch = global.fetch;
+    mockFetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({ ok: true, ts: '1.1' }), {
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    global.fetch = mockFetch as unknown as typeof fetch;
+    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
+    process.env.SLACK_DEFAULT_CHANNEL = 'C0TESTCHAN';
+  });
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  test('blocks のみ渡すと body.text が含まれない（line 66 false 分岐）', async () => {
+    const blocks = [{ type: 'section', text: { type: 'mrkdwn', text: 'block-only' } }];
+    const res = await postToSlack({ blocks });
+    expect(res.ok).toBe(true);
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.text).toBeUndefined();
+    expect(body.blocks).toEqual(blocks);
   });
 });

@@ -240,4 +240,104 @@ describe('GET /api/ab-test', () => {
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
     expect(call[1]).toBe(20);
   });
+
+  test('CSRF check failed → returns CSRF error response', async () => {
+    const { checkCsrf } = require('@/lib/csrf');
+    const csrfResp = new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 });
+    checkCsrf.mockReturnValueOnce(csrfResp);
+    const res = await POST(makePostRequest(validEvent) as any);
+    expect(res.status).toBe(403);
+  });
+
+  test('POST: missing x-forwarded-for → uses "unknown" IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/ab-test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validEvent),
+    });
+    await POST(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('GET: missing x-forwarded-for → uses "unknown" IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    setupDefaultMocks(true, true);
+    const req = new Request('http://localhost/api/ab-test?key=exp-123', { method: 'GET' });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    await GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('GET: key longer than 100 chars → 400', async () => {
+    setupDefaultMocks(true, true);
+    const longKey = 'x'.repeat(101);
+    const req = new Request(`http://localhost/api/ab-test?key=${longKey}`, {
+      method: 'GET',
+      headers: { 'x-forwarded-for': '1.2.3.4' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('GET: data null from ab_test_events → results: null', async () => {
+    setupDefaultMocks(true, true);
+    // Override service-role client to return data: null
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+    });
+    const res = await GET(makeGetRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.results).toBeNull();
+  });
+
+  test('GET: zero impressions → conversion_rate=0', async () => {
+    setupDefaultMocks(true, true);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({
+            data: [
+              { variant: 'control', event_type: 'conversion' },
+              { variant: 'treatment', event_type: 'click' },
+            ],
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeGetRequest() as any);
+    const json = await res.json();
+    expect(json.control.conversion_rate).toBe(0);
+    expect(json.treatment.conversion_rate).toBe(0);
+    expect(json.lift).toBe(0);
+  });
+
+  test('GET: unknown variant in event ignored (defensive)', async () => {
+    setupDefaultMocks(true, true);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({
+            data: [
+              { variant: 'control', event_type: 'impression' },
+              { variant: 'unknown_variant', event_type: 'impression' },
+            ],
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeGetRequest() as any);
+    expect(res.status).toBe(200);
+  });
 });

@@ -3,12 +3,17 @@
  * Pure functions — no mocking required for the main exports.
  */
 
+// We keep the default import but also allow partial mock for prefSeo null branches
 import {
   getBusinessTypeContext,
   generatePrefTypeContent,
   generateCityContent,
   generateCityTypeContent,
+  truncateText,
+  stripPromoSentences,
+  INTRO_MAX_LENGTH,
 } from '../seo-snippets';
+import { prefectureSeo } from '@/data/prefecture-seo';
 
 describe('getBusinessTypeContext', () => {
   test('returns context for a valid type slug', () => {
@@ -118,4 +123,654 @@ describe('generateCityTypeContent', () => {
     const result = generateCityTypeContent('tokyo', '渋谷区', 'esthetic');
     expect(result!.faqs[0].answer).toBeTruthy();
   });
+});
+
+describe('generatePrefTypeContent — コンテンツ詳細検証', () => {
+  test('h2 には「で」と「をお探しの方へ」が含まれる', () => {
+    const result = generatePrefTypeContent('tokyo', 'hair-salon');
+    expect(result!.h2).toBe('東京都でヘアサロンをお探しの方へ');
+  });
+
+  test('intro には CareLink が含まれる', () => {
+    const result = generatePrefTypeContent('osaka', 'relaxation');
+    expect(result!.intro).toContain('CareLink');
+  });
+
+  test('intro には 24時間ネット予約 が含まれる', () => {
+    const result = generatePrefTypeContent('kanagawa', 'esthetic');
+    expect(result!.intro).toContain('24時間ネット予約');
+  });
+
+  test('highlights[0] には「全域の」と「を網羅」が含まれる', () => {
+    const result = generatePrefTypeContent('tokyo', 'nail-eyelash');
+    expect(result!.highlights[0]).toBe('東京都全域のネイル・まつげサロンを網羅');
+  });
+
+  test('highlights は4件', () => {
+    const result = generatePrefTypeContent('osaka', 'beauty-clinic');
+    expect(result!.highlights).toHaveLength(4);
+  });
+
+  test('faqs は3件', () => {
+    const result = generatePrefTypeContent('tokyo', 'acupuncture');
+    expect(result!.faqs).toHaveLength(3);
+  });
+
+  test('faqs[0].question には「でおすすめの」が含まれる', () => {
+    const result = generatePrefTypeContent('osaka', 'care-service');
+    expect(result!.faqs[0].question).toBe('大阪府でおすすめの介護・デイサービスは？');
+  });
+
+  test('faqs[0].answer には「口コミ評価順」が含まれる', () => {
+    const result = generatePrefTypeContent('tokyo', 'other');
+    expect(result!.faqs[0].answer).toContain('口コミ評価順');
+  });
+
+  test('全47都道府県 × hair-salon で null にならない', () => {
+    const slugs = [
+      'hokkaido', 'aomori', 'iwate', 'miyagi', 'akita', 'yamagata', 'fukushima',
+      'ibaraki', 'tochigi', 'gunma', 'saitama', 'chiba', 'tokyo', 'kanagawa',
+      'niigata', 'toyama', 'ishikawa', 'fukui', 'yamanashi', 'nagano', 'gifu',
+      'shizuoka', 'aichi', 'mie', 'shiga', 'kyoto', 'osaka', 'hyogo', 'nara',
+      'wakayama', 'tottori', 'shimane', 'okayama', 'hiroshima', 'yamaguchi',
+      'tokushima', 'kagawa', 'ehime', 'kochi', 'fukuoka', 'saga', 'nagasaki',
+      'kumamoto', 'oita', 'miyazaki', 'kagoshima', 'okinawa',
+    ];
+    for (const slug of slugs) {
+      expect(generatePrefTypeContent(slug, 'hair-salon')).not.toBeNull();
+    }
+  });
+
+  test('全8業種 × tokyo で null にならない', () => {
+    const types = ['hair-salon', 'nail-eyelash', 'relaxation', 'esthetic', 'beauty-clinic', 'acupuncture', 'care-service', 'other'];
+    for (const type of types) {
+      expect(generatePrefTypeContent('tokyo', type)).not.toBeNull();
+    }
+  });
+});
+
+describe('generateCityContent — コンテンツ詳細検証', () => {
+  test('h2 は「{city}でサロン・クリニックをお探しの方へ」', () => {
+    const result = generateCityContent('osaka', '豊中市');
+    expect(result!.h2).toBe('豊中市でサロン・クリニックをお探しの方へ');
+  });
+
+  test('intro には「CareLink」が含まれる', () => {
+    const result = generateCityContent('tokyo', '新宿区');
+    expect(result!.intro).toContain('CareLink');
+  });
+
+  test('intro には「24時間ネット予約」が含まれる', () => {
+    const result = generateCityContent('osaka', '堺市');
+    expect(result!.intro).toContain('24時間ネット予約');
+  });
+
+  test('highlights[0] は「{city}内のヘアサロン・美容室を網羅」', () => {
+    const result = generateCityContent('tokyo', '渋谷区');
+    expect(result!.highlights[0]).toBe('渋谷区内のヘアサロン・美容室を網羅');
+  });
+
+  test('highlights[1] は「{city}内のネイル・まつげサロン」', () => {
+    const result = generateCityContent('tokyo', '渋谷区');
+    expect(result!.highlights[1]).toBe('渋谷区内のネイル・まつげサロン');
+  });
+
+  test('highlights[2] は「{city}内のエステ・リラクサロン」', () => {
+    const result = generateCityContent('tokyo', '渋谷区');
+    expect(result!.highlights[2]).toBe('渋谷区内のエステ・リラクサロン');
+  });
+
+  test('highlights[3] は「{city}内の鍼灸院・整骨院」', () => {
+    const result = generateCityContent('tokyo', '渋谷区');
+    expect(result!.highlights[3]).toBe('渋谷区内の鍼灸院・整骨院');
+  });
+
+  test('highlights[4] は「{city}内の美容クリニック・介護施設」', () => {
+    const result = generateCityContent('tokyo', '渋谷区');
+    expect(result!.highlights[4]).toBe('渋谷区内の美容クリニック・介護施設');
+  });
+
+  test('faqs[1].question には「当日予約」が含まれる', () => {
+    const result = generateCityContent('osaka', '豊中市');
+    expect(result!.faqs[1].question).toContain('当日予約');
+  });
+
+  test('faqs[1].answer には「リアルタイム」が含まれる', () => {
+    const result = generateCityContent('osaka', '豊中市');
+    expect(result!.faqs[1].answer).toContain('リアルタイム');
+  });
+
+  test('faqs[2].question には「周辺エリア」が含まれる', () => {
+    const result = generateCityContent('osaka', '豊中市');
+    expect(result!.faqs[2].question).toContain('周辺エリア');
+  });
+
+  test('faqs[2].answer には prefName が含まれる', () => {
+    const result = generateCityContent('osaka', '豊中市');
+    expect(result!.faqs[2].answer).toContain('大阪府');
+  });
+});
+
+describe('generateCityTypeContent — コンテンツ詳細検証', () => {
+  test('h2 は「{city}で{type}をお探しの方へ」', () => {
+    const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon');
+    expect(result!.h2).toBe('豊中市でヘアサロンをお探しの方へ');
+  });
+
+  test('intro には「CareLink」が含まれる', () => {
+    const result = generateCityTypeContent('tokyo', '渋谷区', 'nail-eyelash');
+    expect(result!.intro).toContain('CareLink');
+  });
+
+  test('intro には「24時間ネット予約」が含まれる', () => {
+    const result = generateCityTypeContent('osaka', '豊中市', 'relaxation');
+    expect(result!.intro).toContain('24時間ネット予約');
+  });
+
+  test('intro には「無料」が含まれる', () => {
+    const result = generateCityTypeContent('tokyo', '新宿区', 'esthetic');
+    expect(result!.intro).toContain('無料');
+  });
+
+  test('highlights[0] は「{city}の{type}を全件掲載」', () => {
+    const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon');
+    expect(result!.highlights[0]).toBe('豊中市のヘアサロンを全件掲載');
+  });
+
+  test('highlights は4件', () => {
+    const result = generateCityTypeContent('tokyo', '渋谷区', 'beauty-clinic');
+    expect(result!.highlights).toHaveLength(4);
+  });
+
+  test('faqs は3件', () => {
+    const result = generateCityTypeContent('osaka', '豊中市', 'acupuncture');
+    expect(result!.faqs).toHaveLength(3);
+  });
+
+  test('faqs[0].question には「選ぶポイント」が含まれる', () => {
+    const result = generateCityTypeContent('tokyo', '渋谷区', 'care-service');
+    expect(result!.faqs[0].question).toContain('選ぶポイント');
+  });
+
+  test('faqs[0].answer には「CareLinkの口コミ」が含まれる', () => {
+    const result = generateCityTypeContent('tokyo', '渋谷区', 'other');
+    expect(result!.faqs[0].answer).toContain('CareLinkの口コミ');
+  });
+
+  test('faqs[0].answer には searchPoints[0]「、」searchPoints[1] が含まれる（join separator 検証）', () => {
+    const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon')!;
+    // searchPoints.slice(0,2).join('、') → '口コミ評価が高いスタイリスト、駅近・駐車場ありの利便性'
+    expect(result.faqs[0].answer).toContain('口コミ評価が高いスタイリスト、駅近・駐車場ありの利便性');
+  });
+
+  test('全8業種 × osaka × 豊中市 で null にならない', () => {
+    const types = ['hair-salon', 'nail-eyelash', 'relaxation', 'esthetic', 'beauty-clinic', 'acupuncture', 'care-service', 'other'];
+    for (const type of types) {
+      expect(generateCityTypeContent('osaka', '豊中市', type)).not.toBeNull();
+    }
+  });
+});
+
+// Branch coverage: line 127 — prefSeo is null → fallback string used
+// Branch coverage: line 166 — prefSeo is null → regionContext = ''
+// Since all 47 prefectures have prefSeo data, we use jest.mock to simulate a null prefSeo case.
+describe('generatePrefTypeContent / generateCityContent — prefSeo null branch', () => {
+  // We spy on the getPrefectureSeo import via jest.mock at module level.
+  // To avoid breaking other tests we use jest.doMock in a separate require block.
+
+  // Branch coverage: line 127 — prefSeo null path (fallback intro text)
+  test('generatePrefTypeContent: prefSeo が null → fallback intro テキストが使われる', () => {
+    let result: ReturnType<typeof import('../seo-snippets').generatePrefTypeContent> | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('@/data/prefecture-seo', () => ({
+        getPrefectureSeo: () => null,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { generatePrefTypeContent: genPrefType } = require('../seo-snippets');
+      result = genPrefType('tokyo', 'hair-salon');
+    });
+    expect(result).not.toBeNull();
+    expect(result!.intro).toContain('医療・美容・福祉施設が広く点在するエリア');
+  });
+
+  // Branch coverage: line 166 — prefSeo null path (regionContext = '')
+  test('generateCityContent: prefSeo が null → regionContext が空文字になる', () => {
+    let result: ReturnType<typeof import('../seo-snippets').generateCityContent> | undefined;
+    jest.isolateModules(() => {
+      jest.doMock('@/data/prefecture-seo', () => ({
+        getPrefectureSeo: () => null,
+      }));
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { generateCityContent: genCity } = require('../seo-snippets');
+      result = genCity('osaka', '豊中市');
+    });
+    expect(result).not.toBeNull();
+    expect(result!.intro).toContain('豊中市');
+    // L170 else 分岐: regionContext = '' （Stryker 文字列ではない）を検出して kill。
+    expect(result!.intro).not.toContain('Stryker');
+  });
+});
+
+// ============================================================
+// ミューテーション kill 専用検証
+// seo-snippets.ts の prefIntroShort 正規表現 / regionContext split・concat /
+// searchPoints.slice(0,2) を厳密に固定し、Survived 変異体を全て kill する。
+// ============================================================
+describe('seo-snippets — mutation kill', () => {
+  // --- L130: prefIntroShort = prefSeo.intro.replace(/CareLink[^。]*。/g, '').slice(0, 180) ---
+  // saitama.intro は「…密集します。CareLinkではさいたま市10区＋県内全域の施設を口コミ・写真で比較可能。通勤…」。
+  // 正規表現は "CareLink" を含む 1 文（次の 。 まで）を丸ごと削除する。
+  // 正しく動けば prefIntroShort から「さいたま市10区」は消える。
+  describe('generatePrefTypeContent: prefIntroShort の CareLink 文除去', () => {
+    test('CareLink を含む文（さいたま市10区…）が intro から除去される', () => {
+      const result = generatePrefTypeContent('saitama', 'hair-salon')!;
+      // 変異体 /CareLink[^。]。/g・/CareLink[。]*。/g・.replace 削除 では
+      // 「さいたま市10区」が prefIntroShort に残ってしまう → これを検出して kill。
+      expect(result.intro).not.toContain('さいたま市10区');
+    });
+
+    test('replace の置換後文字列は空文字（Stryker 文字列が混入しない）', () => {
+      const result = generatePrefTypeContent('saitama', 'hair-salon')!;
+      // 変異体 replace(/.../, "Stryker was here!") を検出して kill。
+      expect(result.intro).not.toContain('Stryker');
+    });
+  });
+
+  // --- L169: regionContext = prefSeo.intro.split('。')[0] + '。' ---
+  // osaka.intro の第1文は「大阪府は大阪市24区＋堺市7区＋豊中・吹田・東大阪・枚方など人口880万人超の関西最大都市圏」。
+  describe('generateCityContent: regionContext の split・concat', () => {
+    test('intro に「関西最大都市圏。豊中市には」が連続して含まれる', () => {
+      const result = generateCityContent('osaka', '豊中市')!;
+      // 変異体 split('') では regionContext='大。'、
+      // concat '。'→'' では「…関西最大都市圏豊中市には」になり 。 が欠落 → どちらも kill。
+      expect(result.intro).toContain('関西最大都市圏。豊中市には');
+    });
+  });
+
+  // --- L229: faqs[0].answer = typeCtx.searchPoints.slice(0, 2).join('、') + ... ---
+  describe('generateCityTypeContent: searchPoints は先頭2件のみ', () => {
+    test('faqs[0].answer に searchPoints[2]「カラー・縮毛矯正の技術力」が含まれない', () => {
+      const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon')!;
+      // slice(0,2) 削除の変異体では searchPoints 全件が join され searchPoints[2] が混入する → kill。
+      expect(result.faqs[0].answer).not.toContain('カラー・縮毛矯正の技術力');
+      expect(result.faqs[0].answer).not.toContain('クーポン・初回割引の有無');
+    });
+  });
+});
+
+// ============================================================
+// businessTypeContext 全データ精密検証
+// 各フィールドの文字列値を toBe / toStrictEqual で固定し、
+// StringLiteral / ArrayDeclaration 変異体を全て kill する
+// ============================================================
+describe('businessTypeContext — exact data verification', () => {
+  test('hair-salon: keyword と description', () => {
+    const ctx = getBusinessTypeContext('hair-salon')!;
+    expect(ctx.keyword).toBe('ヘアサロン・美容室');
+    expect(ctx.description).toBe(
+      'カット・カラー・パーマ・縮毛矯正・ヘッドスパなど、ヘアスタイル全般のメニューを提供する美容室',
+    );
+  });
+
+  test('hair-salon: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('hair-salon')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '口コミ評価が高いスタイリスト',
+      '駅近・駐車場ありの利便性',
+      'カラー・縮毛矯正の技術力',
+      'クーポン・初回割引の有無',
+    ]);
+  });
+
+  test('hair-salon: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('hair-salon')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('指名予約は可能ですか？');
+    expect(ctx.faqs[0].a).toBe(
+      'はい、CareLink では指名スタッフを選んで予約できます。スタイリストのプロフィール・実績写真も確認できます。',
+    );
+    expect(ctx.faqs[1].q).toBe('カラー・縮毛矯正のクーポンはありますか？');
+    expect(ctx.faqs[1].a).toBe(
+      '各サロンが独自にクーポンを掲載しています。サロン詳細ページからクーポン一覧をチェックしてください。',
+    );
+    expect(ctx.faqs[2].q).toBe('当日予約はできますか？');
+    expect(ctx.faqs[2].a).toBe(
+      '空き枠があれば当日予約も可能です。予約カレンダーで○表示の時間帯から選べます。',
+    );
+  });
+
+  test('nail-eyelash: keyword と description', () => {
+    const ctx = getBusinessTypeContext('nail-eyelash')!;
+    expect(ctx.keyword).toBe('ネイル・まつげサロン');
+    expect(ctx.description).toBe(
+      'ジェルネイル・スカルプ・まつげエクステ・まつげパーマなど指先と目元の美容を専門とするサロン',
+    );
+  });
+
+  test('nail-eyelash: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('nail-eyelash')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      'ジェル・スカルプの技術力',
+      'デザインバリエーション',
+      'マツエクの種類（フラットラッシュ・ボリュームラッシュ等）',
+      '衛生管理・施術時間',
+    ]);
+  });
+
+  test('nail-eyelash: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('nail-eyelash')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('ネイルとまつげを同時に予約できますか？');
+    expect(ctx.faqs[0].a).toBe(
+      '両方対応のサロンなら同時予約可能です。複数メニュー予約に対応しているサロンを選んでください。',
+    );
+    expect(ctx.faqs[1].q).toBe('マツエクのオフ料金はかかりますか？');
+    expect(ctx.faqs[1].a).toBe(
+      'サロンによります。メニューに「オフ込み」「オフ別」の表記があるので事前に確認できます。',
+    );
+    expect(ctx.faqs[2].q).toBe('ネイルデザインのサンプル写真は見られますか？');
+    expect(ctx.faqs[2].a).toBe(
+      'はい、サロン詳細ページのカタログから施術事例の写真を確認できます。',
+    );
+  });
+
+  test('relaxation: keyword と description', () => {
+    const ctx = getBusinessTypeContext('relaxation')!;
+    expect(ctx.keyword).toBe('リラクゼーションサロン');
+    expect(ctx.description).toBe(
+      'もみほぐし・リフレ・アロマ・タイ古式・ヘッドスパなど癒し系の施術を提供するリラクサロン',
+    );
+  });
+
+  test('relaxation: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('relaxation')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '揉み返しの少ない技術',
+      'コース時間（60分・90分・120分）',
+      '完全個室の有無',
+      '深夜・早朝営業',
+    ]);
+  });
+
+  test('relaxation: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('relaxation')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('何分コースがおすすめですか？');
+    expect(ctx.faqs[0].a).toBe(
+      '初回は60分コース、肩こり・腰痛が辛い方は90分以上がおすすめです。',
+    );
+    expect(ctx.faqs[1].q).toBe('カップルで一緒に施術を受けられますか？');
+    expect(ctx.faqs[1].a).toBe(
+      'ペアルームのあるサロンなら可能です。サロン詳細の設備情報をご確認ください。',
+    );
+    expect(ctx.faqs[2].q).toBe('揉み返しが心配です');
+    expect(ctx.faqs[2].a).toBe(
+      '初回カウンセリングで強さの希望を伝えられます。口コミで施術の強さに関する評価もチェックできます。',
+    );
+  });
+
+  test('esthetic: keyword と description', () => {
+    const ctx = getBusinessTypeContext('esthetic')!;
+    expect(ctx.keyword).toBe('エステサロン');
+    expect(ctx.description).toBe(
+      'フェイシャル・ボディ・痩身・脱毛・小顔矯正など美容全般を提供するエステティックサロン',
+    );
+  });
+
+  test('esthetic: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('esthetic')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '機材（ハイフ・キャビ・ラジオ波等）',
+      '初回体験の価格',
+      '勧誘の有無の口コミ',
+      'コース・回数券の柔軟性',
+    ]);
+  });
+
+  test('esthetic: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('esthetic')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('初回体験のみで通えますか？');
+    expect(ctx.faqs[0].a).toBe(
+      'はい、CareLinkでは口コミで「勧誘なし」と評価されているサロンも多数掲載しています。',
+    );
+    expect(ctx.faqs[1].q).toBe('メンズエステも検索できますか？');
+    expect(ctx.faqs[1].a).toBe(
+      'メンズ対応サロンも掲載しています。サロン詳細の対応性別をご確認ください。',
+    );
+    expect(ctx.faqs[2].q).toBe('効果はどのくらいで実感できますか？');
+    expect(ctx.faqs[2].a).toBe(
+      'メニューや個人差によりますが、フェイシャルは1回、痩身は3-5回程度で実感する方が多いです。',
+    );
+  });
+
+  test('beauty-clinic: keyword と description', () => {
+    const ctx = getBusinessTypeContext('beauty-clinic')!;
+    expect(ctx.keyword).toBe('美容クリニック・美容皮膚科');
+    expect(ctx.description).toBe(
+      '医師による医療美容を提供する美容クリニック・美容皮膚科。レーザー治療・注入治療・医療脱毛など',
+    );
+  });
+
+  test('beauty-clinic: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('beauty-clinic')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '医師の経歴・症例数',
+      'カウンセリング無料の有無',
+      '麻酔・アフターケアの体制',
+      '料金の明朗さ',
+    ]);
+  });
+
+  test('beauty-clinic: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('beauty-clinic')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('カウンセリングだけでも受けられますか？');
+    expect(ctx.faqs[0].a).toBe(
+      'ほとんどのクリニックで無料カウンセリングを実施しています。予約時に「カウンセリング希望」とお伝えください。',
+    );
+    expect(ctx.faqs[1].q).toBe('医療脱毛とエステ脱毛の違いは？');
+    expect(ctx.faqs[1].a).toBe(
+      '医療脱毛はレーザーで毛根を破壊するため永久脱毛効果があります。エステ脱毛は減毛・抑毛が中心です。',
+    );
+    expect(ctx.faqs[2].q).toBe('支払い方法は？');
+    expect(ctx.faqs[2].a).toBe(
+      '現金・クレジット・医療ローンに対応するクリニックが多数。詳細は各クリニックのページをご確認ください。',
+    );
+  });
+
+  test('acupuncture: keyword と description', () => {
+    const ctx = getBusinessTypeContext('acupuncture')!;
+    expect(ctx.keyword).toBe('鍼灸院・整骨院・接骨院');
+    expect(ctx.description).toBe(
+      '鍼・灸・整体・骨格矯正・スポーツ外傷・交通事故対応など、東洋医学と手技療法を提供する治療院',
+    );
+  });
+
+  test('acupuncture: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('acupuncture')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '国家資格保持者の在籍',
+      '保険適用メニューの有無',
+      '交通事故・労災対応',
+      '症状（腰痛・肩こり・坐骨神経痛等）への対応実績',
+    ]);
+  });
+
+  test('acupuncture: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('acupuncture')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('保険は適用されますか？');
+    expect(ctx.faqs[0].a).toBe(
+      '急性の捻挫・打撲・挫傷などは健康保険適用になります。慢性的な肩こり・疲労は自費診療です。',
+    );
+    expect(ctx.faqs[1].q).toBe('交通事故のむち打ちにも対応していますか？');
+    expect(ctx.faqs[1].a).toBe(
+      '交通事故対応の整骨院では自賠責保険を使った治療が可能です。施設詳細で交通事故対応の有無を確認できます。',
+    );
+    expect(ctx.faqs[2].q).toBe('鍼は痛くないですか？');
+    expect(ctx.faqs[2].a).toBe(
+      '使用する鍼は髪の毛ほどの細さで、ほとんど痛みを感じません。鍼が苦手な方には灸や手技のみの対応も可能です。',
+    );
+  });
+
+  test('care-service: keyword と description', () => {
+    const ctx = getBusinessTypeContext('care-service')!;
+    expect(ctx.keyword).toBe('介護施設・デイサービス');
+    expect(ctx.description).toBe(
+      'デイサービス・特養・有料老人ホーム・グループホーム・訪問介護など、高齢者の生活を支える介護サービス',
+    );
+  });
+
+  test('care-service: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('care-service')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '施設の種類（介護度対応範囲）',
+      '利用料金・初期費用',
+      '送迎エリア・時間',
+      'スタッフ体制・看護師常駐',
+    ]);
+  });
+
+  test('care-service: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('care-service')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('見学はできますか？');
+    expect(ctx.faqs[0].a).toBe(
+      'ほとんどの施設で見学を受け付けています。事前に電話または問い合わせフォームから予約してください。',
+    );
+    expect(ctx.faqs[1].q).toBe('要介護度はどの程度から利用できますか？');
+    expect(ctx.faqs[1].a).toBe(
+      '施設によって対応範囲が異なります。要支援1から要介護5まで、施設詳細ページで確認できます。',
+    );
+    expect(ctx.faqs[2].q).toBe('体験利用はできますか？');
+    expect(ctx.faqs[2].a).toBe(
+      'デイサービスでは1日体験を受け付ける施設が多数あります。費用や条件は施設にお問い合わせください。',
+    );
+  });
+
+  test('other: keyword と description', () => {
+    const ctx = getBusinessTypeContext('other')!;
+    expect(ctx.keyword).toBe('サロン・治療院・施設');
+    expect(ctx.description).toBe('その他の医療・美容・福祉に関連する施設');
+  });
+
+  test('other: searchPoints 4件の内容', () => {
+    const ctx = getBusinessTypeContext('other')!;
+    expect(ctx.searchPoints).toStrictEqual([
+      '施設の専門性',
+      '営業時間・アクセス',
+      '料金体系',
+      '口コミ評価',
+    ]);
+  });
+
+  test('other: faqs 3件の q / a', () => {
+    const ctx = getBusinessTypeContext('other')!;
+    expect(ctx.faqs).toHaveLength(3);
+    expect(ctx.faqs[0].q).toBe('どんな施設が掲載されていますか？');
+    expect(ctx.faqs[0].a).toBe(
+      '美容・医療・介護の幅広いジャンルの施設を掲載しています。詳細は各施設ページをご確認ください。',
+    );
+    expect(ctx.faqs[1].q).toBe('予約方法は？');
+    expect(ctx.faqs[1].a).toBe(
+      'CareLinkではオンライン予約に対応する施設が多数。各施設ページから24時間予約できます。',
+    );
+    expect(ctx.faqs[2].q).toBe('口コミは信頼できますか？');
+    expect(ctx.faqs[2].a).toBe(
+      '実際の利用者による口コミのみ掲載しています。来店確認バッジ付きの口コミは予約履歴と紐付いています。',
+    );
+  });
+});
+
+describe('truncateText / INTRO_MAX_LENGTH（180字上限の防御を到達可能化）', () => {
+  test('INTRO_MAX_LENGTH は 180', () => {
+    // 上限値を契約として固定（マジックナンバー変異の検出）
+    expect(INTRO_MAX_LENGTH).toBe(180);
+  });
+
+  test('max 以下の文字列はそのまま返す', () => {
+    expect(truncateText('あいうえお', 180)).toBe('あいうえお');
+    expect(truncateText('', 180)).toBe('');
+  });
+
+  test('長さがちょうど max の文字列はそのまま返す（境界）', () => {
+    const exact = 'a'.repeat(180);
+    const result = truncateText(exact, 180);
+    expect(result).toBe(exact);
+    expect(result.length).toBe(180);
+  });
+
+  test('max を超える文字列は先頭から max 文字に切り詰める（slice 発動）', () => {
+    // 200字入力 → 180字に切られることを保証。
+    // .slice(0, max) を削除する変異はここで KILL される（200 !== 180）。
+    const longText = 'あ'.repeat(200);
+    const result = truncateText(longText, INTRO_MAX_LENGTH);
+    expect(result.length).toBe(180);
+    expect(result).toBe('あ'.repeat(180));
+    expect(result.length).toBeLessThan(longText.length);
+  });
+
+  test('max+1 字の入力は max 字に切られる（オフバイワン境界）', () => {
+    // slice の第2引数（上限）を ±1 する変異を検出する境界ケース。
+    const overByOne = 'b'.repeat(INTRO_MAX_LENGTH + 1);
+    const result = truncateText(overByOne, INTRO_MAX_LENGTH);
+    expect(result.length).toBe(INTRO_MAX_LENGTH);
+    expect(result).toBe('b'.repeat(INTRO_MAX_LENGTH));
+    // 第1引数が 0 以外に変異すると先頭文字が落ちるため、先頭一致も固定
+    expect(result.startsWith('b')).toBe(true);
+    expect(result[0]).toBe('b');
+  });
+
+  test('任意の max でも先頭 max 文字に一致する（slice 第1引数=0 を固定）', () => {
+    const text = 'abcdefghij';
+    expect(truncateText(text, 3)).toBe('abc');
+    expect(truncateText(text, 0)).toBe('');
+    expect(truncateText(text, 1)).toBe('a');
+  });
+});
+
+describe('stripPromoSentences（CareLink 宣伝文除去・単一ソース）', () => {
+  test('CareLink で始まり「。」までの一文を除去する', () => {
+    expect(stripPromoSentences('東京は医療が充実。CareLinkで探そう。便利です。')).toBe(
+      '東京は医療が充実。便利です。',
+    );
+  });
+
+  test('CareLink 文が複数あれば全て除去する（global フラグ）', () => {
+    expect(
+      stripPromoSentences('CareLink紹介1。本文。CareLink紹介2。'),
+    ).toBe('本文。');
+  });
+
+  test('CareLink を含まない文字列はそのまま返す', () => {
+    const plain = '東京は医療・美容・福祉施設が広く点在するエリアです。';
+    expect(stripPromoSentences(plain)).toBe(plain);
+  });
+});
+
+describe('prefectureSeo データ不変条件（発症前検知ガード）', () => {
+  // 除去ロジックは production の stripPromoSentences を単一ソースとして参照する。
+  // 正規表現をここにコピーすると片方だけ変更されてガードが実態とズレるため、import で同期する。
+  const entries = Object.entries(prefectureSeo);
+
+  test('prefectureSeo は1件以上存在する（空配列でテストが空振りしない保証）', () => {
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  // 真の予防の本体:
+  // 誰かが prefecture-seo.ts に長い intro を追加し、CareLink 文除去後でも
+  // INTRO_MAX_LENGTH を超えると、generatePrefTypeContent の prefIntroShort が
+  // truncateText によって「。」の途中で黙って切られ、SEO 本文が日本語として
+  // 不自然なブツ切れになる（fail-silent）。それを「本番に出る前」にこのテストで
+  // 赤くして検知する。
+  test.each(entries)(
+    'prefectureSeo[%s].intro は CareLink 文除去後 INTRO_MAX_LENGTH 以下（truncateText が発動しない）',
+    (slug, data) => {
+      const stripped = stripPromoSentences(data.intro);
+      expect(stripped.length).toBeLessThanOrEqual(INTRO_MAX_LENGTH);
+      // truncateText が no-op であること（＝データが上限内である正常状態）を明示的に固定
+      expect(truncateText(stripped, INTRO_MAX_LENGTH)).toBe(stripped);
+    },
+  );
 });

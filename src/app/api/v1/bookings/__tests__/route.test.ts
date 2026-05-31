@@ -194,6 +194,197 @@ describe('GET /api/v1/bookings', () => {
     expect(json.pagination.page).toBe(1);
   });
 
+  test('inactive API key → 401', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: ['bookings:read'], is_active: false, expires_at: null },
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(401);
+  });
+
+  test('expired API key → 401', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: ['bookings:read'], is_active: true, expires_at: '2000-01-01T00:00:00Z' },
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(401);
+  });
+
+  test('null scopes → 403 (defaults to empty array)', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: null, is_active: true, expires_at: null },
+            }),
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(403);
+  });
+
+  test('wildcard scope * allows cross-facility', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let cc = 0;
+    createServiceRoleClient.mockImplementation(() => {
+      cc++;
+      if (cc === 1) {
+        return {
+          from: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['*'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      const result = { data: [], error: null, count: 0 };
+      const chain: any = { gte: jest.fn(), lte: jest.fn(), eq: jest.fn(), then: (r: any) => Promise.resolve(result).then(r), catch: (r: any) => Promise.resolve(result).catch(r) };
+      chain.gte.mockReturnValue(chain);
+      chain.lte.mockReturnValue(chain);
+      chain.eq.mockReturnValue(chain);
+      return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) };
+    });
+    const res = await GET(makeRequest('test-api-key', '?facility_id=different-facility') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('Authorization not Bearer scheme → 401', async () => {
+    const req = new Request('http://localhost/api/v1/bookings', {
+      method: 'GET',
+      headers: { 'Authorization': 'Basic xxx', 'x-forwarded-for': '192.168.1.1' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(401);
+  });
+
+  test('Empty bearer token → 401', async () => {
+    const req = new Request('http://localhost/api/v1/bookings', {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer ', 'x-forwarded-for': '192.168.1.1' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(401);
+  });
+
+  test('missing x-forwarded-for falls back to unknown', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request('http://localhost/api/v1/bookings', {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer test-api-key' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    await GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('limit=abc → defaults to 50', async () => {
+    const res = await GET(makeRequest('test-api-key', '?limit=abc') as any);
+    const json = await res.json();
+    expect(json.pagination.limit).toBe(50);
+  });
+
+  test('page=abc → defaults to 1', async () => {
+    const res = await GET(makeRequest('test-api-key', '?page=abc') as any);
+    const json = await res.json();
+    expect(json.pagination.page).toBe(1);
+  });
+
+  // Branch coverage: line 53 — apiKey is whitespace-only (trim() yields empty string)
+  test('Bearer token with only whitespace → 401', async () => {
+    const req = new Request('http://localhost/api/v1/bookings', {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer    ', 'x-forwarded-for': '192.168.1.1' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(401);
+  });
+
+  // Branch coverage: line 104 — `to` parameter present → lte() branch executed
+  test('valid to date → accepted and lte applied', async () => {
+    const res = await GET(makeRequest('test-api-key', '?to=2026-12-31') as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('null data from DB → empty array', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let cc = 0;
+    createServiceRoleClient.mockImplementation(() => {
+      cc++;
+      if (cc === 1) {
+        return {
+          from: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({
+                  data: { facility_id: 'fac-123', scopes: ['bookings:read'], is_active: true, expires_at: null },
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      const result = { data: null, error: null, count: null };
+      const chain: any = { gte: jest.fn(), lte: jest.fn(), eq: jest.fn(), then: (r: any) => Promise.resolve(result).then(r), catch: (r: any) => Promise.resolve(result).catch(r) };
+      chain.gte.mockReturnValue(chain);
+      chain.lte.mockReturnValue(chain);
+      chain.eq.mockReturnValue(chain);
+      return { from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockReturnValue(chain) }) }) }) }) };
+    });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.data).toEqual([]);
+    expect(json.pagination.total).toBe(0);
+  });
+
+  // Branch coverage: line 53 — apiKey is empty string (not just whitespace; exact 'Bearer ' header)
+  test('Authorization exactly "Bearer " (no token at all) → 401', async () => {
+    const req = new Request('http://localhost/api/v1/bookings', {
+      method: 'GET',
+      headers: { 'Authorization': 'Bearer', 'x-forwarded-for': '192.168.1.1' },
+    });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    // 'Bearer' does not start with 'Bearer ' (note the space), so caught by line 51
+    expect(res.status).toBe(401);
+  });
+
+  // Branch coverage: line 104 — `to` param triggers lte(); combined with `from` and `status`
+  // to ensure all three filter branches execute in one request
+  test('from + to + status all set → all three query filters applied, 200', async () => {
+    const res = await GET(makeRequest('test-api-key', '?from=2026-01-01&to=2026-12-31&status=confirmed') as any);
+    expect(res.status).toBe(200);
+  });
+
   test('DB error → 500', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     // Route calls createServiceRoleClient twice: once in resolveApiKey (api_keys) and once for bookings query

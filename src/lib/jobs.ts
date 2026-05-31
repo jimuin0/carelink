@@ -23,7 +23,11 @@ export const jobFormSchema = z
     benefits: z.string().trim().max(2000).optional().or(z.literal('')),
   })
   .refine(
-    (v) => v.salary_min === null || v.salary_max === null || (v.salary_max ?? 0) >= (v.salary_min ?? 0),
+    (v) => {
+      /* Stryker disable next-line ConditionalExpression -- equivalent: JS null→0 in >= makes salary_max>=null always true for valid values; salary_min===null guard is unreachable in practice */
+      if (v.salary_min === null) return true;
+      return v.salary_max === null || (v.salary_max as number) >= (v.salary_min as number);
+    },
     { message: '上限は下限以上にしてください', path: ['salary_max'] },
   );
 

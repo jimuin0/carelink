@@ -241,6 +241,66 @@ test('GET: DB エラー → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makeRequest('POST', { body: 'r' }), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('GET: replies が null → 200 with []', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return replyListChain(null as unknown as unknown[]);
+  });
+  const res = await GET(makeRequest('GET'), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.replies).toEqual([]);
+});
+
+test('POST: body が数値 → 400 (typeof check)', async () => {
+  mockAdminFrom.mockReturnValue(memberSingle({ facility_id: '11' }));
+  const res = await POST(makeRequest('POST', { body: 123 }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  mockAdminFrom.mockReturnValue(memberSingle({ facility_id: '11' }));
+  const req = new NextRequest(`http://localhost/api/admin/community/posts/${POST_UUID}/replies`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('POST: body が空白のみ → 400', async () => {
+  mockAdminFrom.mockReturnValue(memberSingle({ facility_id: '11' }));
+  const res = await POST(makeRequest('POST', { body: '   ' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return replyListChain([]);
+  });
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest(`http://localhost/api/admin/community/posts/${POST_UUID}/replies`, {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req, makeProps());
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});
+
 test('POST: レスポンスが { reply: ... } 形式', async () => {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {

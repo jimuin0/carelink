@@ -316,10 +316,124 @@ describe('GET /api/cron/waitlist-notify', () => {
     expect(mockSelectFacility).toHaveBeenCalled();
   });
 
+  test('facility not found (maybeSingle returns null) → skip slot', async () => {
+    mockSelectFacility = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockSelectCancels };
+        if (table === 'booking_waitlist') return { select: mockSelectWaiters, update: mockUpdateWaitlist };
+        if (table === 'facility_profiles') return { select: mockSelectFacility };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  test('RESEND_API_KEY missing → resend null, skip email but still mark notified', async () => {
+    delete process.env.RESEND_API_KEY;
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  test('waiter without email → skip email send but still notify', async () => {
+    mockSelectWaiters = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({
+                  data: [{
+                    id: 'waiter-no-email',
+                    customer_name: 'No Email',
+                    email: null,
+                    line_user_id: null,
+                    date: '2026-05-15',
+                    start_time: '10:00',
+                  }],
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockSelectCancels };
+        if (table === 'booking_waitlist') return { select: mockSelectWaiters, update: mockUpdateWaitlist };
+        if (table === 'facility_profiles') return { select: mockSelectFacility };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  test('expiredCount null → meta expired falls back to 0', async () => {
+    // Make update().eq().lt().select() resolve with no count
+    const updateChain: any = {};
+    Object.assign(updateChain, {
+      eq: jest.fn().mockReturnValue(updateChain),
+      lt: jest.fn().mockReturnValue(updateChain),
+      select: jest.fn().mockResolvedValue({ data: [], error: null }), // no count field
+    });
+    mockUpdateWaitlist = jest.fn().mockReturnValue(updateChain);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockSelectCancels };
+        if (table === 'booking_waitlist') return { select: mockSelectWaiters, update: mockUpdateWaitlist };
+        if (table === 'facility_profiles') return { select: mockSelectFacility };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.expired).toBe(0);
+  });
+
+  test('EMAIL_FROM env override → uses custom from', async () => {
+    process.env.EMAIL_FROM = 'Custom <custom@example.com>';
+
+    await GET(makeRequest() as any);
+
+    if (mockSendEmail.mock.calls.length > 0) {
+      expect(mockSendEmail.mock.calls[0][0].from).toBe('Custom <custom@example.com>');
+    }
+    delete process.env.EMAIL_FROM;
+  });
+
   test('非 Error スロー → String() フォールバック → 500', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn(() => { throw 'string error'; }),
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal error');
+  });
+
+  // Branch coverage: line 118 — e instanceof Error の true 分岐（Error オブジェクトがスローされた場合 e.message を使用）
+  test('Error オブジェクトスロー → e instanceof Error true → e.message → 500（line 118 true 分岐）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => { throw new Error('db connection failed'); }),
     });
 
     const res = await GET(makeRequest() as any);

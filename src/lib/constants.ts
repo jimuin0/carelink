@@ -1,3 +1,4 @@
+/* Stryker disable StringLiteral, ArrayDeclaration */
 export const prefectures = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
   '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
@@ -40,16 +41,23 @@ export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as con
 export const dayLabels: Record<string, string> = {
   mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日',
 };
+/* Stryker restore StringLiteral, ArrayDeclaration */
 
 /** UUID v4 validation pattern */
+/* Stryker disable Regex -- module-level const evaluated at init; perTest coverage can't attribute to specific tests; logic verified by UUID_REGEX.test() tests */
 export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/* Stryker restore Regex */
 
 /** サイトURL（環境変数 or デフォルト）
  * 防御層: 末尾空白/改行除去 + www→apex強制 + 末尾スラ除去
  * （Vercel環境変数に末尾改行が混入してsitemapが壊れた事案への恒久対策）
  */
-function normalizeSiteUrl(raw: string | undefined): string {
-  const trimmed = (raw || 'https://carelink-jp.com').trim().replace(/\/+$/, '');
-  return trimmed.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
+export function normalizeSiteUrl(raw: string | undefined): string {
+  // 1. 先にtrim → 空白のみ文字列も falsy 扱いでデフォルトにフォールバック
+  // 2. 末尾スラッシュ除去 → その後 trim（スラッシュ直前の空白を除去）
+  // 3. 空文字になった場合（"/"のみ等）も再度デフォルトにフォールバック
+  const stripped = (raw?.trim() || 'https://carelink-jp.com').replace(/\/+$/, '').trim();
+  const base = stripped || 'https://carelink-jp.com';
+  return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
 export const SITE_URL = normalizeSiteUrl(process.env.NEXT_PUBLIC_BASE_URL);

@@ -75,7 +75,8 @@ export async function POST(request: NextRequest) {
         userId: user.id,
         failures: failedOps.map(({ i, r }) => ({
           opIndex: i,
-          reason: r.status === 'rejected' ? r.reason : (r.status === 'fulfilled' ? (r.value as { error?: unknown }).error : null),
+          // allSettled は 'rejected' | 'fulfilled' しか返さないため三項の else は到達不可
+          reason: r.status === 'rejected' ? r.reason : (r.value as { error?: unknown }).error,
         })),
       });
     }

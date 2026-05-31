@@ -32,6 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { POST, PATCH } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeProps(roomId = ROOM_UUID) {
   return { params: Promise.resolve({ roomId }) };
@@ -215,4 +216,83 @@ test('PATCH: 正常既読 → 200 ok:true', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('POST: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await POST(makeRequest('POST', { content: 'x' }), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PATCH(makeRequest('PATCH'), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('PATCH: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await PATCH(makeRequest('PATCH'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('PATCH: mark-read DB失敗 → 500', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return roomSingle({ id: ROOM_UUID });
+    return updateReadChain({ message: 'DB error' });
+  });
+  const res = await PATCH(makeRequest('PATCH'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('POST: last_message_at 更新失敗でもメッセージは201で返却', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return roomSingle({ id: ROOM_UUID });
+    if (callNum === 2) return insertMessageChain({ id: 'msg-1', content: 'Hello' });
+    return updateRoomChain({ message: 'fail' });
+  });
+  const res = await POST(makeRequest('POST', { content: 'Hello' }), makeProps());
+  expect(res.status).toBe(201);
+});
+
+test('POST: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(roomSingle({ id: ROOM_UUID }));
+  const req = new NextRequest(`http://localhost/api/admin/chat/${ROOM_UUID}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('POST: x-forwarded-for ヘッダから IP 取得', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return roomSingle({ id: ROOM_UUID });
+    if (callNum === 2) return insertMessageChain({ id: 'msg-1', content: 'Hi' });
+    return updateRoomChain(null);
+  });
+  const req = new NextRequest(`http://localhost/api/admin/chat/${ROOM_UUID}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+    body: JSON.stringify({ content: 'Hi' }),
+  });
+  const res = await POST(req, makeProps());
+  expect(res.status).toBe(201);
 });

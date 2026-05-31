@@ -35,6 +35,7 @@ jest.mock('@supabase/ssr', () => ({
 import { NextRequest } from 'next/server';
 import { GET, PATCH, DELETE } from '../route';
 import { inMemoryRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeProps(id = JOB_UUID) {
   return { params: Promise.resolve({ id }) };
@@ -247,4 +248,118 @@ test('DELETE: 正常削除 → 200', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.success).toBe(true);
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PATCH(makeRequest('PATCH', validJob()), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('DELETE: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('PATCH: レートリミット → 429', async () => {
+  (checkRateLimit as jest.Mock).mockResolvedValueOnce(true);
+  const res = await PATCH(makeRequest('PATCH', validJob()), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (checkRateLimit as jest.Mock).mockResolvedValueOnce(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('PATCH: 不正なUUID → 400', async () => {
+  const res = await PATCH(makeRequest('PATCH', validJob()), makeProps('bad-id'));
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: 不正なUUID → 400', async () => {
+  const res = await DELETE(makeRequest('DELETE'), makeProps('bad-id'));
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 不正な JSON body → 400', async () => {
+  const req = new Request(`http://localhost/api/admin/jobs/${JOB_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: DB削除失敗 → 500', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
+    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+    return jobDeleteChain({ message: 'DB error' });
+  });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: 例外発生 → 500 (catchブロック)', async () => {
+  (checkCsrf as jest.Mock).mockImplementationOnce(() => { throw new Error('boom'); });
+  const res = await PATCH(makeRequest('PATCH', validJob()), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('DELETE: 例外発生 → 500 (catchブロック)', async () => {
+  (checkCsrf as jest.Mock).mockImplementationOnce(() => { throw new Error('boom'); });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('GET: 例外発生 → 500 (catchブロック)', async () => {
+  mockGetUser.mockRejectedValueOnce(new Error('boom'));
+  const res = await GET(makeGetRequest(), makeProps());
+  expect(res.status).toBe(500);
+});
+
+// Branch coverage: line 25 — memberships が null のとき ?? [] でフォールバック（true 分岐 → facilityIds.length===0 → 403）
+test('GET: memberships が null → facilityIds 空 → 403（line 25 ?? フォールバック）', async () => {
+  mockAnonFrom.mockImplementationOnce(() => membersChain(null as unknown as unknown[]));
+  const res = await GET(makeGetRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('PATCH: salary_note/description/requirements/benefits 空文字 → null として保存', async () => {
+  let captured: Record<string, unknown> | undefined;
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
+    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: MOCK_JOB, error: null })),
+            }),
+          }),
+        }),
+      };}),
+    };
+  });
+  const res = await PATCH(makeRequest('PATCH', {
+    ...validJob(), salary_note: '', description: '', requirements: '', benefits: '',
+  }), makeProps());
+  expect(res.status).toBe(200);
+  expect(captured?.salary_note).toBeNull();
+  expect(captured?.description).toBeNull();
+  expect(captured?.requirements).toBeNull();
+  expect(captured?.benefits).toBeNull();
 });

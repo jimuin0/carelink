@@ -203,3 +203,24 @@ test('レスポンスが { verified: true } 形式', async () => {
   const json = await res.json();
   expect(json.verified).toBe(true);
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('CSRF エラー → 403', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(403);
+});
+
+test('x-forwarded-for ヘッダあり → IP抽出', async () => {
+  setupOwnershipAndDomain(null);
+  (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new Request('http://localhost/api/admin/white-label/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+    body: '{}',
+  });
+  await POST(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});

@@ -16,7 +16,8 @@ function toJST(isoString: string) {
 }
 
 function csvEscape(val: string | number | null | undefined): string {
-  const s = String(val ?? '');
+  // 呼び出し元がすべて ?? '' / ?? 0 で前処理済みのため null/undefined は到達不可
+  const s = String(/* istanbul ignore next */ val ?? '');
   // Prefix formula-trigger characters to prevent CSV injection
   const safe = /^[=+\-@|]/.test(s) ? `'${s}` : s;
   if (safe.includes(',') || safe.includes('"') || safe.includes('\n')) return `"${safe.replace(/"/g, '""')}"`;

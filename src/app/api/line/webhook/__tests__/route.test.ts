@@ -414,4 +414,77 @@ describe('POST /api/line/webhook', () => {
 
     expect(sendLineReply).not.toHaveBeenCalled();
   });
+
+  test('follow event without replyToken → upsert but no reply', async () => {
+    (sendLineReply as jest.Mock).mockClear();
+    await POST(
+      makeRequest({
+        events: [
+          { type: 'follow', source: { userId: VALID_LINE_USER_ID } },
+        ],
+      }) as any
+    );
+    expect(sendLineReply).not.toHaveBeenCalled();
+    expect(mockUpsert).toHaveBeenCalled();
+  });
+
+  test('LINE_CHANNEL_ACCESS_TOKEN_CARELINK undefined → handleFollow returns early', async () => {
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+    (global.fetch as jest.Mock).mockClear();
+    mockUpsert.mockClear();
+    await POST(
+      makeRequest({
+        events: [
+          { type: 'follow', source: { userId: VALID_LINE_USER_ID }, replyToken: 't' },
+        ],
+      }) as any
+    );
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  test('LINE profile API non-ok → upsert skipped', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response('error', { status: 500 })
+    );
+    mockUpsert.mockClear();
+    await POST(
+      makeRequest({
+        events: [
+          { type: 'follow', source: { userId: VALID_LINE_USER_ID }, replyToken: 't' },
+        ],
+      }) as any
+    );
+    expect(mockUpsert).not.toHaveBeenCalled();
+  });
+
+  test('profile without displayName/pictureUrl → upsert with null fields', async () => {
+    global.fetch = jest.fn().mockResolvedValue(
+      new Response(JSON.stringify({}), { status: 200 })
+    );
+    await POST(
+      makeRequest({
+        events: [
+          { type: 'follow', source: { userId: VALID_LINE_USER_ID }, replyToken: 't' },
+        ],
+      }) as any
+    );
+    const call = mockUpsert.mock.calls[0];
+    expect(call[0].display_name).toBeNull();
+    expect(call[0].picture_url).toBeNull();
+  });
+
+  test('unknown event type → ignored (switch default)', async () => {
+    (sendLineReply as jest.Mock).mockClear();
+    mockUpsert.mockClear();
+    await POST(
+      makeRequest({
+        events: [
+          { type: 'unfollow', source: { userId: VALID_LINE_USER_ID } },
+        ],
+      }) as any
+    );
+    expect(mockUpsert).not.toHaveBeenCalled();
+    expect(sendLineReply).not.toHaveBeenCalled();
+  });
 });

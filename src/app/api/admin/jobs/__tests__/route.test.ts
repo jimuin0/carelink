@@ -231,3 +231,77 @@ test('GET: レートリミット params (20/60s)', async () => {
   expect(call[1]).toBe(20);
   expect(call[2]).toBe(60_000);
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: memberships が null → 200 jobs:[]', async () => {
+  mockAnonFrom.mockReturnValue(membersChain(null as unknown as unknown[]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.jobs).toEqual([]);
+});
+
+test('GET: data が null → 200 with []', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return jobListChain(null as unknown as unknown[]);
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.jobs).toEqual([]);
+});
+
+test('GET: 未処理例外 → 500', async () => {
+  mockGetUser.mockRejectedValue(new Error('crash'));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  const req = new Request('http://localhost/api/admin/jobs', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: 全任意フィールド指定 → 201', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return insertSingle({ id: 'job-2' });
+  });
+  const res = await POST(makePostRequest(validJob({
+    salary_min: 200000,
+    salary_max: 400000,
+    salary_note: '応相談',
+    description: 'sample',
+    requirements: 'req',
+    benefits: 'ben',
+  })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: 未処理例外 → 500', async () => {
+  mockGetUser.mockRejectedValue(new Error('crash'));
+  const res = await POST(makePostRequest(validJob()));
+  expect(res.status).toBe(500);
+});
+
+test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([]));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/jobs', {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});

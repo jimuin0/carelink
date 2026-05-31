@@ -199,6 +199,53 @@ describe('GET /api/stations', () => {
     expect(call[0]).toBe('unknown');
   });
 
+  test('data が null でも空配列で返る', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    const json = await res.json();
+    expect(json.stations).toEqual([]);
+  });
+
+  test('falsy nearest_station 行はフィルタされる', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({
+                data: [
+                  { nearest_station: '' },
+                  { nearest_station: null },
+                  { nearest_station: '新宿駅' },
+                ],
+                error: null,
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    const res = await GET(req as any);
+    const json = await res.json();
+    expect(json.stations).toEqual(['新宿駅']);
+  });
+
   test('レスポンスが { stations: string[] } 形式', async () => {
     const req = new Request('http://localhost/api/stations', { headers: { 'x-forwarded-for': '192.168.1.1' } });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });

@@ -298,4 +298,116 @@ describe('GET /api/availability', () => {
       expect(date).toMatch(/2026-01-\d{2}/);
     });
   });
+
+  test('missing x-forwarded-for → uses "unknown" IP', () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const req = new Request(`http://localhost/api/availability?facilityId=${VALID_UUID}&year=2026&month=5`, { method: 'GET' });
+    GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
+  test('staffList null (?? []) → dates empty', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+        }),
+      }),
+      rpc: jest.fn(),
+    });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.dates).toEqual({});
+  });
+
+  test('RPC returns null data (?? []) → status full for future dates', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: [{ id: 'staff-1' }] }),
+            }),
+          }),
+        }),
+      }),
+      rpc: jest.fn().mockResolvedValue({ data: null }),
+    });
+    const futureYear = new Date().getFullYear() + 1;
+    const res = await GET(makeRequest(VALID_UUID, undefined, futureYear, 6) as any);
+    const json = await res.json();
+    // All future dates should have slots=0/status=full
+    const future = Object.values(json.dates).filter((d: any) => d.status !== 'full');
+    expect(future).toHaveLength(0);
+  });
+
+  test('totalSlots between 1 and 2 → status=few', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    let rpcCall = 0;
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: [{ id: 'staff-1' }] }),
+            }),
+          }),
+        }),
+      }),
+      rpc: jest.fn().mockImplementation(() => {
+        rpcCall++;
+        // Return 1 slot per call
+        return Promise.resolve({ data: [{ start_time: '09:00' }] });
+      }),
+    });
+    const futureYear = new Date().getFullYear() + 1;
+    const res = await GET(makeRequest(VALID_UUID, undefined, futureYear, 6) as any);
+    const json = await res.json();
+    const few = Object.values(json.dates).find((d: any) => d.status === 'few');
+    expect(few).toBeDefined();
+  });
+
+  test('totalSlots 0 future date → status=full', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: [{ id: 'staff-1' }] }),
+            }),
+          }),
+        }),
+      }),
+      rpc: jest.fn().mockResolvedValue({ data: [] }),
+    });
+    const futureYear = new Date().getFullYear() + 1;
+    const res = await GET(makeRequest(VALID_UUID, undefined, futureYear, 6) as any);
+    const json = await res.json();
+    const fulls = Object.values(json.dates).filter((d: any) => d.status === 'full' && d.slots === 0);
+    expect(fulls.length).toBeGreaterThan(0);
+  });
+
+  // Branch coverage: line 37 — staffId が指定された場合 staffIds = [staffId] で直接セット（true 分岐）
+  test('valid UUID staffId → staff fetch スキップして staffIds=[staffId] を使用（line 37 true 分岐）', async () => {
+    const STAFF_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const fromMock = jest.fn();
+    createServerSupabaseClient.mockReturnValue({
+      from: fromMock,
+      rpc: jest.fn().mockResolvedValue({ data: [] }),
+    });
+    const futureYear = new Date().getFullYear() + 1;
+    const res = await GET(makeRequest(VALID_UUID, STAFF_UUID, futureYear, 6) as any);
+    // from() should NOT be called (staff fetch is skipped when staffId is provided)
+    expect(fromMock).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+  });
 });

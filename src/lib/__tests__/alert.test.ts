@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/alert.ts (Phase 7a: Bot Token 経由に更新)
  * - SLACK_BOT_TOKEN/SLACK_DEFAULT_CHANNEL 未設定時は無投稿
@@ -148,6 +148,49 @@ describe('alert', () => {
     expect(body.text).not.toContain('x'.repeat(300));
   });
 
+  test('extra が空オブジェクト {} → コードブロック非追加', async () => {
+    postAlert({ level: 'info', message: 'no-extra', extra: {} });
+    await new Promise((r) => setTimeout(r, 50));
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.text).not.toContain('```');
+  });
+
+  test('route/status/commit_sha/env/request_id 全て省略時もメッセージのみ送信', async () => {
+    postAlert({ level: 'info', message: 'minimal' });
+    await new Promise((r) => setTimeout(r, 50));
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.text).toContain('minimal');
+    expect(body.text).not.toContain('*route:*');
+    expect(body.text).not.toContain('*status:*');
+    expect(body.text).not.toContain('*commit:*');
+    expect(body.text).not.toContain('*env:*');
+    expect(body.text).not.toContain('*request_id:*');
+  });
+
+  test('request_id を含む', async () => {
+    postAlert({ level: 'error', message: 'msg', request_id: 'req-abc123' });
+    await new Promise((r) => setTimeout(r, 50));
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.text).toContain('req-abc123');
+  });
+
+  test('extra 文字列 200 文字以下は切り詰めなし', async () => {
+    postAlert({ level: 'info', message: 'short extra', extra: { short: 'abc' } });
+    await new Promise((r) => setTimeout(r, 50));
+    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+    expect(body.text).toContain('"short": "abc"');
+  });
+
+  test('非エラーオブジェクト throw 時の最終フォールバック (postToSlackWithThreadGrouping reject with string)', async () => {
+    // Force fetch to reject with non-Error
+    mockFetch.mockRejectedValueOnce('string-error');
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    postAlert({ level: 'error', message: 'string-throw' });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
   test('commit_sha / env を含む', async () => {
     alertError('msg', {
       commit_sha: 'abc1234',
@@ -158,5 +201,40 @@ describe('alert', () => {
     const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
     expect(body.text).toContain('abc1234');
     expect(body.text).toContain('production');
+  });
+
+  // Branch coverage: line 95 (true branch) — e instanceof Error → e.message
+  // postToSlackWithThreadGrouping が Error を throw したときに catch が `e.message` を使う
+  test('postToSlackWithThreadGrouping が Error を throw → catch の e.message ブランチ', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockImplementation(() => {
+      throw new Error('supabase-error');
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    postAlert({ level: 'error', message: 'crash-test' });
+    await new Promise((r) => setTimeout(r, 100));
+    // consoleSpy should have been called via the catch block using e.message
+    consoleSpy.mockRestore();
+    // Restore default mock
+    createServiceRoleClient.mockImplementation(() => ({
+      rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
+    }));
+  });
+
+  // Branch coverage: line 95 (false branch) — !(e instanceof Error) → String(e)
+  // postToSlackWithThreadGrouping が非 Error 値を throw したときに String(e) を使う
+  test('postToSlackWithThreadGrouping が非 Error 値を throw → catch の String(e) ブランチ', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockImplementation(() => {
+      throw 'non-error-string';
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    postAlert({ level: 'error', message: 'string-throw-test' });
+    await new Promise((r) => setTimeout(r, 100));
+    consoleSpy.mockRestore();
+    // Restore default mock
+    createServiceRoleClient.mockImplementation(() => ({
+      rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
+    }));
   });
 });

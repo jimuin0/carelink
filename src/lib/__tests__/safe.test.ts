@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/safe.ts (Phase 8: Sentry 廃止後)
  *   - fn の戻り値透過
@@ -133,5 +133,54 @@ describe('safeCaptureMessage', () => {
 
   test('throw しない（fail-safe）', () => {
     expect(() => safeCaptureMessage('m', 'error', 'tag')).not.toThrow();
+  });
+
+  test('warning level extra なし → console.warn (extra なしブランチ)', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    safeCaptureMessage('warn-bare', 'warning', 'tagw');
+    expect(warnSpy).toHaveBeenCalledWith('[safeCaptureMessage:tagw]', 'warn-bare');
+    warnSpy.mockRestore();
+  });
+
+  test('error level with extra → console.error with extra', () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation();
+    safeCaptureMessage('boom', 'error', 'tage', { foo: 'bar' });
+    expect(errSpy).toHaveBeenCalledWith('[safeCaptureMessage:tage]', 'boom', { foo: 'bar' });
+    errSpy.mockRestore();
+  });
+
+  test('info level with extra → console.info with extra', () => {
+    const infoSpy = jest.spyOn(console, 'info').mockImplementation();
+    safeCaptureMessage('hi', 'info', 'tagi', { k: 'v' });
+    expect(infoSpy).toHaveBeenCalledWith('[safeCaptureMessage:tagi]', 'hi', { k: 'v' });
+    infoSpy.mockRestore();
+  });
+});
+
+describe('safeCaptureException — Error without stack', () => {
+  test('Error with stack を含む（stack 三項演算 truthy 側）', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const err = new Error('with-stack');
+    safeCaptureException(err, 'tagS');
+    const args = consoleSpy.mock.calls[0];
+    // 3rd arg should include newline + stack
+    expect(typeof args[2]).toBe('string');
+    expect((args[2] as string).startsWith('\n')).toBe(true);
+    consoleSpy.mockRestore();
+  });
+});
+
+describe('safeSync — 非 Error スロー', () => {
+  // Branch coverage: line 52 — e instanceof Error の false 分岐（String(e) でメッセージ生成）
+  test('文字列をスロー → String(e) フォールバック → fallback 返却（line 52 false 分岐）', () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const r = safeSync(
+      () => { throw 'string error'; },
+      'fb',
+      { tag: 'sync-str' }
+    );
+    expect(r).toBe('fb');
+    expect(consoleSpy).toHaveBeenCalledWith('[safe:sync-str]', 'string error');
+    consoleSpy.mockRestore();
   });
 });

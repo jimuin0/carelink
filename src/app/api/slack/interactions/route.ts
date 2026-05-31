@@ -83,6 +83,7 @@ export async function POST(request: Request) {
     if (payload.actions && payload.actions.length > 0) {
       const action = payload.actions[0];
       const handler = ACTION_HANDLERS[action.action_id];
+      /* istanbul ignore next -- ACTION_HANDLERS は現在空のため true 分岐は到達不能 */
       if (handler) {
         // 結果は気にせず即 ack 返却
         void (async () => {

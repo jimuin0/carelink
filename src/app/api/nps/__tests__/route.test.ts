@@ -232,6 +232,44 @@ describe('POST /api/nps', () => {
     }
   });
 
+  test('POST: missing x-forwarded-for → uses "unknown"', async () => {
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const { POST } = await import('../route');
+    const req = new Request('http://localhost/api/nps', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ score: 7 }),
+    });
+    await POST(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls.find((c) => c[3] === 'nps');
+    expect(call![0]).toBe('unknown');
+  });
+
+  test('booking_id set but anonymous user → silently nullified', async () => {
+    // user null + booking_id valid
+    setupDefaultMocks(true);
+    mockGetUser = jest.fn().mockResolvedValue({ data: { user: null } });
+    const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+    createServerSupabaseAuthClient.mockResolvedValue({
+      auth: { getUser: mockGetUser },
+      from: jest.fn().mockReturnValue({}),
+    });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8, booking_id: BOOKING_UUID }) as any);
+    expect([200, 201]).toContain(res.status);
+    const insertCall = mockInsert.mock.calls[0];
+    expect(insertCall[0].booking_id).toBeNull();
+    expect(insertCall[0].user_id).toBeNull();
+  });
+
+  test('insert error not 23505 → 500', async () => {
+    setupDefaultMocks(true, true);
+    mockInsert.mockResolvedValue({ error: { code: '99999', message: 'other' } });
+    const { POST } = await import('../route');
+    const res = await POST(makePostRequest({ score: 8 }) as any);
+    expect(res.status).toBe(500);
+  });
+
   test('rate limit params (5 req/hour)', async () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
@@ -427,6 +465,48 @@ describe('GET /api/nps', () => {
     const json = await res.json();
     expect(Array.isArray(json.data)).toBe(true);
     expect(json.data).toHaveLength(2);
+  });
+
+  test('GET: missing x-forwarded-for → uses "unknown"', async () => {
+    setupGetMocks(true, true, []);
+    (inMemoryRateLimit as jest.Mock).mockClear();
+    const { GET } = await import('../route');
+    const req = new Request(`http://localhost/api/nps?facility_id=${FACILITY_UUID}`, { method: 'GET' });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
+    await GET(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls.find((c) => c[3] === 'nps-get');
+    expect(call![0]).toBe('unknown');
+  });
+
+  test('GET: data null (?? []) → nps=null, count=0', async () => {
+    const mockGetUser = jest.fn().mockResolvedValue({ data: { user: { id: 'u' } } });
+    const mockMemberSingle = jest.fn().mockResolvedValue({ data: { role: 'admin' } });
+    const mockMemberIn = jest.fn().mockReturnValue({ single: mockMemberSingle });
+    const mockMemberEq2 = jest.fn().mockReturnValue({ in: mockMemberIn });
+    const mockMemberEq1 = jest.fn().mockReturnValue({ eq: mockMemberEq2 });
+    const mockMemberSelect = jest.fn().mockReturnValue({ eq: mockMemberEq1 });
+    const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
+    createServerSupabaseAuthClient.mockResolvedValue({
+      auth: { getUser: mockGetUser },
+      from: jest.fn().mockReturnValue({ select: mockMemberSelect }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            order: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data: null }),
+            }),
+          }),
+        }),
+      }),
+    });
+    const { GET } = await import('../route');
+    const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
+    const json = await res.json();
+    expect(json.nps).toBeNull();
+    expect(json.count).toBe(0);
   });
 
   test('rate limit params (20 req/min)', async () => {

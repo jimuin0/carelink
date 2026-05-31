@@ -267,3 +267,78 @@ test('POST: レスポンスが { menu.id } 形式', async () => {
   const json = await res.json();
   expect(json.menu.id).toBe(MENU_UUID);
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: facility_id クエリなし → 401', async () => {
+  const res = await GET(makeGetRequest(null));
+  expect(res.status).toBe(401);
+});
+
+test('GET: facility_id が不正UUID → 401', async () => {
+  const res = await GET(makeGetRequest('bad-uuid'));
+  expect(res.status).toBe(401);
+});
+
+test('GET: x-forwarded-for ヘッダあり → IP抽出', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const url = new URL('http://localhost/api/admin/menus');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
+  });
+  await GET(req);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[0]).toBe('10.0.0.1');
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(429);
+});
+
+test('POST: 不正なJSONボディ → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/menus');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid json {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: sort_order 明示指定 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(5);
+    return insertSingle({ id: 'menu-x', sort_order: 99 });
+  });
+  const res = await POST(makePostRequest(validBody({ sort_order: 99 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: count が null → sort_order=0 で挿入 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn(() => Promise.resolve({ count: null, error: null })),
+    };
+    return insertSingle({ id: 'menu-y' });
+  });
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(201);
+});

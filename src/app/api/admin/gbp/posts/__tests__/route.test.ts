@@ -32,6 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 import { NextRequest } from 'next/server';
 import { GET, POST, PATCH, DELETE } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 // Membership check: limit(1).single() → Promise
 function membershipSingle(data: unknown) {
@@ -438,6 +439,168 @@ test('PATCH: title=null → null に変換', async () => {
   }));
   const updated = capturedUpdate.mock.calls[0][0] as Record<string, unknown>;
   expect(updated.title).toBeNull();
+});
+
+test('POST: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: 'x' }),
+  }));
+  expect(res).toBe(csrfRes);
+});
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: POST_UUID }),
+  }));
+  expect(res).toBe(csrfRes);
+});
+
+test('DELETE: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
+  expect(res).toBe(csrfRes);
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: 'x' }),
+  }));
+  expect(res.status).toBe(429);
+});
+
+test('PATCH: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: POST_UUID }),
+  }));
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
+  expect(res.status).toBe(429);
+});
+
+// Branch coverage: line 103 — cta_type が VALID_CTA_TYPES に含まれない場合 → null に変換
+test('PATCH: 無効な cta_type → null に変換（false分岐）', async () => {
+  let callNum = 0;
+  const capturedUpdate = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      update: (data: unknown) => {
+        capturedUpdate(data);
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+      },
+    };
+  });
+  await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, cta_type: 'INVALID_CTA' }),
+  }));
+  const updated = capturedUpdate.mock.calls[0][0] as Record<string, unknown>;
+  expect(updated.cta_type).toBeNull();
+});
+
+test('PATCH: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: POST_UUID }),
+  }));
+  expect(res.status).toBe(401);
+});
+
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: 非管理者 → 403', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle(null));
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: POST_UUID }),
+  }));
+  expect(res.status).toBe(403);
+});
+
+test('DELETE: 非管理者 → 403', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle(null));
+  const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
+  expect(res.status).toBe(403);
+});
+
+test('POST: body 未指定 → 400', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 不正な JSON body → 400', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not-json',
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: scheduled_at なし → status=draft, invalid cta_type → null', async () => {
+  let callNum = 0;
+  const capturedInsert = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      insert: (d: unknown) => { capturedInsert(d); return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) }; },
+    };
+  });
+  await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: 'x', cta_type: 'INVALID', cta_url: 'not-https' }),
+  }));
+  const d = capturedInsert.mock.calls[0][0] as Record<string, unknown>;
+  expect(d.status).toBe('draft');
+  expect(d.cta_type).toBeNull();
+  expect(d.cta_url).toBeNull();
+  expect(d.title).toBeNull();
+});
+
+test('PATCH: scheduled_at と published_at が falsy → null に変換', async () => {
+  let callNum = 0;
+  const capturedUpdate = jest.fn();
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    return {
+      update: (d: unknown) => { capturedUpdate(d); return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }; },
+    };
+  });
+  await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, scheduled_at: '', published_at: '' }),
+  }));
+  const d = capturedUpdate.mock.calls[0][0] as Record<string, unknown>;
+  expect(d.scheduled_at).toBeNull();
+  expect(d.published_at).toBeNull();
+});
+
+test('PATCH: 不正な JSON body → id なしで 400', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: 'not-json',
+  }));
+  expect(res.status).toBe(400);
 });
 
 test('GET: data が null のとき [] を返す', async () => {

@@ -153,7 +153,13 @@ const translations: Record<string, Partial<Record<Locale, string>>> = {
 export function t(key: string, locale: Locale = 'ja', fallback?: string): string {
   const dict = translations[key];
   if (!dict) return fallback ?? key;
-  return dict[locale] ?? dict.ja ?? fallback ?? key;
+  // dict[locale] があればそれを、なければ ja フォールバック
+  const val = dict[locale] ?? dict.ja;
+  /* istanbul ignore else */
+  if (val !== undefined) return val;
+  // 全エントリに ja 翻訳があるため到達不可（プロダクションデータ制約）
+  /* istanbul ignore next */
+  return fallback ?? key;
 }
 
 /**

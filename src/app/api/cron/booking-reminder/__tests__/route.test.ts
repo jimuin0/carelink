@@ -336,6 +336,119 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(res.status).toBe(500);
   });
 
+  test('bookings query returns null → sent=0 early return', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+                }),
+              }),
+            }),
+          };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.sent).toBe(0);
+  });
+
+  test('facilities lookup returns null → empty facilityMap, empty facilityName', async () => {
+    setupDefaultMocks(1);
+    mockFacilitiesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({ data: null, error: null }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBookingsSelect };
+        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
+      }),
+    });
+
+    await GET(makeRequest() as any);
+    expect(mockSendBookingReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ facilityName: '' })
+    );
+  });
+
+  test('total_price null → totalPrice undefined', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  limit: jest.fn().mockResolvedValue({
+                    data: [{
+                      id: 'b-1',
+                      customer_name: 'C',
+                      email: 'c@example.com',
+                      booking_date: '2026-05-16',
+                      start_time: '10:00',
+                      end_time: '11:00',
+                      facility_id: 'fac-0',
+                      total_price: null,
+                    }],
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
+      }),
+    });
+
+    await GET(makeRequest() as any);
+    expect(mockSendBookingReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ totalPrice: undefined })
+    );
+  });
+
+  test('claim not found in re-read (null claimed) → skipped', async () => {
+    setupDefaultMocks(1);
+    mockRemindersSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          single: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockBookingsSelect };
+        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.skipped).toBeGreaterThan(0);
+  });
+
+  test('non-Error throw → String fallback in error path', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation(() => { throw 'plain string'; }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
   test('includes facility name in email params', async () => {
     setupDefaultMocks(1);
 

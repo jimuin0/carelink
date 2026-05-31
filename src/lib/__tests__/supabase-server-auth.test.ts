@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/supabase-server-auth.ts
  * Covers the inner cookie callbacks (getAll, setAll, forEach lambda)

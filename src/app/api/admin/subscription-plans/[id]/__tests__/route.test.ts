@@ -31,6 +31,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { PATCH, DELETE } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(method: string, body?: object) {
   return new Request(`http://localhost/api/admin/subscription-plans/${PLAN_UUID}`, {
@@ -237,4 +238,145 @@ test('DELETE: レートリミット → 429', async () => {
   (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(429);
+});
+
+// ─── CSRF / additional branch coverage ────────────────────────────────────────
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfResponse = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfResponse);
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res).toBe(csrfResponse);
+});
+
+test('DELETE: CSRFエラー → そのまま返却', async () => {
+  const csrfResponse = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfResponse);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res).toBe(csrfResponse);
+});
+
+test('DELETE: 不正なUUID → 400', async () => {
+  const res = await DELETE(makeRequest('DELETE'), makeProps('bad-id'));
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('DELETE: 非管理者 → 401', async () => {
+  mockAdminFrom.mockReturnValue(planChain(null));
+  mockAnonFrom.mockReturnValue(memberChain(null));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
+  setupVerifyAdmin();
+  const req = new Request(`http://localhost/api/admin/subscription-plans/${PLAN_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+    body: JSON.stringify({ name: 'x' }),
+  });
+  const res = await PATCH(req as unknown as Parameters<typeof PATCH>[0], makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 不正な JSON body → 400', async () => {
+  setupVerifyAdmin();
+  const req = new Request(`http://localhost/api/admin/subscription-plans/${PLAN_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req as unknown as Parameters<typeof PATCH>[0], makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: count=null → ハード削除 (200 deleted)', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn(() => Promise.resolve({ count: null })),
+          }),
+        }),
+      };
+    }
+    return {
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: null })),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('DELETE: 契約中ユーザーあり + deactivate 失敗 → 500', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn(() => Promise.resolve({ count: 5 })),
+          }),
+        }),
+      };
+    }
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: { message: 'fail' } })),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('DELETE: ハード削除 失敗 → 500', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn(() => Promise.resolve({ count: 0 })),
+          }),
+        }),
+      };
+    }
+    return {
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: { message: 'fail' } })),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+});
+
+// Branch coverage: line 35 — plan が存在するが facility_members が null → mem=null → null 返却（false 分岐 → 401）
+test('PATCH: plan 存在・facility_members null → verifyAdmin null → 401（line 35 false 分岐）', async () => {
+  mockAdminFrom.mockReturnValue(planChain({ facility_id: FACILITY_UUID }));
+  mockAnonFrom.mockReturnValue(memberChain(null));
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(401);
 });

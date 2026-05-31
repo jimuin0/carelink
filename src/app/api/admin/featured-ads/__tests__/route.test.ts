@@ -255,3 +255,147 @@ test('GET: レスポンスが { slots: [] } 形式', async () => {
   const json = await res.json();
   expect(Array.isArray(json.slots)).toBe(true);
 });
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('POST: 不正な日付形式 → 400', async () => {
+  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest({
+    slot_type: 'search_top', starts_at: 'invalid-date', ends_at: 'also-invalid',
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: devモード activate 失敗 → 500', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID });
+    return updateEq({ message: 'fail' });
+  });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(500);
+});
+
+test('POST: 例外発生 → 500 (catchブロック)', async () => {
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  mockAdminFrom.mockImplementation(() => {
+    throw new Error('boom');
+  });
+  const res = await POST(makePostRequest(validPostBody()));
+  expect(res.status).toBe(500);
+});
+
+test('GET: slots が null → 空配列で返す', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return listChain(null as unknown as unknown[]);
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.slots).toEqual([]);
+});
+
+test('POST: 不正な JSON body → 400 (slot_type 欠落で)', async () => {
+  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
+  const req = new NextRequest('http://localhost/api/admin/featured-ads', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: area/business_type 指定で正常作成 (devモード)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID });
+    return updateEq(null);
+  });
+  const res = await POST(makePostRequest(validPostBody({ area: '東京', business_type: 'salon' })));
+  expect(res.status).toBe(201);
+});
+
+// Branch coverage: line 101 — budget_yen: PLAN_PRICES[slot_type] が定義されている場合の正常値確認
+test('POST: area_banner slot_type → budget_yen=4900 (PLAN_PRICES 分岐)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'area_banner', budget_yen: 4900 });
+    return updateEq(null);
+  });
+  const res = await POST(makePostRequest(validPostBody({ slot_type: 'area_banner' })));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.slot).toBeDefined();
+});
+
+test('POST: category_top slot_type → budget_yen=7800 (PLAN_PRICES 分岐)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'category_top', budget_yen: 7800 });
+    return updateEq(null);
+  });
+  const res = await POST(makePostRequest(validPostBody({ slot_type: 'category_top' })));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.slot).toBeDefined();
+});
+
+// Branch coverage: line 111, 135 (×2) — Stripe 設定ありの場合: checkout session 作成
+jest.mock('stripe', () => {
+  return jest.fn().mockImplementation(() => ({
+    checkout: {
+      sessions: {
+        create: jest.fn().mockResolvedValue({ url: 'https://checkout.stripe.com/pay/cs_test_abc' }),
+      },
+    },
+  }));
+});
+
+test('POST: Stripe設定あり → checkout URL を返す (line 135)', async () => {
+  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+  });
+
+  const res = await POST(makePostRequest(validPostBody()));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_abc');
+  expect(json.slot).toBeDefined();
+
+  delete process.env.STRIPE_SECRET_KEY;
+});
+
+test('POST: Stripe設定あり + area_banner → checkout URL を返す (line 135 planLabels 分岐)', async () => {
+  process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
+
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return insertSingle({ id: SLOT_UUID, slot_type: 'area_banner' });
+  });
+
+  const res = await POST(makePostRequest(validPostBody({ slot_type: 'area_banner' })));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.checkout_url).toBe('https://checkout.stripe.com/pay/cs_test_abc');
+
+  delete process.env.STRIPE_SECRET_KEY;
+});

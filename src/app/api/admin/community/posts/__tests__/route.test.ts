@@ -235,6 +235,75 @@ test('POST: category が "general" → 201', async () => {
   expect(res.status).toBe(201);
 });
 
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: posts が null → 200 with []', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return {
+      select: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: null })),
+    };
+  });
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.posts).toEqual([]);
+});
+
+test('POST: title が数値 → 400 (typeof check)', async () => {
+  mockAdminFrom.mockReturnValue(memberSingle({ facility_id: '11' }));
+  const res = await POST(makePostRequest({ title: 123, body: 'Body' }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: body が数値 → 400 (typeof check)', async () => {
+  mockAdminFrom.mockReturnValue(memberSingle({ facility_id: '11' }));
+  const res = await POST(makePostRequest({ title: 'Test', body: 456 }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  mockAdminFrom.mockReturnValue(memberSingle({ facility_id: '11' }));
+  const req = new NextRequest('http://localhost/api/admin/community/posts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: category が数値 → 201 (typeof check により空文字扱い)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return insertPostSingle({ id: 'post-y', title: 'Test' });
+  });
+  const res = await POST(makePostRequest({ title: 'Test', body: 'Body', category: 999 }));
+  expect(res.status).toBe(201);
+});
+
+test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return memberSingle({ facility_id: '11' });
+    return postListChain([]);
+  });
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/community/posts', {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});
+
 test('POST: category 省略 → 201 (デフォルト general)', async () => {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {

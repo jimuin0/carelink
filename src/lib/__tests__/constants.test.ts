@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
 
 import {
@@ -11,6 +11,7 @@ import {
   dayLabels,
   UUID_REGEX,
   SITE_URL,
+  normalizeSiteUrl,
 } from '../constants';
 
 describe('prefectures', () => {
@@ -174,5 +175,46 @@ describe('SITE_URL', () => {
 
   test('is apex domain (not www)', () => {
     expect(SITE_URL).not.toContain('www.');
+  });
+});
+
+describe('normalizeSiteUrl', () => {
+  test('undefined → デフォルト https://carelink-jp.com を返す', () => {
+    // L52 StringLiteral "" mutation: undefined → "" となり失敗する
+    expect(normalizeSiteUrl(undefined)).toBe('https://carelink-jp.com');
+  });
+
+  test('末尾スラッシュ1つを除去する', () => {
+    // L52 MethodExpression mutation: trim/replace を省略すると "/" が残り失敗する
+    expect(normalizeSiteUrl('https://carelink-jp.com/')).toBe('https://carelink-jp.com');
+  });
+
+  test('末尾スラッシュ複数を全て除去する', () => {
+    // L52 Regex /\/$/ mutation: {1}だけ除去になり "//" が残り失敗する
+    expect(normalizeSiteUrl('https://carelink-jp.com//')).toBe('https://carelink-jp.com');
+  });
+
+  test('https://www. → https://apex に変換する', () => {
+    // L53 StringLiteral "" mutation: 置換結果が "" になり失敗する
+    expect(normalizeSiteUrl('https://www.carelink-jp.com')).toBe('https://carelink-jp.com');
+  });
+
+  test('http://www. も apex に変換する（https? の ? が必要）', () => {
+    // L53 Regex ^https: mutation: http:// が対象外になり変換されず失敗する
+    expect(normalizeSiteUrl('http://www.carelink-jp.com')).toBe('https://carelink-jp.com');
+  });
+
+  test('www でない URL は変換しない（^ アンカーが必要）', () => {
+    // L53 Regex without ^ mutation: URL 中間の carelink-jp.com まで置換されてしまい失敗する
+    const url = 'https://example.com?redirect=https://www.carelink-jp.com';
+    expect(normalizeSiteUrl(url)).toBe('https://example.com?redirect=https://www.carelink-jp.com');
+  });
+
+  test('末尾スラッシュなし・www なしの URL はそのまま返す', () => {
+    expect(normalizeSiteUrl('https://carelink-jp.com')).toBe('https://carelink-jp.com');
+  });
+
+  test('www + 末尾スラッシュの組み合わせ', () => {
+    expect(normalizeSiteUrl('https://www.carelink-jp.com/')).toBe('https://carelink-jp.com');
   });
 });

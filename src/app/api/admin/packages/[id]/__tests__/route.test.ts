@@ -66,8 +66,11 @@ function setupOwnership() {
 }
 
 function baseUpdateChain(error: unknown = null) {
-  const innerEq = jest.fn(() => Promise.resolve({ data: { id: PKG_UUID }, error }));
-  const outerEq = jest.fn().mockReturnValue({ eq: innerEq, select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: PKG_UUID }, error })) }) });
+  // route: .update().eq('id').eq('facility_id').select().single()
+  const singleMock = jest.fn(() => Promise.resolve({ data: { id: PKG_UUID }, error }));
+  const selectAfterEq = jest.fn().mockReturnValue({ single: singleMock });
+  const innerEq = jest.fn().mockReturnValue({ select: selectAfterEq });
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq, select: selectAfterEq });
   return {
     update: jest.fn().mockReturnValue({ eq: outerEq }),
     select: jest.fn().mockReturnThis(),
@@ -247,4 +250,104 @@ test('DELETE: 完全削除失敗 → 500', async () => {
 
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('PATCH: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('PATCH: DB更新失敗 → 500', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
+            }),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: 不正な JSON body → 400', async () => {
+  setupOwnership();
+  const req = new Request(`http://localhost/api/admin/packages/${PKG_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req as unknown as Parameters<typeof PATCH>[0], makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
+  setupOwnership();
+  const req = new Request(`http://localhost/api/admin/packages/${PKG_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4' },
+    body: JSON.stringify({ name: 'x' }),
+  });
+  const res = await PATCH(req as unknown as Parameters<typeof PATCH>[0], makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('DELETE: CSRFエラー → そのまま返却', async () => {
+  const csrfRes = new Response('csrf', { status: 403 });
+  (checkCsrf as jest.Mock).mockReturnValueOnce(csrfRes);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res).toBe(csrfRes);
+});
+
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(429);
+});
+
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  mockAdminFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('DELETE: count=null → ハード削除', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Promise.resolve({ count: null, error: null })),
+        }),
+      };
+    }
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
+});
+
+// Branch coverage: line 40 — package 存在・membership null → null 返却（false 分岐 → 401）
+test('PATCH: package 存在・membership null → verifyPackage null → 401（line 40 false 分岐）', async () => {
+  mockAdminFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  mockAnonFrom.mockReturnValue(singleChain(null));
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(401);
 });

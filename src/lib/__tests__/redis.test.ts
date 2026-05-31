@@ -122,6 +122,27 @@ describe('Queue API (Phase 6: in-memory では no-op)', () => {
   });
 });
 
+describe('MemoryStore — branch coverage', () => {
+  test('cacheGet with TTL but not yet expired returns value', async () => {
+    await cacheSet('test:not-expired', 'still-valid', 60);
+    // Immediately read; expires != null but expires > now → not deleted
+    const val = await cacheGet('test:not-expired');
+    expect(val).toBe('still-valid');
+  });
+
+  test('cacheGet after TTL expiry deletes key and returns null', async () => {
+    await cacheSet('test:will-expire', 'tmp', 1);
+    // Mock time forward beyond TTL
+    const realNow = Date.now;
+    Date.now = () => realNow() + 2000;
+    try {
+      expect(await cacheGet('test:will-expire')).toBeNull();
+    } finally {
+      Date.now = realNow;
+    }
+  });
+});
+
 describe('Session API (cacheGet/Set ラッパー)', () => {
   test('sessionSet and sessionGet work with in-memory store', async () => {
     await sessionSet('sess-123', { userId: 'user-abc', role: 'admin' });
@@ -139,5 +160,15 @@ describe('Session API (cacheGet/Set ラッパー)', () => {
     await sessionDel('sess-del');
     const data = await sessionGet('sess-del');
     expect(data).toBeNull();
+  });
+});
+
+describe('cachedFetch — デフォルト TTL', () => {
+  // Branch coverage: line 82 — ttlSeconds 未指定時はデフォルト 300 を使用（true 分岐）
+  test('ttlSeconds 未指定 → デフォルト 300 秒で正常取得（line 82 true 分岐）', async () => {
+    const fetcher = jest.fn().mockResolvedValue('default-ttl-result');
+    const result = await cachedFetch('test:default-ttl', fetcher);
+    expect(result).toBe('default-ttl-result');
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

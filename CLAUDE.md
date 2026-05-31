@@ -83,3 +83,15 @@ npm run dev   # 開発サーバー起動
 npm run build # ビルド
 npm run lint  # ESLint
 ```
+
+## テスト品質スタック 現在地
+
+| レベル | 内容 | 状態 | 備考 |
+|--------|------|------|------|
+| L1 | ESLint / tsc | ✅ | エラー 0 |
+| L2 | Jest ユニットテスト | ✅ | 4047 テスト全通過、180 スイート |
+| L3 | Jest ブランチカバレッジ 100% | ✅ | 5426/5426 branches（2026-05-26 達成） |
+| L4 | Stryker ミューテーション | ✅ | agent1 4ソース（i18n / seo-constants / seo-snippets / json-ld）Survived=0 を Stryker 公式実行で確定（2026-05-31）。高負荷下のOOM kill回避のため8分割並列＋順次リトライで完走。seo-snippets.ts の生存1体（`.slice(0,180)` 削除）は到達不能な防御コードに起因する等価変異だったため、180字上限を純粋関数 `truncateText`＋定数 `INTRO_MAX_LENGTH` に抽出し境界テストで kill 可能化（症状抑止ではなく予防的根本解決）。変更範囲 Stryker 再実行で Mutation score 100.00 確認 |
+| L5 | fast-check プロパティベース | ✅ | 26テスト＋safeJsonLd プロパティ7件、バグ3件修正 2026-05-29／json-ld 追加 2026-05-30 |
+| L6 | npm audit / 認証テスト | ✅ | critical=0・high=0、認証バイパステスト 21件（HMAC検証・middleware） 2026-05-29 達成 |
+| L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |

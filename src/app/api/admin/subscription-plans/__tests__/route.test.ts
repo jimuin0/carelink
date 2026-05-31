@@ -236,3 +236,55 @@ test('GET: レスポンスが { plans: [] } 形式', async () => {
   const json = await res.json();
   expect(Array.isArray(json.plans)).toBe(true);
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('GET: facility_id クエリなし → 401', async () => {
+  const res = await GET(makeGetRequest(null));
+  expect(res.status).toBe(401);
+});
+
+test('GET: facility_id 不正UUID → 401', async () => {
+  const res = await GET(makeGetRequest('bad-uuid'));
+  expect(res.status).toBe(401);
+});
+
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(429);
+});
+
+test('POST: 不正JSONボディ → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const url = new URL('http://localhost/api/admin/subscription-plans');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: is_active=false 明示 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'plan-x', is_active: false }));
+  const res = await POST(makePostRequest(validBody({ is_active: false })));
+  expect(res.status).toBe(201);
+});
+
+test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(listChain([]));
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const url = new URL('http://localhost/api/admin/subscription-plans');
+  url.searchParams.set('facility_id', FACILITY_UUID);
+  const req = new NextRequest(url.toString(), {
+    method: 'GET',
+    headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+  });
+  await GET(req);
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+});

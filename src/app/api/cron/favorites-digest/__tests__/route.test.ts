@@ -273,10 +273,16 @@ describe('GET /api/cron/favorites-digest', () => {
   });
 
   test('skips if user already sent this week', async () => {
+    // Pin date to 2026-04-20 (ISO week 17) so thisWeek === '2026-W17'
+    // setupDefaultMocks(alreadySentThisWeek=true) sets favorites_digest_sent_week='2026-W17'
+    // → profile.favorites_digest_sent_week === thisWeek TRUE branch is triggered
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-04-20T10:00:00Z'));
     setupDefaultMocks(1, false, true, 1);
 
     const res = await GET(makeRequest() as any);
 
+    jest.useRealTimers();
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.processed).toBe(0);
@@ -481,6 +487,66 @@ describe('GET /api/cron/favorites-digest', () => {
     // Should use Set to deduplicate facilities
   });
 
+  test('favorites query returns null → 200 with sent=0', async () => {
+    mockFavoritesSelect = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: null }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') {
+        return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      }
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.sent).toBe(0);
+  });
+
+  test('non-Error throw in catch → String fallback', async () => {
+    mockFromDelegate.mockImplementation(() => { throw 'plain string error'; });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('facility missing from facilityMap → filtered out', async () => {
+    // Favorites point to fac-99 which isn't in facilities query result
+    mockFavoritesSelect = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({
+        data: [{ user_id: 'user-1', facility_id: 'fac-99' }],
+      }),
+    });
+    mockCouponsSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({
+            data: [{ facility_id: 'fac-99', id: 'c1' }],
+          }),
+        }),
+      }),
+    });
+    mockFacilitiesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({ data: [] }), // empty, no fac-99
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
   test('filters out facilities with no updates', async () => {
     setupDefaultMocks(1, false, false, 0, 0);
 
@@ -488,5 +554,267 @@ describe('GET /api/cron/favorites-digest', () => {
 
     expect(res.status).toBe(200);
     // No email should be sent if no coupons/menus
+  });
+
+  // Branch coverage: line 23 - isoWeek 内部 (dayNum の Sunday → 7 への変換)
+  test('isoWeek: 日曜日をdayNum=7として扱い正しいweek文字列を返す', async () => {
+    // Jest fake timers で日曜日に設定 (2026-01-04 は日曜)
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-01-04T10:00:00Z'));
+    setupDefaultMocks(1, false, false, 1);
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // logCronRun の呼び出しで week 文字列が渡される
+    expect(logCronRun).toHaveBeenCalledWith(
+      'favorites-digest',
+      'success',
+      expect.any(Date),
+      expect.anything()
+    );
+    jest.useRealTimers();
+  });
+
+  // Branch coverage: line 70 - newCoupons が null の場合の for-of スキップ
+  test('facility_coupons query returns null → couponCountMap が空のまま処理', async () => {
+    mockCouponsSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  // Branch coverage: line 82 - newMenus が null → new Set([]) として処理
+  test('facility_menus query returns null → newMenuFacilities が空のまま処理', async () => {
+    mockMenusSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: null }),
+        }),
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  // Branch coverage: line 90 - facilityMap が null の場合（facilities query が null）
+  test('facility_profiles query returns null → facilityMap が空のまま', async () => {
+    mockFacilitiesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({ data: null }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  // Branch coverage: line 100 - authUsers が null → emailMap が空
+  test('listUsers returns null authUsers → emailMap 空 → ユーザーをスキップ', async () => {
+    mockListUsersDelegate.mockResolvedValue({ data: null });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // emailMap 空なのでメール送信されない
+    expect(json.processed).toBe(0);
+  });
+
+  // Branch coverage: line 102/105 - profiles が null の場合 for-of が空ループ
+  test('profiles query returns null → for-of ループをスキップ', async () => {
+    mockProfilesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({ data: null }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+  });
+
+  // Branch coverage: line 121 — couponCountMap.get(fid) || 0 when facility has menus but no coupons
+  // (couponCountMap.get returns undefined → || 0 fires)
+  test('新着メニューのみの施設（クーポンなし）→ newCoupons=0 でメール送信', async () => {
+    // fac-1: menu only (no coupons), user-1 favorites fac-1
+    mockFavoritesSelect = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({
+        data: [{ user_id: 'user-1', facility_id: 'fac-1' }],
+      }),
+    });
+    // No coupons for any facility
+    mockCouponsSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({ data: [] }),
+        }),
+      }),
+    });
+    // fac-1 has a new menu
+    mockMenusSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          eq: jest.fn().mockResolvedValue({
+            data: [{ facility_id: 'fac-1' }],
+          }),
+        }),
+      }),
+    });
+    mockFacilitiesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({
+        data: [{ id: 'fac-1', name: 'Salon A', slug: 'salon-a' }],
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // fac-1 has menu update but no coupons → newCoupons = couponCountMap.get('fac-1') || 0 = 0
+    expect(json.processed).toBe(1);
+    expect(sendFavoritesDigest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        facilities: expect.arrayContaining([
+          expect.objectContaining({ newCoupons: 0, hasNewMenus: true }),
+        ]),
+      })
+    );
+  });
+
+  // Branch coverage: line 105 — profile exists in profilesSelect but user has NO email in emailMap
+  // (emailMap.get(profile.id) returns undefined → if(!email) TRUE branch → skipped)
+  test('profilesにユーザーが存在するがemailMapに対応エントリなし → スキップ', async () => {
+    // user-1 is in profiles but listUsers only returns user-2 (different id)
+    mockListUsersDelegate.mockResolvedValue({
+      data: { users: [{ id: 'user-2', email: 'user2@example.com' }] },
+    });
+    // profiles returns user-1 (not email_unsubscribed, not sent this week)
+    mockProfilesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({
+        data: [{
+          id: 'user-1',
+          display_name: 'User 1',
+          email_unsubscribed: false,
+          favorites_digest_sent_week: null,
+        }],
+      }),
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    // user-1 profile found, but no email in emailMap → skipped++ → processed=0
+    expect(json.processed).toBe(0);
+    expect(sendFavoritesDigest).not.toHaveBeenCalled();
+  });
+
+  // Branch coverage: line 110 - userFacilityMap.get returns undefined → facilityIds = []
+  test('userFacilityMap にユーザーが存在しない場合 facilityIds = []', async () => {
+    // profiles に user-1 とは別のユーザーが返ってくる（user-99 は favorites にいない）
+    mockProfilesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockResolvedValue({
+        data: [{
+          id: 'user-99',
+          display_name: 'Unknown',
+          email_unsubscribed: false,
+          favorites_digest_sent_week: null,
+        }],
+      }),
+    });
+    mockListUsersDelegate.mockResolvedValue({
+      data: { users: [{ id: 'user-99', email: 'unknown@example.com' }] },
+    });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
+      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
+      if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+      if (table === 'profiles') return {
+        select: (...args: any[]) => mockProfilesSelect(...args),
+        update: (...args: any[]) => mockProfilesUpdate(...args),
+      };
+      if (table === 'email_unsubscribe_tokens') return { insert: mockTokenInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // facilityIds = [] → updatedFacilities = [] → skipped
+    const json = await res.json();
+    expect(json.processed).toBe(0);
   });
 });

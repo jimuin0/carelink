@@ -198,3 +198,82 @@ test('レスポンスが { url } 形式', async () => {
   const json = await res.json();
   expect(json.url).toBeDefined();
 });
+
+test('x-forwarded-for なし → unknown IP', async () => {
+  (checkRateLimit as jest.Mock).mockClear();
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  await POST(makeRequest());
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe('unknown');
+});
+
+test('不正JSON ボディ → 400 (bookingId なし扱い)', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  const req = new Request('http://localhost/api/payment/checkout', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{not json',
+  }) as unknown as import('next/server').NextRequest;
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('menu/facility が配列 → 配列の先頭を使う', async () => {
+  const arrayRow = {
+    ...BOOKING_ROW,
+    total_price: null,
+    menu: [{ name: 'メニューA', price: 5000 }],
+    facility: [{ name: '施設A' }],
+  };
+  mockFrom.mockReturnValue(singleChain(arrayRow));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  // serverAmount は menu[0].price 経由
+  const call = mockStripeCreate.mock.calls[0][0];
+  expect(call.line_items[0].price_data.unit_amount).toBe(5000);
+});
+
+test('total_price null かつ menu.price あり → menu.price 採用', async () => {
+  const row = { ...BOOKING_ROW, total_price: null };
+  mockFrom.mockReturnValue(singleChain(row));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  const call = mockStripeCreate.mock.calls[0][0];
+  expect(call.line_items[0].price_data.unit_amount).toBe(8000);
+});
+
+test('menu / facility が null → デフォルト名で続行', async () => {
+  const row = { ...BOOKING_ROW, total_price: 3000, menu: null, facility: null };
+  mockFrom.mockReturnValue(singleChain(row));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  const call = mockStripeCreate.mock.calls[0][0];
+  expect(call.line_items[0].price_data.product_data.name).toBe('施術予約');
+  expect(call.line_items[0].price_data.product_data.description).toBe('CareLink予約');
+});
+
+test('stripe_sessions insert 失敗 → Stripe session を expire して 500', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockServiceInsert.mockImplementationOnce(() => Promise.resolve({ error: { message: 'session insert err' } }));
+  const expireMock = jest.fn().mockResolvedValue(undefined);
+  mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/test', id: 'cs_test_failed' });
+  // 既存 Stripe mock を再構成して expire を生やす
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    checkout: {
+      sessions: { create: mockStripeCreate, expire: expireMock },
+    },
+  }));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(500);
+  expect(expireMock).toHaveBeenCalledWith('cs_test_failed');
+});
+
+// Branch coverage: line 69 — total_price が null かつ menu?.price も undefined → ?? 0 にフォールバック（全 ?? false 分岐）
+test('total_price null・menu.price undefined → 0 にフォールバック → 400（line 69 全 ?? false 分岐）', async () => {
+  const row = { ...BOOKING_ROW, total_price: null, menu: { name: 'プライスなし' } };
+  mockFrom.mockReturnValue(singleChain(row));
+  const res = await POST(makeRequest());
+  // serverAmount=0 → "金額を決定できませんでした" → 400
+  expect(res.status).toBe(400);
+});

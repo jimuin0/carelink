@@ -231,6 +231,59 @@ test('GET: 設定あり → 200 with config', async () => {
   expect(json.config.id).toBe('wl-1');
 });
 
+test('POST: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  const res = await POST(makePostRequest({ domain: 'example.com' }));
+  expect(res.status).toBe(429);
+});
+
+test('POST: 不正なJSON → 400 (catchフォールバック)', async () => {
+  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
+  const req = new NextRequest('http://localhost/api/admin/white-label', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: brand_name と logo_url が正常 → 201 (truthy ブランチ)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return upsertSingle({ id: 'wl-ok', domain: 'my.salon.jp', brand_name: 'ブランド', logo_url: 'https://cdn.example.com/logo.png' });
+  });
+  const res = await POST(makePostRequest({
+    domain: 'my.salon.jp',
+    brand_name: 'ブランド',
+    logo_url: 'https://cdn.example.com/logo.png',
+  }));
+  expect(res.status).toBe(201);
+});
+
+test('POST: ラベル長 64 で domain 全体 ≤ 253 → 400 (ラベル長チェック)', async () => {
+  mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
+  // 1 label > 63 chars but total domain length ≤ 253
+  const longLabel = 'a'.repeat(64);
+  const res = await POST(makePostRequest({ domain: `${longLabel}.com` }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: x-forwarded-for ヘッダーなし → unknown としてレート制限', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return configSingle(null);
+  });
+  // No x-forwarded-for header set
+  const req = new NextRequest('http://localhost/api/admin/white-label', { method: 'GET' });
+  const res = await GET(req);
+  expect(res.status).toBe(200);
+});
+
 test('POST: レスポンスが { config: ... } 形式', async () => {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {

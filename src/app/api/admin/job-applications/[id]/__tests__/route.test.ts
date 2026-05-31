@@ -196,3 +196,111 @@ test('PATCH: レスポンスが { application: ... } 形式', async () => {
   const json = await res.json();
   expect(json.application).toBeDefined();
 });
+
+// ─── 追加ブランチカバレッジ ───────────────────────────────────────────
+
+test('PATCH: referral_fee_yen が数値 → Math.max(0, ...) で保存', async () => {
+  let callNum = 0;
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          }),
+        }),
+      };}),
+    };
+  });
+  await PATCH(makeRequest({ referral_fee_yen: -100 }), makeProps());
+  expect(captured?.referral_fee_yen).toBe(0);
+});
+
+test('PATCH: referral_fee_yen が非数値 → null で保存', async () => {
+  let callNum = 0;
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          }),
+        }),
+      };}),
+    };
+  });
+  await PATCH(makeRequest({ referral_fee_yen: 'not-a-number' }), makeProps());
+  expect(captured?.referral_fee_yen).toBeNull();
+});
+
+test('PATCH: notes が非文字列 → null で保存', async () => {
+  let callNum = 0;
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          }),
+        }),
+      };}),
+    };
+  });
+  await PATCH(makeRequest({ notes: 12345 }), makeProps());
+  expect(captured?.notes).toBeNull();
+});
+
+test('PATCH: status=hired が既に hired → hired_at は更新しない', async () => {
+  let callNum = 0;
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'hired' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          }),
+        }),
+      };}),
+    };
+  });
+  await PATCH(makeRequest({ status: 'hired' }), makeProps());
+  expect(captured?.hired_at).toBeUndefined();
+});
+
+test('PATCH: 不正な JSON body でも 200 (空オブジェクト扱い)', async () => {
+  setupOwnership();
+  const req = new Request(`http://localhost/api/admin/job-applications/${APP_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: x-forwarded-for ヘッダから IP 取得', async () => {
+  setupOwnership();
+  const req = new Request(`http://localhost/api/admin/job-applications/${APP_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '1.2.3.4, 5.6.7.8' },
+    body: JSON.stringify({ status: 'reviewing' }),
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(200);
+});

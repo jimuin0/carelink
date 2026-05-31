@@ -198,6 +198,35 @@ test('DELETE: rate limit → 429', async () => {
   expect(res.status).toBe(429);
 });
 
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
+});
+
+test('PATCH: 不正JSON → 400', async () => {
+  const req = new Request(`http://localhost/api/admin/features/${FEATURE_UUID}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await PATCH(req, makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: image_url が有効URLで設定 → 200 (truthy 分岐)', async () => {
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, image_url: 'https://example.com/x.png' }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'test', image_url: 'https://example.com/x.png' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: SUPER_ADMIN_USER_IDS に空白入り CSV → trim/filter で正しくパース', async () => {
+  process.env.SUPER_ADMIN_USER_IDS = `  ${USER_ID}  , , other  `;
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
 test('PATCH: レスポンスが { feature.id } 形式', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());

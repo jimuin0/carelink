@@ -368,6 +368,88 @@ describe('GET /api/booking/[id]/ical', () => {
     expect(call[0]).toBe('unknown');
   });
 
+  test('facility_profiles がオブジェクト（非配列）→ 200', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const mockSingle = jest.fn().mockResolvedValue({
+      data: {
+        id: BOOKING_UUID,
+        user_id: 'user-123',
+        facility_id: 'fac-123',
+        start_time: '2026-05-10T10:00:00Z',
+        end_time: '2026-05-10T11:00:00Z',
+        menu_name: 'M',
+        staff_name: 'S',
+        notes: null,
+        facility_profiles: { name: 'Salon Obj', address: '住所Obj', phone: 'tel-obj' },
+      },
+    });
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+    });
+    const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).toContain('SUMMARY:Salon Obj - M');
+    expect(text).toContain('LOCATION:住所Obj');
+  });
+
+  test('start_time / end_time / menu_name / staff_name / phone / address すべて null', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const mockSingle = jest.fn().mockResolvedValue({
+      data: {
+        id: BOOKING_UUID,
+        user_id: 'user-123',
+        facility_id: 'fac-123',
+        start_time: null,
+        end_time: null,
+        menu_name: null,
+        staff_name: null,
+        notes: null,
+        facility_profiles: { name: 'Salon NoOptional', address: null, phone: null },
+      },
+    });
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+    });
+    const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // SUMMARY uses fallback '施術'
+    expect(text).toContain('SUMMARY:Salon NoOptional - 施術');
+    // No DTSTART / DTEND / LOCATION lines should be present
+    expect(text).not.toContain('DTSTART:');
+    expect(text).not.toContain('DTEND:');
+    expect(text).not.toContain('LOCATION:');
+  });
+
+  test('description が全て空 → DESCRIPTION 行スキップ', async () => {
+    // menu_name/staff_name/phone all null → description だけ booking ID
+    // booking ID は必ず付くため description は完全には空にならず必ず出力されるが、
+    // 個別要素の && の falsy 分岐をカバー
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const mockSingle = jest.fn().mockResolvedValue({
+      data: {
+        id: BOOKING_UUID,
+        user_id: 'user-123',
+        facility_id: 'fac-123',
+        start_time: '2026-05-10T10:00:00Z',
+        end_time: '2026-05-10T11:00:00Z',
+        menu_name: null,
+        staff_name: null,
+        notes: null,
+        facility_profiles: { name: 'Salon X', phone: null },
+      },
+    });
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: mockSingle }) }) }),
+    });
+    const res = await GET(makeRequest() as any, { params: Promise.resolve({ id: BOOKING_UUID }) } as any);
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    // booking IDのみがDESCRIPTIONに残る
+    expect(text).toContain('DESCRIPTION:予約ID:');
+  });
+
   test('exception during processing → 500', async () => {
     const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
     createServerSupabaseAuthClient.mockRejectedValue(

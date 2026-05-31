@@ -87,6 +87,31 @@ describe('getCouponsByMenuId', () => {
     const result = await getCouponsByMenuId('m-1');
     expect(result).toEqual([]);
   });
+
+  test('coupons が配列形式 (joined relation as array) でも処理する', async () => {
+    const data = [
+      { coupon_id: 'c-1', coupons: [{ id: 'c-1', title: 'arr-form', is_active: true }] },
+    ];
+    const chain = fluent(null);
+    chain.eq = jest.fn(() => Promise.resolve({ data }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getCouponsByMenuId('m-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('c-1');
+  });
+
+  test('coupons が null の行はスキップする', async () => {
+    const data = [
+      { coupon_id: 'c-1', coupons: null },
+      { coupon_id: 'c-2', coupons: { id: 'c-2', title: 'ok', is_active: true } },
+    ];
+    const chain = fluent(null);
+    chain.eq = jest.fn(() => Promise.resolve({ data }));
+    mockFrom.mockReturnValue(chain);
+    const result = await getCouponsByMenuId('m-1');
+    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('c-2');
+  });
 });
 
 describe('hasCoupons', () => {

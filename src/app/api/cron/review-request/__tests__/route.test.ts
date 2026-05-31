@@ -467,6 +467,97 @@ describe('GET /api/cron/review-request', () => {
     // Should not call sendLineText
   });
 
+  test('customer_name null → fallback to お客', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              gte: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({
+                      data: [{
+                        id: 'b-noname',
+                        email: 'c@example.com',
+                        customer_name: null,
+                        user_id: null,
+                        facility_id: 'fac-abc',
+                        updated_at: new Date().toISOString(),
+                      }],
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: mockBookingsUpdate,
+        };
+      }
+      if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+      return {};
+    });
+
+    await GET(makeRequest() as any);
+    expect(esc).toHaveBeenCalledWith('お客');
+  });
+
+  test('booking.user_id null → no LINE lookup', async () => {
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              gte: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({
+                      data: [{
+                        id: 'b-no-uid',
+                        email: 'c@example.com',
+                        customer_name: 'A',
+                        user_id: null,
+                        facility_id: 'fac-abc',
+                        updated_at: new Date().toISOString(),
+                      }],
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+          update: mockBookingsUpdate,
+        };
+      }
+      if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
+    });
+    (sendLineText as jest.Mock).mockClear();
+
+    await GET(makeRequest() as any);
+    expect(sendLineText).not.toHaveBeenCalled();
+  });
+
+  test('EMAIL_FROM env override → uses custom from', async () => {
+    process.env.EMAIL_FROM = 'Custom <c@x.com>';
+    setupDefaultMocks(1);
+    const { Resend } = require('resend');
+
+    await GET(makeRequest() as any);
+
+    const call = Resend.mock.results[0].value.emails.send.mock.calls[0];
+    expect(call[0].from).toBe('Custom <c@x.com>');
+    delete process.env.EMAIL_FROM;
+  });
+
+  test('non-Error throw → String fallback', async () => {
+    mockFrom.mockImplementation(() => { throw 'plain string'; });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
   test('skips Resend email if API key unavailable', async () => {
     delete process.env.RESEND_API_KEY;
     setupDefaultMocks(1);

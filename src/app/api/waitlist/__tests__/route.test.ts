@@ -318,6 +318,77 @@ describe('POST /api/waitlist', () => {
     expect(json.error).toContain('登録に失敗');
   });
 
+  test('auth user, no duplicate, facility found → 200 with user_id', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const dupMaybeSingle = jest.fn().mockResolvedValue({ data: null });
+    const eq5 = jest.fn().mockReturnValue({ maybeSingle: dupMaybeSingle });
+    const eq4 = jest.fn().mockReturnValue({ eq: eq5 });
+    const eq3 = jest.fn().mockReturnValue({ eq: eq4 });
+    const eq2Dup = jest.fn().mockReturnValue({ eq: eq3 });
+    const eq1Dup = jest.fn().mockReturnValue({ eq: eq2Dup });
+    const selectDup = jest.fn().mockReturnValue({ eq: eq1Dup });
+
+    const facilityMaybeSingle = jest.fn().mockResolvedValue({ data: { id: 'fac-1', name: 'Test Salon' } });
+    const eqStatus = jest.fn().mockReturnValue({ maybeSingle: facilityMaybeSingle });
+    const eqIdFac = jest.fn().mockReturnValue({ eq: eqStatus });
+    const selectFac = jest.fn().mockReturnValue({ eq: eqIdFac });
+
+    const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'entry-123' }, error: null });
+    const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
+    const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
+
+    let callCount = 0;
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn((table: string) => {
+        if (table === 'booking_waitlist') {
+          callCount++;
+          if (callCount === 1) return { select: selectDup };
+          return { insert: insertFn };
+        }
+        return { select: selectFac };
+      }),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(200);
+    expect(insertFn).toHaveBeenCalled();
+    const insertArg = insertFn.mock.calls[0][0];
+    expect(insertArg.user_id).toBe('user-123');
+  });
+
+  test('insert returns no entry but no error → 500', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const singleFn = jest.fn().mockResolvedValue({ data: null, error: null });
+    const selectInsert = jest.fn().mockReturnValue({ single: singleFn });
+    const insertFn = jest.fn().mockReturnValue({ select: selectInsert });
+    const facilityMaybeSingle = jest.fn().mockResolvedValue({ data: { id: 'fac-1', name: 'Test Salon' } });
+    const eqStatus = jest.fn().mockReturnValue({ maybeSingle: facilityMaybeSingle });
+    const eqId = jest.fn().mockReturnValue({ eq: eqStatus });
+    const selectFn = jest.fn().mockReturnValue({ eq: eqId });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn((table: string) => table === 'facility_profiles'
+        ? { select: selectFn }
+        : { insert: insertFn }),
+    });
+
+    const res = await POST(makePostRequest(validWaitlist));
+    expect(res.status).toBe(500);
+  });
+
+  test('POST: x-forwarded-for missing → unknown IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    const req = new Request('http://localhost/api/waitlist', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(validWaitlist),
+    });
+    await POST(req);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
+  });
+
   test('POST: cookie getAll callback is invocable', async () => {
     const { createServerClient } = require('@supabase/ssr');
     const { cookies } = require('next/headers');
@@ -457,6 +528,17 @@ describe('DELETE /api/waitlist', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toContain('削除に失敗');
+  });
+
+  test('DELETE: x-forwarded-for missing → unknown IP', async () => {
+    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    const a = '2'.repeat(8);
+    const b = '2'.repeat(4);
+    const validId = `${a}-${b}-${b}-${b}-${'2'.repeat(12)}`;
+    const req = new Request(`http://localhost/api/waitlist?id=${validId}`, { method: 'DELETE' });
+    await DELETE(req as any);
+    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+    expect(call[0]).toBe('unknown');
   });
 
   test('DELETE: cookie getAll callback is invocable', async () => {

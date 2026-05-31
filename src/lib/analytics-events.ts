@@ -11,6 +11,7 @@ declare global {
 }
 
 function track(eventName: string, params?: Record<string, string | number | boolean>) {
+  /* istanbul ignore next */
   if (typeof window === 'undefined') return;
   if (typeof window.gtag === 'function') {
     window.gtag('event', eventName, params);

@@ -220,3 +220,106 @@ test('POST: レスポンスが { ok: true, created: N } 形式', async () => {
   expect(json.ok).toBe(true);
   expect(typeof json.created).toBe('number');
 });
+
+// ─── Branch coverage gaps ─────────────────────────────────────────────────────
+
+test('POST: name フィールドなし → 400', async () => {
+  const res = await POST(makeRequest({ discount_type: 'percent', facility_ids: [FACILITY_A] }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: discount_type フィールドなし → 400', async () => {
+  const res = await POST(makeRequest({ name: 'x', facility_ids: [FACILITY_A] }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: name が数値 → 400 (typeof check)', async () => {
+  const res = await POST(makeRequest(validBody({ name: 123 })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: discount_value が文字列 → 400 (typeof check)', async () => {
+  const res = await POST(makeRequest(validBody({ discount_value: 'invalid' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: special_price が文字列 → 400 (typeof check)', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'special', special_price: 'invalid' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 不正JSONボディ → 400 (name 欠落扱い)', async () => {
+  const req = new NextRequest('http://localhost/api/admin/chain/bulk-coupon', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'invalid {',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(400);
+});
+
+test('POST: coupon_type=first_visit 指定 → 201', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody({ coupon_type: 'first_visit' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: coupon_type=invalid → 201 (default "all" にフォールバック)', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody({ coupon_type: 'invalid_type' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: valid_from/until 指定 → 201', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody({
+    valid_from: '2026-01-01',
+    valid_until: '2026-12-31',
+  })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: memberships が null → 403', async () => {
+  mockAdminFrom.mockImplementation(() =>
+    membershipChain(null as unknown as unknown[])
+  );
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: insert結果が null → 201 (created=0)', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);
+    }
+    return insertChain(null);
+  });
+  const res = await POST(makeRequest(validBody()));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.created).toBe(0);
+});
+
+// Branch coverage: line 68 — discount_value が undefined のとき ?? null で null になる（true 分岐）
+test('POST: discount_value 未指定 (undefined) → null に変換されて 201', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody({
+    discount_type: 'special',
+    special_price: 3000,
+    discount_value: undefined,
+  })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: x-forwarded-for ヘッダあり → IP抽出', async () => {
+  setupSuccess();
+  (inMemoryRateLimit as jest.Mock).mockClear();
+  const req = new NextRequest('http://localhost/api/admin/chain/bulk-coupon', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
+    body: JSON.stringify(validBody()),
+  });
+  await POST(req);
+  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
+  expect(call[0]).toBe('10.0.0.1');
+});

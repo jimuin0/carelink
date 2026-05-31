@@ -252,6 +252,24 @@ test('GET: to が不正な日付形式 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+// Branch coverage: line 19 — csvEscape で val が null/undefined の場合に空文字列フォールバック（false分岐）
+test('GET: メニュー名にカンマを含む値は引用符で囲まれる（csv escape ブランチ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b-comma',
+    created_at: '2026-03-01T09:00:00Z',
+    menu_name: 'カット,カラー',
+    total_amount: 5500,
+    status: 'completed',
+    profiles: { display_name: '佐藤,次郎', email: 'sato@example.com' },
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  // カンマを含む値は "..." で囲まれる
+  expect(csv).toContain('"カット,カラー"');
+});
+
 // ─── Null fallback branches in CSV generation ──────────────────────────────────
 
 test('GET: bookingsがnullのとき空CSVを返す', async () => {
@@ -335,6 +353,39 @@ test('GET: generic形式 bookingsがnull → 空CSV', async () => {
   expect(csv).toContain('予約ID');
 });
 
+test('GET: CSV値にカンマ/引用符/改行 → 引用符で囲まれエスケープ', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b-quote',
+    created_at: '2026-01-01T10:00:00Z',
+    menu_name: 'メ"ニュ,ー\n改行',
+    total_amount: 1000,
+    status: 'completed',
+    profiles: { display_name: 'カンマ,テスト', email: 'a@b.c' },
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  // Embedded comma forces quoting
+  expect(csv).toContain('"カンマ,テスト"');
+  // Embedded quote escaped as ""
+  expect(csv).toContain('""');
+});
+
+test('GET: from のみ指定 (to なし) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic', from: '2026-01-01' }));
+  expect(res.status).toBe(200);
+});
+
+test('GET: to のみ指定 (from なし) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(bookingQueryChain([]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic', to: '2026-01-31' }));
+  expect(res.status).toBe(200);
+});
+
 test('GET: 正規表現は通過するがNaNの日付 → 400', async () => {
   // '2026-99-99' passes /^\d{4}-\d{2}-\d{2}$/ but new Date() returns Invalid Date
   const res = await GET(makeGetRequest({
@@ -343,4 +394,24 @@ test('GET: 正規表現は通過するがNaNの日付 → 400', async () => {
     to: '2026-99-99',
   }));
   expect(res.status).toBe(400);
+});
+
+// Branch coverage: line 19 branch 1 (FALSE) — csvEscape の `val ?? ''` で val が undefined のとき '' にフォールバック
+// profiles フィールドが undefined の予約レコードで generic 形式を出力する
+test('GET: generic形式 profiles未定義 → csvEscape の ?? \'\' false分岐が動く', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  // profiles field is undefined (not in the object) → csvEscape(undefined) → String(undefined ?? '') = ''
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b-undef',
+    created_at: '2026-04-01T10:00:00Z',
+    menu_name: undefined,
+    total_amount: undefined,
+    status: 'completed',
+    profiles: undefined,
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  // Should contain the header row and a data row (even if fields are empty)
+  expect(csv).toContain('予約ID');
 });
