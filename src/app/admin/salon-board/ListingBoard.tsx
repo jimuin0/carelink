@@ -556,11 +556,13 @@ function TokushuPage() {
 
 /* ========================= クーポン掲載情報一覧 ========================= */
 function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: string) => void }) {
+  const [editing, setEditing] = useState<CouponRow | 'new' | null>(null);
+  if (editing) return <CouponEditPage row={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">クーポン掲載情報一覧</h2>
       <div className="flex justify-between">
-        <button onClick={() => onToast('新規追加は準備中です')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">クーポン新規追加</button>
+        <button onClick={() => setEditing('new')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">クーポン新規追加</button>
         <button onClick={() => onToast('並び替え登録は準備中です')} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded">クーポン並び替え登録</button>
       </div>
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
@@ -583,7 +585,7 @@ function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: str
                 <td className="border border-slate-200 px-2 py-3 text-left text-xs">{c.name}{c.special_price != null && <span className="ml-1 font-bold">¥{c.special_price.toLocaleString()}</span>}</td>
                 <td className="border border-slate-200 px-2 py-3 text-xs">{c.valid_until ? fmtDate(c.valid_until) : 'なし'}</td>
                 <td className="border border-slate-200 px-2 py-3 text-emerald-600 text-xs">OK</td>
-                <td className="border border-slate-200 px-2 py-3"><button onClick={() => onToast('詳細は準備中です')} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">詳細</button></td>
+                <td className="border border-slate-200 px-2 py-3"><button onClick={() => setEditing(c)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">詳細</button></td>
                 <td className="border border-slate-200 px-2 py-3 space-y-1">
                   <button onClick={() => onToast('非掲載設定は準備中です')} className="block w-full px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs">非掲載にする</button>
                   <button onClick={() => onToast('削除は準備中です')} className="block w-full px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除する</button>
@@ -597,8 +599,55 @@ function CouponListPage({ rows, onToast }: { rows: CouponRow[]; onToast: (m: str
   );
 }
 
+/* ========================= クーポン掲載情報編集 ========================= */
+function CouponEditPage({ row, onClose, onToast }: { row: CouponRow | null; onClose: () => void; onToast: (m: string) => void }) {
+  const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const SaveBar = () => (
+    <div className="flex items-center justify-end gap-2">
+      <span className="text-[11px] text-rose-500 mr-auto flex items-center"><Req />必須項目</span>
+      <button onClick={() => { onToast(row ? 'クーポンを更新しました（デモ）' : 'クーポンを登録しました（デモ）'); onClose(); }} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button>
+      <button onClick={onClose} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button>
+    </div>
+  );
+  return (
+    <div className="max-w-4xl space-y-4">
+      <h2 className="text-base font-bold text-gray-800">クーポン掲載情報編集</h2>
+      <p className="text-[11px] text-gray-500">※「画像応募」にチェックをすると、Hot Pepper Beautyサイトの特集/メルマガ/装飾・バナー/公式Facebookページ等に使用される対象となります <button onClick={() => onToast('使用事例は準備中です')} className="text-sky-600 underline">使用事例はこちら</button></p>
+      <SaveBar />
+      <Panel title="クーポン情報">
+        <FormRow label="種別" required><select className={`${input} bg-white`} defaultValue={row?.coupon_type ?? 'new_customer'}><option value="new_customer">新規</option><option value="repeat">再来</option><option value="limited_time">期間限定</option><option value="all">全員</option></select></FormRow>
+        <FormRow label="クーポン名" required>
+          <div className="flex gap-3">
+            <div className="flex-1"><div className="flex items-start gap-2"><input className={`${input} flex-1`} defaultValue={row?.name ?? ''} maxLength={36} placeholder="クーポン名" /><Counter n={hpbLen(row?.name ?? '')} max={36} /></div></div>
+            <div className="w-28 text-center"><div className="w-24 h-20 bg-gray-100 relative mx-auto"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div><div className="text-[9px] text-gray-400 mt-0.5">画像ID:C043307344</div><label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label></div>
+          </div>
+        </FormRow>
+        <FormRow label="クーポン内容" required><textarea className={`${input} w-full`} rows={3} defaultValue={row?.description ?? ''} maxLength={90} placeholder="クーポン内容" /><div className="text-right"><Counter n={hpbLen(row?.description ?? '')} max={90} /></div></FormRow>
+        <FormRow label="提示条件" required><select className={`${input} bg-white`}><option>予約時</option><option>来店時</option></select></FormRow>
+        <FormRow label="利用条件" required><input className={`${input} w-full`} maxLength={20} placeholder="新規＆まつげパーマ/アイブロウ/マツパ/眉" /> <Counter n={0} max={20} /></FormRow>
+        <FormRow label="有効期限">
+          <label className="flex items-center gap-1 text-xs"><input type="radio" name="cvalid" defaultChecked={!row?.valid_until} />設定しない</label>
+          <label className="flex items-center gap-1 text-xs mt-1"><input type="radio" name="cvalid" defaultChecked={!!row?.valid_until} /><input className={`${input} w-16`} placeholder="年" />年<input className={`${input} w-12`} placeholder="月" />月<input className={`${input} w-12`} placeholder="日" />日</label>
+        </FormRow>
+        <FormRow label="検索用カテゴリ">
+          <div className="flex gap-2"><select className={`${input} bg-white`}><option>まつげ・メイクなど</option></select><select className={`${input} bg-white`}><option>アイブロウ</option></select></div>
+          <p className="text-[11px] text-gray-400 mt-1">※サロンの掲載情報「お客様番号」のうち設定したカテゴリが反映されます</p>
+        </FormRow>
+        <FormRow label="メニュー指定">
+          <div className="text-xs text-gray-600 mb-1">あり</div>
+          <div className="flex items-center gap-2 mb-2"><span className="text-xs text-gray-500">アイコン用カテゴリ</span><button onClick={() => onToast('カテゴリ選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">カテゴリ選択</button><span className="text-xs">まつげ・メイクなど－その他まつげメニュー</span></div>
+          <div className="flex items-center gap-3"><span className="text-xs text-gray-500">価格（税込）</span>¥<input className={`${input} w-24`} defaultValue={row?.special_price ?? ''} /><span className="text-xs text-gray-500">所要目安時間</span><input className={`${input} w-16`} defaultValue={120} />分</div>
+        </FormRow>
+      </Panel>
+      <SaveBar />
+    </div>
+  );
+}
+
 /* ========================= ブログ一覧 ========================= */
 function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string) => void }) {
+  const [editing, setEditing] = useState<BlogRow | 'new' | null>(null);
+  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">ブログ一覧</h2>
@@ -608,7 +657,7 @@ function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string)
         <p className="text-rose-500 font-bold">ブログを投稿したスタッフが非掲載の場合、ブログも一緒に非掲載になります。</p>
       </div>
       <div className="flex items-center gap-2">
-        <button onClick={() => onToast('新規投稿は準備中です')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">新規投稿</button>
+        <button onClick={() => setEditing('new')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">新規投稿</button>
         <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded">投稿者追加・編集</button>
         <div className="ml-auto flex items-center gap-1"><select className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"><option></option></select><button onClick={() => onToast('絞込みは準備中です')} className="px-2 py-1 bg-sky-500 text-white text-xs rounded">絞込み</button><button onClick={() => onToast('絞込み解除は準備中です')} className="px-2 py-1 border border-gray-300 text-gray-600 text-xs rounded">絞込み解除</button></div>
       </div>
@@ -623,15 +672,43 @@ function BlogListPage({ rows, onToast }: { rows: BlogRow[]; onToast: (m: string)
               <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">ブログが登録されていません</td></tr>
             ) : rows.map((b) => (
               <tr key={b.id} className="align-top">
-                <td className="border border-slate-200 px-2 py-3"><button onClick={() => onToast('ブログ編集は準備中です')} className="text-sky-600 underline text-xs">{b.title}</button><div className="text-[10px] text-gray-400 mt-1">ビューティー</div></td>
+                <td className="border border-slate-200 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button><div className="text-[10px] text-gray-400 mt-1">ビューティー</div></td>
                 <td className="border border-slate-200 px-2 py-3 text-center">{b.thumbnail_url ? <img src={b.thumbnail_url} alt="" className="w-16 h-12 object-cover mx-auto" /> : <div className="w-16 h-12 bg-gray-100 mx-auto" />}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">スタッフ</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(b.published_at ?? b.created_at)}<br /><span className={b.is_published ? 'text-emerald-600' : 'text-gray-400'}>{b.is_published ? '掲載中' : '非掲載'}</span></td>
-                <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => onToast('詳細は準備中です')} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除</button></td>
+                <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => setEditing(b)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除</button></td>
               </tr>
             ))}
           </tbody>
         </table>
+      </div>
+    </div>
+  );
+}
+
+/* ========================= ブログ編集 入力 ========================= */
+function BlogEditPage({ row, onClose, onToast }: { row: BlogRow | null; onClose: () => void; onToast: (m: string) => void }) {
+  const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  return (
+    <div className="max-w-4xl space-y-4">
+      <h2 className="text-base font-bold text-gray-800">ブログ編集 入力</h2>
+      <p className="text-[11px] text-gray-500">ブログ機能は、NRプラン以上ご利用いただけます。</p>
+      <div className="bg-white border border-slate-300 rounded overflow-hidden">
+        <FormRow label="ステータス"><span className="text-sm">{row?.is_published ? '反映済み' : '未反映'}</span> <span className="text-[11px] text-gray-400">（ステータスは一覧の画面で変更可能です）</span></FormRow>
+        <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
+        <FormRow label="投稿者"><select className={`${input} bg-white`}><option>スタッフ</option></select> <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
+        <FormRow label="カテゴリ"><select className={`${input} bg-white`}><option>ビューティー</option></select></FormRow>
+        <FormRow label="タイトル"><div className="flex items-center gap-2"><input className={`${input} flex-1`} defaultValue={row?.title ?? ''} maxLength={25} placeholder="タイトル" /><Counter n={hpbLen(row?.title ?? '')} max={25} /></div><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
+        <FormRow label="本文">
+          <button onClick={() => onToast('画像アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1">画像アップロード</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
+          <textarea className={`${input} w-full mt-1`} rows={8} defaultValue={row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : ''} maxLength={1000} placeholder="本文" />
+          <div className="text-right"><Counter n={0} max={1000} /></div>
+        </FormRow>
+        <FormRow label="クーポン"><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">クーポン選択</button><p className="text-[11px] text-gray-400 mt-1">※クーポンの非掲載後・発行設定がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
+      </div>
+      <div className="flex items-center justify-end gap-2">
+        <button onClick={() => { onToast(row ? 'ブログを更新しました（デモ）' : 'ブログを投稿しました（デモ）'); onClose(); }} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded">登録</button>
+        <button onClick={onClose} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button>
       </div>
     </div>
   );
