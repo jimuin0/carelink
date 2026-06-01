@@ -410,4 +410,32 @@ describe('GET /api/availability', () => {
     expect(fromMock).not.toHaveBeenCalled();
     expect(res.status).toBe(200);
   });
+
+  // Branch coverage: line 89（totalSlots>=3 → break true 分岐）/ line 93（totalSlots>=3 → 'available' true 分岐）
+  // 既存テストは過去月 or totalSlots<3 のみで、3枠以上の未来日付シナリオが欠落していた
+  test('未来日付で 3 枠以上 → status=available かつスタッフループ早期break（line 89/93 true 分岐）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const rpc = jest.fn().mockResolvedValue({
+      data: [{ start_time: '09:00' }, { start_time: '10:00' }, { start_time: '11:00' }],
+    });
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              // 2 スタッフ登録。ただし 1 人目で 3 枠到達 → 2 人目の RPC は呼ばれない（早期 break）
+              limit: jest.fn().mockResolvedValue({ data: [{ id: 'staff-1' }, { id: 'staff-2' }] }),
+            }),
+          }),
+        }),
+      }),
+      rpc,
+    });
+    const futureYear = new Date().getFullYear() + 1;
+    const res = await GET(makeRequest(VALID_UUID, undefined, futureYear, 6) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const available = Object.values(json.dates).find((d: any) => d.status === 'available' && d.slots >= 3);
+    expect(available).toBeDefined();
+  });
 });
