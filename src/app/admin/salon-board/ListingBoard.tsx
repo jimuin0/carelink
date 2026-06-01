@@ -1005,6 +1005,28 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
   const [busy, setBusy] = useState(false);
   const [filterSel, setFilterSel] = useState('all'); // 絞込みドロップダウンの選択
   const [applied, setApplied] = useState('all'); // 適用中フィルタ
+  const [authorModal, setAuthorModal] = useState(false);
+  const [authors, setAuthors] = useState<{ id: string; name: string }[]>([]);
+  const [newAuthor, setNewAuthor] = useState('');
+  const loadAuthors = async () => {
+    try { const res = await fetch(`/api/admin/blog-authors?facility_id=${facilityId}`); if (res.ok) { const d = await res.json(); setAuthors(d.authors ?? []); } } catch { /* noop */ }
+  };
+  const openAuthorModal = () => { setAuthorModal(true); loadAuthors(); };
+  const addAuthor = async () => {
+    if (!newAuthor.trim()) return;
+    try {
+      const res = await fetch(`/api/admin/blog-authors?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: newAuthor.trim() }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '追加に失敗しました'); return; }
+      setNewAuthor(''); onToast('投稿者を追加しました'); loadAuthors();
+    } catch { onToast('通信エラーが発生しました'); }
+  };
+  const delAuthor = async (id: string) => {
+    try {
+      const res = await fetch(`/api/admin/blog-authors/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); return; }
+      onToast('投稿者を削除しました'); loadAuthors();
+    } catch { onToast('通信エラーが発生しました'); }
+  };
   const authorName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
   const view = applied === 'published' ? rows.filter((b) => b.is_published) : applied === 'unpublished' ? rows.filter((b) => !b.is_published) : rows;
   const remove = async (b: BlogRow) => {
@@ -1018,6 +1040,20 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
   if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} coupons={coupons} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
+      {authorModal && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setAuthorModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3"><h3 className="text-sm font-bold text-gray-800">投稿者 追加・編集</h3><button onClick={() => setAuthorModal(false)} className="text-gray-400 hover:text-gray-600 text-lg leading-none">×</button></div>
+            <p className="text-[11px] text-gray-500 mb-2">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p>
+            <div className="space-y-1 mb-3">
+              {authors.length === 0 ? <p className="text-xs text-gray-400 py-2">登録された投稿者はいません</p> : authors.map((au) => (
+                <div key={au.id} className="flex items-center justify-between border border-slate-200 rounded px-2 py-1"><span className="text-sm">{au.name}</span><button onClick={() => delAuthor(au.id)} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">削除</button></div>
+              ))}
+            </div>
+            <div className="flex gap-2"><input value={newAuthor} onChange={(e) => setNewAuthor(e.target.value)} maxLength={50} placeholder="投稿者名" className="border border-gray-300 rounded px-2 py-1 text-sm flex-1" /><button disabled={authors.length >= 5} onClick={addAuthor} className="px-3 py-1 bg-sky-500 text-white text-xs font-bold rounded disabled:opacity-40">追加</button></div>
+          </div>
+        </div>
+      )}
       <h2 className="text-base font-bold text-gray-800">ブログ一覧</h2>
       <div className="text-[11px] text-gray-500 leading-relaxed">
         <p>ブログ機能は、NRプラン以上でご利用いただけます。</p>
@@ -1026,7 +1062,7 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
       </div>
       <div className="flex items-center gap-2">
         <button onClick={() => setEditing('new')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">新規投稿</button>
-        <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded">投稿者追加・編集</button>
+        <button onClick={openAuthorModal} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded">投稿者追加・編集</button>
         <div className="ml-auto flex items-center gap-1"><select value={filterSel} onChange={(e) => setFilterSel(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"><option value="all">すべて</option><option value="published">掲載中</option><option value="unpublished">非掲載</option></select><button onClick={() => setApplied(filterSel)} className="px-2 py-1 bg-sky-500 text-white text-xs rounded">絞込み</button><button onClick={() => { setFilterSel('all'); setApplied('all'); }} className="px-2 py-1 border border-gray-300 text-gray-600 text-xs rounded">絞込み解除</button></div>
       </div>
       <p className="text-xs text-gray-600">該当するブログが <span className="text-rose-500 font-bold">{view.length}</span> 件あります</p>
@@ -1087,7 +1123,7 @@ function BlogEditPage({ row, coupons, facilityId, onClose, onSaved, onToast }: {
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
         <FormRow label="ステータス"><span className="text-sm">{row?.is_published ? '反映済み' : '未反映'}</span> <span className="text-[11px] text-gray-400">（ステータスは一覧の画面で変更可能です）</span></FormRow>
         <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
-        <FormRow label="投稿者"><select className={`${input} bg-white`}><option>スタッフ</option></select> <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
+        <FormRow label="投稿者"><select className={`${input} bg-white`}><option>スタッフ</option></select> <button onClick={() => onToast('投稿者の追加・編集は一覧画面の「投稿者追加・編集」から行えます')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
         <FormRow label="カテゴリ"><select className={`${input} bg-white`}><option>ビューティー</option></select></FormRow>
         <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" onValueChange={setTitle} /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
