@@ -43,3 +43,8 @@ reports/mutation/
 
 # claude code
 .claude/
+
+# 実機テスト用ローカル成果物（コミットしない）
+provision-test-admin.mjs
+test-admin-ids.json
+.rmtest-tmp.mjs
