@@ -72,6 +72,17 @@ describe('getTransformUrl', () => {
     expect(result).toContain('format=webp');
   });
 
+  test('指定しないオプションは URL に現れない（各 if 条件の常時 true 変異を撃破）', () => {
+    // height のみ指定 → width/quality/resize/format は付与されないこと。
+    // `if (options.width)` 等を true に変える変異は "width=undefined" 等を混入させる。
+    const result = getTransformUrl(supabaseUrl, { height: 300 });
+    expect(result).toContain('height=300');
+    expect(result).not.toContain('width');
+    expect(result).not.toContain('quality');
+    expect(result).not.toContain('resize');
+    expect(result).not.toContain('format');
+  });
+
   test('combines multiple parameters', () => {
     const result = getTransformUrl(supabaseUrl, {
       width: 400,

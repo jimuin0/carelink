@@ -126,6 +126,11 @@ export function generatePrefTypeContent(
 
   if (!prefName || !typeName || !typeCtx) return null;
 
+  // 等価変異の除外: .slice(0, 180) を除去する MethodExpression 変異は、
+  // 全 prefSeo intro が CareLink 文除去後で最大141文字（< 180）のため出力不変＝等価変異。
+  // 将来 intro が180字超になった場合の防御的キャップとして残す。
+  // （.replace の除去変異は別途 seo-snippets テストで撃破済み）
+  // Stryker disable next-line MethodExpression
   const prefIntroShort = prefSeo
     ? prefSeo.intro.replace(/CareLink[^。]*。/g, '').slice(0, 180)
     : `${prefName}は医療・美容・福祉施設が広く点在するエリアです。`;

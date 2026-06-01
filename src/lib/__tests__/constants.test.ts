@@ -217,4 +217,11 @@ describe('normalizeSiteUrl', () => {
   test('www + 末尾スラッシュの組み合わせ', () => {
     expect(normalizeSiteUrl('https://www.carelink-jp.com/')).toBe('https://carelink-jp.com');
   });
+
+  test('末尾スラッシュ＋末尾空白: 先頭 trim で正規化される（raw?.trim() の変異撃破）', () => {
+    // 入力 " http://example.com/ " は、内側 trim が無いと
+    // replace(/\/+$/) が末尾空白で阻まれスラッシュが残る → "http://example.com/"。
+    // raw?.trim() を raw に変える MethodExpression 変異を撃破。
+    expect(normalizeSiteUrl(' http://example.com/ ')).toBe('http://example.com');
+  });
 });
