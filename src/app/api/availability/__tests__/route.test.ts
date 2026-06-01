@@ -411,3 +411,26 @@ describe('GET /api/availability', () => {
     expect(res.status).toBe(200);
   });
 });
+
+describe('GET /api/availability スロット集計の分岐網羅', () => {
+  const fy = new Date().getFullYear() + 1; // 確実に将来の年（過去日スキップを回避）
+  test('将来月: 十分なスロット → available（totalSlots>=3 で早期 break）', async () => {
+    setupDefaultMocks(2, 5);
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(Object.values(json.dates).some((d: { status: string }) => d.status === 'available')).toBe(true);
+  });
+  test('将来月: 1〜2スロット → few（break せずループ完走）', async () => {
+    setupDefaultMocks(1, 2);
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    const json = await res.json();
+    expect(Object.values(json.dates).some((d: { status: string }) => d.status === 'few')).toBe(true);
+  });
+  test('将来月: 0スロット → full', async () => {
+    setupDefaultMocks(1, 0);
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    const json = await res.json();
+    expect(Object.values(json.dates).every((d: { status: string }) => d.status === 'full')).toBe(true);
+  });
+});

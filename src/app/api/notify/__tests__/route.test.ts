@@ -443,3 +443,29 @@ describe('POST /api/notify', () => {
     expect(res.status).toBe(502);
   });
 });
+
+describe('adminUrlFor の BASE_URL フォールバック', () => {
+  test('NEXT_PUBLIC_BASE_URL 未設定でもデフォルトURLで 200（?? 分岐）', async () => {
+    const saved = process.env.NEXT_PUBLIC_BASE_URL;
+    delete process.env.NEXT_PUBLIC_BASE_URL;
+    try {
+      const res = await POST(
+        makeRequest({
+          type: 'salon',
+          data: {
+            facility_name: 'Test Salon',
+            business_type: 'beauty',
+            representative_name: 'John Doe',
+            phone: '09012345678',
+            email: 'test@example.com',
+            address: 'Tokyo',
+            desired_start_date: '2026-06-01',
+          },
+        }) as any
+      );
+      expect(res.status).toBe(200);
+    } finally {
+      if (saved !== undefined) process.env.NEXT_PUBLIC_BASE_URL = saved;
+    }
+  });
+});
