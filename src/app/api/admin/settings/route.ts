@@ -48,6 +48,8 @@ const settingsSchema = z.object({
   header_photo_url: z.string().max(200000).optional().nullable(),
   logo_url: z.string().max(200000).optional().nullable(),
   owner_photo_url: z.string().max(200000).optional().nullable(),
+  design_template: z.string().max(30).optional().nullable(),
+  design_color: z.string().max(30).optional().nullable(),
 });
 
 const statusSchema = z.object({

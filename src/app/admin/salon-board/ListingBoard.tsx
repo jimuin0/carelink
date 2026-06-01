@@ -338,6 +338,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [imgs, setImgs] = useState<{ header: string; logo: string; owner: string }>({ header: '', logo: '', owner: '' });
+  const [design, setDesign] = useState<{ template: string; color: string }>({ template: '', color: '' });
   const [uploading, setUploading] = useState(false);
   const imgFileRef = useRef<HTMLInputElement>(null);
   const imgTarget = useRef<'header' | 'logo' | 'owner' | 'top' | 'atmos'>('header');
@@ -377,7 +378,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       const sb = createBrowserSupabaseClient();
       // 拡張カラムを明示selectし、エラー(マイグレーション未適用)なら基本カラムのみで再取得
       let d: Record<string, unknown> = {};
-      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown,header_photo_url,logo_url,owner_photo_url';
+      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown,header_photo_url,logo_url,owner_photo_url,design_template,design_color';
       const extRes = await sb.from('facility_profiles').select(extCols).eq('id', facilityId).maybeSingle();
       if (!extRes.error) { extEnabled.current = true; d = (extRes.data as Record<string, unknown> | null) ?? {}; }
       else { extEnabled.current = false; const base = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle(); d = (base.data as Record<string, unknown> | null) ?? {}; }
@@ -394,6 +395,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         const sbk = Array.isArray(d.staff_breakdown) ? (d.staff_breakdown as { role: string; count: number }[]) : [];
         staffRows.current = [0, 1, 2].map((i) => ({ role: sbk[i]?.role ?? '', count: sbk[i]?.count != null ? String(sbk[i].count) : '' }));
         setImgs({ header: s('header_photo_url'), logo: s('logo_url'), owner: s('owner_photo_url') });
+        setDesign({ template: s('design_template') || 'standard', color: s('design_color') || 'pink' });
         setLoaded(true);
       }
     })().catch(() => setLoaded(true));
@@ -420,6 +422,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         equipment: equip.current.filter((e) => e.name.trim()).map((e) => ({ name: e.name.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
         staff_breakdown: staffRows.current.filter((e) => e.role.trim()).map((e) => ({ role: e.role.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
         header_photo_url: imgs.header || null, logo_url: imgs.logo || null, owner_photo_url: imgs.owner || null,
+        design_template: design.template || null, design_color: design.color || null,
       } : {};
       const payload = { ...base, ...ext };
       const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -450,12 +453,18 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       <Panel title="デザインテンプレート設定" plan>
         <FormRow label="デザインテンプレート">
           <p className="text-xs text-gray-500 mb-2">デザインとカラーを選択して、デザインテンプレートをカスタマイズすることができます。</p>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500">現在の設定：</span>
-            <div className="w-16 h-12 border border-gray-300 bg-gray-50" />
-            <button onClick={() => onToast('デザインテンプレート設定は準備中です')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">デザインテンプレートを設定する</button>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-xs text-gray-500">デザイン</span>
+            <select className={`${input} bg-white`} value={design.template} onChange={(e) => setDesign((d) => ({ ...d, template: e.target.value }))}>
+              <option value="standard">スタンダード</option><option value="elegant">エレガント</option><option value="natural">ナチュラル</option><option value="cute">キュート</option>
+            </select>
+            <span className="text-xs text-gray-500">カラー</span>
+            <select className={`${input} bg-white`} value={design.color} onChange={(e) => setDesign((d) => ({ ...d, color: e.target.value }))}>
+              <option value="pink">ピンク</option><option value="blue">ブルー</option><option value="green">グリーン</option><option value="brown">ブラウン</option><option value="black">ブラック</option>
+            </select>
+            <span className="inline-block w-8 h-8 rounded border border-gray-300" style={{ backgroundColor: ({ pink: '#f9a8d4', blue: '#93c5fd', green: '#86efac', brown: '#d6b08c', black: '#374151' } as Record<string, string>)[design.color] || '#eee' }} />
           </div>
-          <button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline text-xs mt-2">上記の設定を適用したページを見る</button>
+          <p className="text-[11px] text-gray-400 mt-2">※「登録」で保存されます。</p>
         </FormRow>
       </Panel>
 
