@@ -4,10 +4,12 @@
  * signCacheValue / verifyCacheValue / getMembershipCacheKey の
  * HMAC-SHA256 署名・検証ロジックを網羅的に検証する。
  *
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
 // middleware は Web Crypto API (TextEncoder / crypto.subtle) を使うため node 環境を指定。
 // jsdom ではこれらがグローバルに存在しない。
+// Stryker の perTest カバレッジ報告のため plain "node" ではなく jest-runner mixin を使用
+// （他の lib node テストと統一。素の node 環境だと Stryker ドライランがエラーになる）。
 
 jest.mock('next/server', () => ({
   NextResponse: {

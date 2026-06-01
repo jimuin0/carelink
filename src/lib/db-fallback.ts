@@ -10,7 +10,9 @@ export interface DbError {
 /** カラム不在に起因するエラーか（null は false） */
 export function isMissingColumnError(error: DbError | null | undefined): boolean {
   if (!error) return false;
-  return error.code === 'PGRST204' || error.code === '42703' || /column .* does not exist/i.test(error.message ?? '');
+  if (error.code === 'PGRST204' || error.code === '42703') return true;
+  // message が文字列のときだけ正規表現で判定（?? '' のフォールバックを避け等価変異を排除）
+  return typeof error.message === 'string' && /column .* does not exist/i.test(error.message);
 }
 
 /** 指定キーを除外した浅いコピーを返す */
