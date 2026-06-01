@@ -45,6 +45,9 @@ const settingsSchema = z.object({
   genres: z.array(z.string().max(50)).max(6).optional(),
   equipment: z.array(z.object({ name: z.string().max(50), count: z.number().int().min(0).max(999) })).max(20).optional().nullable(),
   staff_breakdown: z.array(z.object({ role: z.string().max(50), count: z.number().int().min(0).max(999) })).max(20).optional().nullable(),
+  header_photo_url: z.string().max(200000).optional().nullable(),
+  logo_url: z.string().max(200000).optional().nullable(),
+  owner_photo_url: z.string().max(200000).optional().nullable(),
 });
 
 const statusSchema = z.object({

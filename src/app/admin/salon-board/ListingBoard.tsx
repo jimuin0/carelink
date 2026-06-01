@@ -319,6 +319,31 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   // 単純カラムに対応する主要項目を保存対象とする（キャッチ/コピー/アクセス/定休日）
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [imgs, setImgs] = useState<{ header: string; logo: string; owner: string }>({ header: '', logo: '', owner: '' });
+  const [uploading, setUploading] = useState(false);
+  const imgFileRef = useRef<HTMLInputElement>(null);
+  const imgTarget = useRef<'header' | 'logo' | 'owner' | 'top' | 'atmos'>('header');
+  const pickImg = (t: 'header' | 'logo' | 'owner' | 'top' | 'atmos') => { imgTarget.current = t; imgFileRef.current?.click(); };
+  const onImgFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { onToast('JPG, PNG, WebPのみ対応しています'); return; }
+    if (file.size > 5 * 1024 * 1024) { onToast('ファイルサイズは5MB以下にしてください'); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const up = await fetch(`/api/admin/photos/upload?facility_id=${facilityId}`, { method: 'POST', body: fd });
+      if (!up.ok) { const d = await up.json().catch(() => ({})); onToast(d.error || '画像のアップロードに失敗しました'); setUploading(false); return; }
+      const { url } = await up.json();
+      const t = imgTarget.current;
+      if (t === 'header' || t === 'logo' || t === 'owner') { setImgs((m) => ({ ...m, [t]: url })); onToast('画像をアップロードしました（登録ボタンで保存）'); }
+      else { // TOP写真/雰囲気写真 → ギャラリーに登録
+        const res = await fetch(`/api/admin/photos?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_url: url, photo_type: t === 'top' ? 'main' : 'other' }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setUploading(false); return; }
+        onToast(t === 'top' ? 'TOP写真を追加しました' : '雰囲気写真を追加しました');
+      }
+    } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
+  };
   const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '', business_hours_text: '', directions: '', remarks: '', owner_name: '', owner_title: '', owner_message: '' });
   const website = useRef<string>(''); // 既存値を保持して保存時に消さない（settingsは未送信でnull化するため）
   const featureSet = useRef<Set<string>>(new Set()); // こだわり条件/サービス/支払い/メンズ等のチェック集約 → features配列
@@ -334,7 +359,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       const sb = createBrowserSupabaseClient();
       // 拡張カラムを明示selectし、エラー(マイグレーション未適用)なら基本カラムのみで再取得
       let d: Record<string, unknown> = {};
-      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown';
+      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown,header_photo_url,logo_url,owner_photo_url';
       const extRes = await sb.from('facility_profiles').select(extCols).eq('id', facilityId).maybeSingle();
       if (!extRes.error) { extEnabled.current = true; d = (extRes.data as Record<string, unknown> | null) ?? {}; }
       else { extEnabled.current = false; const base = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle(); d = (base.data as Record<string, unknown> | null) ?? {}; }
@@ -350,6 +375,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         equip.current = [0, 1, 2].map((i) => ({ name: eq[i]?.name ?? '', count: eq[i]?.count != null ? String(eq[i].count) : '' }));
         const sbk = Array.isArray(d.staff_breakdown) ? (d.staff_breakdown as { role: string; count: number }[]) : [];
         staffRows.current = [0, 1, 2].map((i) => ({ role: sbk[i]?.role ?? '', count: sbk[i]?.count != null ? String(sbk[i].count) : '' }));
+        setImgs({ header: s('header_photo_url'), logo: s('logo_url'), owner: s('owner_photo_url') });
         setLoaded(true);
       }
     })().catch(() => setLoaded(true));
@@ -375,6 +401,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         genres: genres.current.filter((x) => x && x !== '未選択'),
         equipment: equip.current.filter((e) => e.name.trim()).map((e) => ({ name: e.name.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
         staff_breakdown: staffRows.current.filter((e) => e.role.trim()).map((e) => ({ role: e.role.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
+        header_photo_url: imgs.header || null, logo_url: imgs.logo || null, owner_photo_url: imgs.owner || null,
       } : {};
       const payload = { ...base, ...ext };
       const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -414,9 +441,12 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         </FormRow>
       </Panel>
 
+      <input ref={imgFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onImgFile} />
       <Panel title="サロンヘッダー" plan>
         <FormRow label="サロンヘッダー写真">
-          <div className="w-full max-w-md h-32 border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-400 cursor-pointer hover:bg-gray-50" onClick={() => onToast('画像アップロードは準備中です')}>画像を<br />アップロードする</div>
+          {imgs.header
+            ? <div className="relative w-full max-w-md"><img src={imgs.header} alt="" className="w-full max-w-md h-32 object-cover rounded" /><button onClick={() => setImgs((m) => ({ ...m, header: '' }))} className="absolute top-1 right-1 w-5 h-5 bg-gray-600 text-white text-xs rounded">×</button></div>
+            : <div className="w-full max-w-md h-32 border-2 border-dashed border-gray-300 rounded flex items-center justify-center text-sm text-gray-400 cursor-pointer hover:bg-gray-50" onClick={() => !uploading && pickImg('header')}>{uploading ? 'アップロード中…' : <>画像を<br />アップロードする</>}</div>}
           <button onClick={() => onToast('使用できる写真は準備中です')} className="text-sky-600 underline text-xs mt-1">使用できる写真について</button>
         </FormRow>
       </Panel>
@@ -434,14 +464,14 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
                 <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">前へ</button><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">後ろへ</button></div>
               </div>
             ))}
-            <div className="w-24 h-20 border border-gray-300 bg-sky-50 flex items-center justify-center text-[10px] text-sky-600 cursor-pointer" onClick={() => onToast('写真の追加は準備中です')}>画像を<br />アップロードする</div>
+            <div className="w-24 h-20 border border-gray-300 bg-sky-50 flex items-center justify-center text-[10px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('top')}>{uploading ? '中…' : <>画像を<br />アップロードする</>}</div>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">※最低1枚は内観写真を設定してください</p>
         </FormRow>
       </Panel>
 
       <Panel title="サロンからの一言" plan>
-        <FormRow label="メッセージ写真"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
+        <FormRow label="メッセージ写真">{imgs.owner ? <img src={imgs.owner} alt="" className="w-24 h-20 object-cover mb-1" /> : <div className="w-24 h-20 bg-gray-100 mb-1" />}<button disabled={uploading} onClick={() => pickImg('owner')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded disabled:opacity-50">アップロード</button> <button onClick={() => setImgs((m) => ({ ...m, owner: '' }))} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
         <FormRow label="氏名"><CharInput max={20} placeholder="氏名" w="w-60" defaultValue={fields.current.owner_name} onValueChange={(v) => { fields.current.owner_name = v; }} /></FormRow>
         <FormRow label="肩書き"><CharInput max={25} placeholder="肩書き" w="w-72" defaultValue={fields.current.owner_title} onValueChange={(v) => { fields.current.owner_title = v; }} /></FormRow>
         <FormRow label="メッセージ"><CharTextarea max={180} rows={3} placeholder="メッセージ" defaultValue={fields.current.owner_message} onValueChange={(v) => { fields.current.owner_message = v; }} /></FormRow>
@@ -463,7 +493,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       </Panel>
 
       <Panel title="サロン情報" plan>
-        <FormRow label="お店ロゴ"><div className="w-24 h-20 bg-gray-100 mb-1" /><button onClick={() => onToast('アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded">アップロード</button> <button onClick={() => onToast('削除は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
+        <FormRow label="お店ロゴ">{imgs.logo ? <img src={imgs.logo} alt="" className="w-24 h-20 object-cover mb-1" /> : <div className="w-24 h-20 bg-gray-100 mb-1" />}<button disabled={uploading} onClick={() => pickImg('logo')} className="px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded disabled:opacity-50">アップロード</button> <button onClick={() => setImgs((m) => ({ ...m, logo: '' }))} className="px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded">削除</button></FormRow>
         <FormRow label="アクセス" required><CharInput max={40} placeholder="最寄駅からのアクセス" below defaultValue={fields.current.access_info} onValueChange={(v) => { fields.current.access_info = v; }} /></FormRow>
         <FormRow label="道案内・アクセス"><CharTextarea max={200} rows={3} placeholder="道案内" defaultValue={fields.current.directions} onValueChange={(v) => { fields.current.directions = v; }} /></FormRow>
         <FormRow label="営業時間" required><CharTextarea max={100} rows={2} placeholder="9:00〜19:00" defaultValue={fields.current.business_hours_text} onValueChange={(v) => { fields.current.business_hours_text = v; }} /></FormRow>
