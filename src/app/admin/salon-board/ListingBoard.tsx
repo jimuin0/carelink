@@ -171,6 +171,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     setStaff((data as StaffRow[]) ?? []);
   }, [facilityId]);
 
+  const reloadReviews = useCallback(async () => {
+    const sb = createBrowserSupabaseClient();
+    const { data } = await sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    setReviews((data as ReviewRow[]) ?? []);
+  }, [facilityId]);
+
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 
   return (
@@ -197,7 +203,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'tokushu' && <TokushuPage />}
             {tab === 'coupon' && <CouponListPage rows={coupons} facilityId={facilityId} onReload={reloadCoupons} onToast={onToast} />}
             {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} facilityId={facilityId} onReload={reloadBlogs} onToast={onToast} />}
-            {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} onToast={onToast} />}
+            {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} facilityId={facilityId} onReload={reloadReviews} onToast={onToast} />}
           </>
         )}
       </div>
@@ -1081,8 +1087,23 @@ function BlogEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: Blo
 }
 
 /* ========================= 口コミ一覧 ========================= */
-function ReviewListPage({ rows, staff, onToast }: { rows: ReviewRow[]; staff: StaffRow[]; onToast: (m: string) => void }) {
+function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: ReviewRow[]; staff: StaffRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const staffName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
+  const [replyId, setReplyId] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [saving, setSaving] = useState(false);
+  void facilityId;
+  const openReply = (r: ReviewRow) => { setReplyId(r.id); setReplyText(r.reply ?? ''); };
+  const sendReply = async (id: string) => {
+    if (saving) return;
+    if (!replyText.trim()) { onToast('返信内容を入力してください'); return; }
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/reviews/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reply: replyText.trim() }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '返信に失敗しました'); setSaving(false); return; }
+      onToast('返信を送信しました'); setReplyId(null); setReplyText(''); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
+  };
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">口コミ一覧</h2>
@@ -1125,9 +1146,11 @@ function ReviewListPage({ rows, staff, onToast }: { rows: ReviewRow[]; staff: St
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{staffName(r.staff_id)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-left text-xs max-w-xs">{r.comment ?? '—'}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center">
-                  {r.reply
-                    ? <><button onClick={() => onToast('返信内容は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">返信済</button><div className="text-[10px] text-emerald-600 mt-1">審査OK(掲載中)</div></>
-                    : <button onClick={() => onToast('返信は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">返信する</button>}
+                  {replyId === r.id
+                    ? <div className="space-y-1"><textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} rows={3} maxLength={2000} className="border border-gray-300 rounded px-2 py-1 text-xs w-44" placeholder="返信内容" /><div className="flex gap-1 justify-center"><button disabled={saving} onClick={() => sendReply(r.id)} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs disabled:opacity-50">{saving ? '送信中…' : '送信'}</button><button onClick={() => setReplyId(null)} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">キャンセル</button></div></div>
+                    : r.reply
+                      ? <><button onClick={() => openReply(r)} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">返信済</button><div className="text-[10px] text-emerald-600 mt-1">審査OK(掲載中)</div></>
+                      : <button onClick={() => openReply(r)} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">返信する</button>}
                 </td>
               </tr>
             ))}
