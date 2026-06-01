@@ -14,6 +14,11 @@ const photoSchema = z.object({
   photo_type: z.enum(VALID_PHOTO_TYPES).default('other'),
   caption: z.string().max(200).optional().nullable(),
   sort_order: z.number().int().min(0).optional(),
+  title: z.string().max(100).optional().nullable(),
+  genre: z.string().max(100).optional().nullable(),
+  search_category: z.string().max(100).optional().nullable(),
+  image_submission: z.boolean().optional(),
+  is_published: z.boolean().optional(),
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {

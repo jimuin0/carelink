@@ -18,6 +18,10 @@ const menuSchema = z.object({
   sort_order: z.number().int().min(0).optional(),
   subcategory: z.string().max(100).optional().nullable(),
   search_category: z.string().max(100).optional().nullable(),
+  reservable: z.boolean().optional(),
+  is_published: z.boolean().optional(),
+  price_show_tilde: z.boolean().optional(),
+  price_ask: z.boolean().optional(),
 });
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {

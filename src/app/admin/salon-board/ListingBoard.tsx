@@ -16,8 +16,9 @@ interface Props {
 }
 
 interface StaffRow { id: string; name: string; position: string | null; specialties: string[] | null; years_experience: number | null; photo_url: string | null; sort_order: number | null; is_active: boolean; bio: string | null; }
-interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; }
-interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; }
+interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; title?: string | null; genre?: string | null; search_category?: string | null; image_submission?: boolean | null; is_published?: boolean | null; }
+interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; }
+interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; }
 interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
@@ -323,6 +324,8 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   const featureSet = useRef<Set<string>>(new Set()); // こだわり条件/サービス/支払い/メンズ等のチェック集約 → features配列
   const counts = useRef({ seat: '', staff: '' }); // 設備総数 → seat_count, スタッフ総数 → staff_count
   const genres = useRef<string[]>(['', '', '', '', '', '']); // ジャンル6枠
+  const equip = useRef<{ name: string; count: string }[]>([{ name: '', count: '' }, { name: '', count: '' }, { name: '', count: '' }]); // 設備明細
+  const staffRows = useRef<{ role: string; count: string }[]>([{ role: '', count: '' }, { role: '', count: '' }, { role: '', count: '' }]); // スタッフ数明細
   const extEnabled = useRef(false); // 拡張カラム(business_hours_text等)がDBに存在するか
   const toggleFeature = (label: string, on: boolean) => { if (on) featureSet.current.add(label); else featureSet.current.delete(label); };
   useEffect(() => {
@@ -331,7 +334,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       const sb = createBrowserSupabaseClient();
       // 拡張カラムを明示selectし、エラー(マイグレーション未適用)なら基本カラムのみで再取得
       let d: Record<string, unknown> = {};
-      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres';
+      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown';
       const extRes = await sb.from('facility_profiles').select(extCols).eq('id', facilityId).maybeSingle();
       if (!extRes.error) { extEnabled.current = true; d = (extRes.data as Record<string, unknown> | null) ?? {}; }
       else { extEnabled.current = false; const base = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle(); d = (base.data as Record<string, unknown> | null) ?? {}; }
@@ -343,6 +346,10 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         counts.current = { seat: d.seat_count != null ? String(d.seat_count) : '', staff: d.staff_count != null ? String(d.staff_count) : '' };
         const g = Array.isArray(d.genres) ? (d.genres as string[]) : [];
         genres.current = [0, 1, 2, 3, 4, 5].map((i) => g[i] ?? '');
+        const eq = Array.isArray(d.equipment) ? (d.equipment as { name: string; count: number }[]) : [];
+        equip.current = [0, 1, 2].map((i) => ({ name: eq[i]?.name ?? '', count: eq[i]?.count != null ? String(eq[i].count) : '' }));
+        const sbk = Array.isArray(d.staff_breakdown) ? (d.staff_breakdown as { role: string; count: number }[]) : [];
+        staffRows.current = [0, 1, 2].map((i) => ({ role: sbk[i]?.role ?? '', count: sbk[i]?.count != null ? String(sbk[i].count) : '' }));
         setLoaded(true);
       }
     })().catch(() => setLoaded(true));
@@ -366,6 +373,8 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         business_hours_text: fields.current.business_hours_text, directions: fields.current.directions, remarks: fields.current.remarks,
         owner_name: fields.current.owner_name, owner_title: fields.current.owner_title, owner_message: fields.current.owner_message,
         genres: genres.current.filter((x) => x && x !== '未選択'),
+        equipment: equip.current.filter((e) => e.name.trim()).map((e) => ({ name: e.name.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
+        staff_breakdown: staffRows.current.filter((e) => e.role.trim()).map((e) => ({ role: e.role.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
       } : {};
       const payload = { ...base, ...ext };
       const res = await fetch(`/api/admin/settings?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -468,14 +477,14 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
           <div className="flex gap-8">
             <div>
               <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={counts.current.seat} onChange={(e) => { counts.current.seat = e.target.value.replace(/[^0-9]/g, ''); }} /></div>
-              {[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><input type="checkbox" /><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-40 bg-white`}><option>リクライニングチェア</option></select><input className={`${input} w-12`} placeholder="数" /></div>)}
-              <button onClick={() => onToast('追加は準備中です')} className="text-sky-600 underline text-xs">追加する</button>
+              {[0, 1, 2].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><span className="text-xs text-gray-500 w-4">{n + 1}</span><select className={`${input} w-40 bg-white`} defaultValue={equip.current[n].name || ''} onChange={(e) => { equip.current[n].name = e.target.value; }}><option value="">未選択</option><option>リクライニングチェア</option><option>シャンプー台</option><option>個室</option>{equip.current[n].name && !['リクライニングチェア', 'シャンプー台', '個室'].includes(equip.current[n].name) && <option value={equip.current[n].name}>{equip.current[n].name}</option>}</select><input className={`${input} w-12`} placeholder="数" defaultValue={equip.current[n].count} onChange={(e) => { equip.current[n].count = e.target.value.replace(/[^0-9]/g, ''); }} /></div>)}
+              <button onClick={() => onToast('追加は登録後に行ってください')} className="text-sky-600 underline text-xs">追加する</button>
             </div>
             <div>
               <div className="text-xs font-bold text-gray-600 mb-1">スタッフ数</div>
               <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={counts.current.staff} onChange={(e) => { counts.current.staff = e.target.value.replace(/[^0-9]/g, ''); }} /> 人</div>
-              {[1, 2, 3].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><input type="checkbox" /><span className="text-xs text-gray-500 w-4">{n}</span><select className={`${input} w-36 bg-white`}><option>施術者（まつげ）</option></select><input className={`${input} w-12`} placeholder="数" /><span className="text-xs">人</span></div>)}
-              <button onClick={() => onToast('追加は準備中です')} className="text-sky-600 underline text-xs">追加する</button>
+              {[0, 1, 2].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><span className="text-xs text-gray-500 w-4">{n + 1}</span><select className={`${input} w-36 bg-white`} defaultValue={staffRows.current[n].role || ''} onChange={(e) => { staffRows.current[n].role = e.target.value; }}><option value="">未選択</option><option>施術者（まつげ）</option><option>施術者（眉）</option><option>施術者（エステ）</option><option>受付</option>{staffRows.current[n].role && !['施術者（まつげ）', '施術者（眉）', '施術者（エステ）', '受付'].includes(staffRows.current[n].role) && <option value={staffRows.current[n].role}>{staffRows.current[n].role}</option>}</select><input className={`${input} w-12`} placeholder="数" defaultValue={staffRows.current[n].count} onChange={(e) => { staffRows.current[n].count = e.target.value.replace(/[^0-9]/g, ''); }} /><span className="text-xs">人</span></div>)}
+              <button onClick={() => onToast('追加は登録後に行ってください')} className="text-sky-600 underline text-xs">追加する</button>
             </div>
           </div>
         </FormRow>
@@ -605,7 +614,9 @@ function StaffListPage({ rows, facilityId, onReload, onToast }: { rows: StaffRow
 /* ========================= フォトギャラリー掲載情報編集 ========================= */
 function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
-  const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((p) => [p.id, p.caption ?? ''])));
+  const extOn = rows.length > 0 && 'genre' in (rows[0] as object);
+  const [drafts, setDrafts] = useState<Record<string, PhotoDraft>>(() => Object.fromEntries(rows.map((p) => [p.id, { title: p.title ?? '', caption: p.caption ?? '', genre: p.genre ?? 'まつげ・メイクなど', search_category: p.search_category ?? 'その他', image_submission: p.image_submission ?? false, is_published: p.is_published ?? true }])));
+  const updD = (id: string, k: keyof PhotoDraft, v: string | boolean) => setDrafts((m) => ({ ...m, [id]: { ...m[id], [k]: v } }));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -636,7 +647,9 @@ function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow
     if (saving) return; setSaving(true);
     try {
       for (const p of rows) {
-        const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caption: caps[p.id] ?? '' }) });
+        const dr = drafts[p.id];
+        const payload = { caption: dr.caption, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published } : {}) };
+        const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       }
       onToast('写真情報を保存しました'); onReload();
@@ -669,15 +682,15 @@ function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow
               <div className="text-[9px] text-gray-400 mt-0.5">画像ID: C{p.id.slice(0, 8).toUpperCase()}</div>
               <button disabled={uploading} onClick={() => pickFile(p.id)} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded block mx-auto disabled:opacity-50">アップロード</button>
               <button disabled={saving} onClick={() => { if (confirm('この写真を削除しますか？')) remove(p); }} className="mt-0.5 px-2 py-0.5 bg-gray-200 text-gray-600 text-[10px] rounded block mx-auto disabled:opacity-40">削除</button>
-              <label className="flex items-center gap-1 text-[10px] text-gray-500 mt-1 justify-center"><input type="checkbox" />画像応募</label>
+              <label className="flex items-center gap-1 text-[10px] text-gray-500 mt-1 justify-center"><input type="checkbox" checked={drafts[p.id]?.image_submission ?? false} onChange={(e) => updD(p.id, 'image_submission', e.target.checked)} />画像応募</label>
             </div>
             <div className="flex-1 space-y-2">
-              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><CharInput max={15} placeholder="タイトル" /><button onClick={() => onToast('クリアは準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] whitespace-nowrap shrink-0">クリア</button></div>
-              <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><CharTextarea max={30} rows={2} defaultValue={p.caption ?? ''} below={false} onValueChange={(v) => setCaps((c) => ({ ...c, [p.id]: v }))} /></div>
-              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">ジャンル</span><select className={`${input} bg-white`}><option>まつげ・メイクなど</option><option>エステ</option></select>
-                <span className="ml-auto flex flex-col items-start gap-1 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} />非掲載</label></span>
+              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">タイトル</span><CharInput max={15} placeholder="タイトル" defaultValue={p.title ?? ''} onValueChange={(v) => updD(p.id, 'title', v)} /><button onClick={() => updD(p.id, 'title', '')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-[10px] whitespace-nowrap shrink-0">クリア</button></div>
+              <div className="flex items-start gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">キャプション</span><CharTextarea max={30} rows={2} defaultValue={p.caption ?? ''} below={false} onValueChange={(v) => updD(p.id, 'caption', v)} /></div>
+              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">ジャンル</span><select className={`${input} bg-white`} value={drafts[p.id]?.genre ?? 'まつげ・メイクなど'} onChange={(e) => updD(p.id, 'genre', e.target.value)}><option>まつげ・メイクなど</option><option>エステ</option></select>
+                <span className="ml-auto flex flex-col items-start gap-1 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} checked={drafts[p.id]?.is_published ?? true} onChange={() => updD(p.id, 'is_published', true)} />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} checked={!(drafts[p.id]?.is_published ?? true)} onChange={() => updD(p.id, 'is_published', false)} />非掲載</label></span>
               </div>
-              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">検索用カテゴリ</span><select className={`${input} bg-white`}><option>その他</option><option>まつエク［こだわり素材］</option></select></div>
+              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">検索用カテゴリ</span><select className={`${input} bg-white`} value={drafts[p.id]?.search_category ?? 'その他'} onChange={(e) => updD(p.id, 'search_category', e.target.value)}><option>その他</option><option>まつエク［こだわり素材］</option></select></div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">クーポン</span><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">クーポン選択</button></div>
             </div>
           </div>
@@ -688,22 +701,25 @@ function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow
 }
 
 /* ========================= メニュー掲載情報編集 ========================= */
-interface MenuDraft { id: string; category: string; subcategory: string; search_category: string; name: string; description: string; price: string; duration: string; }
+interface MenuDraft { id: string; category: string; subcategory: string; search_category: string; name: string; description: string; price: string; duration: string; reservable: boolean; isPublished: boolean; showTilde: boolean; priceAsk: boolean; }
 function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  const extOn = rows.length > 0 && 'reservable' in (rows[0] as object); // 拡張カラム適用済みか
   const [items, setItems] = useState<MenuDraft[]>(() => rows.map((m) => ({
     id: m.id, category: m.category ?? 'まつげ・メイクなど', subcategory: m.subcategory ?? '', search_category: m.search_category ?? '',
     name: m.name, description: m.description ?? '', price: m.price != null ? String(m.price) : '', duration: m.duration_minutes != null ? String(m.duration_minutes) : '',
+    reservable: m.reservable ?? true, isPublished: m.is_published ?? true, showTilde: m.price_show_tilde ?? false, priceAsk: m.price_ask ?? false,
   })));
   const [saving, setSaving] = useState(false);
-  const upd = (i: number, k: keyof MenuDraft, v: string) => setItems((arr) => arr.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
+  const upd = (i: number, k: keyof MenuDraft, v: string | boolean) => setItems((arr) => arr.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
 
   const saveAll = async () => {
     if (saving) return; setSaving(true);
     try {
       for (const it of items) {
         if (!it.name.trim() || !it.category.trim()) { onToast('カテゴリとメニュー名は必須です'); setSaving(false); return; }
-        const payload = { category: it.category, subcategory: it.subcategory || null, search_category: it.search_category || null, name: it.name.trim(), description: it.description.trim() || null, price: it.price ? parseInt(it.price, 10) : null, duration_minutes: it.duration ? parseInt(it.duration, 10) : null };
+        const payload = { category: it.category, subcategory: it.subcategory || null, search_category: it.search_category || null, name: it.name.trim(), description: it.description.trim() || null, price: it.price ? parseInt(it.price, 10) : null, duration_minutes: it.duration ? parseInt(it.duration, 10) : null,
+          ...(extOn ? { reservable: it.reservable, is_published: it.isPublished, price_show_tilde: it.showTilde, price_ask: it.priceAsk } : {}) };
         const res = await fetch(`/api/admin/menus/${it.id}?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       }
@@ -741,15 +757,15 @@ function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]
               <div className="flex items-center gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">検索用カテゴリ</span><select className={`${input} bg-white`} value={m.search_category} onChange={(e) => upd(i, 'search_category', e.target.value)}><option value="">まつげ・メイクなど：まつげデザイン・ケア</option>{m.search_category && <option value={m.search_category}>{m.search_category}</option>}</select></div>
               <div className="flex items-center gap-3 flex-wrap">
                 <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">価格（税込）</span><span className="text-xs">¥</span><input className={`${input} w-24`} value={m.price} onChange={(e) => upd(i, 'price', e.target.value.replace(/[^0-9]/g, ''))} />
-                <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「〜」を表示</label>
-                <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" />「要問い合わせ」として表示する</label>
+                <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={m.showTilde} onChange={(e) => upd(i, 'showTilde', e.target.checked)} />「〜」を表示</label>
+                <label className="flex items-center gap-1 text-[11px]"><input type="checkbox" checked={m.priceAsk} onChange={(e) => upd(i, 'priceAsk', e.target.checked)} />「要問い合わせ」として表示する</label>
               </div>
               <p className="text-[10px] text-gray-400 pl-24">※チェックして掲載する場合、予約不可メニューとして掲載されます。</p>
               <div className="flex items-center gap-3">
                 <span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">所要目安時間</span><DurationInput defaultValue={m.duration ? parseInt(m.duration, 10) : null} onValueChange={(v) => upd(i, 'duration', v)} />
               </div>
-              <div className="flex items-center gap-3"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">予約</span><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} defaultChecked />予約可</label><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} />予約不可</label>
-                <span className="ml-auto flex flex-col items-end gap-1 text-xs"><button disabled={saving} onClick={() => { if (confirm('このメニューを削除しますか？')) remove(m); }} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded disabled:opacity-40">削除</button><span className="flex items-center gap-3"><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} defaultChecked />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} />非掲載</label></span></span>
+              <div className="flex items-center gap-3"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">予約</span><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} checked={m.reservable} onChange={() => upd(i, 'reservable', true)} />予約可</label><label className="flex items-center gap-1 text-xs"><input type="radio" name={`yoyaku${i}`} checked={!m.reservable} onChange={() => upd(i, 'reservable', false)} />予約不可</label>
+                <span className="ml-auto flex flex-col items-end gap-1 text-xs"><button disabled={saving} onClick={() => { if (confirm('このメニューを削除しますか？')) remove(m); }} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded disabled:opacity-40">削除</button><span className="flex items-center gap-3"><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} checked={m.isPublished} onChange={() => upd(i, 'isPublished', true)} />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`mpub${i}`} checked={!m.isPublished} onChange={() => upd(i, 'isPublished', false)} />非掲載</label></span></span>
               </div>
             </div>
           </div>

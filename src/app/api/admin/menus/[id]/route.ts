@@ -18,6 +18,10 @@ const menuUpdateSchema = z.object({
   is_featured: z.boolean().optional(),
   subcategory: z.string().max(100).optional().nullable(),
   search_category: z.string().max(100).optional().nullable(),
+  reservable: z.boolean().optional(),
+  is_published: z.boolean().optional(),
+  price_show_tilde: z.boolean().optional(),
+  price_ask: z.boolean().optional(),
 });
 
 async function getAdminContext(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
