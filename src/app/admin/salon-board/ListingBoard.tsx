@@ -123,7 +123,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     const sb = createBrowserSupabaseClient();
     const [st, ph, mn, cp, bl, rv] = await Promise.all([
       sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('facility_photos').select('id,photo_url,photo_type,caption,sort_order').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
+      sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id').eq('facility_id', facilityId).order('created_at', { ascending: false }),
@@ -161,7 +161,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 
   const reloadPhotos = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('facility_photos').select('id,photo_url,photo_type,caption,sort_order').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    const { data } = await sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true });
     setPhotos((data as PhotoRow[]) ?? []);
   }, [facilityId]);
 
