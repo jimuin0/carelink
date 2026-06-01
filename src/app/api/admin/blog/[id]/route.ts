@@ -10,6 +10,7 @@ const blogUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   content: z.string().min(1).max(50000).optional(),
   is_published: z.boolean().optional(),
+  coupon_id: z.string().uuid().optional().nullable(),
 });
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {

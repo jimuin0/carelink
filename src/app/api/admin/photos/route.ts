@@ -19,6 +19,7 @@ const photoSchema = z.object({
   search_category: z.string().max(100).optional().nullable(),
   image_submission: z.boolean().optional(),
   is_published: z.boolean().optional(),
+  coupon_id: z.string().uuid().optional().nullable(),
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {

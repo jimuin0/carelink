@@ -11,6 +11,7 @@ const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
   content: z.string().min(1).max(50000),
   is_published: z.boolean().optional(),
+  coupon_id: z.string().uuid().optional().nullable(),
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
@@ -57,6 +58,7 @@ export async function POST(request: NextRequest) {
     title: parsed.data.title,
     content: parsed.data.content,
     slug,
+    coupon_id: parsed.data.coupon_id ?? null,
     is_published: isPublished,
     published_at: isPublished ? new Date().toISOString() : null,
   }).select().single();

@@ -16,11 +16,11 @@ interface Props {
 }
 
 interface StaffRow { id: string; name: string; position: string | null; specialties: string[] | null; years_experience: number | null; photo_url: string | null; sort_order: number | null; is_active: boolean; bio: string | null; }
-interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; title?: string | null; genre?: string | null; search_category?: string | null; image_submission?: boolean | null; is_published?: boolean | null; }
-interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; }
+interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; title?: string | null; genre?: string | null; search_category?: string | null; image_submission?: boolean | null; is_published?: boolean | null; coupon_id?: string | null; }
+interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; }
-interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; }
+interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; coupon_id?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
@@ -137,7 +137,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
       sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id').eq('facility_id', facilityId).order('created_at', { ascending: false }),
+      sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id,coupon_id').eq('facility_id', facilityId).order('created_at', { ascending: false }),
       sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
     ]);
     setStaff((st.data as StaffRow[]) ?? []);
@@ -166,7 +166,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 
   const reloadBlogs = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    const { data } = await sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id,coupon_id').eq('facility_id', facilityId).order('created_at', { ascending: false });
     setBlogs((data as BlogRow[]) ?? []);
   }, [facilityId]);
 
@@ -208,12 +208,12 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
             {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
-            {tab === 'photo' && <PhotoEditPage rows={photos} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
+            {tab === 'photo' && <PhotoEditPage rows={photos} coupons={coupons} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
             {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
             {tab === 'kodawari' && <KodawariPage />}
             {tab === 'tokushu' && <TokushuPage />}
             {tab === 'coupon' && <CouponListPage rows={coupons} facilityId={facilityId} onReload={reloadCoupons} onToast={onToast} />}
-            {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} facilityId={facilityId} onReload={reloadBlogs} onToast={onToast} />}
+            {tab === 'blog' && <BlogListPage rows={blogs} staff={staff} coupons={coupons} facilityId={facilityId} onReload={reloadBlogs} onToast={onToast} />}
             {tab === 'review' && <ReviewListPage rows={reviews} staff={staff} facilityId={facilityId} onReload={reloadReviews} onToast={onToast} />}
           </>
         )}
@@ -669,10 +669,10 @@ function StaffListPage({ rows, facilityId, onReload, onToast }: { rows: StaffRow
 }
 
 /* ========================= フォトギャラリー掲載情報編集 ========================= */
-function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
+function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows: PhotoRow[]; coupons: CouponRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const extOn = rows.length > 0 && 'genre' in (rows[0] as object);
-  const [drafts, setDrafts] = useState<Record<string, PhotoDraft>>(() => Object.fromEntries(rows.map((p) => [p.id, { title: p.title ?? '', caption: p.caption ?? '', genre: p.genre ?? 'まつげ・メイクなど', search_category: p.search_category ?? 'その他', image_submission: p.image_submission ?? false, is_published: p.is_published ?? true }])));
+  const [drafts, setDrafts] = useState<Record<string, PhotoDraft>>(() => Object.fromEntries(rows.map((p) => [p.id, { title: p.title ?? '', caption: p.caption ?? '', genre: p.genre ?? 'まつげ・メイクなど', search_category: p.search_category ?? 'その他', image_submission: p.image_submission ?? false, is_published: p.is_published ?? true, coupon_id: p.coupon_id ?? '' }])));
   const updD = (id: string, k: keyof PhotoDraft, v: string | boolean) => setDrafts((m) => ({ ...m, [id]: { ...m[id], [k]: v } }));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -705,7 +705,7 @@ function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow
     try {
       for (const p of rows) {
         const dr = drafts[p.id];
-        const payload = { caption: dr.caption, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published } : {}) };
+        const payload = { caption: dr.caption, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published, coupon_id: dr.coupon_id || null } : {}) };
         const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       }
@@ -748,7 +748,7 @@ function PhotoEditPage({ rows, facilityId, onReload, onToast }: { rows: PhotoRow
                 <span className="ml-auto flex flex-col items-start gap-1 text-xs"><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} checked={drafts[p.id]?.is_published ?? true} onChange={() => updD(p.id, 'is_published', true)} />掲載</label><label className="flex items-center gap-1"><input type="radio" name={`pub${i}`} checked={!(drafts[p.id]?.is_published ?? true)} onChange={() => updD(p.id, 'is_published', false)} />非掲載</label></span>
               </div>
               <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">検索用カテゴリ</span><select className={`${input} bg-white`} value={drafts[p.id]?.search_category ?? 'その他'} onChange={(e) => updD(p.id, 'search_category', e.target.value)}><option>その他</option><option>まつエク［こだわり素材］</option></select></div>
-              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">クーポン</span><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">クーポン選択</button></div>
+              <div className="flex items-center gap-2"><span className="w-20 text-xs text-gray-500 whitespace-nowrap">クーポン</span><select className={`${input} bg-white`} value={drafts[p.id]?.coupon_id ?? ''} onChange={(e) => updD(p.id, 'coupon_id', e.target.value)}><option value="">紐付けなし</option>{coupons.map((c) => <option key={c.id} value={c.id}>{c.name.slice(0, 24)}</option>)}</select></div>
             </div>
           </div>
         ))}
@@ -1000,7 +1000,7 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
 }
 
 /* ========================= ブログ一覧 ========================= */
-function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: BlogRow[]; staff: StaffRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
+function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: { rows: BlogRow[]; staff: StaffRow[]; coupons: CouponRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const [editing, setEditing] = useState<BlogRow | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
   const [filterSel, setFilterSel] = useState('all'); // 絞込みドロップダウンの選択
@@ -1015,7 +1015,7 @@ function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: Bl
       onToast('ブログを削除しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
-  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
+  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} coupons={coupons} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">ブログ一覧</h2>
@@ -1059,10 +1059,11 @@ function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: Bl
 }
 
 /* ========================= ブログ編集 入力 ========================= */
-function BlogEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
+function BlogEditPage({ row, coupons, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; coupons: CouponRow[]; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const [title, setTitle] = useState(row?.title ?? '');
   const [body, setBody] = useState(row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : '');
+  const [couponId, setCouponId] = useState(row?.coupon_id ?? '');
   const [saving, setSaving] = useState(false);
   const lineCount = body ? body.split('\n').length : 0;
   const save = async () => {
@@ -1071,7 +1072,7 @@ function BlogEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: Blo
     if (!body.trim()) { onToast('本文を入力してください'); return; }
     setSaving(true);
     try {
-      const payload = { title: title.trim(), content: body.trim(), is_published: !!row?.is_published };
+      const payload = { title: title.trim(), content: body.trim(), is_published: !!row?.is_published, coupon_id: couponId || null };
       const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
@@ -1100,7 +1101,7 @@ function BlogEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: Blo
             </div>
           </div>
         </FormRow>
-        <FormRow label="クーポン"><button onClick={() => onToast('クーポン選択は準備中です')} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">クーポン選択</button><p className="text-[11px] text-rose-500 mt-1">※クーポンの有効期限・受付期間がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
+        <FormRow label="クーポン"><select className={`${input} bg-white`} value={couponId} onChange={(e) => setCouponId(e.target.value)}><option value="">紐付けなし</option>{coupons.map((c) => <option key={c.id} value={c.id}>{c.name.slice(0, 30)}</option>)}</select><p className="text-[11px] text-rose-500 mt-1">※クーポンの有効期限・受付期間がブログ公開時に終了していないかご確認の上、投稿（予約掲載含む）してください。</p></FormRow>
       </div>
       <div className="flex items-center justify-end gap-2">
         <button disabled={saving} onClick={save} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button>
