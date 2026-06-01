@@ -205,7 +205,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
           <div className="animate-pulse space-y-3"><div className="h-8 bg-gray-200 rounded w-64" /><div className="h-40 bg-gray-200 rounded max-w-3xl" /></div>
         ) : (
           <>
-            {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
+            {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} facilityId={facilityId} reviewsCount={reviews.length} ratingAvg={reviews.length ? Math.round((reviews.reduce((s, r) => s + (r.rating ?? 0), 0) / reviews.length) * 10) / 10 : 0} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
             {tab === 'photo' && <PhotoEditPage rows={photos} coupons={coupons} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
@@ -223,8 +223,25 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 }
 
 /* ========================= 掲載管理TOP ========================= */
-function TopPage({ salonName, statusLabel, slug, counts, onToast }: { salonName: string; statusLabel: string; slug: string; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void }) {
+function TopPage({ salonName, statusLabel, slug, facilityId, reviewsCount, ratingAvg, counts, onToast }: { salonName: string; statusLabel: string; slug: string; facilityId: string; reviewsCount: number; ratingAvg: number; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void }) {
   const openPreview = () => { if (slug) window.open(`/salon/${slug}`, '_blank', 'noopener'); else onToast('公開URLが未設定です'); };
+  const [applying, setApplying] = useState(false);
+  const [checkModal, setCheckModal] = useState(false);
+  const [reportModal, setReportModal] = useState(false);
+  const checks = [
+    { label: 'サロン基本情報（サロン名）', ok: !!salonName && salonName !== '—' },
+    { label: 'スタッフ掲載情報', ok: counts.staff > 0 },
+    { label: 'フォトギャラリー（写真1枚以上）', ok: counts.photos > 0 },
+    { label: 'メニュー掲載情報', ok: counts.menus > 0 },
+  ];
+  const applyPublish = async () => {
+    if (applying) return; setApplying(true);
+    try {
+      const res = await fetch(`/api/admin/facility-status?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '反映申請に失敗しました'); return; }
+      onToast('反映申請しました（掲載を公開しました）');
+    } catch { onToast('通信エラーが発生しました'); } finally { setApplying(false); }
+  };
   const today = '2026/05/29';
   const rows: { label: string; label2?: string; editor: string; date: string; check: string; empty?: boolean; reflect: { applied: boolean; at: string } | null }[] = [
     { label: 'サロン掲載情報', editor: '太田由香利', date: '2026/02/10', check: '要確認', reflect: { applied: true, at: '2026/05/02 15:25' } },
@@ -237,13 +254,33 @@ function TopPage({ salonName, statusLabel, slug, counts, onToast }: { salonName:
   ];
   return (
     <div className="max-w-4xl space-y-5">
+      {checkModal && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setCheckModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3"><h3 className="text-sm font-bold text-gray-800">掲載チェック</h3><button onClick={() => setCheckModal(false)} className="text-gray-400 text-lg leading-none">×</button></div>
+            <ul className="space-y-1 text-sm">{checks.map((c) => <li key={c.label} className="flex items-center gap-2"><span className={c.ok ? 'text-emerald-600' : 'text-rose-500'}>{c.ok ? '✓ OK' : '✕ 未登録'}</span><span className="text-gray-700">{c.label}</span></li>)}</ul>
+            <p className="text-[11px] text-gray-400 mt-3">※「未登録」項目があると掲載品質が下がります。各タブから登録してください。</p>
+          </div>
+        </div>
+      )}
+      {reportModal && (
+        <div className="fixed inset-0 z-[60] bg-black/40 flex items-center justify-center p-4" onClick={() => setReportModal(false)}>
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3"><h3 className="text-sm font-bold text-gray-800">サロンレポート（概要）</h3><button onClick={() => setReportModal(false)} className="text-gray-400 text-lg leading-none">×</button></div>
+            <table className="w-full text-sm"><tbody>
+              {[['スタッフ', `${counts.staff} 名`], ['掲載写真', `${counts.photos} 枚`], ['メニュー', `${counts.menus} 件`], ['クーポン', `${counts.coupons} 件`], ['口コミ', `${reviewsCount} 件`], ['平均評価', reviewsCount ? `★ ${ratingAvg}` : '—']].map(([k, v]) => <tr key={k} className="border-b border-slate-100"><td className="py-1.5 text-gray-500">{k}</td><td className="py-1.5 text-right font-bold text-gray-800">{v}</td></tr>)}
+            </tbody></table>
+            <p className="text-[11px] text-gray-400 mt-3">※詳細な月次分析は「集計・分析」で提供予定です。</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between"><h2 className="text-base font-bold text-gray-800">掲載管理TOP</h2><HelpIcon onClick={() => onToast('ヘルプは準備中です')} /></div>
 
       <div>
         <SectionBar>サロンレポート</SectionBar>
         <div className="border border-t-0 border-slate-300 bg-white px-4 py-3 text-sm space-y-1.5 rounded-b">
-          <p><button onClick={() => onToast('サロンレポート ダウンロード画面は準備中です')} className="text-sky-600 underline">サロンレポート ダウンロード画面<ExtIcon /></button> <span className="text-gray-500 text-xs">月ごとのレポートを作成してダウンロードすることができます。</span></p>
-          <p><button onClick={() => onToast('HOT PEPPER Beauty レポートは準備中です')} className="text-sky-600 underline">HOT PEPPER Beauty レポート<ExtIcon /></button> <span className="text-gray-500 text-xs">レポート作成を待たずに概要を確認することができます。</span></p>
+          <p><button onClick={() => setReportModal(true)} className="text-sky-600 underline">サロンレポート ダウンロード画面</button> <span className="text-gray-500 text-xs">月ごとのレポートを作成してダウンロードすることができます。</span></p>
+          <p><button onClick={() => setReportModal(true)} className="text-sky-600 underline">HOT PEPPER Beauty レポート</button> <span className="text-gray-500 text-xs">レポート作成を待たずに概要を確認することができます。</span></p>
         </div>
       </div>
 
@@ -295,10 +332,10 @@ function TopPage({ salonName, statusLabel, slug, counts, onToast }: { salonName:
               <tr key={r.label} className={r.empty ? 'text-gray-400' : ''}>
                 <td className="border border-slate-200 px-3 py-3"><button onClick={openPreview} className="text-sky-600 underline">{r.label}<ExtIcon /></button>{r.label2 && <><br /><button onClick={openPreview} className="text-sky-600 underline">{r.label2}<ExtIcon /></button></>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center text-xs">{r.empty ? '' : <>{r.editor}<br />({r.date})</>}</td>
-                <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? <span className="text-rose-500 text-xs">現在、こだわり掲載情報はありません。</span> : r.check ? <button onClick={() => onToast('掲載チェックは準備中です')} className="text-rose-500 underline text-xs">{r.check}</button> : ''}</td>
+                <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? <span className="text-rose-500 text-xs">現在、こだわり掲載情報はありません。</span> : r.check ? <button onClick={() => setCheckModal(true)} className="text-rose-500 underline text-xs">{r.check}</button> : ''}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center"></td>
                 <td className="border border-slate-200 px-3 py-3 text-center text-xs">
-                  {r.reflect ? (<><span className="text-emerald-600 font-bold">反映済み</span><br /><button onClick={() => onToast('反映申請は準備中です')} className="mt-1 px-2 py-0.5 bg-gray-200 rounded text-gray-600">反映申請</button><br />({r.reflect.at})</>) : ''}
+                  {r.reflect ? (<><span className="text-emerald-600 font-bold">反映済み</span><br /><button disabled={applying} onClick={applyPublish} className="mt-1 px-2 py-0.5 bg-gray-200 rounded text-gray-600 disabled:opacity-40">反映申請</button><br />({r.reflect.at})</>) : ''}
                 </td>
               </tr>
             ))}
