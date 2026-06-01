@@ -10,6 +10,18 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
 
+// マイグレーション未適用環境向け：追加カラム（提示条件など）が無い場合に除外して再試行
+const COUPON_EXT_KEYS = ['presentation_timing', 'usage_condition', 'search_category1', 'search_category2', 'duration_minutes'] as const;
+function isMissingColumnError(error: { code?: string; message?: string } | null): boolean {
+  if (!error) return false;
+  return error.code === 'PGRST204' || error.code === '42703' || /column .* does not exist/i.test(error.message ?? '');
+}
+function omitExt<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  const copy = { ...obj };
+  for (const k of COUPON_EXT_KEYS) delete copy[k];
+  return copy;
+}
+
 const couponSchema = z.object({
   name: z.string().min(1).max(100),
   description: z.string().max(500).optional().nullable(),
@@ -20,6 +32,11 @@ const couponSchema = z.object({
   valid_from: z.string().nullable().optional(),
   valid_until: z.string().nullable().optional(),
   is_active: z.boolean().optional(),
+  presentation_timing: z.string().max(20).optional().nullable(),
+  usage_condition: z.string().max(100).optional().nullable(),
+  search_category1: z.string().max(50).optional().nullable(),
+  search_category2: z.string().max(50).optional().nullable(),
+  duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
 }).refine(
   (data) => !(data.discount_type === 'percentage' && data.discount_value != null && data.discount_value > 100),
   { message: 'percentage discount_value must be 0-100', path: ['discount_value'] },
@@ -78,11 +95,11 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('coupons').insert({
-    facility_id: auth.facilityId,
-    ...parsed.data,
-    is_active: parsed.data.is_active ?? true,
-  }).select().single();
+  const insertRow = { facility_id: auth.facilityId, ...parsed.data, is_active: parsed.data.is_active ?? true };
+  let { data, error } = await admin.from('coupons').insert(insertRow).select().single();
+  if (error && isMissingColumnError(error)) {
+    ({ data, error } = await admin.from('coupons').insert(omitExt(insertRow)).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 

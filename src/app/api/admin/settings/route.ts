@@ -39,6 +39,8 @@ const settingsSchema = z.object({
   business_hours_text: z.string().max(200).optional().nullable(),
   directions: z.string().max(500).optional().nullable(),
   remarks: z.string().max(500).optional().nullable(),
+  payment_other: z.string().max(100).optional().nullable(),
+  parking_text: z.string().max(100).optional().nullable(),
   owner_name: z.string().max(50).optional().nullable(),
   owner_title: z.string().max(50).optional().nullable(),
   owner_message: z.string().max(500).optional().nullable(),

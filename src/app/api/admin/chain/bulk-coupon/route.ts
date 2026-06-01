@@ -60,11 +60,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: some facilities not authorized' }, { status: 403 });
   }
 
+  // API契約の値を coupons テーブルの CHECK 制約語彙へマッピング（不一致は CHECK 違反で500の原因）
+  // discount_type CHECK: ('fixed','percentage','special_price')
+  const DISCOUNT_MAP: Record<string, string> = { percent: 'percentage', fixed: 'fixed', special: 'special_price' };
+  // coupon_type CHECK: ('new_customer','repeat','limited_time','all')。first_visit→new_customer、birthday は対応値が無いため all。
+  const COUPON_TYPE_MAP: Record<string, string> = { first_visit: 'new_customer', birthday: 'all', all: 'all' };
+  const dbDiscountType = DISCOUNT_MAP[discount_type] ?? 'fixed';
+  const dbCouponType = COUPON_TYPE_MAP[coupon_type] ?? 'all';
+
   const rows = facility_ids.map((fid: string) => ({
     facility_id: fid,
     name: name.trim(),
-    coupon_type: ['all', 'first_visit', 'birthday'].includes(coupon_type) ? coupon_type : 'all',
-    discount_type,
+    coupon_type: dbCouponType,
+    discount_type: dbDiscountType,
     discount_value: discount_value ?? null,
     special_price: special_price ?? null,
     valid_from: valid_from || null,

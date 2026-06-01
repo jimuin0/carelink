@@ -19,8 +19,8 @@ interface StaffRow { id: string; name: string; position: string | null; specialt
 interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; title?: string | null; genre?: string | null; search_category?: string | null; image_submission?: boolean | null; is_published?: boolean | null; coupon_id?: string | null; }
 interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
-interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; }
-interface BlogRow { id: string; title: string; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; coupon_id?: string | null; }
+interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; }
+interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; coupon_id?: string | null; category?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
@@ -136,8 +136,8 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
       sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
       sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id,coupon_id').eq('facility_id', facilityId).order('created_at', { ascending: false }),
+      sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
+      sb.from('blog_posts').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
       sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
     ]);
     setStaff((st.data as StaffRow[]) ?? []);
@@ -154,7 +154,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
   // クーポンのみ軽量再取得（全画面スケルトンを出さず保存後に一覧反映）
   const reloadCoupons = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('coupons').select('id,name,description,coupon_type,special_price,valid_from,valid_until,is_active').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    const { data } = await sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true });
     setCoupons((data as CouponRow[]) ?? []);
   }, [facilityId]);
 
@@ -166,7 +166,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 
   const reloadBlogs = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('blog_posts').select('id,title,is_published,published_at,created_at,thumbnail_url,author_id,coupon_id').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    const { data } = await sb.from('blog_posts').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false });
     setBlogs((data as BlogRow[]) ?? []);
   }, [facilityId]);
 
@@ -374,6 +374,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   // 単純カラムに対応する主要項目を保存対象とする（キャッチ/コピー/アクセス/定休日）
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [formKey, setFormKey] = useState(0); // キャンセル時に未制御入力(CharInput等)を再マウントしてリセット
   const [imgs, setImgs] = useState<{ header: string; logo: string; owner: string }>({ header: '', logo: '', owner: '' });
   const [design, setDesign] = useState<{ template: string; color: string }>({ template: '', color: '' });
   const [uploading, setUploading] = useState(false);
@@ -400,7 +401,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       }
     } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
   };
-  const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '', business_hours_text: '', directions: '', remarks: '', owner_name: '', owner_title: '', owner_message: '' });
+  const fields = useRef({ catch_copy: '', description: '', access_info: '', regular_holiday: '', business_hours_text: '', directions: '', remarks: '', owner_name: '', owner_title: '', owner_message: '', payment_other: '', parking_text: '' });
   const website = useRef<string>(''); // 既存値を保持して保存時に消さない（settingsは未送信でnull化するため）
   const featureSet = useRef<Set<string>>(new Set()); // こだわり条件/サービス/支払い/メンズ等のチェック集約 → features配列
   const counts = useRef({ seat: '', staff: '' }); // 設備総数 → seat_count, スタッフ総数 → staff_count
@@ -408,6 +409,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
   const equip = useRef<{ name: string; count: string }[]>([{ name: '', count: '' }, { name: '', count: '' }, { name: '', count: '' }]); // 設備明細
   const staffRows = useRef<{ role: string; count: string }[]>([{ role: '', count: '' }, { role: '', count: '' }, { role: '', count: '' }]); // スタッフ数明細
   const extEnabled = useRef(false); // 拡張カラム(business_hours_text等)がDBに存在するか
+  const snapshot = useRef<{ fields: typeof fields.current; website: string; features: string[]; counts: typeof counts.current; genres: string[]; equip: typeof equip.current; staffRows: typeof staffRows.current; imgs: { header: string; logo: string; owner: string }; design: { template: string; color: string } } | null>(null);
   const toggleFeature = (label: string, on: boolean) => { if (on) featureSet.current.add(label); else featureSet.current.delete(label); };
   useEffect(() => {
     let cancelled = false;
@@ -415,13 +417,13 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       const sb = createBrowserSupabaseClient();
       // 拡張カラムを明示selectし、エラー(マイグレーション未適用)なら基本カラムのみで再取得
       let d: Record<string, unknown> = {};
-      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown,header_photo_url,logo_url,owner_photo_url,design_template,design_color';
+      const extCols = 'catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count,business_hours_text,directions,remarks,owner_name,owner_title,owner_message,genres,equipment,staff_breakdown,header_photo_url,logo_url,owner_photo_url,design_template,design_color,payment_other,parking_text';
       const extRes = await sb.from('facility_profiles').select(extCols).eq('id', facilityId).maybeSingle();
       if (!extRes.error) { extEnabled.current = true; d = (extRes.data as Record<string, unknown> | null) ?? {}; }
       else { extEnabled.current = false; const base = await sb.from('facility_profiles').select('catch_copy,description,access_info,regular_holiday,website_url,features,seat_count,staff_count').eq('id', facilityId).maybeSingle(); d = (base.data as Record<string, unknown> | null) ?? {}; }
       if (!cancelled) {
         const s = (k: string) => (d[k] as string) ?? '';
-        fields.current = { catch_copy: s('catch_copy'), description: s('description'), access_info: s('access_info'), regular_holiday: s('regular_holiday'), business_hours_text: s('business_hours_text'), directions: s('directions'), remarks: s('remarks'), owner_name: s('owner_name'), owner_title: s('owner_title'), owner_message: s('owner_message') };
+        fields.current = { catch_copy: s('catch_copy'), description: s('description'), access_info: s('access_info'), regular_holiday: s('regular_holiday'), business_hours_text: s('business_hours_text'), directions: s('directions'), remarks: s('remarks'), owner_name: s('owner_name'), owner_title: s('owner_title'), owner_message: s('owner_message'), payment_other: s('payment_other'), parking_text: s('parking_text') };
         website.current = s('website_url');
         featureSet.current = new Set(Array.isArray(d.features) ? (d.features as string[]) : []);
         counts.current = { seat: d.seat_count != null ? String(d.seat_count) : '', staff: d.staff_count != null ? String(d.staff_count) : '' };
@@ -431,8 +433,16 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         equip.current = [0, 1, 2].map((i) => ({ name: eq[i]?.name ?? '', count: eq[i]?.count != null ? String(eq[i].count) : '' }));
         const sbk = Array.isArray(d.staff_breakdown) ? (d.staff_breakdown as { role: string; count: number }[]) : [];
         staffRows.current = [0, 1, 2].map((i) => ({ role: sbk[i]?.role ?? '', count: sbk[i]?.count != null ? String(sbk[i].count) : '' }));
-        setImgs({ header: s('header_photo_url'), logo: s('logo_url'), owner: s('owner_photo_url') });
-        setDesign({ template: s('design_template') || 'standard', color: s('design_color') || 'pink' });
+        const loadedImgs = { header: s('header_photo_url'), logo: s('logo_url'), owner: s('owner_photo_url') };
+        const loadedDesign = { template: s('design_template') || 'standard', color: s('design_color') || 'pink' };
+        setImgs(loadedImgs);
+        setDesign(loadedDesign);
+        // キャンセル時に復元するためのスナップショット（deep copy）
+        snapshot.current = {
+          fields: { ...fields.current }, website: website.current, features: Array.from(featureSet.current),
+          counts: { ...counts.current }, genres: [...genres.current], equip: equip.current.map((e) => ({ ...e })),
+          staffRows: staffRows.current.map((e) => ({ ...e })), imgs: { ...loadedImgs }, design: { ...loadedDesign },
+        };
         setLoaded(true);
       }
     })().catch(() => setLoaded(true));
@@ -454,6 +464,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       };
       const ext = extEnabled.current ? {
         business_hours_text: fields.current.business_hours_text, directions: fields.current.directions, remarks: fields.current.remarks,
+        payment_other: fields.current.payment_other, parking_text: fields.current.parking_text,
         owner_name: fields.current.owner_name, owner_title: fields.current.owner_title, owner_message: fields.current.owner_message,
         genres: genres.current.filter((x) => x && x !== '未選択'),
         equipment: equip.current.filter((e) => e.name.trim()).map((e) => ({ name: e.name.trim(), count: e.count ? parseInt(e.count, 10) : 0 })),
@@ -467,6 +478,23 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
       onToast('サロン掲載情報を保存しました'); setSaving(false);
     } catch { onToast('通信エラーが発生しました'); setSaving(false); }
   };
+  // キャンセル：最後に読み込んだ値へ全入力を復元し、未制御入力を再マウント
+  const reset = () => {
+    const snap = snapshot.current;
+    if (snap) {
+      fields.current = { ...snap.fields };
+      website.current = snap.website;
+      featureSet.current = new Set(snap.features);
+      counts.current = { ...snap.counts };
+      genres.current = [...snap.genres];
+      equip.current = snap.equip.map((e) => ({ ...e }));
+      staffRows.current = snap.staffRows.map((e) => ({ ...e }));
+      setImgs({ ...snap.imgs });
+      setDesign({ ...snap.design });
+    }
+    setFormKey((k) => k + 1);
+    onToast('変更を取り消しました');
+  };
   // こだわり/サービス/支払い等のチェック（features集約・初期値プリフィル）
   const Feat = ({ label }: { label: string }) => (
     <label className="flex items-center gap-1"><input type="checkbox" defaultChecked={featureSet.current.has(label)} onChange={(e) => toggleFeature(label, e.target.checked)} />{label}</label>
@@ -476,13 +504,13 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
     <div className="flex items-center justify-end gap-2">
       <span className="text-[11px] text-rose-500 mr-auto flex items-center"><Req />必須項目</span>
       <button disabled={saving} onClick={save} className="px-6 py-1.5 bg-sky-500 text-white text-sm font-bold rounded hover:bg-sky-600 disabled:opacity-50">{saving ? '保存中…' : '登録'}</button>
-      <button onClick={() => onToast('変更を取り消しました')} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded hover:bg-gray-500">キャンセル</button>
+      <button onClick={reset} className="px-6 py-1.5 bg-gray-400 text-white text-sm font-bold rounded hover:bg-gray-500">キャンセル</button>
     </div>
   );
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   if (!loaded) return <div className="max-w-4xl"><div className="animate-pulse h-40 bg-gray-200 rounded" /></div>;
   return (
-    <div className="max-w-4xl space-y-4">
+    <div key={formKey} className="max-w-4xl space-y-4">
       <h2 className="text-base font-bold text-gray-800">サロン掲載情報編集</h2>
       <p className="text-[11px] text-gray-500">※「画像応募」にチェックをすると、Hot Pepper Beautyサイトの特集/メルマガ/装飾・バナー/公式Facebookページ等に使用される対象となります。 <button onClick={() => onToast('使用事例は準備中です')} className="text-sky-600 underline">使用事例はこちら</button></p>
       <SaveBar />
@@ -564,8 +592,8 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         <FormRow label="定休日" required><CharInput max={50} placeholder="日曜日・年末年始" below defaultValue={fields.current.regular_holiday} onValueChange={(v) => { fields.current.regular_holiday = v; }} /></FormRow>
         <FormRow label="支払い方法">
           <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">{['Visa', 'Mastercard', 'JCB', 'American Express', 'Diners Club', 'UnionPay（銀聯）', 'Discover'].map((c) => <span key={c} className="whitespace-nowrap"><Feat label={c} /></span>)}</div>
-          <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" />その他</label>
-          <div className="mt-1"><CharInput max={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" below /></div>
+          <label className="flex items-center gap-1 text-xs mt-1"><input type="checkbox" defaultChecked={!!fields.current.payment_other} />その他</label>
+          <div className="mt-1"><CharInput max={40} placeholder="PayPay・auPAY・LINEPay・d払い・メルPay 等" below defaultValue={fields.current.payment_other} onValueChange={(v) => { fields.current.payment_other = v; }} /></div>
         </FormRow>
         <FormRow label="設備">
           <div className="flex gap-8">
@@ -582,7 +610,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
             </div>
           </div>
         </FormRow>
-        <FormRow label="駐車場"><CharInput max={20} placeholder="提携駐車場あり 等" below /></FormRow>
+        <FormRow label="駐車場"><CharInput max={20} placeholder="提携駐車場あり 等" below defaultValue={fields.current.parking_text} onValueChange={(v) => { fields.current.parking_text = v; }} /></FormRow>
         <FormRow label="備考"><CharTextarea max={100} rows={3} placeholder="備考" defaultValue={fields.current.remarks} onValueChange={(v) => { fields.current.remarks = v; }} /></FormRow>
       </Panel>
 
@@ -709,7 +737,17 @@ function StaffListPage({ rows, facilityId, onReload, onToast }: { rows: StaffRow
 function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows: PhotoRow[]; coupons: CouponRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const extOn = rows.length > 0 && 'genre' in (rows[0] as object);
-  const [drafts, setDrafts] = useState<Record<string, PhotoDraft>>(() => Object.fromEntries(rows.map((p) => [p.id, { title: p.title ?? '', caption: p.caption ?? '', genre: p.genre ?? 'まつげ・メイクなど', search_category: p.search_category ?? 'その他', image_submission: p.image_submission ?? false, is_published: p.is_published ?? true, coupon_id: p.coupon_id ?? '' }])));
+  const draftOf = (p: PhotoRow): PhotoDraft => ({ title: p.title ?? '', caption: p.caption ?? '', genre: p.genre ?? 'まつげ・メイクなど', search_category: p.search_category ?? 'その他', image_submission: p.image_submission ?? false, is_published: p.is_published ?? true, coupon_id: p.coupon_id ?? '' });
+  const [drafts, setDrafts] = useState<Record<string, PhotoDraft>>(() => Object.fromEntries(rows.map((p) => [p.id, draftOf(p)])));
+  // アップロードで写真が増えた場合、未登録 id の下書きを補完（saveAll の drafts[id] undefined クラッシュ防止）
+  useEffect(() => {
+    setDrafts((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const p of rows) if (!next[p.id]) { next[p.id] = draftOf(p); changed = true; }
+      return changed ? next : prev;
+    });
+  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
   const updD = (id: string, k: keyof PhotoDraft, v: string | boolean) => setDrafts((m) => ({ ...m, [id]: { ...m[id], [k]: v } }));
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -741,7 +779,7 @@ function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows:
     if (saving) return; setSaving(true);
     try {
       for (const p of rows) {
-        const dr = drafts[p.id];
+        const dr = drafts[p.id] ?? draftOf(p);
         const payload = { caption: dr.caption, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published, coupon_id: dr.coupon_id || null } : {}) };
         const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
@@ -805,11 +843,27 @@ function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]
     reservable: m.reservable ?? true, isPublished: m.is_published ?? true, showTilde: m.price_show_tilde ?? false, priceAsk: m.price_ask ?? false,
   })));
   const [saving, setSaving] = useState(false);
+  const [remarks, setRemarks] = useState('');
+  const [remarksSupported, setRemarksSupported] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const res = await fetch(`/api/admin/menu-remarks?facility_id=${facilityId}`);
+      if (!res.ok) return;
+      const d = await res.json().catch(() => null);
+      if (!cancelled && d) { setRemarks(d.menu_remarks ?? ''); setRemarksSupported(!!d.supported); }
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [facilityId]);
   const upd = (i: number, k: keyof MenuDraft, v: string | boolean) => setItems((arr) => arr.map((it, idx) => idx === i ? { ...it, [k]: v } : it));
 
   const saveAll = async () => {
     if (saving) return; setSaving(true);
     try {
+      if (remarksSupported) {
+        const rRes = await fetch(`/api/admin/menu-remarks?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ menu_remarks: remarks.trim() || null }) });
+        if (!rRes.ok) { const d = await rRes.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+      }
       for (const it of items) {
         if (!it.name.trim() || !it.category.trim()) { onToast('カテゴリとメニュー名は必須です'); setSaving(false); return; }
         const payload = { category: it.category, subcategory: it.subcategory || null, search_category: it.search_category || null, name: it.name.trim(), description: it.description.trim() || null, price: it.price ? parseInt(it.price, 10) : null, duration_minutes: it.duration ? parseInt(it.duration, 10) : null,
@@ -835,7 +889,7 @@ function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]
       <h2 className="text-base font-bold text-gray-800">メニュー掲載情報編集</h2>
       <div className="flex justify-end gap-2"><button disabled={saving} onClick={saveAll} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button><button onClick={onReload} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
       <Panel title="メニュー備考">
-        <FormRow label="備考"><textarea className={`${input} w-full`} rows={4} maxLength={500} placeholder="メニュー全体の備考" /><div className="text-right"><Counter n={0} max={500} /></div></FormRow>
+        <FormRow label="備考"><textarea className={`${input} w-full`} rows={4} maxLength={500} placeholder="メニュー全体の備考" value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={!remarksSupported} /><div className="text-right"><Counter n={hpbLen(remarks)} max={500} /></div>{!remarksSupported && <p className="text-[10px] text-gray-400">※備考機能の準備中です。</p>}</FormRow>
       </Panel>
       <Panel title="メニュー設定">
         {items.length === 0 ? (
@@ -966,6 +1020,11 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
   const [vy, setVy] = useState(row?.valid_until ? row.valid_until.slice(0, 4) : '');
   const [vm, setVm] = useState(row?.valid_until ? row.valid_until.slice(5, 7) : '');
   const [vd, setVd] = useState(row?.valid_until ? row.valid_until.slice(8, 10) : '');
+  const [presentationTiming, setPresentationTiming] = useState(row?.presentation_timing ?? '予約時');
+  const [usageCondition, setUsageCondition] = useState(row?.usage_condition ?? '');
+  const [searchCat1, setSearchCat1] = useState(row?.search_category1 ?? 'まつげ・メイクなど');
+  const [searchCat2, setSearchCat2] = useState(row?.search_category2 ?? 'アイブロウ');
+  const [duration, setDuration] = useState(row?.duration_minutes != null ? String(row.duration_minutes) : '120');
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
@@ -985,6 +1044,11 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
         discount_type: 'special_price' as const,
         special_price: special ? parseInt(special, 10) : null,
         valid_until,
+        presentation_timing: presentationTiming || null,
+        usage_condition: usageCondition.trim() || null,
+        search_category1: searchCat1 || null,
+        search_category2: searchCat2 || null,
+        duration_minutes: duration ? parseInt(duration, 10) : null,
       };
       const url = row ? `/api/admin/coupons/${row.id}` : `/api/admin/coupons?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -1015,20 +1079,20 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
           </div>
         </FormRow>
         <FormRow label="クーポン内容" required><CharTextarea max={90} rows={3} defaultValue={row?.description ?? ''} placeholder="クーポン内容" onValueChange={setDescription} /></FormRow>
-        <FormRow label="提示条件" required><select className={`${input} bg-white`}><option>予約時</option><option>来店時</option></select></FormRow>
-        <FormRow label="利用条件" required><CharInput max={20} placeholder="新規＆まつげパーマ/アイブロウ/マツパ/眉" below /></FormRow>
+        <FormRow label="提示条件" required><select className={`${input} bg-white`} value={presentationTiming} onChange={(e) => setPresentationTiming(e.target.value)}><option value="予約時">予約時</option><option value="来店時">来店時</option></select></FormRow>
+        <FormRow label="利用条件" required><CharInput max={20} defaultValue={row?.usage_condition ?? ''} placeholder="新規＆まつげパーマ/アイブロウ/マツパ/眉" below onValueChange={setUsageCondition} /></FormRow>
         <FormRow label="有効期限">
           <label className="flex items-center gap-1 text-xs"><input type="radio" name="cvalid" checked={noExpiry} onChange={() => setNoExpiry(true)} />設定しない</label>
           <label className="flex items-center gap-1 text-xs mt-1"><input type="radio" name="cvalid" checked={!noExpiry} onChange={() => setNoExpiry(false)} /><input className={`${input} w-16`} placeholder="年" value={vy} onChange={(e) => { setVy(e.target.value); setNoExpiry(false); }} />年<input className={`${input} w-12`} placeholder="月" value={vm} onChange={(e) => { setVm(e.target.value); setNoExpiry(false); }} />月<input className={`${input} w-12`} placeholder="日" value={vd} onChange={(e) => { setVd(e.target.value); setNoExpiry(false); }} />日</label>
         </FormRow>
         <FormRow label="検索用カテゴリ">
-          <div className="flex gap-2"><select className={`${input} bg-white`}><option>まつげ・メイクなど</option></select><select className={`${input} bg-white`}><option>アイブロウ</option></select></div>
+          <div className="flex gap-2"><select className={`${input} bg-white`} value={searchCat1} onChange={(e) => setSearchCat1(e.target.value)}><option value="まつげ・メイクなど">まつげ・メイクなど</option><option value="エステ">エステ</option></select><select className={`${input} bg-white`} value={searchCat2} onChange={(e) => setSearchCat2(e.target.value)}><option value="アイブロウ">アイブロウ</option><option value="まつげエクステ">まつげエクステ</option><option value="まつげパーマ">まつげパーマ</option></select></div>
           <p className="text-[11px] text-gray-400 mt-1">※サロンの掲載情報「お客様番号」のうち設定したカテゴリが反映されます</p>
         </FormRow>
         <FormRow label="メニュー指定">
           <div className="text-xs text-gray-600 mb-1">あり</div>
           <div className="flex items-center gap-2 mb-2"><span className="text-xs text-gray-500">アイコン用カテゴリ</span><button onClick={() => onToast('カテゴリ選択は準備中です')} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">カテゴリ選択</button><span className="text-xs">まつげ・メイクなど－その他まつげメニュー</span></div>
-          <div className="flex items-center gap-3"><span className="text-xs text-gray-500">価格（税込）</span>¥<input className={`${input} w-24`} value={special} onChange={(e) => setSpecial(e.target.value.replace(/[^0-9]/g, ''))} /><span className="text-xs text-gray-500">所要目安時間</span><input className={`${input} w-16`} defaultValue={120} />分</div>
+          <div className="flex items-center gap-3"><span className="text-xs text-gray-500">価格（税込）</span>¥<input className={`${input} w-24`} value={special} onChange={(e) => setSpecial(e.target.value.replace(/[^0-9]/g, ''))} /><span className="text-xs text-gray-500">所要目安時間</span><input className={`${input} w-16`} value={duration} onChange={(e) => setDuration(e.target.value.replace(/[^0-9]/g, ''))} />分</div>
         </FormRow>
       </Panel>
       <SaveBar />
@@ -1074,7 +1138,7 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
       onToast('ブログを削除しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
-  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} coupons={coupons} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
+  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} coupons={coupons} staff={staff} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       {authorModal && (
@@ -1132,20 +1196,40 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
 }
 
 /* ========================= ブログ編集 入力 ========================= */
-function BlogEditPage({ row, coupons, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; coupons: CouponRow[]; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
+function BlogEditPage({ row, coupons, staff, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; coupons: CouponRow[]; staff: StaffRow[]; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const [title, setTitle] = useState(row?.title ?? '');
-  const [body, setBody] = useState(row?.title ? 'こんにちは、パリジェンヌ・眉毛・マツエクの専門店 HALです。' : '');
+  const [body, setBody] = useState(row?.content ?? '');
   const [couponId, setCouponId] = useState(row?.coupon_id ?? '');
+  const [authorId, setAuthorId] = useState(row?.author_id ?? '');
+  const [category, setCategory] = useState(row?.category ?? 'ビューティー');
+  const [thumbnail, setThumbnail] = useState(row?.thumbnail_url ?? '');
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const lineCount = body ? body.split('\n').length : 0;
+  const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await fetch(`/api/admin/photos/upload?facility_id=${facilityId}`, { method: 'POST', body: fd });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok || !d.url) { onToast(d.error || '画像のアップロードに失敗しました'); return; }
+      setThumbnail(d.url);
+      onToast('画像をアップロードしました');
+    } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
+  };
   const save = async () => {
     if (saving) return;
     if (!title.trim()) { onToast('タイトルを入力してください'); return; }
     if (!body.trim()) { onToast('本文を入力してください'); return; }
     setSaving(true);
     try {
-      const payload = { title: title.trim(), content: body.trim(), is_published: !!row?.is_published, coupon_id: couponId || null };
+      const payload = { title: title.trim(), content: body.trim(), is_published: !!row?.is_published, coupon_id: couponId || null, author_id: authorId || null, thumbnail_url: thumbnail || null, category: category || null };
       const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
@@ -1160,11 +1244,13 @@ function BlogEditPage({ row, coupons, facilityId, onClose, onSaved, onToast }: {
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
         <FormRow label="ステータス"><span className="text-sm">{row?.is_published ? '反映済み' : '未反映'}</span> <span className="text-[11px] text-gray-400">（ステータスは一覧の画面で変更可能です）</span></FormRow>
         <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
-        <FormRow label="投稿者"><select className={`${input} bg-white`}><option>スタッフ</option></select> <button onClick={() => onToast('投稿者の追加・編集は一覧画面の「投稿者追加・編集」から行えます')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
-        <FormRow label="カテゴリ"><select className={`${input} bg-white`}><option>ビューティー</option></select></FormRow>
+        <FormRow label="投稿者"><select value={authorId} onChange={(e) => setAuthorId(e.target.value)} className={`${input} bg-white`}><option value="">指定なし</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select> <button onClick={() => onToast('投稿者の追加・編集は一覧画面の「投稿者追加・編集」から行えます')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
+        <FormRow label="カテゴリ"><select className={`${input} bg-white`} value={category} onChange={(e) => setCategory(e.target.value)}><option value="ビューティー">ビューティー</option><option value="ヘア">ヘア</option><option value="ネイル">ネイル</option><option value="メイク">メイク</option><option value="エステ">エステ</option><option value="その他">その他</option></select></FormRow>
         <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" onValueChange={setTitle} /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
-          <button onClick={() => onToast('画像アップロードは準備中です')} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1">画像アップロード</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
+          <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPickImage} />
+          <button disabled={uploading} onClick={() => fileRef.current?.click()} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1 disabled:opacity-50">{uploading ? 'アップロード中…' : '画像アップロード'}</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
+          {thumbnail && <div className="mb-1"><img src={thumbnail} alt="サムネイル" className="h-20 rounded border border-gray-200" /></div>}
           <div className="flex items-start gap-2">
             <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} maxLength={1000} placeholder="本文" className={`${input} flex-1`} />
             <div className="flex flex-col gap-3 text-[10px] text-gray-400 shrink-0">

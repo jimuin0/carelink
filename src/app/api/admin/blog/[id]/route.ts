@@ -11,7 +11,13 @@ const blogUpdateSchema = z.object({
   content: z.string().min(1).max(50000).optional(),
   is_published: z.boolean().optional(),
   coupon_id: z.string().uuid().optional().nullable(),
+  author_id: z.string().uuid().optional().nullable(),
+  thumbnail_url: z.string().max(200000).optional().nullable(),
+  category: z.string().max(50).optional().nullable(),
 });
+
+const isMissingColumn = (e: { code?: string; message?: string } | null) =>
+  !!e && (e.code === 'PGRST204' || e.code === '42703' || /column .* does not exist/i.test(e.message ?? ''));
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -57,13 +63,18 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin
+  let { data, error } = await admin
     .from('blog_posts')
     .update(updatePayload)
     .eq('id', params.id)
     .eq('facility_id', facilityId)
     .select()
     .single();
+  if (isMissingColumn(error)) {
+    const { category: _cat, ...base } = updatePayload;
+    void _cat;
+    ({ data, error } = await admin.from('blog_posts').update(base).eq('id', params.id).eq('facility_id', facilityId).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });

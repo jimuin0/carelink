@@ -55,8 +55,11 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('staff_profiles').insert({
+  // slug は NOT NULL・UNIQUE(facility_id, slug)。氏名は日本語のため一意な ASCII slug を自動生成。
+  const slug = `staff-${globalThis.crypto.randomUUID()}`;
+  const insertRow = {
     facility_id: auth.facilityId,
+    slug,
     name: parsed.data.name,
     position: parsed.data.position ?? null,
     bio: parsed.data.bio ?? null,
@@ -67,7 +70,16 @@ export async function POST(request: NextRequest) {
     line_works_channel_id: parsed.data.line_works_channel_id ?? null,
     line_works_notify_all: parsed.data.line_works_notify_all ?? false,
     is_active: true,
-  }).select().single();
+  };
+  // line_works_* カラム未適用(20260417マイグレーション未実行)環境でも500にしないフォールバック
+  const isMissingColumn = (e: { code?: string; message?: string } | null) =>
+    !!e && (e.code === 'PGRST204' || e.code === '42703' || /column .* does not exist/i.test(e.message ?? ''));
+  let { data, error } = await admin.from('staff_profiles').insert(insertRow).select().single();
+  if (isMissingColumn(error)) {
+    const { line_works_channel_id: _c, line_works_notify_all: _n, ...base } = insertRow;
+    void _c; void _n;
+    ({ data, error } = await admin.from('staff_profiles').insert(base).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 

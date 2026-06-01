@@ -12,7 +12,14 @@ const blogPostSchema = z.object({
   content: z.string().min(1).max(50000),
   is_published: z.boolean().optional(),
   coupon_id: z.string().uuid().optional().nullable(),
+  author_id: z.string().uuid().optional().nullable(),
+  thumbnail_url: z.string().max(200000).optional().nullable(),
+  category: z.string().max(50).optional().nullable(),
 });
+
+// category カラム未適用環境でも500にしないためのフォールバック判定
+const isMissingColumn = (e: { code?: string; message?: string } | null) =>
+  !!e && (e.code === 'PGRST204' || e.code === '42703' || /column .* does not exist/i.test(e.message ?? ''));
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -53,15 +60,24 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient();
   // slug は NOT NULL・UNIQUE(facility_id, slug)。タイトルは日本語のため一意な ASCII slug を自動生成。
   const slug = `post-${globalThis.crypto.randomUUID()}`;
-  const { data, error } = await admin.from('blog_posts').insert({
+  const insertRow = {
     facility_id: auth.facilityId,
     title: parsed.data.title,
     content: parsed.data.content,
     slug,
     coupon_id: parsed.data.coupon_id ?? null,
+    author_id: parsed.data.author_id ?? null,
+    thumbnail_url: parsed.data.thumbnail_url ?? null,
+    category: parsed.data.category ?? null,
     is_published: isPublished,
     published_at: isPublished ? new Date().toISOString() : null,
-  }).select().single();
+  };
+  let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
+  if (isMissingColumn(error)) {
+    const { category: _cat, ...base } = insertRow;
+    void _cat;
+    ({ data, error } = await admin.from('blog_posts').insert(base).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
