@@ -117,6 +117,17 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
   const [coupons, setCoupons] = useState<CouponRow[]>([]);
   const [blogs, setBlogs] = useState<BlogRow[]>([]);
   const [reviews, setReviews] = useState<ReviewRow[]>([]);
+  const [slug, setSlug] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const sb = createBrowserSupabaseClient();
+      const { data } = await sb.from('facility_profiles').select('slug').eq('id', facilityId).maybeSingle();
+      if (!cancelled) setSlug((data as { slug: string } | null)?.slug ?? '');
+    })().catch(() => {});
+    return () => { cancelled = true; };
+  }, [facilityId]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -194,7 +205,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
           <div className="animate-pulse space-y-3"><div className="h-8 bg-gray-200 rounded w-64" /><div className="h-40 bg-gray-200 rounded max-w-3xl" /></div>
         ) : (
           <>
-            {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
+            {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
             {tab === 'photo' && <PhotoEditPage rows={photos} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
@@ -212,7 +223,8 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 }
 
 /* ========================= 掲載管理TOP ========================= */
-function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: string; statusLabel: string; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void }) {
+function TopPage({ salonName, statusLabel, slug, counts, onToast }: { salonName: string; statusLabel: string; slug: string; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void }) {
+  const openPreview = () => { if (slug) window.open(`/salon/${slug}`, '_blank', 'noopener'); else onToast('公開URLが未設定です'); };
   const today = '2026/05/29';
   const rows: { label: string; label2?: string; editor: string; date: string; check: string; empty?: boolean; reflect: { applied: boolean; at: string } | null }[] = [
     { label: 'サロン掲載情報', editor: '太田由香利', date: '2026/02/10', check: '要確認', reflect: { applied: true, at: '2026/05/02 15:25' } },
@@ -239,7 +251,7 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
         <SectionBar>営業が設定しているページの確認</SectionBar>
         <div className="border border-t-0 border-slate-300 bg-white px-4 py-3 text-sm rounded-b">
           <SectionBar sub>サロン基本情報</SectionBar>
-          <button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline text-sm">プレビューを見る<ExtIcon /></button>
+          <button onClick={openPreview} className="text-sky-600 underline text-sm">プレビューを見る<ExtIcon /></button>
         </div>
       </div>
 
@@ -256,7 +268,7 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
             <tbody><tr className="text-center">
               <td className="border border-slate-200 px-3 py-2">{today}</td>
               <td className="border border-slate-200 px-3 py-2">太田由香利</td>
-              <td className="border border-slate-200 px-3 py-2"><button onClick={() => onToast('プレビューは準備中です')} className="text-sky-600 underline">掲載中のページを見る<ExtIcon /></button></td>
+              <td className="border border-slate-200 px-3 py-2"><button onClick={openPreview} className="text-sky-600 underline">掲載中のページを見る<ExtIcon /></button></td>
             </tr></tbody>
           </table>
         </div>
@@ -281,7 +293,7 @@ function TopPage({ salonName, statusLabel, counts, onToast }: { salonName: strin
           <tbody>
             {rows.map((r) => (
               <tr key={r.label} className={r.empty ? 'text-gray-400' : ''}>
-                <td className="border border-slate-200 px-3 py-3"><button onClick={() => onToast(`${r.label} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label}<ExtIcon /></button>{r.label2 && <><br /><button onClick={() => onToast(`${r.label2} のプレビューは準備中です`)} className="text-sky-600 underline">{r.label2}<ExtIcon /></button></>}</td>
+                <td className="border border-slate-200 px-3 py-3"><button onClick={openPreview} className="text-sky-600 underline">{r.label}<ExtIcon /></button>{r.label2 && <><br /><button onClick={openPreview} className="text-sky-600 underline">{r.label2}<ExtIcon /></button></>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center text-xs">{r.empty ? '' : <>{r.editor}<br />({r.date})</>}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center">{r.empty ? <span className="text-rose-500 text-xs">現在、こだわり掲載情報はありません。</span> : r.check ? <button onClick={() => onToast('掲載チェックは準備中です')} className="text-rose-500 underline text-xs">{r.check}</button> : ''}</td>
                 <td className="border border-slate-200 px-3 py-3 text-center"></td>
@@ -982,7 +994,10 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
 function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: BlogRow[]; staff: StaffRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const [editing, setEditing] = useState<BlogRow | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [filterSel, setFilterSel] = useState('all'); // 絞込みドロップダウンの選択
+  const [applied, setApplied] = useState('all'); // 適用中フィルタ
   const authorName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
+  const view = applied === 'published' ? rows.filter((b) => b.is_published) : applied === 'unpublished' ? rows.filter((b) => !b.is_published) : rows;
   const remove = async (b: BlogRow) => {
     if (busy) return; setBusy(true);
     try {
@@ -1003,9 +1018,9 @@ function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: Bl
       <div className="flex items-center gap-2">
         <button onClick={() => setEditing('new')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">新規投稿</button>
         <button onClick={() => onToast('投稿者追加・編集は準備中です')} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded">投稿者追加・編集</button>
-        <div className="ml-auto flex items-center gap-1"><select className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"><option></option></select><button onClick={() => onToast('絞込みは準備中です')} className="px-2 py-1 bg-sky-500 text-white text-xs rounded">絞込み</button><button onClick={() => onToast('絞込み解除は準備中です')} className="px-2 py-1 border border-gray-300 text-gray-600 text-xs rounded">絞込み解除</button></div>
+        <div className="ml-auto flex items-center gap-1"><select value={filterSel} onChange={(e) => setFilterSel(e.target.value)} className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"><option value="all">すべて</option><option value="published">掲載中</option><option value="unpublished">非掲載</option></select><button onClick={() => setApplied(filterSel)} className="px-2 py-1 bg-sky-500 text-white text-xs rounded">絞込み</button><button onClick={() => { setFilterSel('all'); setApplied('all'); }} className="px-2 py-1 border border-gray-300 text-gray-600 text-xs rounded">絞込み解除</button></div>
       </div>
-      <p className="text-xs text-gray-600">該当するブログが <span className="text-rose-500 font-bold">{rows.length}</span> 件あります</p>
+      <p className="text-xs text-gray-600">該当するブログが <span className="text-rose-500 font-bold">{view.length}</span> 件あります</p>
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
         <table className="w-full text-sm">
           <thead><tr className="bg-amber-50 text-gray-600 text-xs">
@@ -1016,9 +1031,9 @@ function BlogListPage({ rows, staff, facilityId, onReload, onToast }: { rows: Bl
             <th className="border border-slate-200 px-2 py-1.5 font-bold">詳細/削除</th>
           </tr></thead>
           <tbody>
-            {rows.length === 0 ? (
+            {view.length === 0 ? (
               <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">ブログが登録されていません</td></tr>
-            ) : rows.map((b) => (
+            ) : view.map((b) => (
               <tr key={b.id} className="align-top">
                 <td className="border border-slate-200 px-0 py-0"><div className="flex h-full"><div className="flex-1 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button></div><div className="w-24 px-2 py-3 border-l border-slate-200 text-[10px] text-gray-500">ビューティー</div></div></td>
                 <td className="border border-slate-200 px-2 py-3 text-center">{b.thumbnail_url ? <img src={b.thumbnail_url} alt="" className="w-16 h-12 object-cover mx-auto" /> : <div className="w-16 h-12 bg-gray-100 mx-auto" />}</td>
