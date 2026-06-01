@@ -25,13 +25,14 @@ const config = {
     'src/lib/validations.ts',
     'src/lib/validations-booking.ts',
     'src/lib/validations-auth.ts',
+    'src/lib/db-fallback.ts',
   ],
   thresholds: {
     high: 100,
     low: 100,
     break: 100,
   },
-  ignorePatterns: ['.claude/**', 'reports/**'],
+  ignorePatterns: ['.claude/**', 'reports/**', '.stryker-tmp/**', '.next/**', 'test-results/**', 'playwright-report/**'],
   // 静的変異体（モジュール読み込み時評価）はJestをハングさせるためスキップ
   // L3で100%分岐カバレッジ済みのため品質担保あり
   ignoreStatic: true,

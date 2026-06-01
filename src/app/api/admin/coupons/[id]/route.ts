@@ -6,21 +6,13 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
 
 // マイグレーション未適用環境向け：追加カラムが無い場合に除外して再試行
 const COUPON_EXT_KEYS = ['presentation_timing', 'usage_condition', 'search_category1', 'search_category2', 'duration_minutes'] as const;
-function isMissingColumnError(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  return error.code === 'PGRST204' || error.code === '42703' || /column .* does not exist/i.test(error.message ?? '');
-}
-function omitExt<T extends Record<string, unknown>>(obj: T): Partial<T> {
-  const copy = { ...obj };
-  for (const k of COUPON_EXT_KEYS) delete copy[k];
-  return copy;
-}
 
 const updateSchema = z.object({
   name: z.string().min(1).max(100).optional(),
@@ -83,8 +75,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const admin = createServiceRoleClient();
   // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
   let { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
-  if (error && isMissingColumnError(error)) {
-    ({ data, error } = await admin.from('coupons').update(omitExt(parsed.data)).eq('id', params.id).eq('facility_id', facilityId).select().single());
+  if (isMissingColumnError(error)) {
+    ({ data, error } = await admin.from('coupons').update(omitKeys(parsed.data, COUPON_EXT_KEYS)).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

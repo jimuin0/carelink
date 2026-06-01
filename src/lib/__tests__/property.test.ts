@@ -338,3 +338,64 @@ describe('isValidPrefectureSlug / isValidBusinessTypeSlug — property tests', (
     );
   });
 });
+
+// ─── db-fallback（L5 プロパティ） ─────────────────────────────────────────────
+import { isMissingColumnError, omitKeys } from '../db-fallback';
+
+describe('db-fallback プロパティ', () => {
+  test('isMissingColumnError: PGRST204/42703 は常に true', () => {
+    fc.assert(
+      fc.property(fc.constantFrom('PGRST204', '42703'), (code) => {
+        expect(isMissingColumnError({ code })).toBe(true);
+      }),
+    );
+  });
+
+  test('isMissingColumnError: コード不一致かつ message に "does not exist" を含まなければ false', () => {
+    const benignMsg = fc.string().filter((s) => !/column .* does not exist/i.test(s));
+    fc.assert(
+      fc.property(
+        fc.string().filter((c) => c !== 'PGRST204' && c !== '42703'),
+        benignMsg,
+        (code, message) => {
+          expect(isMissingColumnError({ code, message })).toBe(false);
+        },
+      ),
+    );
+  });
+
+  test('isMissingColumnError: null/undefined は常に false', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(null, undefined), (e) => {
+        expect(isMissingColumnError(e)).toBe(false);
+      }),
+    );
+  });
+
+  test('omitKeys: 指定キーは結果の自身のプロパティに存在せず、それ以外は保持される', () => {
+    const objArb = fc.dictionary(fc.string(), fc.integer());
+    const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+    fc.assert(
+      fc.property(objArb, fc.array(fc.string()), (obj, keys) => {
+        const result = omitKeys(obj, keys);
+        // 指定キーは「自身の」プロパティとして存在しない（継承プロパティ toString 等は対象外）
+        for (const k of keys) expect(own(result, k)).toBe(false);
+        // 除外対象でない自身のキーは値を保持
+        for (const k of Object.keys(obj)) {
+          if (!keys.includes(k)) expect(result[k]).toBe(obj[k]);
+        }
+      }),
+    );
+  });
+
+  test('omitKeys: 元オブジェクトを変更しない', () => {
+    const objArb = fc.dictionary(fc.string(), fc.integer());
+    fc.assert(
+      fc.property(objArb, fc.array(fc.string()), (obj, keys) => {
+        const snapshot = JSON.stringify(obj);
+        omitKeys(obj, keys);
+        expect(JSON.stringify(obj)).toBe(snapshot);
+      }),
+    );
+  });
+});

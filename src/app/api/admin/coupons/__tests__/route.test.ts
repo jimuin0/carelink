@@ -275,3 +275,14 @@ test('POST: レスポンスが { coupon: ... } 形式', async () => {
   expect(json.coupon).toBeDefined();
   expect(json.coupon.id).toBe('aaa');
 });
+
+// ─── 拡張カラム不在フォールバック ──────────────────────────────────────────────
+test('POST: 拡張カラム不在(42703)なら除外して再試行し 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(insertSingle(null, { code: '42703', message: 'column does not exist' }))
+    .mockReturnValueOnce(insertSingle({ id: 'c2' }));
+  const res = await POST(makePostRequest(validPostBody({ presentation_timing: '予約時' })));
+  expect(res.status).toBe(201);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+});

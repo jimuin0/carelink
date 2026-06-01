@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
 
 const blogUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -15,9 +16,6 @@ const blogUpdateSchema = z.object({
   thumbnail_url: z.string().max(200000).optional().nullable(),
   category: z.string().max(50).optional().nullable(),
 });
-
-const isMissingColumn = (e: { code?: string; message?: string } | null) =>
-  !!e && (e.code === 'PGRST204' || e.code === '42703' || /column .* does not exist/i.test(e.message ?? ''));
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -70,10 +68,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .eq('facility_id', facilityId)
     .select()
     .single();
-  if (isMissingColumn(error)) {
-    const { category: _cat, ...base } = updatePayload;
-    void _cat;
-    ({ data, error } = await admin.from('blog_posts').update(base).eq('id', params.id).eq('facility_id', facilityId).select().single());
+  if (isMissingColumnError(error)) {
+    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

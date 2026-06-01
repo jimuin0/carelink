@@ -65,7 +65,8 @@ export async function POST(req: NextRequest) {
   const DISCOUNT_MAP: Record<string, string> = { percent: 'percentage', fixed: 'fixed', special: 'special_price' };
   // coupon_type CHECK: ('new_customer','repeat','limited_time','all')。first_visit→new_customer、birthday は対応値が無いため all。
   const COUPON_TYPE_MAP: Record<string, string> = { first_visit: 'new_customer', birthday: 'all', all: 'all' };
-  const dbDiscountType = DISCOUNT_MAP[discount_type] ?? 'fixed';
+  // discount_type は VALID_DISCOUNT_TYPES で検証済み＝必ず DISCOUNT_MAP のキー
+  const dbDiscountType = DISCOUNT_MAP[discount_type];
   const dbCouponType = COUPON_TYPE_MAP[coupon_type] ?? 'all';
 
   const rows = facility_ids.map((fid: string) => ({

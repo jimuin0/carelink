@@ -201,3 +201,21 @@ test('POST: レートリミット params (20/60s)', async () => {
   expect(call[1]).toBe(20);
   expect(call[2]).toBe(60_000);
 });
+
+// ─── カラム不在フォールバック（category 未適用環境） ──────────────────────────
+test('POST: category カラム不在(PGRST204)なら除外して再試行し 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(insertSingle(null, { code: 'PGRST204', message: 'column blog_posts.category does not exist' }))
+    .mockReturnValueOnce(insertSingle({ id: 'p2' }));
+  // status 201 = カラム不在エラー後、category を除外して再試行が成功した証跡（再試行なしなら 500）
+  const res = await POST(makeRequest(validBody({ category: 'ヘア' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: 非カラム不在エラーは再試行せず 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle(null, { code: 'XX999', message: 'other error' }));
+  const res = await POST(makeRequest(validBody({ category: 'ヘア' })));
+  expect(res.status).toBe(500);
+});

@@ -241,3 +241,22 @@ test('POST: レートリミット params (20/60s)', async () => {
   expect(call[1]).toBe(20);
   expect(call[2]).toBe(60_000);
 });
+
+// ─── line_works_* カラム不在フォールバック ────────────────────────────────────
+test('POST: line_works カラム不在(PGRST204)なら除外して再試行し 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(insertSingle(null, { code: 'PGRST204', message: 'column staff_profiles.line_works_channel_id does not exist' }))
+    .mockReturnValueOnce(insertSingle({ id: 's2', name: 'テスト' }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(201);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+});
+
+test('POST: 非カラム不在エラーは再試行せず 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle(null, { code: 'XX999', message: 'other' }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(500);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(1);
+});

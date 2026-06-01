@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
 
 const staffSchema = z.object({
   name: z.string().min(1).max(50),
@@ -72,13 +73,9 @@ export async function POST(request: NextRequest) {
     is_active: true,
   };
   // line_works_* カラム未適用(20260417マイグレーション未実行)環境でも500にしないフォールバック
-  const isMissingColumn = (e: { code?: string; message?: string } | null) =>
-    !!e && (e.code === 'PGRST204' || e.code === '42703' || /column .* does not exist/i.test(e.message ?? ''));
   let { data, error } = await admin.from('staff_profiles').insert(insertRow).select().single();
-  if (isMissingColumn(error)) {
-    const { line_works_channel_id: _c, line_works_notify_all: _n, ...base } = insertRow;
-    void _c; void _n;
-    ({ data, error } = await admin.from('staff_profiles').insert(base).select().single());
+  if (isMissingColumnError(error)) {
+    ({ data, error } = await admin.from('staff_profiles').insert(omitKeys(insertRow, ['line_works_channel_id', 'line_works_notify_all'])).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

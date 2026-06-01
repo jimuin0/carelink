@@ -270,3 +270,14 @@ test('DELETE: facility_id なし → 401', async () => {
   const res = await DELETE(makeRequest('DELETE', undefined, null), makeProps());
   expect(res.status).toBe(401);
 });
+
+// ─── category カラム不在フォールバック（PATCH） ───────────────────────────────
+test('PATCH: category カラム不在(42703)なら除外して再試行し 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(updateFacilityChain(null, { code: '42703', message: 'column does not exist' }))
+    .mockReturnValueOnce(updateFacilityChain({ id: POST_UUID, title: 'New' }));
+  const res = await PATCH(makeRequest('PATCH', { category: 'ネイル' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+});

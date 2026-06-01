@@ -6,21 +6,13 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
 
 // マイグレーション未適用環境向け：追加カラム（提示条件など）が無い場合に除外して再試行
 const COUPON_EXT_KEYS = ['presentation_timing', 'usage_condition', 'search_category1', 'search_category2', 'duration_minutes'] as const;
-function isMissingColumnError(error: { code?: string; message?: string } | null): boolean {
-  if (!error) return false;
-  return error.code === 'PGRST204' || error.code === '42703' || /column .* does not exist/i.test(error.message ?? '');
-}
-function omitExt<T extends Record<string, unknown>>(obj: T): Partial<T> {
-  const copy = { ...obj };
-  for (const k of COUPON_EXT_KEYS) delete copy[k];
-  return copy;
-}
 
 const couponSchema = z.object({
   name: z.string().min(1).max(100),
@@ -97,8 +89,8 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient();
   const insertRow = { facility_id: auth.facilityId, ...parsed.data, is_active: parsed.data.is_active ?? true };
   let { data, error } = await admin.from('coupons').insert(insertRow).select().single();
-  if (error && isMissingColumnError(error)) {
-    ({ data, error } = await admin.from('coupons').insert(omitExt(insertRow)).select().single());
+  if (isMissingColumnError(error)) {
+    ({ data, error } = await admin.from('coupons').insert(omitKeys(insertRow, COUPON_EXT_KEYS)).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
