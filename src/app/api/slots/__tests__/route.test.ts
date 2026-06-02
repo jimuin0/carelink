@@ -35,12 +35,18 @@ function setupDefaultMocks(hasSlots: boolean = true) {
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
   createServerSupabaseClient.mockReturnValue({
     rpc: mockRpc,
+    // 停止枠取得（既定は停止なし）: from('facility_booking_suspensions').select().eq().eq()
+    from: jest.fn(() => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: suspensionsData }) }) }) })),
   });
 }
+
+// 各テストで上書き可能な停止枠データ（既定なし）
+let suspensionsData: { start_time: string; end_time: string }[] = [];
 
 beforeEach(() => {
   jest.clearAllMocks();
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  suspensionsData = [];
   setupDefaultMocks();
 });
 
@@ -289,5 +295,21 @@ describe('GET /api/slots', () => {
     const res = await GET(malformedReq as any);
 
     expect(res.status).toBe(500);
+  });
+
+  test('停止時間帯に重なるスロットは除外される(#03/#09/#10)', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: [
+        { slot_start: '09:00', slot_end: '10:00' },
+        { slot_start: '12:00', slot_end: '13:00' }, // 停止 12:00-13:00 と重なる → 除外
+        { slot_start: '15:00', slot_end: '16:00' },
+      ] }),
+      from: jest.fn(() => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ start_time: '12:00', end_time: '13:00' }] }) }) }) })),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.slots.map((s: { slot_start: string }) => s.slot_start)).toEqual(['09:00', '15:00']);
   });
 });

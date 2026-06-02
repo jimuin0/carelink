@@ -151,6 +151,10 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [listingLoading, setListingLoading] = useState(false);
   const [acceptStatus, setAcceptStatus] = useState<string | null>(null);
   const [acceptBusy, setAcceptBusy] = useState(false);
+  // 時間帯指定の一括停止(#03/#09/#10)
+  const [suspensions, setSuspensions] = useState<{ id: string; suspend_date: string; start_time: string; end_time: string }[]>([]);
+  const [susForm, setSusForm] = useState({ sh: '10', sm: '00', eh: '19', em: '00' });
+  const [susBusy, setSusBusy] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerYM, setPickerYM] = useState(() => getTodayString().slice(0, 7)); // 左側に表示する月 YYYY-MM
   const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -161,6 +165,38 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     const { data } = await supabase.from('facility_profiles').select('status').eq('id', facilityId).maybeSingle();
     setAcceptStatus((data as { status: string } | null)?.status ?? 'draft');
   }, [facilityId]);
+
+  // 時間帯停止枠の取得/作成/削除(#03/#09/#10)
+  const loadSuspensions = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/admin/booking-suspension?facility_id=${facilityId}`);
+      if (res.ok) { const d = await res.json().catch(() => null); setSuspensions(d?.suspensions ?? []); }
+    } catch { /* noop（停止枠の取得失敗は致命的でない） */ }
+  }, [facilityId]);
+  const createSuspension = async () => {
+    if (susBusy) return;
+    const start_time = `${susForm.sh}:${susForm.sm}`;
+    const end_time = `${susForm.eh}:${susForm.em}`;
+    if (start_time >= end_time) { setToast({ type: 'error', message: '開始時刻は終了時刻より前にしてください' }); return; }
+    setSusBusy(true);
+    try {
+      const res = await fetch(`/api/admin/booking-suspension?facility_id=${facilityId}`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ suspend_date: date, start_time, end_time }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setToast({ type: 'error', message: d.error || '停止の登録に失敗しました' }); setSusBusy(false); return; }
+      setToast({ type: 'success', message: '指定時間帯のネット予約受付を停止しました' });
+      await loadSuspensions();
+    } catch { setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setSusBusy(false); }
+  };
+  const deleteSuspension = async (id: string) => {
+    if (susBusy) return; setSusBusy(true);
+    try {
+      const res = await fetch(`/api/admin/booking-suspension?facility_id=${facilityId}&id=${id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setToast({ type: 'error', message: d.error || '解除に失敗しました' }); setSusBusy(false); return; }
+      setToast({ type: 'success', message: '停止を解除しました（受付を再開）' });
+      await loadSuspensions();
+    } catch { setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setSusBusy(false); }
+  };
 
   const toggleAccept = async (action: 'suspend' | 'resume') => {
     if (acceptBusy) return;
@@ -235,7 +271,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   }, [facilityId, date]);
 
   useEffect(() => { loadData().catch(() => setLoading(false)); }, [loadData]);
-  useEffect(() => { if (tab === 'suspend') fetchAcceptStatus().catch(() => {}); }, [tab, fetchAcceptStatus]);
+  useEffect(() => { if (tab === 'suspend') { fetchAcceptStatus().catch(() => {}); loadSuspensions().catch(() => {}); } }, [tab, fetchAcceptStatus, loadSuspensions]);
 
   // 週/月ビュー用に期間内の予約をまとめて取得（日ビューでは未取得）
   const [rangeBookings, setRangeBookings] = useState<{ id: string; booking_date: string; start_time: string; end_time: string; status: string; customer_name: string; staff_id: string | null; menu_id: string | null }[]>([]);
@@ -766,29 +802,38 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-sm">
                   <span className="bg-amber-50 px-3 py-1.5 rounded text-gray-600 text-xs font-bold">時間</span>
-                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{Array.from({ length: 14 }, (_, i) => i + 9).map((h) => <option key={h}>{h}</option>)}</select><span>時</span>
-                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{['00', '30'].map((m) => <option key={m}>{m}</option>)}</select><span>分</span>
+                  <select value={susForm.sh} onChange={(e) => setSusForm((f) => ({ ...f, sh: e.target.value }))} className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{Array.from({ length: 14 }, (_, i) => i + 9).map((h) => <option key={h} value={String(h).padStart(2, '0')}>{h}</option>)}</select><span>時</span>
+                  <select value={susForm.sm} onChange={(e) => setSusForm((f) => ({ ...f, sm: e.target.value }))} className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{['00', '30'].map((m) => <option key={m} value={m}>{m}</option>)}</select><span>分</span>
                   <span className="px-1">から</span>
-                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{Array.from({ length: 14 }, (_, i) => i + 9).map((h) => <option key={h}>{h}</option>)}</select><span>時</span>
-                  <select className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{['00', '30'].map((m) => <option key={m}>{m}</option>)}</select><span>分</span>
+                  <select value={susForm.eh} onChange={(e) => setSusForm((f) => ({ ...f, eh: e.target.value }))} className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{Array.from({ length: 14 }, (_, i) => i + 9).map((h) => <option key={h} value={String(h).padStart(2, '0')}>{h}</option>)}</select><span>時</span>
+                  <select value={susForm.em} onChange={(e) => setSusForm((f) => ({ ...f, em: e.target.value }))} className="px-2 py-1.5 border border-gray-300 rounded text-sm bg-white">{['00', '30'].map((m) => <option key={m} value={m}>{m}</option>)}</select><span>分</span>
                   <span className="px-1">まで</span>
                 </div>
                 <div className="flex items-center gap-3 pt-1">
-                  <span className="text-xs text-gray-500">上記日時のネット予約受付を一括で</span>
-                  <button type="button" disabled={acceptBusy || acceptStatus === 'suspended'} onClick={() => toggleAccept('suspend')}
-                    className="px-6 py-2 rounded text-sm font-bold border border-gray-400 text-gray-700 hover:bg-gray-50 disabled:opacity-40 bg-white">{acceptBusy ? '処理中…' : '停止する'}</button>
-                  <button type="button" disabled={acceptBusy || acceptStatus === 'published'} onClick={() => toggleAccept('resume')}
-                    className="px-6 py-2 rounded text-sm font-bold text-white bg-sky-500 hover:bg-sky-600 disabled:opacity-40">{acceptBusy ? '処理中…' : '再開する'}</button>
+                  <span className="text-xs text-gray-500">上記日時のネット予約受付を</span>
+                  <button type="button" disabled={susBusy} onClick={createSuspension}
+                    className="px-6 py-2 rounded text-sm font-bold border border-gray-400 text-gray-700 hover:bg-gray-50 disabled:opacity-40 bg-white">{susBusy ? '処理中…' : '停止する'}</button>
+                  <span className="text-[11px] text-gray-400">（再開は下の一覧から「解除」）</span>
                 </div>
               </div>
-              <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">※一括停止できるのは、前日から数日後までです。それ以降の調整は「毎月の受付設定」から行ってください。<br />※時間帯ごとの細かな指定は今後対応予定で、現在は受付全体の停止/再開を切り替えます。</p>
+              <p className="text-[11px] text-gray-400 mt-2 leading-relaxed">※表示中の日付（{formatDateLabel(date)}）に対して時間帯を指定して停止します。日付は上部の日付ナビで切り替えてください。<br />※サロン全体（ネット予約の受付そのもの）の停止/再開は下のボタンから切り替えられます。</p>
+              <div className="flex items-center gap-3 mt-2">
+                <button type="button" disabled={acceptBusy || acceptStatus === 'suspended'} onClick={() => toggleAccept('suspend')} className="px-4 py-1.5 rounded text-xs font-bold border border-rose-300 text-rose-600 hover:bg-rose-50 disabled:opacity-40 bg-white">{acceptBusy ? '処理中…' : 'サロン全体を停止'}</button>
+                <button type="button" disabled={acceptBusy || acceptStatus === 'published'} onClick={() => toggleAccept('resume')} className="px-4 py-1.5 rounded text-xs font-bold text-white bg-sky-500 hover:bg-sky-600 disabled:opacity-40">{acceptBusy ? '処理中…' : 'サロン全体を再開'}</button>
+                {acceptStatus === 'suspended' && <span className="text-xs text-rose-600 font-bold">現在サロン全体が停止中です</span>}
+              </div>
             </div>
             <div>
               <h3 className="text-sm font-bold text-gray-700 mb-2">■ 一括停止中の時間帯一覧</h3>
-              <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600">
-                {acceptStatus === 'suspended'
-                  ? <span className="text-rose-600 font-bold">現在、ネット予約の受付を停止中です。</span>
-                  : <span className="text-gray-400">現在、ネット予約受付を一括停止中の時間帯はありません。</span>}
+              <div className="bg-white border border-gray-200 rounded-lg p-4 text-sm text-gray-600 space-y-2">
+                {suspensions.length === 0
+                  ? <span className="text-gray-400">現在、ネット予約受付を一括停止中の時間帯はありません。</span>
+                  : suspensions.map((s) => (
+                    <div key={s.id} className="flex items-center justify-between border-b border-gray-100 last:border-0 pb-1.5">
+                      <span className="text-gray-700"><span className="font-bold">{s.suspend_date}</span> {s.start_time.slice(0, 5)} 〜 {s.end_time.slice(0, 5)}</span>
+                      <button type="button" disabled={susBusy} onClick={() => deleteSuspension(s.id)} className="px-3 py-1 text-xs border border-gray-300 rounded text-gray-600 hover:bg-gray-50 disabled:opacity-40">解除</button>
+                    </div>
+                  ))}
               </div>
             </div>
           </div>

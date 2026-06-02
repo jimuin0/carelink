@@ -4,6 +4,7 @@ import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { safeCaptureException } from '@/lib/safe';
+import { isRangeSuspended, type SuspensionRange } from '@/lib/suspensions';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,19 @@ export async function GET(request: Request) {
     p_duration_minutes: duration,
   });
 
-  return NextResponse.json({ slots: (data ?? []) as AvailableSlot[] });
+  let slots = (data ?? []) as AvailableSlot[];
+  // 時間帯停止(#03/#09/#10): 当該日の停止範囲に重なるスロットを除外（スロットが無ければ問い合わせ不要）
+  if (slots.length > 0) {
+    const { data: sus } = await supabase
+      .from('facility_booking_suspensions').select('start_time, end_time')
+      .eq('facility_id', facilityId).eq('suspend_date', date);
+    if (sus && sus.length > 0) {
+      const ranges = sus as SuspensionRange[];
+      slots = slots.filter((s) => !isRangeSuspended(s.slot_start, s.slot_end, ranges));
+    }
+  }
+
+  return NextResponse.json({ slots });
   } catch (e) {
     safeCaptureException(e, 'slots');
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
