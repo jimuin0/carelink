@@ -57,6 +57,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_area_seo_updated_at ON area_seo_contents;
 CREATE TRIGGER trg_area_seo_updated_at
   BEFORE UPDATE ON area_seo_contents
   FOR EACH ROW EXECUTE FUNCTION update_area_seo_updated_at();

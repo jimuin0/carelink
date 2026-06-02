@@ -7,7 +7,10 @@ CREATE TABLE IF NOT EXISTS service_packages (
   facility_id     UUID NOT NULL REFERENCES facility_profiles(id) ON DELETE CASCADE,
   name            TEXT NOT NULL,
   description     TEXT,
-  menu_id         UUID REFERENCES menus(id) ON DELETE SET NULL,
+  -- FK 先は canonical な facility_menus（`menus` テーブルは本番にも migration にも存在せず、
+  --   このまま適用すると 42P01 で失敗する dangling FK だった。他テーブルの menu_id は全て
+  --   facility_menus(id) を参照しており、それに統一する root fix）。
+  menu_id         UUID REFERENCES facility_menus(id) ON DELETE SET NULL,
   session_count   INTEGER NOT NULL DEFAULT 5 CHECK (session_count > 0),
   bonus_count     INTEGER NOT NULL DEFAULT 0 CHECK (bonus_count >= 0),
   price           INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),
@@ -58,6 +61,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_service_packages_updated_at ON service_packages;
 CREATE TRIGGER trg_service_packages_updated_at
   BEFORE UPDATE ON service_packages
   FOR EACH ROW EXECUTE FUNCTION update_service_packages_updated_at();

@@ -21,6 +21,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_feature_flags_updated_at ON feature_flags;
 CREATE TRIGGER trg_feature_flags_updated_at
   BEFORE UPDATE ON feature_flags
   FOR EACH ROW EXECUTE FUNCTION update_feature_flags_updated_at();

@@ -5,7 +5,11 @@
 
 -- 1. facility_reviews: 施設メンバーは自施設のレビューを更新できる（hide/show）
 --    ※ 削除は行わない（サービスロール経由の cron のみ）
-CREATE POLICY IF NOT EXISTS "facility_reviews_member_update"
+-- NOTE: `CREATE POLICY IF NOT EXISTS` は全 PostgreSQL バージョンで未対応の構文で
+--   42601 (syntax error) を起こす landmine だった。DROP POLICY IF EXISTS + CREATE で
+--   冪等性を担保する（再適用しても 42710 を出さない）。
+DROP POLICY IF EXISTS "facility_reviews_member_update" ON facility_reviews;
+CREATE POLICY "facility_reviews_member_update"
   ON facility_reviews FOR UPDATE
   USING (
     facility_id IN (
@@ -19,7 +23,8 @@ CREATE POLICY IF NOT EXISTS "facility_reviews_member_update"
   );
 
 -- 2. facility_reviews: プラットフォーム管理者は全件更新できる
-CREATE POLICY IF NOT EXISTS "facility_reviews_admin_update"
+DROP POLICY IF EXISTS "facility_reviews_admin_update" ON facility_reviews;
+CREATE POLICY "facility_reviews_admin_update"
   ON facility_reviews FOR UPDATE
   USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
@@ -30,7 +35,8 @@ CREATE POLICY IF NOT EXISTS "facility_reviews_admin_update"
 GRANT UPDATE ON facility_reviews TO authenticated;
 
 -- 4. chat_rooms: ユーザーは自分のルームを更新できる（last_message_at 更新用）
-CREATE POLICY IF NOT EXISTS "chat_rooms_user_update"
+DROP POLICY IF EXISTS "chat_rooms_user_update" ON chat_rooms;
+CREATE POLICY "chat_rooms_user_update"
   ON chat_rooms FOR UPDATE
   USING (user_id = auth.uid())
   WITH CHECK (user_id = auth.uid());

@@ -19,7 +19,9 @@
 -- This migration documents the design decision and serves as a marker.
 
 -- Facility members can read points of their customers (for admin views)
-CREATE POLICY IF NOT EXISTS "user_points_facility_member_read" ON user_points
+-- NOTE: `CREATE POLICY IF NOT EXISTS` は未対応構文（42601）。DROP+CREATE で冪等化。
+DROP POLICY IF EXISTS "user_points_facility_member_read" ON user_points;
+CREATE POLICY "user_points_facility_member_read" ON user_points
   FOR SELECT
   USING (
     EXISTS (

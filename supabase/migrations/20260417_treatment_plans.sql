@@ -33,6 +33,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_treatment_plans_updated_at ON treatment_plans;
 CREATE TRIGGER trg_treatment_plans_updated_at
   BEFORE UPDATE ON treatment_plans
   FOR EACH ROW EXECUTE FUNCTION update_treatment_plans_updated_at();

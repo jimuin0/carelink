@@ -45,6 +45,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_intake_template_updated_at ON intake_form_templates;
 CREATE TRIGGER trg_intake_template_updated_at
   BEFORE UPDATE ON intake_form_templates
   FOR EACH ROW EXECUTE FUNCTION update_intake_template_updated_at();

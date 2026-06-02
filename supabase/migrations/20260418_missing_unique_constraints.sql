@@ -11,7 +11,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_nps_surveys_booking_id_unique
 --    Add a SELECT policy so platform admins can audit referral data.
 --    (UNIQUE(referred_user_id) is already present from 20260405_referral_program.sql
 --     and re-asserted in 20260418_security_audit_fixes.sql)
-CREATE POLICY IF NOT EXISTS "referral_uses_admin_read" ON referral_uses
+-- NOTE: `CREATE POLICY IF NOT EXISTS` は全 PostgreSQL バージョンで未対応の構文で
+--   42601 (syntax error) を起こす landmine だった。DROP POLICY IF EXISTS + CREATE で
+--   冪等性を担保する（再適用しても 42710 を出さない）。
+DROP POLICY IF EXISTS "referral_uses_admin_read" ON referral_uses;
+CREATE POLICY "referral_uses_admin_read" ON referral_uses
   FOR SELECT USING (
     EXISTS (SELECT 1 FROM profiles WHERE id = auth.uid() AND role = 'admin')
   );

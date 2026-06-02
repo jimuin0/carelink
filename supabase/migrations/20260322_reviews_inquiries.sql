@@ -82,6 +82,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trigger_update_facility_rating ON facility_reviews;
 CREATE TRIGGER trigger_update_facility_rating
   AFTER INSERT OR UPDATE OR DELETE ON facility_reviews
   FOR EACH ROW EXECUTE FUNCTION update_facility_rating();

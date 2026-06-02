@@ -140,6 +140,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-test]
     if: github.event_name == 'pull_request'
+    # PR へのカバレッジコメント投稿には issues/pull_requests への write が必須。
+    # 未指定だと GITHUB_TOKEN は read-only で 403 "Resource not accessible by integration"。
+    # job-level permissions は未指定スコープを none にするため checkout 用の contents:read も明示。
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -172,3 +179,39 @@ jobs:
               repo: context.repo.repo,
               body
             });
+
+  contract-test:
+    name: Contract Tests (staging drift gate)
+    runs-on: ubuntu-latest
+    # 本番と repo migration の「静かなドリフト」（RPC 不在 / カラム欠落 / View 未作成 /
+    # RLS 過大公開 / 予約 RPC の 0A000 landmine）を発症前に検知する恒久ゲート。
+    # staging 専用 secrets が未設定なら全テストが describe.skip され、本番には一切触れない。
+    # secrets を設定した時点で自動的にドリフト検知ゲートとして有効化される。
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: Staging secrets 存在チェック（無効時に false-green を防ぐ）
+        env:
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$STAGING_SUPABASE_URL" ] || [ -z "$STAGING_SUPABASE_ANON_KEY" ]; then
+            echo "⚠️ STAGING_SUPABASE_* 未設定: contract ドリフトゲートは **無効**（全テスト skip）。" >> $GITHUB_STEP_SUMMARY
+            echo "有効化するには GitHub Secrets に STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY（任意で STAGING_SUPABASE_SERVICE_ROLE_KEY）を設定してください。" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "✅ STAGING_SUPABASE_* 設定済み: contract ドリフトゲート **有効**。" >> $GITHUB_STEP_SUMMARY
+          fi
+      - name: Run Contract Tests
+        run: npm run test:contract
+        env:
+          # staging 専用シークレット（GitHub Secrets 経由・値は repo に書かない）。
+          # 未設定時は各テストが describe.skip され安全に pass する。
+          STAGING_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          STAGING_SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}

@@ -71,7 +71,7 @@ export default function PackagesPage() {
       fetch(`/api/admin/user-packages?facility_id=${fId}`),
       (async () => {
         const supabase = createBrowserSupabaseClient();
-        return supabase.from('menus').select('id, name').eq('facility_id', fId).order('sort_order');
+        return supabase.from('facility_menus').select('id, name').eq('facility_id', fId).order('sort_order');
       })(),
     ]);
 

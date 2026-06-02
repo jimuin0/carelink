@@ -6,6 +6,16 @@
 -- ============================================================
 -- 1. push_subscriptions テーブル（既に存在する場合はスキップ）
 -- ============================================================
+-- 【スキーマ権威に関する重要注記 2026-06-02】
+--   本番 DB の push_subscriptions の真実は、辞書順で先行する
+--   20260330_phase_c_infra.sql 由来の「id UUID PRIMARY KEY + user_id UNIQUE +
+--   created_at 有り」版である（2026-06-02 の本番 introspection / database.types.ts で
+--   id・created_at 列の存在を確認済み）。
+--   下の CREATE TABLE は「user_id PRIMARY KEY・id/created_at 欠落」という異なる定義だが、
+--   IF NOT EXISTS のため既存テーブルに対しては no-op（列追加もしない）。
+--   replay 時も 20260330 が必ず先に走って id PK 版を作るため、本ブロックは常に no-op となり
+--   本番と一致する。PK 構造を ALTER で変更してはならない（本番稼働中・データ移行リスク）。
+--   = ここの列定義は歴史的経緯による不一致だが実害は無く、恒久的に no-op であることを明記する。
 CREATE TABLE IF NOT EXISTS push_subscriptions (
   user_id    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   endpoint   TEXT NOT NULL,
