@@ -55,6 +55,17 @@ export async function POST(request: NextRequest) {
 
   const isPublished = parsed.data.is_published ?? false;
   const admin = createServiceRoleClient();
+
+  // クロス施設参照防止: coupon_id / author_id が自施設のものか検証（booking-create と同パターン）
+  if (parsed.data.coupon_id) {
+    const { data: c } = await admin.from('coupons').select('id').eq('id', parsed.data.coupon_id).eq('facility_id', auth.facilityId).maybeSingle();
+    if (!c) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 400 });
+  }
+  if (parsed.data.author_id) {
+    const { data: s } = await admin.from('staff_profiles').select('id').eq('id', parsed.data.author_id).eq('facility_id', auth.facilityId).maybeSingle();
+    if (!s) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 400 });
+  }
+
   // slug は NOT NULL・UNIQUE(facility_id, slug)。タイトルは日本語のため一意な ASCII slug を自動生成。
   const slug = `post-${globalThis.crypto.randomUUID()}`;
   const insertRow = {
@@ -69,10 +80,11 @@ export async function POST(request: NextRequest) {
     is_published: isPublished,
     published_at: isPublished ? new Date().toISOString() : null,
   };
+  // category / coupon_id は後続マイグレーションで追加された列。部分適用環境でも500にしないため両方を除外候補にする
   let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.insert');
-    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category'])).select().single());
+    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category', 'coupon_id'])).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

@@ -281,3 +281,35 @@ test('PATCH: category カラム不在(42703)なら除外して再試行し 200',
   expect(res.status).toBe(200);
   expect(mockAdminFrom).toHaveBeenCalledTimes(2);
 });
+
+// ─── coupon_id / author_id 施設所有検証（#3/#12・PATCH） ──────────────────────
+function scopeRow(data: unknown) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data })) };
+}
+const VALID_COUPON = '88888888-8888-4888-8888-888888888888';
+const VALID_AUTHOR = '77777777-7777-4777-8777-777777777777';
+
+test('PATCH: coupon_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  const res = await PATCH(makeRequest('PATCH', { coupon_id: VALID_COUPON }), makeProps());
+  expect(res.status).toBe(400);
+});
+test('PATCH: coupon_id が自施設 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_COUPON })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { coupon_id: VALID_COUPON }), makeProps());
+  expect(res.status).toBe(200);
+});
+test('PATCH: author_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  const res = await PATCH(makeRequest('PATCH', { author_id: VALID_AUTHOR }), makeProps());
+  expect(res.status).toBe(400);
+});
+test('PATCH: author_id が自施設 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_AUTHOR })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { author_id: VALID_AUTHOR }), makeProps());
+  expect(res.status).toBe(200);
+});

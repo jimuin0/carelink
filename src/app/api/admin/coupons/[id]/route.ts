@@ -11,6 +11,12 @@ import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
 
+// 有効期限は 'YYYY-MM-DD' 形式かつ実在する日付のみ許可（不正日付による DATE 列の 500 を防ぐ）
+const COUPON_DATE = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '日付形式が不正です').refine(
+  (s) => { const d = new Date(s + 'T00:00:00Z'); return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s; },
+  '日付が不正です',
+);
+
 // マイグレーション未適用環境向け：追加カラムが無い場合に除外して再試行
 const COUPON_EXT_KEYS = ['presentation_timing', 'usage_condition', 'search_category1', 'search_category2', 'duration_minutes'] as const;
 
@@ -21,8 +27,8 @@ const updateSchema = z.object({
   discount_type: z.enum(VALID_DISCOUNT_TYPES).optional(),
   discount_value: z.number().int().min(0).max(100000).optional().nullable(),
   special_price: z.number().int().min(0).max(9999999).optional().nullable(),
-  valid_from: z.string().nullable().optional(),
-  valid_until: z.string().nullable().optional(),
+  valid_from: COUPON_DATE.nullable().optional(),
+  valid_until: COUPON_DATE.nullable().optional(),
   is_active: z.boolean().optional(),
   presentation_timing: z.string().max(20).optional().nullable(),
   usage_condition: z.string().max(100).optional().nullable(),

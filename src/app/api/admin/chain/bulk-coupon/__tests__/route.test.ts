@@ -323,3 +323,17 @@ test('POST: x-forwarded-for ヘッダあり → IP抽出', async () => {
   const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
   expect(call[0]).toBe('10.0.0.1');
 });
+
+// ─── 割引値の上限検証（#10/#17） ──────────────────────────────────────────────
+test('POST: percent で discount_value>100 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'percent', discount_value: 150 })));
+  expect(res.status).toBe(400);
+});
+test('POST: fixed で discount_value>100000 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'fixed', discount_value: 200000 })));
+  expect(res.status).toBe(400);
+});
+test('POST: special_price が上限超 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'special', discount_value: undefined, special_price: 99999999 })));
+  expect(res.status).toBe(400);
+});

@@ -61,7 +61,9 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [staffFilter, setStaffFilter] = useState<string>('');
   const [tab, setTab] = useState<'schedule' | 'list' | 'accept' | 'suspend'>('schedule');
   const [listFilter, setListFilter] = useState<string>('all');
-  const [priorKeys, setPriorKeys] = useState<Set<string>>(new Set());
+  // 履歴取得が失敗した場合は null（判定不能）にして「新規」バッジを誤表示しない
+  const [priorKeys, setPriorKeys] = useState<Set<string> | null>(new Set());
+  const [listingReloadKey, setListingReloadKey] = useState(0); // 掲載ステータス再取得トリガ
   const [section, setSection] = useState<'reservation' | 'customers' | 'listing' | 'sales' | 'settings'>('reservation');
   const [sales, setSales] = useState<{ monthCount: number; monthSum: number; todayCount: number; todaySum: number; byDay: Record<string, { c: number; s: number }> } | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
@@ -71,7 +73,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [custSearchVisit, setCustSearchVisit] = useState('');
   const [custSearchSince, setCustSearchSince] = useState('');
   const [custDetail, setCustDetail] = useState<{
-    name: string; email: string | null; phone: string | null; loading: boolean;
+    name: string; email: string | null; phone: string | null; loading: boolean; error?: boolean;
     totalSum: number; profile: { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null;
     rows: { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string; total_price: number | null }[];
   } | null>(null);
@@ -81,13 +83,20 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     const supabase = createBrowserSupabaseClient();
     let q = supabase.from('bookings').select('id, booking_date, start_time, end_time, menu_id, staff_id, status, total_price').eq('facility_id', facilityId).neq('status', 'cancelled').order('booking_date', { ascending: false });
     q = c.email ? q.eq('email', c.email) : q.eq('customer_name', c.name);
-    const [bk, pr] = await Promise.all([
-      q,
-      c.email ? supabase.from('profiles').select('birth_date, gender, prefecture, city').eq('email', c.email).maybeSingle() : Promise.resolve({ data: null }),
-    ]);
+    const bk = await q;
+    // 取得失敗を「来店0回・¥0」と誤表示しない
+    if (bk.error) { setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: false, error: true, totalSum: 0, profile: null, rows: [] }); return; }
     const rows = (bk.data as { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string; total_price: number | null }[]) ?? [];
     const totalSum = rows.filter((r) => r.status === 'confirmed' || r.status === 'completed').reduce((s, r) => s + (r.total_price ?? 0), 0);
-    setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: false, totalSum, profile: (pr.data as { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null) ?? null, rows });
+    // 顧客属性(profiles)はブラウザ+RLS では他ユーザー分を読めないため、service-role 経由の専用APIで取得
+    let profile: { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null = null;
+    if (c.email) {
+      try {
+        const r = await fetch(`/api/admin/customer-profile?facility_id=${facilityId}&email=${encodeURIComponent(c.email)}`);
+        if (r.ok) { const d = await r.json().catch(() => null); profile = d?.profile ?? null; }
+      } catch { /* 属性取得失敗は致命的でないため握りつぶし、来店履歴は表示する */ }
+    }
+    setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: false, totalSum, profile, rows });
   };
   const [listing, setListing] = useState<{ name: string; status: string; staff: number; photos: number; menus: number } | null>(null);
   const [listingLoading, setListingLoading] = useState(false);
@@ -140,8 +149,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     setLoading(true);
     const supabase = createBrowserSupabaseClient();
     const [staffRes, menuRes, bookingRes, priorRes] = await Promise.all([
-      supabase.from('staff_profiles').select('id, name, position').eq('facility_id', facilityId).eq('is_active', true).order('sort_order'),
-      supabase.from('facility_menus').select('id, name, duration_minutes, price').eq('facility_id', facilityId).order('sort_order'),
+      supabase.from('staff_profiles').select('id, name, position').eq('facility_id', facilityId).eq('is_active', true).order('sort_order').order('created_at', { ascending: true }),
+      supabase.from('facility_menus').select('id, name, duration_minutes, price').eq('facility_id', facilityId).order('sort_order').order('created_at', { ascending: true }),
       supabase.from('bookings')
         .select('id, staff_id, menu_id, customer_name, email, phone, note, start_time, end_time, status, source, total_price')
         .eq('facility_id', facilityId).eq('booking_date', date).neq('status', 'cancelled'),
@@ -149,10 +158,16 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       supabase.from('bookings').select('email, customer_name')
         .eq('facility_id', facilityId).lt('booking_date', date).neq('status', 'cancelled'),
     ]);
-    setStaffList((staffRes.data as (StaffOption & { position?: string })[]) ?? []);
-    setMenuList((menuRes.data as MenuOption[]) ?? []);
-    setBookings((bookingRes.data as BoardBooking[]) ?? []);
-    setPriorKeys(new Set((priorRes.data as { email: string | null; customer_name: string }[] ?? []).map(custKey)));
+    // Supabase はクエリ失敗時に throw せず { data:null, error } を返すため、必ず error を検査する。
+    // エラー時に空配列で確定上書きすると「予約ゼロ＝空き」と誤表示し二重予約を招くため、上書きしない。
+    if (staffRes.error || menuRes.error || bookingRes.error || priorRes.error) {
+      setToast({ type: 'error', message: '予約・スタッフ情報の読み込みに失敗しました。再読み込みしてください' });
+    }
+    if (!staffRes.error) setStaffList((staffRes.data as (StaffOption & { position?: string })[]) ?? []);
+    if (!menuRes.error) setMenuList((menuRes.data as MenuOption[]) ?? []);
+    if (!bookingRes.error) setBookings((bookingRes.data as BoardBooking[]) ?? []);
+    // 履歴取得失敗時は null（判定不能）にして「新規」バッジを誤表示しない
+    setPriorKeys(priorRes.error ? null : new Set((priorRes.data as { email: string | null; customer_name: string }[] ?? []).map(custKey)));
     const d = new Date(Date.now() + 9 * 3600 * 1000);
     setUpdatedAt(`${d.getUTCFullYear()}/${String(d.getUTCMonth() + 1).padStart(2, '0')}/${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`);
     setLoading(false);
@@ -178,10 +193,12 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     (async () => {
       setCustLoading(true);
       const supabase = createBrowserSupabaseClient();
-      const { data } = await supabase.from('bookings')
+      const { data, error } = await supabase.from('bookings')
         .select('customer_name, email, phone, booking_date')
         .eq('facility_id', facilityId).neq('status', 'cancelled')
         .order('booking_date', { ascending: false });
+      // 取得失敗を「0名」と誤表示しない
+      if (error) { if (!cancelled) { setToast({ type: 'error', message: 'お客様情報の取得に失敗しました' }); setCustLoading(false); } return; }
       const map = new Map<string, { key: string; name: string; email: string | null; phone: string | null; count: number; last: string }>();
       for (const b of (data as { customer_name: string; email: string | null; phone: string | null; booking_date: string }[] ?? [])) {
         const key = (b.email || b.customer_name || '').toLowerCase();
@@ -214,7 +231,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       }
     })().catch(() => { if (!cancelled) setListingLoading(false); });
     return () => { cancelled = true; };
-  }, [section, facilityId]);
+  }, [section, facilityId, listingReloadKey]);
 
   // 売上管理：当月の予約から件数・売上(total_price)を集計。DB追加不要。
   useEffect(() => {
@@ -229,10 +246,12 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       // Postgres が 22008 エラーを返し当月売上が常に0表示になるため）
       const [my, mm] = month.split('-').map(Number);
       const nextMonthFirst = mm === 12 ? `${my + 1}-01-01` : `${my}-${String(mm + 1).padStart(2, '0')}-01`;
-      const { data } = await supabase.from('bookings')
+      const { data, error } = await supabase.from('bookings')
         .select('booking_date, total_price, status')
         .eq('facility_id', facilityId).gte('booking_date', `${month}-01`).lt('booking_date', nextMonthFirst)
         .in('status', ['confirmed', 'completed']);
+      // 取得失敗を ¥0 と誤表示しない（金銭情報のため特に重要）
+      if (error) { if (!cancelled) { setToast({ type: 'error', message: '売上の取得に失敗しました' }); setSales(null); setSalesLoading(false); } return; }
       const rows = (data as { booking_date: string; total_price: number | null }[] ?? []);
       const byDay: Record<string, { c: number; s: number }> = {};
       let mc = 0, ms = 0, tc = 0, ts = 0;
@@ -473,7 +492,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                       const ss = statusStyle(item.status);
                       // 指名＝ネット予約で顧客がスタッフを指定した予約 / 新規＝初回来店
                       const nominated = item.source === 'online' && !!item.staff_id;
-                      const isNew = !priorKeys.has(custKey(item));
+                      // priorKeys が null（履歴取得失敗）のときは判定不能 → 新規バッジを出さない
+                      const isNew = priorKeys !== null && !priorKeys.has(custKey(item));
                       return (
                         <button type="button" key={item.id}
                           onClick={(e) => { e.stopPropagation(); setModal({ mode: 'edit', booking: item }); }}
@@ -700,7 +720,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         listingLoading || !listing ? (
           <div className="flex-1 overflow-auto bg-gray-50 p-4"><div className="animate-pulse"><div className="h-48 bg-gray-200 rounded max-w-2xl" /></div></div>
         ) : (
-          <ListingBoard facilityId={facilityId} salonName={listing.name} status={listing.status} onToast={(message) => setToast({ type: 'success', message })} />
+          <ListingBoard facilityId={facilityId} salonName={listing.name} status={listing.status} onToast={(message) => setToast({ type: 'success', message })} onReloadStatus={() => setListingReloadKey((k) => k + 1)} />
         )
       )}
 
@@ -793,6 +813,9 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               </button>
             </div>
             <div className="p-5 space-y-4">
+              {custDetail.error && (
+                <div className="bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded p-2">来店履歴の取得に失敗しました。再度開き直してください。</div>
+              )}
               {/* 顧客属性カード */}
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {[

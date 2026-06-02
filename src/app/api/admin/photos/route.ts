@@ -46,7 +46,7 @@ export async function GET(request: NextRequest) {
   const auth = await getAdminInfo(request);
   if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('facility_photos').select('*').eq('facility_id', auth.facilityId).order('sort_order', { ascending: true });
+  const { data, error } = await admin.from('facility_photos').select('*').eq('facility_id', auth.facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ photos: data });
 }
@@ -66,6 +66,11 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
+  // クロス施設参照防止: coupon_id が自施設のものか検証
+  if (parsed.data.coupon_id) {
+    const { data: c } = await admin.from('coupons').select('id').eq('id', parsed.data.coupon_id).eq('facility_id', auth.facilityId).maybeSingle();
+    if (!c) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 400 });
+  }
   const { count } = await admin.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId);
   const { data, error } = await admin.from('facility_photos').insert({
     facility_id: auth.facilityId,

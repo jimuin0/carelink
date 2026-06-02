@@ -254,3 +254,13 @@ test('PATCH: facility_id が不正UUID → 401', async () => {
   const res = await PATCH(makePatchRequest(VALID_BODY, { facility_id: 'bad-uuid' }));
   expect(res.status).toBe(401);
 });
+
+// ─── 拡張カラム不在フォールバック（#16） ──────────────────────────────────────
+test('PATCH: 拡張カラム不在(PGRST204)→除外して再試行し 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(updateChain({ code: 'PGRST204', message: 'column does not exist' }))
+    .mockReturnValueOnce(updateChain());
+  const res = await PATCH(makePatchRequest({ name: 'テスト施設', owner_message: 'こんにちは' }));
+  expect(res.status).toBe(200);
+});

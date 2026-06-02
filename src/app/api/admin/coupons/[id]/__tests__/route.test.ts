@@ -344,3 +344,10 @@ test('PATCH: 拡張カラム不在(PGRST204)なら除外して再試行し 200',
   expect(res.status).toBe(200);
   expect(adminCallNum).toBe(3);
 });
+
+// ─── 有効期限の実在日チェック（#8・PATCH） ────────────────────────────────────
+test('PATCH: valid_until が不正日付(2026-04-31) → 400', async () => {
+  setupOwnership();
+  const res = await PATCH(makeRequest('PATCH', { valid_until: '2026-04-31' }), makeProps());
+  expect(res.status).toBe(400);
+});

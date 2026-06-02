@@ -42,8 +42,17 @@ export async function POST(req: NextRequest) {
   if (discount_value !== undefined && discount_value !== null && (typeof discount_value !== 'number' || discount_value < 0)) {
     return NextResponse.json({ error: 'discount_value must be a non-negative number' }, { status: 400 });
   }
-  if (special_price !== undefined && special_price !== null && (typeof special_price !== 'number' || special_price < 0)) {
-    return NextResponse.json({ error: 'special_price must be a non-negative number' }, { status: 400 });
+  // percent（=DB percentage）は 0-100 の割引率に限定。単一クーポンAPIと同等の不変条件を担保し、
+  // 100超で公開予約フローの合計金額が負になるのを防ぐ。
+  if (discount_type === 'percent' && (typeof discount_value !== 'number' || discount_value < 0 || discount_value > 100)) {
+    return NextResponse.json({ error: 'percentage discount_value must be 0-100' }, { status: 400 });
+  }
+  // 固定額割引の上限（単一APIの max(100000) に合わせる）
+  if (discount_type === 'fixed' && typeof discount_value === 'number' && discount_value > 100000) {
+    return NextResponse.json({ error: 'discount_value must be <= 100000' }, { status: 400 });
+  }
+  if (special_price !== undefined && special_price !== null && (typeof special_price !== 'number' || special_price < 0 || special_price > 9999999)) {
+    return NextResponse.json({ error: 'special_price must be a non-negative number within range' }, { status: 400 });
   }
 
   // 権限確認: 全施設に対してowner/adminであること

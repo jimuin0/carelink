@@ -286,3 +286,21 @@ test('POST: 拡張カラム不在(42703)なら除外して再試行し 201', asy
   expect(res.status).toBe(201);
   expect(mockAdminFrom).toHaveBeenCalledTimes(2);
 });
+
+// ─── 有効期限の実在日チェック（#8） ──────────────────────────────────────────────
+test('POST: valid_until が不正日付(2026-02-31) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ valid_until: '2026-02-31' })));
+  expect(res.status).toBe(400);
+});
+test('POST: valid_until が形式不正(2026/01/01) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ valid_until: '2026/01/01' })));
+  expect(res.status).toBe(400);
+});
+test('POST: valid_until が実在日(2026-12-31) → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'cd' }));
+  const res = await POST(makePostRequest(validPostBody({ valid_until: '2026-12-31' })));
+  expect(res.status).toBe(201);
+});

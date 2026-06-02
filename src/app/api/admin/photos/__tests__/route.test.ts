@@ -35,7 +35,14 @@ function memberSingle(data: unknown) {
   return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), in: jest.fn().mockReturnThis(), single: jest.fn(() => Promise.resolve({ data, error: null })) };
 }
 function listChain(data: unknown[], error: unknown = null) {
-  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), order: jest.fn(() => Promise.resolve({ data, error })) };
+  // 多段 .order() に対応するため order はチェーン可能にし、await は then で解決する
+  const chain: Record<string, unknown> = {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(resolve),
+  };
+  return chain;
 }
 function countChain(count: number | null) {
   return { select: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ count })) }) };
@@ -86,4 +93,20 @@ test('POST: sort_order 明示指定 → 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValueOnce(countChain(0)).mockReturnValueOnce(insertSingle({ id: 'p3' }));
   expect((await POST(makePost(validBody({ sort_order: 3 })))).status).toBe(201);
+});
+
+// ─── coupon_id 施設所有検証（#3） ──────────────────────────────────────────────
+function scopeRow(data: unknown) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data })) };
+}
+const VALID_COUPON = '88888888-8888-4888-8888-888888888888';
+test('POST: coupon_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  expect((await POST(makePost(validBody({ coupon_id: VALID_COUPON })))).status).toBe(400);
+});
+test('POST: coupon_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_COUPON })).mockReturnValueOnce(countChain(0)).mockReturnValueOnce(insertSingle({ id: 'pc' }));
+  expect((await POST(makePost(validBody({ coupon_id: VALID_COUPON })))).status).toBe(201);
 });

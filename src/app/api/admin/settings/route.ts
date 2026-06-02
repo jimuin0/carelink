@@ -6,6 +6,15 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+
+// 20260531/20260601 マイグレーションで facility_profiles に追加された拡張カラム。
+// 部分適用環境でも保存全失敗にしないため、カラム不在時はこれらを除外して再試行する。
+const SETTINGS_EXT_KEYS = [
+  'business_hours_text', 'directions', 'remarks', 'payment_other', 'parking_text',
+  'owner_name', 'owner_title', 'owner_message', 'genres', 'equipment', 'staff_breakdown',
+  'header_photo_url', 'logo_url', 'owner_photo_url', 'design_template', 'design_color',
+] as const;
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -133,14 +142,16 @@ export async function PATCH(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const { error } = await admin
-    .from('facility_profiles')
-    .update({
-      ...parsed.data,
-      website_url: parsed.data.website_url || null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', auth.facilityId);
+  const updateRow = {
+    ...parsed.data,
+    website_url: parsed.data.website_url || null,
+    updated_at: new Date().toISOString(),
+  };
+  let { error } = await admin.from('facility_profiles').update(updateRow).eq('id', auth.facilityId);
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('facility_profiles.settings-update');
+    ({ error } = await admin.from('facility_profiles').update(omitKeys(updateRow, SETTINGS_EXT_KEYS)).eq('id', auth.facilityId));
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 

@@ -61,10 +61,12 @@ function memberSingle(data: unknown) {
 }
 
 function listChain(data: unknown[], error: unknown = null) {
+  // 多段 .order() に対応するため order はチェーン可能にし、await は then で解決する
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    order: jest.fn(() => Promise.resolve({ data, error })),
+    order: jest.fn().mockReturnThis(),
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(resolve),
   };
 }
 

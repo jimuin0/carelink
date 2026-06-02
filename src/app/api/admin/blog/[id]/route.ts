@@ -61,6 +61,17 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
 
   const admin = createServiceRoleClient();
+
+  // クロス施設参照防止: 指定された場合のみ coupon_id / author_id が自施設のものか検証
+  if (parsed.data.coupon_id) {
+    const { data: c } = await admin.from('coupons').select('id').eq('id', parsed.data.coupon_id).eq('facility_id', facilityId).maybeSingle();
+    if (!c) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 400 });
+  }
+  if (parsed.data.author_id) {
+    const { data: s } = await admin.from('staff_profiles').select('id').eq('id', parsed.data.author_id).eq('facility_id', facilityId).maybeSingle();
+    if (!s) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 400 });
+  }
+
   let { data, error } = await admin
     .from('blog_posts')
     .update(updatePayload)
@@ -70,7 +81,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.update');
-    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
+    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

@@ -57,3 +57,16 @@ test('PATCH: data なし → 404', async () => { setup({ facility_id: FACILITY_U
 test('PATCH: reply あり → replied_at 設定で 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID, reply: 'x' })); expect((await PATCH(makeReq({ reply: '返信します' }), makeProps())).status).toBe(200); });
 test('PATCH: reply 空文字 → replied_at null で 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID })); expect((await PATCH(makeReq({ reply: '' }), makeProps())).status).toBe(200); });
 test('PATCH: status のみ(reply 無し) → 200（replied_at 非設定）', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID })); expect((await PATCH(makeReq({ status: 'hidden' }), makeProps())).status).toBe(200); });
+
+// ─── 拡張カラム不在フォールバック（#23） ──────────────────────────────────────
+test('PATCH: reply/replied_at カラム不在(PGRST204)→除外して再試行し 200', async () => {
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return single({ facility_id: FACILITY_UUID }); // review lookup
+    if (n === 2) return updateChain(null, { code: 'PGRST204', message: 'column does not exist' });
+    return updateChain({ id: REVIEW_UUID });
+  });
+  mockAnonFrom.mockReturnValue(single({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makeReq({ reply: '返信' }), makeProps())).status).toBe(200);
+});

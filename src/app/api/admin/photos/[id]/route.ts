@@ -6,8 +6,11 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const VALID_PHOTO_TYPES = ['main', 'interior', 'exterior', 'staff', 'menu', 'other'] as const;
+// マイグレーション部分適用環境でも500にしないための拡張カラム
+const PHOTO_EXT_KEYS = ['title', 'genre', 'search_category', 'image_submission', 'is_published', 'coupon_id'] as const;
 
 const updateSchema = z.object({
   photo_url: z.string().min(1).max(200000).optional(),
@@ -59,7 +62,16 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('facility_photos').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
+  // クロス施設参照防止: coupon_id が自施設のものか検証
+  if (parsed.data.coupon_id) {
+    const { data: c } = await admin.from('coupons').select('id').eq('id', parsed.data.coupon_id).eq('facility_id', facilityId).maybeSingle();
+    if (!c) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 400 });
+  }
+  let { data, error } = await admin.from('facility_photos').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('facility_photos.update');
+    ({ data, error } = await admin.from('facility_photos').update(omitKeys(parsed.data, PHOTO_EXT_KEYS)).eq('id', params.id).eq('facility_id', facilityId).select().single());
+  }
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '写真が見つかりません' }, { status: 404 });
 

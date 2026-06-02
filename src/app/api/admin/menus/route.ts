@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
     .from('facility_menus')
     .select('*')
     .eq('facility_id', facilityId)
-    .order('sort_order', { ascending: true });
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ menus: data });

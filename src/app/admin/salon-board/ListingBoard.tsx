@@ -13,6 +13,7 @@ interface Props {
   salonName: string;
   status: string;
   onToast: (msg: string) => void;
+  onReloadStatus?: () => void; // 反映申請等で掲載ステータスが変わった際に親へ再取得を促す
 }
 
 interface StaffRow { id: string; name: string; position: string | null; specialties: string[] | null; years_experience: number | null; photo_url: string | null; sort_order: number | null; is_active: boolean; bio: string | null; }
@@ -56,7 +57,13 @@ const Counter = ({ n, max }: { n: number; max: number }) => <span className="tex
 
 function fmtDate(s: string | null): string {
   if (!s) return '—';
-  return s.slice(0, 10).replace(/-/g, '/');
+  // DATE 型（'YYYY-MM-DD' のみ。valid_until / visit_date 等）は時刻・TZ を持たないため文字列スライス。
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.replace(/-/g, '/');
+  // TIMESTAMPTZ（UTC ISO。published_at / created_at 等）は JST(+9h) 換算してから日付を取る（1日ずれ防止）。
+  const t = Date.parse(s);
+  if (Number.isNaN(t)) return s.slice(0, 10).replace(/-/g, '/');
+  const j = new Date(t + 9 * 3600 * 1000);
+  return `${j.getUTCFullYear()}/${String(j.getUTCMonth() + 1).padStart(2, '0')}/${String(j.getUTCDate()).padStart(2, '0')}`;
 }
 
 // 分 → 「N時間M分」表記（HPB 所要目安時間の換算表示）
@@ -108,7 +115,7 @@ function DurationInput({ defaultValue, onValueChange }: { defaultValue?: number 
   );
 }
 
-export default function ListingBoard({ facilityId, salonName, status, onToast }: Props) {
+export default function ListingBoard({ facilityId, salonName, status, onToast, onReloadStatus }: Props) {
   const [tab, setTab] = useState<ListingTab>('top');
   const [loading, setLoading] = useState(true);
   const [staff, setStaff] = useState<StaffRow[]>([]);
@@ -133,34 +140,39 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
     setLoading(true);
     const sb = createBrowserSupabaseClient();
     const [st, ph, mn, cp, bl, rv] = await Promise.all([
-      sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
-      sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }),
+      sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }),
+      sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }),
+      sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }),
+      sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true }),
       sb.from('blog_posts').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
       sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false }),
     ]);
-    setStaff((st.data as StaffRow[]) ?? []);
-    setPhotos((ph.data as PhotoRow[]) ?? []);
-    setMenus((mn.data as MenuRow[]) ?? []);
-    setCoupons((cp.data as CouponRow[]) ?? []);
-    setBlogs((bl.data as BlogRow[]) ?? []);
-    setReviews((rv.data as ReviewRow[]) ?? []);
+    // Supabase はクエリ失敗時に throw せず { data:null, error } を返すため error を検査する。
+    // エラー時に空配列で確定上書きすると「未登録/0件」と誤表示するため、上書きしない。
+    if (st.error || ph.error || mn.error || cp.error || bl.error || rv.error) {
+      onToast('掲載情報の読み込みに失敗しました。再読み込みしてください');
+    }
+    if (!st.error) setStaff((st.data as StaffRow[]) ?? []);
+    if (!ph.error) setPhotos((ph.data as PhotoRow[]) ?? []);
+    if (!mn.error) setMenus((mn.data as MenuRow[]) ?? []);
+    if (!cp.error) setCoupons((cp.data as CouponRow[]) ?? []);
+    if (!bl.error) setBlogs((bl.data as BlogRow[]) ?? []);
+    if (!rv.error) setReviews((rv.data as ReviewRow[]) ?? []);
     setLoading(false);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   useEffect(() => { load().catch(() => setLoading(false)); }, [load]);
 
   // クーポンのみ軽量再取得（全画面スケルトンを出さず保存後に一覧反映）
   const reloadCoupons = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    const { data } = await sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
     setCoupons((data as CouponRow[]) ?? []);
   }, [facilityId]);
 
   const reloadMenus = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    const { data } = await sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
     setMenus((data as MenuRow[]) ?? []);
   }, [facilityId]);
 
@@ -172,13 +184,13 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 
   const reloadPhotos = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    const { data } = await sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
     setPhotos((data as PhotoRow[]) ?? []);
   }, [facilityId]);
 
   const reloadStaff = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true });
+    const { data } = await sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
     setStaff((data as StaffRow[]) ?? []);
   }, [facilityId]);
 
@@ -205,7 +217,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
           <div className="animate-pulse space-y-3"><div className="h-8 bg-gray-200 rounded w-64" /><div className="h-40 bg-gray-200 rounded max-w-3xl" /></div>
         ) : (
           <>
-            {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} facilityId={facilityId} reviewsCount={reviews.length} ratingAvg={reviews.length ? Math.round((reviews.reduce((s, r) => s + (r.rating ?? 0), 0) / reviews.length) * 10) / 10 : 0} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} />}
+            {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} facilityId={facilityId} reviewsCount={reviews.length} ratingAvg={reviews.length ? Math.round((reviews.reduce((s, r) => s + (r.rating ?? 0), 0) / reviews.length) * 10) / 10 : 0} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} onReloadStatus={onReloadStatus} />}
             {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
             {tab === 'photo' && <PhotoEditPage rows={photos} coupons={coupons} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
@@ -223,7 +235,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast }:
 }
 
 /* ========================= 掲載管理TOP ========================= */
-function TopPage({ salonName, statusLabel, slug, facilityId, reviewsCount, ratingAvg, counts, onToast }: { salonName: string; statusLabel: string; slug: string; facilityId: string; reviewsCount: number; ratingAvg: number; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void }) {
+function TopPage({ salonName, statusLabel, slug, facilityId, reviewsCount, ratingAvg, counts, onToast, onReloadStatus }: { salonName: string; statusLabel: string; slug: string; facilityId: string; reviewsCount: number; ratingAvg: number; counts: { staff: number; photos: number; menus: number; coupons: number }; onToast: (m: string) => void; onReloadStatus?: () => void }) {
   const openPreview = () => { if (slug) window.open(`/salon/${slug}`, '_blank', 'noopener'); else onToast('公開URLが未設定です'); };
   const [applying, setApplying] = useState(false);
   const [checkModal, setCheckModal] = useState(false);
@@ -240,6 +252,7 @@ function TopPage({ salonName, statusLabel, slug, facilityId, reviewsCount, ratin
       const res = await fetch(`/api/admin/facility-status?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'resume' }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '反映申請に失敗しました'); return; }
       onToast('反映申請しました（掲載を公開しました）');
+      onReloadStatus?.(); // 親(SalonBoard)の掲載ステータス表示を再取得して stale を解消
     } catch { onToast('通信エラーが発生しました'); } finally { setApplying(false); }
   };
   const today = '2026/05/29';
@@ -1229,7 +1242,9 @@ function BlogEditPage({ row, coupons, staff, facilityId, onClose, onSaved, onToa
     if (!body.trim()) { onToast('本文を入力してください'); return; }
     setSaving(true);
     try {
-      const payload = { title: title.trim(), content: body.trim(), is_published: !!row?.is_published, coupon_id: couponId || null, author_id: authorId || null, thumbnail_url: thumbnail || null, category: category || null };
+      // is_published は一覧画面のトグルで管理する。編集フォームから送ると PATCH 側で published_at が
+      // 現在時刻に上書きされ「初回掲載日」がずれるため、ここでは送らない（新規は POST 側で false 既定）。
+      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id: authorId || null, thumbnail_url: thumbnail || null, category: category || null };
       const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }

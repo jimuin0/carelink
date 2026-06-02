@@ -219,3 +219,35 @@ test('POST: 非カラム不在エラーは再試行せず 500', async () => {
   const res = await POST(makeRequest(validBody({ category: 'ヘア' })));
   expect(res.status).toBe(500);
 });
+
+// ─── coupon_id / author_id 施設所有検証（#3/#12） ──────────────────────────────
+function scopeRow(data: unknown) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data })) };
+}
+const VALID_COUPON = '88888888-8888-4888-8888-888888888888';
+const VALID_AUTHOR = '77777777-7777-4777-8777-777777777777';
+
+test('POST: coupon_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null)); // coupons 検証 → 見つからない
+  const res = await POST(makeRequest(validBody({ coupon_id: VALID_COUPON })));
+  expect(res.status).toBe(400);
+});
+test('POST: coupon_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_COUPON })).mockReturnValueOnce(insertSingle({ id: 'p-c' }));
+  const res = await POST(makeRequest(validBody({ coupon_id: VALID_COUPON })));
+  expect(res.status).toBe(201);
+});
+test('POST: author_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null)); // staff_profiles 検証 → 見つからない
+  const res = await POST(makeRequest(validBody({ author_id: VALID_AUTHOR })));
+  expect(res.status).toBe(400);
+});
+test('POST: author_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_AUTHOR })).mockReturnValueOnce(insertSingle({ id: 'p-a' }));
+  const res = await POST(makeRequest(validBody({ author_id: VALID_AUTHOR })));
+  expect(res.status).toBe(201);
+});

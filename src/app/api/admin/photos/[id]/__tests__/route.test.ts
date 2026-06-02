@@ -69,3 +69,35 @@ test('DELETE: 未認証 → 401', async () => { mockGetUser.mockResolvedValue({ 
 test('DELETE: 非権限 → 401', async () => { setup(null, { facility_id: FACILITY_UUID }); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(401); });
 test('DELETE: DB削除失敗 → 500', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteChain({ message: 'e' })); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(500); });
 test('DELETE: 正常 → 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteChain(null)); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(200); });
+
+// ─── 拡張カラム不在フォールバック（#22）＋ coupon_id 施設検証（#3） ─────────────
+function scopeRow(data: unknown) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data })) };
+}
+const VALID_COUPON = '88888888-8888-4888-8888-888888888888';
+
+test('PATCH: 拡張カラム不在(PGRST204)→除外して再試行し 200', async () => {
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return single({ facility_id: FACILITY_UUID }); // photo lookup
+    if (n === 2) return updateChain(null, { code: 'PGRST204', message: 'column does not exist' });
+    return updateChain({ id: PHOTO_UUID });
+  });
+  mockAnonFrom.mockReturnValue(single({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makeReq('PATCH', { caption: 'x' }), makeProps())).status).toBe(200);
+});
+
+test('PATCH: coupon_id が他施設 → 400', async () => {
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => { n++; if (n === 1) return single({ facility_id: FACILITY_UUID }); return scopeRow(null); });
+  mockAnonFrom.mockReturnValue(single({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makeReq('PATCH', { coupon_id: VALID_COUPON }), makeProps())).status).toBe(400);
+});
+
+test('PATCH: coupon_id が自施設 → 200', async () => {
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => { n++; if (n === 1) return single({ facility_id: FACILITY_UUID }); if (n === 2) return scopeRow({ id: VALID_COUPON }); return updateChain({ id: PHOTO_UUID }); });
+  mockAnonFrom.mockReturnValue(single({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makeReq('PATCH', { coupon_id: VALID_COUPON }), makeProps())).status).toBe(200);
+});
