@@ -1,7 +1,8 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/suspensions.ts（予約停止時間帯の判定ヘルパー #03/#09/#10）
+ * env は Stryker(L4) と通常 jest の双方で動くミックスイン環境に統一。
  */
 import { timeToMinutes, rangesOverlap, isRangeSuspended } from '../suspensions';
 
@@ -14,7 +15,9 @@ describe('timeToMinutes', () => {
 describe('rangesOverlap', () => {
   test('重なる', () => { expect(rangesOverlap(600, 660, 630, 690)).toBe(true); });
   test('内包', () => { expect(rangesOverlap(600, 720, 630, 660)).toBe(true); });
-  test('端点接触は重ならない', () => { expect(rangesOverlap(600, 630, 630, 660)).toBe(false); });
+  test('端点接触は重ならない（aEnd===bStart）', () => { expect(rangesOverlap(600, 630, 630, 660)).toBe(false); });
+  // aStart===bEnd の境界（a が b の終端ちょうどに始まる）→ 重ならない。< を <= に変異させると true になる差分を検出
+  test('端点接触は重ならない（aStart===bEnd）', () => { expect(rangesOverlap(630, 660, 600, 630)).toBe(false); });
   test('完全に別', () => { expect(rangesOverlap(600, 630, 700, 730)).toBe(false); });
 });
 

@@ -26,6 +26,7 @@ const config = {
     'src/lib/validations-booking.ts',
     'src/lib/validations-auth.ts',
     'src/lib/db-fallback.ts',
+    'src/lib/suspensions.ts',
   ],
   thresholds: {
     high: 100,

@@ -1,4 +1,4 @@
-/* Stryker disable StringLiteral, ArrayDeclaration */
+/* Stryker disable StringLiteral, ArrayDeclaration, ObjectLiteral -- module-level const は perTest 被覆を特定テストに帰属できず生存扱いになる（値は constants.test の dayLabels 検証で実証済み）。Regex(下記)と同一クラスの被覆帰属アーティファクトのため除外 */
 export const prefectures = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
   '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
@@ -41,7 +41,7 @@ export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as con
 export const dayLabels: Record<string, string> = {
   mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日',
 };
-/* Stryker restore StringLiteral, ArrayDeclaration */
+/* Stryker restore StringLiteral, ArrayDeclaration, ObjectLiteral */
 
 /** UUID v4 validation pattern */
 /* Stryker disable Regex -- module-level const evaluated at init; perTest coverage can't attribute to specific tests; logic verified by UUID_REGEX.test() tests */

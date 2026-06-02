@@ -9,6 +9,7 @@ const config = {
     'src/lib/constants.ts',
     'src/lib/safe.ts',
     'src/lib/image-utils.ts',
+    'src/lib/suspensions.ts',
   ],
   jsonReporter: { fileName: 'reports/mutation/agent2.json' },
 };
