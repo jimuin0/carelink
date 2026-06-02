@@ -225,9 +225,13 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       const supabase = createBrowserSupabaseClient();
       const month = date.slice(0, 7); // YYYY-MM
       const today = getTodayString();
+      // 月末は「翌月1日未満」で表現する（`${month}-31` は2月・小の月で無効日付となり
+      // Postgres が 22008 エラーを返し当月売上が常に0表示になるため）
+      const [my, mm] = month.split('-').map(Number);
+      const nextMonthFirst = mm === 12 ? `${my + 1}-01-01` : `${my}-${String(mm + 1).padStart(2, '0')}-01`;
       const { data } = await supabase.from('bookings')
         .select('booking_date, total_price, status')
-        .eq('facility_id', facilityId).gte('booking_date', `${month}-01`).lte('booking_date', `${month}-31`)
+        .eq('facility_id', facilityId).gte('booking_date', `${month}-01`).lt('booking_date', nextMonthFirst)
         .in('status', ['confirmed', 'completed']);
       const rows = (data as { booking_date: string; total_price: number | null }[] ?? []);
       const byDay: Record<string, { c: number; s: number }> = {};
