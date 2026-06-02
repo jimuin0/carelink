@@ -13,6 +13,7 @@ const blogUpdateSchema = z.object({
   is_published: z.boolean().optional(),
   coupon_id: z.string().uuid().optional().nullable(),
   author_id: z.string().uuid().optional().nullable(),
+  author_name_id: z.string().uuid().optional().nullable(), // 外部投稿者(blog_authors)
   thumbnail_url: z.string().max(200000).optional().nullable(),
   category: z.string().max(50).optional().nullable(),
 });
@@ -71,6 +72,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     const { data: s } = await admin.from('staff_profiles').select('id').eq('id', parsed.data.author_id).eq('facility_id', facilityId).maybeSingle();
     if (!s) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 400 });
   }
+  if (parsed.data.author_name_id) {
+    const { data: a } = await admin.from('blog_authors').select('id').eq('id', parsed.data.author_name_id).eq('facility_id', facilityId).maybeSingle();
+    if (!a) return NextResponse.json({ error: '投稿者が見つかりません' }, { status: 400 });
+  }
 
   let { data, error } = await admin
     .from('blog_posts')
@@ -81,7 +86,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.update');
-    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
+    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id', 'author_name_id'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

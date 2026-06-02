@@ -21,7 +21,7 @@ interface PhotoRow { id: string; photo_url: string | null; photo_type: string | 
 interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; }
-interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; coupon_id?: string | null; category?: string | null; }
+interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
@@ -1122,9 +1122,11 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
   const [authorModal, setAuthorModal] = useState(false);
   const [authors, setAuthors] = useState<{ id: string; name: string }[]>([]);
   const [newAuthor, setNewAuthor] = useState('');
-  const loadAuthors = async () => {
+  const loadAuthors = useCallback(async () => {
     try { const res = await fetch(`/api/admin/blog-authors?facility_id=${facilityId}`); if (res.ok) { const d = await res.json(); setAuthors(d.authors ?? []); } } catch { /* noop */ }
-  };
+  }, [facilityId]);
+  // 投稿者ドロップダウン（編集フォーム）でも使うためマウント時に取得
+  useEffect(() => { loadAuthors(); }, [loadAuthors]);
   const openAuthorModal = () => { setAuthorModal(true); loadAuthors(); };
   const addAuthor = async () => {
     if (!newAuthor.trim()) return;
@@ -1151,7 +1153,7 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
       onToast('ブログを削除しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
-  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} coupons={coupons} staff={staff} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
+  if (editing) return <BlogEditPage row={editing === 'new' ? null : editing} coupons={coupons} staff={staff} authors={authors} facilityId={facilityId} onClose={() => setEditing(null)} onSaved={onReload} onToast={onToast} />;
   return (
     <div className="max-w-5xl space-y-3">
       {authorModal && (
@@ -1209,12 +1211,13 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
 }
 
 /* ========================= ブログ編集 入力 ========================= */
-function BlogEditPage({ row, coupons, staff, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; coupons: CouponRow[]; staff: StaffRow[]; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
+function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSaved, onToast }: { row: BlogRow | null; coupons: CouponRow[]; staff: StaffRow[]; authors: { id: string; name: string }[]; facilityId: string; onClose: () => void; onSaved: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const [title, setTitle] = useState(row?.title ?? '');
   const [body, setBody] = useState(row?.content ?? '');
   const [couponId, setCouponId] = useState(row?.coupon_id ?? '');
-  const [authorId, setAuthorId] = useState(row?.author_id ?? '');
+  // 投稿者: スタッフ(author_id)と外部投稿者(author_name_id)を 'staff:<id>' / 'ext:<id>' で一元管理
+  const [author, setAuthor] = useState(row?.author_name_id ? `ext:${row.author_name_id}` : row?.author_id ? `staff:${row.author_id}` : '');
   const [category, setCategory] = useState(row?.category ?? 'ビューティー');
   const [thumbnail, setThumbnail] = useState(row?.thumbnail_url ?? '');
   const [uploading, setUploading] = useState(false);
@@ -1244,7 +1247,9 @@ function BlogEditPage({ row, coupons, staff, facilityId, onClose, onSaved, onToa
     try {
       // is_published は一覧画面のトグルで管理する。編集フォームから送ると PATCH 側で published_at が
       // 現在時刻に上書きされ「初回掲載日」がずれるため、ここでは送らない（新規は POST 側で false 既定）。
-      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id: authorId || null, thumbnail_url: thumbnail || null, category: category || null };
+      const author_id = author.startsWith('staff:') ? author.slice(6) : null;
+      const author_name_id = author.startsWith('ext:') ? author.slice(4) : null;
+      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id, author_name_id, thumbnail_url: thumbnail || null, category: category || null };
       const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
@@ -1259,7 +1264,7 @@ function BlogEditPage({ row, coupons, staff, facilityId, onClose, onSaved, onToa
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
         <FormRow label="ステータス"><span className="text-sm">{row?.is_published ? '反映済み' : '未反映'}</span> <span className="text-[11px] text-gray-400">（ステータスは一覧の画面で変更可能です）</span></FormRow>
         <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
-        <FormRow label="投稿者"><select value={authorId} onChange={(e) => setAuthorId(e.target.value)} className={`${input} bg-white`}><option value="">指定なし</option>{staff.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select> <button onClick={() => onToast('投稿者の追加・編集は一覧画面の「投稿者追加・編集」から行えます')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
+        <FormRow label="投稿者"><select value={author} onChange={(e) => setAuthor(e.target.value)} className={`${input} bg-white`}><option value="">指定なし</option>{staff.length > 0 && <optgroup label="スタッフ">{staff.map((s) => <option key={s.id} value={`staff:${s.id}`}>{s.name}</option>)}</optgroup>}{authors.length > 0 && <optgroup label="投稿者（スタッフ外）">{authors.map((a) => <option key={a.id} value={`ext:${a.id}`}>{a.name}</option>)}</optgroup>}</select> <button onClick={() => onToast('投稿者の追加・編集は一覧画面の「投稿者追加・編集」から行えます')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
         <FormRow label="カテゴリ"><select className={`${input} bg-white`} value={category} onChange={(e) => setCategory(e.target.value)}><option value="ビューティー">ビューティー</option><option value="ヘア">ヘア</option><option value="ネイル">ネイル</option><option value="メイク">メイク</option><option value="エステ">エステ</option><option value="その他">その他</option></select></FormRow>
         <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" onValueChange={setTitle} /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">

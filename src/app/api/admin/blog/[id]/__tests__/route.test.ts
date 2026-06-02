@@ -313,3 +313,15 @@ test('PATCH: author_id が自施設 → 200', async () => {
   const res = await PATCH(makeRequest('PATCH', { author_id: VALID_AUTHOR }), makeProps());
   expect(res.status).toBe(200);
 });
+
+const VALID_EXT_AUTHOR = '66666666-6666-4666-8666-666666666666';
+test('PATCH: author_name_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  expect((await PATCH(makeRequest('PATCH', { author_name_id: VALID_EXT_AUTHOR }), makeProps())).status).toBe(400);
+});
+test('PATCH: author_name_id が自施設 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_EXT_AUTHOR })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { author_name_id: VALID_EXT_AUTHOR }), makeProps())).status).toBe(200);
+});

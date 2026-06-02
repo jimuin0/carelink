@@ -251,3 +251,15 @@ test('POST: author_id が自施設 → 201', async () => {
   const res = await POST(makeRequest(validBody({ author_id: VALID_AUTHOR })));
   expect(res.status).toBe(201);
 });
+
+const VALID_EXT_AUTHOR = '66666666-6666-4666-8666-666666666666';
+test('POST: author_name_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  expect((await POST(makeRequest(validBody({ author_name_id: VALID_EXT_AUTHOR })))).status).toBe(400);
+});
+test('POST: author_name_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_EXT_AUTHOR })).mockReturnValueOnce(insertSingle({ id: 'p-ext' }));
+  expect((await POST(makeRequest(validBody({ author_name_id: VALID_EXT_AUTHOR })))).status).toBe(201);
+});
