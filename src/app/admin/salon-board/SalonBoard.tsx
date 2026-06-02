@@ -40,6 +40,27 @@ const STATUS_LABEL: Record<string, string> = {
   confirmed: '確定', pending: '仮予約', completed: '完了', no_show: '無断ｷｬﾝｾﾙ', cancelled: 'ｷｬﾝｾﾙ',
 };
 const NAV =['予約管理', '掲載管理', 'お客様管理', 'メッセージ管理', '売上管理', '集計・分析', 'サロンダイレクト', '振込・請求', '設定'];
+const WEEKDAY_JP = ['日', '月', '火', '水', '木', '金', '土'];
+
+// 週ビュー: 表示中日付を含む週（日曜起点・7日）の "YYYY-MM-DD"[] を UTC 基準で返す
+function weekDatesOf(dateStr: string): string[] {
+  const wd = new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+  const start = shiftDate(dateStr, -wd);
+  return Array.from({ length: 7 }, (_, i) => shiftDate(start, i));
+}
+// 月ビュー: 当月カレンダー用に前後余白 null を含む 7×N グリッド配列を返す
+function monthGridOf(dateStr: string): (string | null)[] {
+  const ym = dateStr.slice(0, 7);
+  const y = parseInt(dateStr.slice(0, 4), 10);
+  const m = parseInt(dateStr.slice(5, 7), 10);
+  const startWd = new Date(`${ym}-01T00:00:00Z`).getUTCDay();
+  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < startWd; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(`${ym}-${String(d).padStart(2, '0')}`);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
 
 type Row =
   | { kind: 'header'; label: string }
@@ -141,6 +162,18 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
   };
 
+  // 前/次ボタンの移動量をビューに合わせる（日=±1日 / 週=±7日 / 月=±1ヶ月）
+  const stepDate = (dir: -1 | 1) => setDate((d) => {
+    if (view === 'week') return shiftDate(d, dir * 7);
+    if (view === 'month') {
+      const ym = shiftYM(d.slice(0, 7), dir);
+      const last = new Date(Date.UTC(parseInt(ym.slice(0, 4), 10), parseInt(ym.slice(5, 7), 10), 0)).getUTCDate();
+      const day = Math.min(parseInt(d.slice(8), 10), last);
+      return `${ym}-${String(day).padStart(2, '0')}`;
+    }
+    return shiftDate(d, dir);
+  });
+
   // 新規（初回来店）判定キー
   const custKey = (b: { email: string | null; customer_name: string }) =>
     (b.email || b.customer_name || '').toLowerCase();
@@ -175,6 +208,29 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
 
   useEffect(() => { loadData().catch(() => setLoading(false)); }, [loadData]);
   useEffect(() => { if (tab === 'suspend') fetchAcceptStatus().catch(() => {}); }, [tab, fetchAcceptStatus]);
+
+  // 週/月ビュー用に期間内の予約をまとめて取得（日ビューでは未取得）
+  const [rangeBookings, setRangeBookings] = useState<{ id: string; booking_date: string; start_time: string; end_time: string; status: string; customer_name: string; staff_id: string | null; menu_id: string | null }[]>([]);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  useEffect(() => {
+    if (view === 'day') return;
+    let cancelled = false;
+    (async () => {
+      setRangeLoading(true);
+      const sb = createBrowserSupabaseClient();
+      const dates = view === 'week' ? weekDatesOf(date) : (monthGridOf(date).filter(Boolean) as string[]);
+      const from = dates[0]; const to = dates[dates.length - 1];
+      const res = await sb.from('bookings')
+        .select('id, booking_date, start_time, end_time, status, customer_name, staff_id, menu_id')
+        .eq('facility_id', facilityId).gte('booking_date', from).lte('booking_date', to).neq('status', 'cancelled')
+        .order('booking_date', { ascending: true }).order('start_time', { ascending: true });
+      if (cancelled) return;
+      if (res.error) setToast({ type: 'error', message: '予約情報の読み込みに失敗しました。再読み込みしてください' });
+      else setRangeBookings((res.data as typeof rangeBookings) ?? []);
+      setRangeLoading(false);
+    })().catch(() => { if (!cancelled) setRangeLoading(false); });
+    return () => { cancelled = true; };
+  }, [view, date, facilityId]);
 
   useEffect(() => {
     const update = () => {
@@ -381,14 +437,14 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       {/* ツールバー */}
       <div className="shrink-0 flex items-center gap-3 px-4 py-2.5 bg-white border-b border-gray-300 overflow-x-auto whitespace-nowrap">
         <div className="flex items-center shrink-0 relative">
-          <button type="button" onClick={() => setDate((d) => shiftDate(d, -1))} aria-label="前日" className="px-1.5 py-1.5 border border-gray-300 rounded-l bg-white hover:bg-gray-50">
+          <button type="button" onClick={() => stepDate(-1)} aria-label={view === 'week' ? '前の週' : view === 'month' ? '前の月' : '前日'} className="px-1.5 py-1.5 border border-gray-300 rounded-l bg-white hover:bg-gray-50">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
           </button>
           <button ref={dateBtnRef} type="button" onClick={openDatePicker} className="flex items-center gap-1.5 px-3 py-1.5 border-y border-gray-300 bg-white hover:bg-gray-50">
             <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            <span className="text-sm font-bold text-gray-800">{formatDateLabel(date)}</span>
+            <span className="text-sm font-bold text-gray-800">{view === 'day' ? formatDateLabel(date) : view === 'week' ? (() => { const w = weekDatesOf(date); return `${parseInt(w[0].slice(5, 7), 10)}/${parseInt(w[0].slice(8), 10)}〜${parseInt(w[6].slice(5, 7), 10)}/${parseInt(w[6].slice(8), 10)}`; })() : `${date.slice(0, 4)}年${parseInt(date.slice(5, 7), 10)}月`}</span>
           </button>
-          <button type="button" onClick={() => setDate((d) => shiftDate(d, 1))} aria-label="翌日" className="px-1.5 py-1.5 border border-gray-300 rounded-r bg-white hover:bg-gray-50">
+          <button type="button" onClick={() => stepDate(1)} aria-label={view === 'week' ? '次の週' : view === 'month' ? '次の月' : '翌日'} className="px-1.5 py-1.5 border border-gray-300 rounded-r bg-white hover:bg-gray-50">
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
           </button>
           {/* 2ヶ月並びカレンダー日付ピッカー（HPB準拠） */}
@@ -411,10 +467,9 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <button type="button" onClick={() => setDate(getTodayString())} className="px-2 py-1.5 border border-gray-300 rounded bg-white hover:bg-gray-50 text-xs shrink-0">今日</button>
         <div className="flex rounded overflow-hidden border border-gray-300 shrink-0">
           {(['day', 'week', 'month'] as const).map((v) => (
-            <button key={v} type="button" disabled={v !== 'day'}
-              onClick={() => { if (v === 'day') setView('day'); }}
-              title={v !== 'day' ? '準備中（現在は日表示のみ）' : undefined}
-              className={`px-2.5 py-1 text-xs ${v === 'day' ? (view === v ? 'bg-sky-500 text-white' : 'bg-white text-gray-600') : 'bg-gray-100 text-gray-300 cursor-not-allowed'}`}>
+            <button key={v} type="button"
+              onClick={() => setView(v)}
+              className={`px-2.5 py-1 text-xs ${view === v ? 'bg-sky-500 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>
               {v === 'day' ? '日' : v === 'week' ? '週' : '月'}
             </button>
           ))}
@@ -442,8 +497,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </div>
       )}
 
-      {/* グリッド（スケジュールタブ。内容高で終わり、下は白地。果てしない罫線を出さない） */}
-      {tab === 'schedule' && (
+      {/* グリッド（スケジュールタブ・日ビュー。内容高で終わり、下は白地。果てしない罫線を出さない） */}
+      {tab === 'schedule' && view === 'day' && (
       <div className="flex-1 overflow-auto bg-white">
         {loading ? (
           <div className="animate-pulse p-3"><div className="h-72 bg-gray-200 rounded" /></div>
@@ -527,6 +582,71 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
           </div>
         )}
       </div>
+      )}
+
+      {/* 週ビュー：7日分の予約を日別カラムで表示。日付/予約クリックで日ビューへ */}
+      {tab === 'schedule' && view === 'week' && (
+        <div className="flex-1 overflow-auto bg-white p-2">
+          {rangeLoading ? <div className="animate-pulse p-3"><div className="h-72 bg-gray-200 rounded" /></div> : (() => {
+            const today = getTodayString();
+            const days = weekDatesOf(date);
+            const fr = staffFilter ? rangeBookings.filter((b) => b.staff_id === staffFilter) : rangeBookings;
+            return (
+              <div className="grid grid-cols-7 gap-1 min-w-[700px]">
+                {days.map((d) => {
+                  const wd = new Date(`${d}T00:00:00Z`).getUTCDay();
+                  const dayBk = fr.filter((b) => b.booking_date === d);
+                  return (
+                    <div key={d} className={`border rounded ${d === today ? 'border-sky-400' : 'border-gray-200'}`}>
+                      <button type="button" onClick={() => { setDate(d); setView('day'); }} className={`w-full px-1 py-1 text-center text-[11px] font-bold border-b hover:brightness-95 ${d === today ? 'bg-sky-100 text-sky-700 border-sky-300' : 'bg-gray-50 border-gray-200'} ${wd === 0 ? 'text-rose-500' : wd === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
+                        {parseInt(d.slice(8), 10)}（{WEEKDAY_JP[wd]}）
+                      </button>
+                      <div className="p-1 space-y-0.5 min-h-[120px]">
+                        {dayBk.length === 0 ? <div className="text-[10px] text-gray-300 text-center pt-4">予約なし</div> : dayBk.map((b) => (
+                          <button type="button" key={b.id} onClick={() => { setDate(d); setView('day'); }} className={`w-full text-left rounded px-1 py-0.5 text-[10px] border ${statusStyle(b.status).block} hover:brightness-95`}>
+                            <span className="font-bold">{b.start_time.slice(0, 5)}</span> {b.customer_name}様{b.staff_id && <span className="block opacity-70 truncate">◆{staffName(b.staff_id)}</span>}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* 月ビュー：月カレンダー上に日別予約件数を表示。日付クリックで日ビューへ */}
+      {tab === 'schedule' && view === 'month' && (
+        <div className="flex-1 overflow-auto bg-white p-2">
+          {rangeLoading ? <div className="animate-pulse p-3"><div className="h-72 bg-gray-200 rounded" /></div> : (() => {
+            const today = getTodayString();
+            const cells = monthGridOf(date);
+            const fr = staffFilter ? rangeBookings.filter((b) => b.staff_id === staffFilter) : rangeBookings;
+            const countByDay: Record<string, number> = {};
+            for (const b of fr) countByDay[b.booking_date] = (countByDay[b.booking_date] ?? 0) + 1;
+            return (
+              <div className="min-w-[700px]">
+                <div className="grid grid-cols-7">
+                  {WEEKDAY_JP.map((w, i) => <div key={w} className={`text-center text-[11px] font-bold py-1 border-b border-gray-200 ${i === 0 ? 'text-rose-500' : i === 6 ? 'text-sky-600' : 'text-gray-500'}`}>{w}</div>)}
+                </div>
+                <div className="grid grid-cols-7">
+                  {cells.map((d, i) => (
+                    <div key={i} className="border border-gray-100 min-h-[72px] p-1">
+                      {d && (
+                        <button type="button" onClick={() => { setDate(d); setView('day'); }} className="w-full h-full text-left align-top hover:bg-sky-50 rounded">
+                          <span className={`text-[11px] font-bold ${d === today ? 'bg-sky-500 text-white rounded px-1' : (i % 7 === 0 ? 'text-rose-500' : i % 7 === 6 ? 'text-sky-600' : 'text-gray-700')}`}>{parseInt(d.slice(8), 10)}</span>
+                          {countByDay[d] ? <span className="block mt-1 text-[10px] text-sky-700 font-bold">予約 {countByDay[d]}件</span> : null}
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+        </div>
       )}
 
       {/* 予約一覧タブ（サロンボードの枠内に表示・別画面へ遷移しない） */}
