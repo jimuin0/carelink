@@ -88,10 +88,10 @@ npm run lint  # ESLint
 
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
-| L1 | ESLint / tsc | ✅ | エラー 0（2026-06-02 確認、HPB同等化 Batch1-10 反映後） |
-| L2 | Jest ユニットテスト | ✅ | 4743 テスト全通過、198 スイート（2026-06-02、HPB同等化で customer-note/booking-suspension/suspensions 等のテスト追加） |
-| L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（menus/coupons/blog/reviews/customer-note/booking-suspension/slots/lib(blog,suspensions)）。2026-06-02 |
-| L4 | Stryker ミューテーション | ✅ | 全11ファイル survived=0（2026-06-02）。※HPB同等化で追加した lib/suspensions.ts は純粋関数だが Stryker mutate 対象には未追加（指示時に拡張）。 |
+| L1 | ESLint / tsc | ✅ | エラー 0（2026-06-03 確認、HPB同等化＋8観点監査の根本対策反映後） |
+| L2 | Jest ユニットテスト | ✅ | 4794 テスト全通過、200 スイート（2026-06-03、監査対応で reorder/booking gates/suspensions 等のテスト追加） |
+| L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/lib(blog,suspensions)）。2026-06-03 |
+| L4 | Stryker ミューテーション | ✅ | 全12ファイル survived=0（2026-06-03、lib/suspensions.ts を追加し mutation score 100%）。lib/blog.ts は supabase IO ありで L4基準「外部副作用なし」非該当のため対象外。 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
 | L6 | npm audit / 認証テスト | ✅ | critical=0・high=0（moderate 5）、menu-remarks の認証/IDOR テスト追加（2026-06-01） |
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
