@@ -26,6 +26,7 @@ describe('getBlogsByFacility()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
       order: orderFn,
     };
     mockFrom.mockReturnValue(chain);
@@ -39,6 +40,7 @@ describe('getBlogsByFacility()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
       order: jest.fn(() => Promise.resolve({ data: null })),
     };
     mockFrom.mockReturnValue(chain);
@@ -51,6 +53,7 @@ describe('getBlogsByFacility()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
       order: jest.fn(() => Promise.resolve({ data: [] })),
     };
     mockFrom.mockReturnValue(chain);
@@ -66,6 +69,7 @@ describe('getBlogPost()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
       single: jest.fn(() => Promise.resolve({ data: post })),
     };
     mockFrom.mockReturnValue(chain);
@@ -78,6 +82,7 @@ describe('getBlogPost()', () => {
     const chain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
       single: jest.fn(() => Promise.resolve({ data: null })),
     };
     mockFrom.mockReturnValue(chain);

@@ -16,6 +16,7 @@ const blogUpdateSchema = z.object({
   author_name_id: z.string().uuid().optional().nullable(), // 外部投稿者(blog_authors)
   thumbnail_url: z.string().max(200000).optional().nullable(),
   category: z.string().max(50).optional().nullable(),
+  scheduled_at: z.string().datetime({ offset: true }).optional().nullable(), // 予約掲載時刻(ISO)
 });
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
@@ -60,6 +61,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (parsed.data.is_published !== undefined) {
     updatePayload.published_at = parsed.data.is_published ? new Date().toISOString() : null;
   }
+  // 予約掲載(#34): scheduled_at 指定時は is_published=true・published_at=予約時刻で上書き（時刻到来まで公開ページ非表示）
+  if (parsed.data.scheduled_at) {
+    updatePayload.is_published = true;
+    updatePayload.published_at = parsed.data.scheduled_at;
+  }
 
   const admin = createServiceRoleClient();
 
@@ -86,7 +92,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.update');
-    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id', 'author_name_id'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
+    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id', 'author_name_id', 'scheduled_at'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

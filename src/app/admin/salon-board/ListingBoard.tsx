@@ -21,7 +21,7 @@ interface PhotoRow { id: string; photo_url: string | null; photo_type: string | 
 interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; sort_order?: number | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; image_url?: string | null; image_submission?: boolean | null; sort_order?: number | null; }
-interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; }
+interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; scheduled_at?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; is_pickup?: boolean | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
@@ -1332,7 +1332,7 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
                 <td className="border border-slate-200 px-0 py-0"><div className="flex h-full"><div className="flex-1 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button></div><div className="w-24 px-2 py-3 border-l border-slate-200 text-[10px] text-gray-500">{b.category || 'ビューティー'}</div></div></td>
                 <td className="border border-slate-200 px-2 py-3 text-center">{b.thumbnail_url ? <img src={b.thumbnail_url} alt="" className="w-16 h-12 object-cover mx-auto" /> : <div className="w-16 h-12 bg-gray-100 mx-auto" />}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{(() => { const a = authorLabel(b); return <>{a.kind}{a.name && <><br /><span className="text-gray-400">({a.name})</span></>}</>; })()}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(b.published_at ?? b.created_at)}<br /><span className={b.is_published ? 'text-emerald-600' : 'text-gray-400'}>{b.is_published ? '掲載中' : '非掲載'}</span></td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(b.published_at ?? b.created_at)}<br />{b.scheduled_at && new Date(b.scheduled_at).getTime() > Date.now() ? <span className="text-amber-600">予約掲載</span> : <span className={b.is_published ? 'text-emerald-600' : 'text-gray-400'}>{b.is_published ? '掲載中' : '非掲載'}</span>}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => setEditing(b)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button disabled={busy} onClick={() => { if (confirm('このブログを削除しますか？')) remove(b); }} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs disabled:opacity-40">削除</button></td>
               </tr>
             ))}
@@ -1355,6 +1355,13 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
   const [thumbnail, setThumbnail] = useState(row?.thumbnail_url ?? '');
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 予約掲載(#34): row.scheduled_at(UTC) → JST の datetime-local 文字列に変換して初期表示
+  const [scheduleOn, setScheduleOn] = useState(!!row?.scheduled_at);
+  const [scheduleAt, setScheduleAt] = useState(() => {
+    if (!row?.scheduled_at) return '';
+    const d = new Date(new Date(row.scheduled_at).getTime() + 9 * 3600 * 1000);
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}T${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+  });
   const fileRef = useRef<HTMLInputElement>(null);
   const lineCount = body ? body.split('\n').length : 0;
   const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1376,13 +1383,16 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
     if (saving) return;
     if (!title.trim()) { onToast('タイトルを入力してください'); return; }
     if (!body.trim()) { onToast('本文を入力してください'); return; }
+    if (scheduleOn && !scheduleAt) { onToast('予約掲載日時を入力してください'); return; }
     setSaving(true);
     try {
       // is_published は一覧画面のトグルで管理する。編集フォームから送ると PATCH 側で published_at が
       // 現在時刻に上書きされ「初回掲載日」がずれるため、ここでは送らない（新規は POST 側で false 既定）。
       const author_id = author.startsWith('staff:') ? author.slice(6) : null;
       const author_name_id = author.startsWith('ext:') ? author.slice(4) : null;
-      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id, author_name_id, thumbnail_url: thumbnail || null, category: category || null };
+      // 予約掲載: datetime-local 入力を JST(+09:00)として ISO(UTC) 化。OFF時は null で予約解除
+      const scheduled_at = scheduleOn && scheduleAt ? new Date(`${scheduleAt}:00+09:00`).toISOString() : null;
+      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id, author_name_id, thumbnail_url: thumbnail || null, category: category || null, scheduled_at };
       const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
@@ -1399,6 +1409,11 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
         <FormRow label="初回掲載日"><span className="text-sm">{row ? fmtDate(row.published_at ?? row.created_at) : fmtDate(new Date().toISOString())}</span></FormRow>
         <FormRow label="投稿者"><select value={author} onChange={(e) => setAuthor(e.target.value)} className={`${input} bg-white`}><option value="">指定なし</option>{staff.length > 0 && <optgroup label="スタッフ">{staff.map((s) => <option key={s.id} value={`staff:${s.id}`}>{s.name}</option>)}</optgroup>}{authors.length > 0 && <optgroup label="投稿者（スタッフ外）">{authors.map((a) => <option key={a.id} value={`ext:${a.id}`}>{a.name}</option>)}</optgroup>}</select> <button onClick={() => onToast('投稿者の追加・編集は一覧画面の「投稿者追加・編集」から行えます')} className="px-2 py-0.5 border border-sky-400 text-sky-600 rounded text-xs">投稿者追加・編集</button><p className="text-[11px] text-gray-400 mt-1">※スタッフ登録せずに、ブログのみ投稿する投稿者を5名まで追加できます。</p></FormRow>
         <FormRow label="カテゴリ"><select className={`${input} bg-white`} value={category} onChange={(e) => setCategory(e.target.value)}><option value="ビューティー">ビューティー</option><option value="ヘア">ヘア</option><option value="ネイル">ネイル</option><option value="メイク">メイク</option><option value="エステ">エステ</option><option value="その他">その他</option></select></FormRow>
+        <FormRow label="予約掲載">
+          <label className="flex items-center gap-1 text-xs"><input type="checkbox" checked={scheduleOn} onChange={(e) => setScheduleOn(e.target.checked)} />指定日時に自動で掲載する</label>
+          {scheduleOn && <div className="mt-1"><input type="datetime-local" className={`${input}`} value={scheduleAt} onChange={(e) => setScheduleAt(e.target.value)} /></div>}
+          <p className="text-[11px] text-gray-400 mt-1">※指定した日時（JST）になると公開ページに自動掲載されます。それまでは非表示です。</p>
+        </FormRow>
         <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" onValueChange={setTitle} /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPickImage} />

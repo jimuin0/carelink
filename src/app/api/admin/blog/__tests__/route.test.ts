@@ -263,3 +263,9 @@ test('POST: author_name_id が自施設 → 201', async () => {
   mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_EXT_AUTHOR })).mockReturnValueOnce(insertSingle({ id: 'p-ext' }));
   expect((await POST(makeRequest(validBody({ author_name_id: VALID_EXT_AUTHOR })))).status).toBe(201);
 });
+
+test('POST: scheduled_at 指定 → 201（予約掲載・is_published=true/published_at=予約時刻）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-sch' }));
+  expect((await POST(makeRequest(validBody({ scheduled_at: '2026-07-01T00:00:00.000Z' })))).status).toBe(201);
+});

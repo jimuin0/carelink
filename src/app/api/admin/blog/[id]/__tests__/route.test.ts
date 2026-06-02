@@ -325,3 +325,9 @@ test('PATCH: author_name_id が自施設 → 200', async () => {
   mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_EXT_AUTHOR })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
   expect((await PATCH(makeRequest('PATCH', { author_name_id: VALID_EXT_AUTHOR }), makeProps())).status).toBe(200);
 });
+
+test('PATCH: scheduled_at 指定 → 200（予約掲載・published_at=予約時刻で上書き）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { scheduled_at: '2026-07-01T00:00:00.000Z' }), makeProps())).status).toBe(200);
+});

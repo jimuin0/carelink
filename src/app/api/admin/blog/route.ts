@@ -17,6 +17,7 @@ const blogPostSchema = z.object({
   author_name_id: z.string().uuid().optional().nullable(), // 外部投稿者(blog_authors)
   thumbnail_url: z.string().max(200000).optional().nullable(),
   category: z.string().max(50).optional().nullable(),
+  scheduled_at: z.string().datetime({ offset: true }).optional().nullable(), // 予約掲載時刻(ISO)
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
@@ -54,7 +55,9 @@ export async function POST(request: NextRequest) {
   const parsed = blogPostSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const isPublished = parsed.data.is_published ?? false;
+  // 予約掲載(#34): scheduled_at 指定時は is_published=true・published_at=予約時刻（公開ページは時刻到来まで非表示）
+  const scheduledAt = parsed.data.scheduled_at ?? null;
+  const isPublished = scheduledAt ? true : (parsed.data.is_published ?? false);
   const admin = createServiceRoleClient();
 
   // クロス施設参照防止: coupon_id / author_id が自施設のものか検証（booking-create と同パターン）
@@ -84,13 +87,15 @@ export async function POST(request: NextRequest) {
     thumbnail_url: parsed.data.thumbnail_url ?? null,
     category: parsed.data.category ?? null,
     is_published: isPublished,
-    published_at: isPublished ? new Date().toISOString() : null,
+    // 予約掲載なら published_at=予約時刻、通常公開なら現在時刻、下書きなら null
+    published_at: scheduledAt ? scheduledAt : (isPublished ? new Date().toISOString() : null),
+    scheduled_at: scheduledAt,
   };
-  // category / coupon_id は後続マイグレーションで追加された列。部分適用環境でも500にしないため両方を除外候補にする
+  // category / coupon_id / author_name_id / scheduled_at は後続マイグレーションで追加された列。部分適用環境でも500にしないため除外候補にする
   let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.insert');
-    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category', 'coupon_id', 'author_name_id'])).select().single());
+    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category', 'coupon_id', 'author_name_id', 'scheduled_at'])).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
