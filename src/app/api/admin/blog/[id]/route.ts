@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
-import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const blogUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -69,6 +69,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .select()
     .single();
   if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('blog_posts.update');
     ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 

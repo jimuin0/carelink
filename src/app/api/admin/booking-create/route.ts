@@ -99,46 +99,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 競合チェック（同一スタッフの同時間帯重複を禁止）
-    if (d.staff_id) {
-      const { data: conflicts } = await admin
-        .from('bookings')
-        .select('id')
-        .eq('facility_id', facilityId)
-        .eq('staff_id', d.staff_id)
-        .eq('booking_date', d.booking_date)
-        .not('status', 'in', '("cancelled","no_show")')
-        .lt('start_time', d.end_time)
-        .gt('end_time', d.start_time);
-      if (conflicts && conflicts.length > 0) {
-        return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
-      }
-    }
-
     const emailValue = d.email && d.email.length > 0 ? d.email : null;
     const phoneValue = d.phone && d.phone.length > 0 ? d.phone : null;
 
-    const { data: inserted, error } = await admin
-      .from('bookings')
-      .insert({
-        facility_id: facilityId,
-        staff_id: d.staff_id ?? null,
-        menu_id: d.menu_id ?? null,
-        booking_date: d.booking_date,
-        start_time: d.start_time,
-        end_time: d.end_time,
-        customer_name: d.customer_name,
-        email: emailValue,
-        phone: phoneValue,
-        note: d.note ?? null,
-        status: 'confirmed',
-        source: d.source ?? 'walk_in',
-        total_price: totalPrice,
-      })
-      .select('id')
-      .single();
+    // 競合チェック＋INSERT を advisory lock で原子化（同時2リクエストの二重予約を防止）。
+    // check-then-insert を別トランザクションで行うと phantom-insert レースが残るため RPC に集約。
+    const { data: insertedId, error } = await admin.rpc('create_admin_booking_atomic', {
+      p_facility_id: facilityId,
+      p_staff_id: d.staff_id ?? null,
+      p_menu_id: d.menu_id ?? null,
+      p_booking_date: d.booking_date,
+      p_start_time: d.start_time,
+      p_end_time: d.end_time,
+      p_customer_name: d.customer_name,
+      p_email: emailValue,
+      p_phone: phoneValue,
+      p_note: d.note ?? null,
+      p_total_price: totalPrice,
+      p_source: d.source ?? 'walk_in',
+    });
 
-    if (error || !inserted) {
+    if (error) {
+      if (typeof error.message === 'string' && error.message.includes('BOOKING_CONFLICT')) {
+        return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+      }
       return NextResponse.json({ error: '登録に失敗しました' }, { status: 500 });
     }
 
@@ -149,14 +133,14 @@ export async function POST(request: NextRequest) {
       facilityId,
       action: 'create',
       tableName: 'bookings',
-      recordId: inserted.id,
+      recordId: (insertedId as string) ?? null,
       oldValues: null,
       newValues: { customer_name: d.customer_name, booking_date: d.booking_date, start_time: d.start_time, source: d.source ?? 'walk_in' },
       ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
       userAgent: request.headers.get('user-agent') ?? null,
     });
 
-    return NextResponse.json({ success: true, id: inserted.id });
+    return NextResponse.json({ success: true, id: insertedId as string });
   } catch (e) {
     safeCaptureException(e, 'admin-booking-create');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

@@ -6,7 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const staffSchema = z.object({
   name: z.string().min(1).max(50),
@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
   // line_works_* カラム未適用(20260417マイグレーション未実行)環境でも500にしないフォールバック
   let { data, error } = await admin.from('staff_profiles').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('staff_profiles.insert');
     ({ data, error } = await admin.from('staff_profiles').insert(omitKeys(insertRow, ['line_works_channel_id', 'line_works_notify_all'])).select().single());
   }
 

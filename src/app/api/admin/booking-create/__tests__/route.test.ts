@@ -22,12 +22,13 @@ const MENU_UUID = uuid('5');
 const mockGetUser = jest.fn();
 const mockAuthFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(async () => ({ auth: { getUser: mockGetUser }, from: mockAuthFrom })),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -139,21 +140,20 @@ test('スタッフが施設に存在しない → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('時間競合 → 409', async () => {
+test('時間競合 → 409（RPC が BOOKING_CONFLICT を返す）', async () => {
   mockAdminFrom
     .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: 5000 } })) // menu
-    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } })) // staff
-    .mockReturnValueOnce(chain({ data: [{ id: 'x' }] })); // conflict
+    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } })); // staff
+  mockAdminRpc.mockReturnValueOnce(chain({ data: null, error: { message: 'BOOKING_CONFLICT: この時間帯は既に予約が入っています' } }));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(409);
 });
 
-test('insert エラー → 500', async () => {
+test('RPC エラー（非競合）→ 500', async () => {
   mockAdminFrom
     .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: 5000 } }))
-    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } }))
-    .mockReturnValueOnce(chain({ data: [] }))
-    .mockReturnValueOnce(chain({ data: null, error: { message: 'fail' } })); // insert
+    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } }));
+  mockAdminRpc.mockReturnValueOnce(chain({ data: null, error: { message: 'fail' } }));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(500);
 });
@@ -161,9 +161,8 @@ test('insert エラー → 500', async () => {
 test('正常登録（スタッフ+メニュー、price あり）→ 200', async () => {
   mockAdminFrom
     .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: 5000 } }))
-    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } }))
-    .mockReturnValueOnce(chain({ data: [] }))
-    .mockReturnValueOnce(chain({ data: { id: 'new-booking' }, error: null }));
+    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } }));
+  mockAdminRpc.mockReturnValueOnce(chain({ data: 'new-booking', error: null }));
   const res = await POST(makeRequest(validBody({ email: 'a@example.com', phone: '090-1111-2222', note: 'メモ', source: 'phone' })));
   expect(res.status).toBe(200);
   const json = await res.json();
@@ -172,7 +171,7 @@ test('正常登録（スタッフ+メニュー、price あり）→ 200', async 
 });
 
 test('正常登録（メニュー/スタッフなし・email空）→ 200', async () => {
-  mockAdminFrom.mockReturnValueOnce(chain({ data: { id: 'new2' }, error: null })); // insert のみ
+  mockAdminRpc.mockReturnValueOnce(chain({ data: 'new2', error: null }));
   const res = await POST(makeRequest(validBody({ staff_id: null, menu_id: null, email: '', phone: '' })));
   expect(res.status).toBe(200);
 });
@@ -180,20 +179,27 @@ test('正常登録（メニュー/スタッフなし・email空）→ 200', asyn
 test('メニュー price null 分岐 → 200', async () => {
   mockAdminFrom
     .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: null } })) // price null
-    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } }))
-    .mockReturnValueOnce(chain({ data: [] }))
-    .mockReturnValueOnce(chain({ data: { id: 'new3' }, error: null }));
+    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } }));
+  mockAdminRpc.mockReturnValueOnce(chain({ data: 'new3', error: null }));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(200);
 });
 
 test('audit 用 getUser が null でも 200（userId null 分岐）', async () => {
-  mockAdminFrom.mockReturnValueOnce(chain({ data: { id: 'new4' }, error: null })); // insert
+  mockAdminRpc.mockReturnValueOnce(chain({ data: 'new4', error: null }));
   mockGetUser
     .mockResolvedValueOnce({ data: { user: { id: USER_ID } } }) // 認可
     .mockResolvedValueOnce({ data: { user: null } }); // audit
   const res = await POST(makeRequest(validBody({ staff_id: null, menu_id: null })));
   expect(res.status).toBe(200);
+});
+
+test('RPC が data=null（id 未返却）でも 200（recordId null 分岐）', async () => {
+  mockAdminRpc.mockReturnValueOnce(chain({ data: null, error: null }));
+  const res = await POST(makeRequest(validBody({ staff_id: null, menu_id: null })));
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.id ?? null).toBeNull();
 });
 
 test('不正JSON → 400（json catch 分岐）', async () => {

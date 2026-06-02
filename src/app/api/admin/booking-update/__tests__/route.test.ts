@@ -22,12 +22,13 @@ const BOOKING_UUID = uuid('1');
 
 const mockGetUser = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 
 jest.mock('@/lib/supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(async () => ({ auth: { getUser: mockGetUser } })),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -65,6 +66,11 @@ const BOOKING = {
   booking_date: '2026-06-01',
   start_time: '10:00:00',
   end_time: '11:00:00',
+  customer_name: '既存太郎',
+  email: 'existing@example.com',
+  phone: '090-0000-0000',
+  note: null,
+  total_price: 5000,
 };
 
 // よくある成功系の admin.from 呼び出し列を組み立てるヘルパ
@@ -141,27 +147,23 @@ test('スタッフが施設に存在しない → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('時間競合 → 409', async () => {
+test('時間競合 → 409（RPC が BOOKING_CONFLICT を返す）', async () => {
   queueBookingAndMember();
-  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: 'other' }] })); // conflict
+  mockAdminRpc.mockReturnValueOnce(chain({ data: null, error: { message: 'BOOKING_CONFLICT: この時間帯は既に予約が入っています' } }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID, start_time: '10:30', end_time: '11:30' }));
   expect(res.status).toBe(409);
 });
 
-test('update エラー → 500', async () => {
+test('RPC エラー（非競合）→ 500', async () => {
   queueBookingAndMember();
-  mockAdminFrom
-    .mockReturnValueOnce(chain({ data: [] })) // conflict none
-    .mockReturnValueOnce(chain({ data: null, error: { message: 'fail' } })); // update error
+  mockAdminRpc.mockReturnValueOnce(chain({ data: null, error: { message: 'fail' } }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID, start_time: '10:30', end_time: '11:30' }));
   expect(res.status).toBe(500);
 });
 
-test('update 該当0件 → 404', async () => {
+test('RPC が NULL（対象なし）→ 404', async () => {
   queueBookingAndMember();
-  mockAdminFrom
-    .mockReturnValueOnce(chain({ data: [] })) // conflict none
-    .mockReturnValueOnce(chain({ data: [], error: null })); // update 0 rows
+  mockAdminRpc.mockReturnValueOnce(chain({ data: null, error: null }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID, start_time: '10:30', end_time: '11:30' }));
   expect(res.status).toBe(404);
 });
@@ -170,9 +172,8 @@ test('正常更新（全フィールド、menu/staff あり）→ 200', async ()
   queueBookingAndMember();
   mockAdminFrom
     .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: 7000 } })) // menu
-    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } })) // staff
-    .mockReturnValueOnce(chain({ data: [] })) // conflict none
-    .mockReturnValueOnce(chain({ data: [{ id: BOOKING_UUID }], error: null })); // update ok
+    .mockReturnValueOnce(chain({ data: { id: STAFF_UUID } })); // staff
+  mockAdminRpc.mockReturnValueOnce(chain({ data: BOOKING_UUID, error: null }));
   const res = await POST(makeRequest({
     booking_id: BOOKING_UUID,
     staff_id: STAFF_UUID,
@@ -190,28 +191,23 @@ test('正常更新（全フィールド、menu/staff あり）→ 200', async ()
   expect(json.success).toBe(true);
 });
 
-test('正常更新（最小: booking_id のみ。既存値維持・conflict 実行）→ 200', async () => {
+test('正常更新（最小: booking_id のみ。既存値維持）→ 200', async () => {
   queueBookingAndMember();
-  mockAdminFrom
-    .mockReturnValueOnce(chain({ data: [] })) // conflict none（既存 staff_id 由来）
-    .mockReturnValueOnce(chain({ data: [{ id: BOOKING_UUID }], error: null })); // update ok
+  mockAdminRpc.mockReturnValueOnce(chain({ data: BOOKING_UUID, error: null }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID }));
   expect(res.status).toBe(200);
 });
 
-test('正常更新（staff_id=null → conflict スキップ、email/phone 空→null）→ 200', async () => {
+test('正常更新（staff_id=null、email/phone 空→null）→ 200', async () => {
   queueBookingAndMember();
-  mockAdminFrom
-    .mockReturnValueOnce(chain({ data: [{ id: BOOKING_UUID }], error: null })); // update ok（conflict なし）
+  mockAdminRpc.mockReturnValueOnce(chain({ data: BOOKING_UUID, error: null }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID, staff_id: null, email: '', phone: '' }));
   expect(res.status).toBe(200);
 });
 
 test('正常更新（menu_id=null → メニュー検証スキップ）→ 200', async () => {
   queueBookingAndMember();
-  mockAdminFrom
-    .mockReturnValueOnce(chain({ data: [] })) // conflict（既存 staff 由来）
-    .mockReturnValueOnce(chain({ data: [{ id: BOOKING_UUID }], error: null })); // update
+  mockAdminRpc.mockReturnValueOnce(chain({ data: BOOKING_UUID, error: null }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID, menu_id: null }));
   expect(res.status).toBe(200);
 });
@@ -219,10 +215,16 @@ test('正常更新（menu_id=null → メニュー検証スキップ）→ 200',
 test('正常更新（メニュー price null → total_price null）→ 200', async () => {
   queueBookingAndMember();
   mockAdminFrom
-    .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: null } })) // menu price null
-    .mockReturnValueOnce(chain({ data: [] })) // conflict（既存 staff 由来）
-    .mockReturnValueOnce(chain({ data: [{ id: BOOKING_UUID }], error: null })); // update
+    .mockReturnValueOnce(chain({ data: { id: MENU_UUID, price: null } })); // menu price null
+  mockAdminRpc.mockReturnValueOnce(chain({ data: BOOKING_UUID, error: null }));
   const res = await POST(makeRequest({ booking_id: BOOKING_UUID, menu_id: MENU_UUID }));
+  expect(res.status).toBe(200);
+});
+
+test('既存 total_price が null の予約更新 → 200（total_price ?? null 分岐）', async () => {
+  queueBookingAndMember({ ...BOOKING, total_price: null });
+  mockAdminRpc.mockReturnValueOnce(chain({ data: BOOKING_UUID, error: null }));
+  const res = await POST(makeRequest({ booking_id: BOOKING_UUID }));
   expect(res.status).toBe(200);
 });
 

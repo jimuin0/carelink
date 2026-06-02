@@ -21,3 +21,12 @@ export function omitKeys<T extends Record<string, unknown>>(obj: T, keys: readon
   for (const k of keys) delete copy[k];
   return copy;
 }
+
+/**
+ * カラム不在フォールバックが発生したことを警告ログに残す。
+ * （マイグレーション未適用で追加フィールドが黙って保存されない状態に運用で気付くため）
+ */
+export function warnMissingColumnFallback(context: string): void {
+  // eslint-disable-next-line no-console
+  console.warn(`[db-fallback] ${context}: 追加カラムが存在しないため当該カラムを除外して再試行しました（マイグレーション未適用の可能性）`);
+}

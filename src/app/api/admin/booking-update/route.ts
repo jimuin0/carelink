@@ -49,10 +49,10 @@ export async function POST(request: NextRequest) {
     const d = parsed.data;
     const admin = createServiceRoleClient();
 
-    // 対象予約を取得
+    // 対象予約を取得（原子的更新で全項目の最終値を渡すため customer 情報も取得）
     const { data: booking } = await admin
       .from('bookings')
-      .select('id, facility_id, staff_id, menu_id, booking_date, start_time, end_time')
+      .select('id, facility_id, staff_id, menu_id, booking_date, start_time, end_time, customer_name, email, phone, note, total_price')
       .eq('id', d.booking_id)
       .single();
 
@@ -82,8 +82,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: '開始時刻は終了時刻より前にしてください' }, { status: 400 });
     }
 
-    // メニュー変更時は施設所属を検証し料金を再計算
-    let totalPriceUpdate: { total_price: number | null } | Record<string, never> = {};
+    // メニュー変更時は施設所属を検証し料金を再計算（未変更なら既存料金を維持）
+    let nextTotalPrice: number | null = booking.total_price ?? null;
     if (d.menu_id !== undefined && d.menu_id !== null) {
       const { data: menu } = await admin
         .from('facility_menus')
@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
         .eq('facility_id', booking.facility_id)
         .maybeSingle();
       if (!menu) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
-      totalPriceUpdate = { total_price: menu.price ?? null };
+      nextTotalPrice = menu.price ?? null;
     }
 
     // スタッフ変更時は施設所属を検証
@@ -106,48 +106,36 @@ export async function POST(request: NextRequest) {
       if (!staff) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 400 });
     }
 
-    // 競合チェック（自分自身を除外）
-    if (nextStaffId) {
-      const { data: conflicts } = await admin
-        .from('bookings')
-        .select('id')
-        .eq('facility_id', booking.facility_id)
-        .eq('staff_id', nextStaffId)
-        .eq('booking_date', nextDate)
-        .neq('id', booking.id)
-        .not('status', 'in', '("cancelled","no_show")')
-        .lt('start_time', nextEnd)
-        .gt('end_time', nextStart);
-      if (conflicts && conflicts.length > 0) {
-        return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
-      }
-    }
+    // 変更後の全フィールド最終値（未指定は既存値を維持）
+    const nextMenuId = d.menu_id !== undefined ? d.menu_id : booking.menu_id;
+    const nextCustomerName = d.customer_name !== undefined ? d.customer_name : booking.customer_name;
+    const nextEmail = d.email !== undefined ? (d.email && d.email.length > 0 ? d.email : null) : booking.email;
+    const nextPhone = d.phone !== undefined ? (d.phone && d.phone.length > 0 ? d.phone : null) : booking.phone;
+    const nextNote = d.note !== undefined ? d.note : booking.note;
 
-    const updatePayload: Record<string, unknown> = {
-      updated_at: new Date().toISOString(),
-      ...totalPriceUpdate,
-    };
-    if (d.staff_id !== undefined) updatePayload.staff_id = d.staff_id;
-    if (d.menu_id !== undefined) updatePayload.menu_id = d.menu_id;
-    if (d.booking_date !== undefined) updatePayload.booking_date = d.booking_date;
-    if (d.start_time !== undefined) updatePayload.start_time = d.start_time;
-    if (d.end_time !== undefined) updatePayload.end_time = d.end_time;
-    if (d.customer_name !== undefined) updatePayload.customer_name = d.customer_name;
-    if (d.email !== undefined) updatePayload.email = d.email && d.email.length > 0 ? d.email : null;
-    if (d.phone !== undefined) updatePayload.phone = d.phone && d.phone.length > 0 ? d.phone : null;
-    if (d.note !== undefined) updatePayload.note = d.note;
-
-    const { data: updated, error } = await admin
-      .from('bookings')
-      .update(updatePayload)
-      .eq('id', booking.id)
-      .eq('facility_id', booking.facility_id)
-      .select('id');
+    // 競合チェック＋UPDATE を advisory lock で原子化（同時変更による二重予約を防止）
+    const { data: updatedId, error } = await admin.rpc('update_admin_booking_atomic', {
+      p_booking_id: booking.id,
+      p_facility_id: booking.facility_id,
+      p_staff_id: nextStaffId ?? null,
+      p_menu_id: nextMenuId ?? null,
+      p_booking_date: nextDate,
+      p_start_time: nextStart,
+      p_end_time: nextEnd,
+      p_customer_name: nextCustomerName,
+      p_email: nextEmail,
+      p_phone: nextPhone,
+      p_note: nextNote,
+      p_total_price: nextTotalPrice,
+    });
 
     if (error) {
+      if (typeof error.message === 'string' && error.message.includes('BOOKING_CONFLICT')) {
+        return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+      }
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
     }
-    if (!updated || updated.length === 0) {
+    if (!updatedId) {
       return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
     }
 
@@ -158,7 +146,7 @@ export async function POST(request: NextRequest) {
       tableName: 'bookings',
       recordId: booking.id,
       oldValues: { staff_id: booking.staff_id, booking_date: booking.booking_date, start_time: booking.start_time, end_time: booking.end_time },
-      newValues: updatePayload,
+      newValues: { staff_id: nextStaffId, menu_id: nextMenuId, booking_date: nextDate, start_time: nextStart, end_time: nextEnd, total_price: nextTotalPrice },
       ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
       userAgent: request.headers.get('user-agent') ?? null,
     });

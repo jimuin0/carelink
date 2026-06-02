@@ -6,7 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
   const insertRow = { facility_id: auth.facilityId, ...parsed.data, is_active: parsed.data.is_active ?? true };
   let { data, error } = await admin.from('coupons').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('coupons.insert');
     ({ data, error } = await admin.from('coupons').insert(omitKeys(insertRow, COUPON_EXT_KEYS)).select().single());
   }
 

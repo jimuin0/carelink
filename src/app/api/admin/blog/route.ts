@@ -6,7 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { isMissingColumnError, omitKeys } from '@/lib/db-fallback';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
@@ -71,6 +71,7 @@ export async function POST(request: NextRequest) {
   };
   let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('blog_posts.insert');
     ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category'])).select().single());
   }
 
