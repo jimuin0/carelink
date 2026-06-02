@@ -50,8 +50,8 @@ const Req = () => <span className="inline-block w-2 h-2 rounded-full bg-rose-500
 const ExtIcon = () => <svg className="inline w-3 h-3 ml-0.5 -mt-0.5 text-sky-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" /></svg>;
 // ヘルプ(?)アイコン
 const HelpIcon = ({ onClick }: { onClick: () => void }) => <button type="button" onClick={onClick} className="w-5 h-5 rounded-full border border-sky-400 text-sky-500 text-xs leading-none">?</button>;
-// 表示プラン確認の小バッジ
-const PlanBadge = () => <button type="button" className="text-[10px] text-sky-600 border border-sky-300 rounded px-1.5 py-0.5 hover:bg-sky-50">表示プランを確認 ▼</button>;
+// 表示プラン確認の小バッジ（CareLink の掲載は無料プランのみ）
+const PlanBadge = () => <span className="text-[10px] text-emerald-600 border border-emerald-300 bg-emerald-50 rounded px-1.5 py-0.5">無料プラン</span>;
 // 文字数カウンタ
 const Counter = ({ n, max }: { n: number; max: number }) => <span className="text-[10px] text-gray-400">{n}<br />/{max}</span>;
 
@@ -328,7 +328,7 @@ function TopPage({ salonName, statusLabel, slug, facilityId, reviewsCount, ratin
         <SectionBar sub>反映状況とプレビュー</SectionBar>
         <div className="flex items-center gap-3 mb-2">
           <span className="text-xs text-gray-600">表示するプラン：</span>
-          <select className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"><option>ライト：2026/05/28〜2026/06/24</option></select>
+          <select className="border border-gray-300 rounded px-2 py-1 text-sm bg-white"><option>無料プラン</option></select>
         </div>
         <ul className="text-[11px] text-gray-400 space-y-0.5 mb-3 leading-relaxed">
           <li>※ 掲載する写真や動画に関しては第三者の権利を侵害しないことを確認するものとします。</li>

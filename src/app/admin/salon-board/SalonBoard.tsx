@@ -85,7 +85,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   // 履歴取得が失敗した場合は null（判定不能）にして「新規」バッジを誤表示しない
   const [priorKeys, setPriorKeys] = useState<Set<string> | null>(new Set());
   const [listingReloadKey, setListingReloadKey] = useState(0); // 掲載ステータス再取得トリガ
-  const [section, setSection] = useState<'reservation' | 'customers' | 'listing' | 'sales' | 'settings'>('reservation');
+  const [section, setSection] = useState<'reservation' | 'customers' | 'listing' | 'sales' | 'billing' | 'settings'>('reservation');
   const [sales, setSales] = useState<{ monthCount: number; monthSum: number; todayCount: number; todaySum: number; byDay: Record<string, { c: number; s: number }> } | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
   const [customers, setCustomers] = useState<{ key: string; name: string; email: string | null; phone: string | null; count: number; last: string }[]>([]);
@@ -472,7 +472,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         </span>
         <nav className="flex items-center gap-2 text-xs ml-4 overflow-x-auto">
           {NAV.map((m, i) => {
-            const navSection = (['reservation', 'listing', 'customers', null, 'sales', null, null, null, 'settings'] as const)[i];
+            const navSection = (['reservation', 'listing', 'customers', null, 'sales', null, null, 'billing', 'settings'] as const)[i];
             const isActive = navSection != null && section === navSection;
             const onClickNav = navSection != null ? () => setSection(navSection) : () => setToast({ type: 'success', message: `「${m}」は準備中です` });
             return (
@@ -953,6 +953,27 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               <p className="text-[11px] text-gray-400">売上は予約のメニュー料金（total_price）の合計です。詳細な会計連携は「会計連携」をご利用ください。</p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ===== 振込・請求セクション（CareLink の掲載は無料・請求なし #60） ===== */}
+      {section === 'billing' && (
+        <div className="flex-1 overflow-auto bg-gray-50 p-4">
+          <div className="max-w-2xl space-y-4">
+            <div className="text-sm font-bold text-gray-800">振込・請求</div>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+              <div className="text-sm font-bold text-emerald-700 mb-1">CareLink の掲載は無料でご利用いただけます。</div>
+              <p className="text-xs text-emerald-700/80 leading-relaxed">掲載料・成果報酬・送客手数料などのご請求はありません。現在お支払いいただく費用はございません。</p>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="text-xs font-bold text-gray-600 mb-2">ご請求一覧</div>
+              <div className="py-8 text-center text-gray-400 text-sm">ご請求はありません（無料プランをご利用中）</div>
+            </div>
+            <div className="bg-white rounded-lg border border-gray-200 p-4">
+              <div className="text-xs font-bold text-gray-600 mb-1">ご利用プラン</div>
+              <div className="flex items-center gap-2"><span className="text-base font-bold text-gray-800">無料プラン</span><span className="text-[10px] text-emerald-600 border border-emerald-300 bg-emerald-50 rounded px-1.5 py-0.5">¥0 / 月</span></div>
+            </div>
+          </div>
         </div>
       )}
 
