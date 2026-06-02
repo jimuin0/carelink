@@ -22,7 +22,7 @@ interface PhotoDraft { title: string; caption: string; genre: string; search_cat
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; sort_order?: number | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; image_url?: string | null; image_submission?: boolean | null; sort_order?: number | null; }
 interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; }
-interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
+interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; is_pickup?: boolean | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
   { key: 'top', label: '掲載管理TOP' },
@@ -1438,6 +1438,22 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
   const curPage = Math.min(page, totalPages);
   const view = filtered.slice((curPage - 1) * PER, curPage * PER);
   const openReply = (r: ReviewRow) => { setReplyId(r.id); setReplyText(r.reply ?? ''); };
+  // Pick Up（注目口コミ）: 対象を true にし、既存の Pick Up を false に戻す（サロン1件運用）
+  const setPickup = async (r: ReviewRow) => {
+    if (saving || r.is_pickup) return; setSaving(true);
+    try {
+      const prev = rows.find((x) => x.is_pickup && x.id !== r.id);
+      const res = await fetch(`/api/admin/reviews/${r.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_pickup: true }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '更新に失敗しました'); setSaving(false); return; }
+      if (prev) {
+        const r2 = await fetch(`/api/admin/reviews/${prev.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_pickup: false }) });
+        if (!r2.ok) { const d = await r2.json().catch(() => ({})); onToast(d.error || '更新に失敗しました'); setSaving(false); return; }
+      }
+      onToast('Pick Up を設定しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
+  };
+  // 審査状況ラベル（status: published=審査OK / hidden=非掲載）
+  const reviewStatusLabel = (r: ReviewRow) => (r.status === 'hidden' ? { text: '非掲載', cls: 'text-gray-400' } : { text: '審査OK(掲載中)', cls: 'text-emerald-600' });
   const sendReply = async (id: string) => {
     if (saving) return;
     if (!replyText.trim()) { onToast('返信内容を入力してください'); return; }
@@ -1480,9 +1496,9 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
           <tbody>
             {view.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">{filter === 'all' ? '口コミが登録されていません' : '該当する口コミがありません'}</td></tr>
-            ) : view.map((r, i) => (
+            ) : view.map((r) => (
               <tr key={r.id} className="align-top">
-                <td className="border border-slate-200 px-2 py-3 text-center">{curPage === 1 && i === 0 && <div className="inline-block px-1.5 py-0.5 mb-1 rounded bg-pink-500 text-white text-[9px] font-bold">Pick Up</div>}<br /><input type="radio" name="pickup" defaultChecked={curPage === 1 && i === 0} /></td>
+                <td className="border border-slate-200 px-2 py-3 text-center">{r.is_pickup && <div className="inline-block px-1.5 py-0.5 mb-1 rounded bg-pink-500 text-white text-[9px] font-bold">Pick Up</div>}<br /><input type="radio" name="pickup" checked={!!r.is_pickup} disabled={saving} onChange={() => setPickup(r)} /></td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.id.slice(0, 8)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(r.created_at)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.visit_date ? fmtDate(r.visit_date) : '—'}</td>
@@ -1493,7 +1509,7 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
                   {replyId === r.id
                     ? <div className="space-y-1"><textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} rows={3} maxLength={2000} className="border border-gray-300 rounded px-2 py-1 text-xs w-44" placeholder="返信内容" /><div className="flex gap-1 justify-center"><button disabled={saving} onClick={() => sendReply(r.id)} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs disabled:opacity-50">{saving ? '送信中…' : '送信'}</button><button onClick={() => setReplyId(null)} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">キャンセル</button></div></div>
                     : r.reply
-                      ? <><button onClick={() => openReply(r)} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">返信済</button><div className="text-[10px] text-emerald-600 mt-1">審査OK(掲載中)</div></>
+                      ? <><button onClick={() => openReply(r)} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs">返信済</button><div className={`text-[10px] mt-1 ${reviewStatusLabel(r).cls}`}>{reviewStatusLabel(r).text}</div></>
                       : <button onClick={() => openReply(r)} className="px-2 py-0.5 bg-sky-500 text-white rounded text-xs">返信する</button>}
                 </td>
               </tr>

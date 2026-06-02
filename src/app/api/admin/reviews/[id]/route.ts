@@ -11,6 +11,7 @@ import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib
 const updateSchema = z.object({
   reply: z.string().max(2000).optional().nullable(),
   status: z.enum(['published', 'hidden']).optional(),
+  is_pickup: z.boolean().optional(), // 注目口コミ（Pick Up）
 });
 
 async function verifyReviewAdmin(reviewId: string, userId: string): Promise<string | null> {
@@ -53,11 +54,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if ('reply' in upd) upd.replied_at = upd.reply ? new Date().toISOString() : null;
 
   const admin = createServiceRoleClient();
-  // reply/replied_at は 20260531_review_visit_staff で追加された列。未適用環境でも500にしないためフォールバック
+  // reply/replied_at(20260531)・is_pickup(20260602) は後続マイグレーションの列。未適用環境でも500にしないためフォールバック
   let { data, error } = await admin.from('facility_reviews').update(upd).eq('id', params.id).eq('facility_id', facilityId).select().single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('facility_reviews.update');
-    ({ data, error } = await admin.from('facility_reviews').update(omitKeys(upd, ['reply', 'replied_at'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
+    ({ data, error } = await admin.from('facility_reviews').update(omitKeys(upd, ['reply', 'replied_at', 'is_pickup'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '口コミが見つかりません' }, { status: 404 });
