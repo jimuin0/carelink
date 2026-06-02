@@ -86,6 +86,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .select()
     .single();
 
+  // 一意制約 uniq_facility_menu_name 違反（改名で同名重複）は 409 で返す
+  if (error?.code === '23505') return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 

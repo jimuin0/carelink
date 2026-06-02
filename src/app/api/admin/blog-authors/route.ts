@@ -45,12 +45,15 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { count } = await admin.from('blog_authors').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId);
-  if ((count ?? 0) >= 5) return NextResponse.json({ error: '投稿者は最大5名までです' }, { status: 400 });
+  // 上限5名チェック＋INSERT を advisory lock で原子化（count→insert の競合・連打で6名以上登録されるのを防止）
+  const { data: newId, error } = await admin.rpc('create_blog_author_atomic', { p_facility_id: auth.facilityId, p_name: parsed.data.name });
+  if (error) {
+    if (typeof error.message === 'string' && error.message.includes('AUTHOR_LIMIT')) {
+      return NextResponse.json({ error: '投稿者は最大5名までです' }, { status: 400 });
+    }
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
 
-  const { data, error } = await admin.from('blog_authors').insert({ facility_id: auth.facilityId, name: parsed.data.name }).select().single();
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-
-  void writeAuditLog({ userId: auth.userId, facilityId: auth.facilityId, action: 'create', tableName: 'blog_authors', recordId: data.id, newValues: { name: parsed.data.name }, ipAddress: ip });
-  return NextResponse.json({ author: data }, { status: 201 });
+  void writeAuditLog({ userId: auth.userId, facilityId: auth.facilityId, action: 'create', tableName: 'blog_authors', recordId: (newId as string) ?? null, newValues: { name: parsed.data.name }, ipAddress: ip });
+  return NextResponse.json({ author: { id: newId as string, facility_id: auth.facilityId, name: parsed.data.name } }, { status: 201 });
 }

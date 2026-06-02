@@ -13,8 +13,9 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }) }));
-jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom }) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }) }));
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
@@ -66,24 +67,24 @@ test('POST: レートリミット → 429', async () => { (inMemoryRateLimit as 
 test('POST: 未認証 → 401', async () => { mockGetUser.mockResolvedValue({ data: { user: null } }); expect((await POST(makePost({ name: 'X' }))).status).toBe(401); });
 test('POST: 名前空 → 400', async () => { mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); expect((await POST(makePost({ name: '' }))).status).toBe(400); });
 test('POST: 不正JSON → 400', async () => { mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID })); expect((await POST(makePost('x'))).status).toBe(400); });
-test('POST: 既に5名 → 400', async () => {
+test('POST: 既に5名(RPCがAUTHOR_LIMIT) → 400', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValueOnce(countChain(5));
+  mockAdminRpc.mockResolvedValueOnce({ data: null, error: { message: 'AUTHOR_LIMIT: 投稿者は最大5名までです' } });
   expect((await POST(makePost({ name: 'X' }))).status).toBe(400);
 });
-test('POST: count null → 0扱いで作成 201', async () => {
+test('POST: RPC エラー(非上限) → 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValueOnce(countChain(null)).mockReturnValueOnce(insertSingle({ id: 'a1', name: 'X' }));
-  expect((await POST(makePost({ name: 'X' }))).status).toBe(201);
-});
-test('POST: DB挿入失敗 → 500', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValueOnce(countChain(2)).mockReturnValueOnce(insertSingle(null, { message: 'e' }));
+  mockAdminRpc.mockResolvedValueOnce({ data: null, error: { message: 'db down' } });
   expect((await POST(makePost({ name: 'X' }))).status).toBe(500);
+});
+test('POST: RPC が data=null（id未返却）でも 201（recordId null 分岐）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminRpc.mockResolvedValueOnce({ data: null, error: null });
+  expect((await POST(makePost({ name: 'X' }))).status).toBe(201);
 });
 test('POST: 正常 → 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValueOnce(countChain(2)).mockReturnValueOnce(insertSingle({ id: 'a2', name: 'X' }));
+  mockAdminRpc.mockResolvedValueOnce({ data: 'a2', error: null });
   const r = await POST(makePost({ name: 'X' }));
   expect(r.status).toBe(201);
   expect((await r.json()).author).toBeDefined();

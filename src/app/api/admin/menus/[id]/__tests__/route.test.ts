@@ -315,3 +315,16 @@ test('PATCH: facility_members が null → verifyMenuAdmin null → 401（line 3
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(401);
 });
+
+// ─── 一意制約(23505)→409（#20・改名重複） ────────────────────────────────────
+test('PATCH: 改名で一意制約違反(23505) → 409', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return maybeSingleChain(null); // アプリ層チェックすり抜け
+    return updateSingleChain(null, { code: '23505', message: 'duplicate key' });
+  });
+  const res = await PATCH(makeRequest('PATCH', { name: '別メニュー' }), makeProps());
+  expect(res.status).toBe(409);
+});

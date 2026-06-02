@@ -344,3 +344,17 @@ test('POST: count が null → sort_order=0 で挿入 → 201', async () => {
   const res = await POST(makePostRequest(validBody()));
   expect(res.status).toBe(201);
 });
+
+// ─── 一意制約(23505)→409（#20） ──────────────────────────────────────────────
+test('POST: 一意制約違反(23505) → 409', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null); // アプリ層チェックはすり抜け（競合想定）
+    if (callNum === 2) return countChain(3);
+    return insertSingle(null, { code: '23505', message: 'duplicate key' });
+  });
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(409);
+});
