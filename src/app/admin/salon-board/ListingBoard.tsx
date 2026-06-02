@@ -385,7 +385,7 @@ function Panel({ title, children, plan }: { title: string; children: React.React
 
 /* サロン編集 TOP写真／雰囲気写真の実データグリッド（削除・前へ/後ろへ・画像応募・キャプションを即時反映）。
    フォトギャラリー(PhotoEditPage)と同じ /api/admin/photos エンドポイントを再利用する。 */
-function SalonPhotoGrid({ photos, withCaption, slotClass, onReload, onToast }: { photos: PhotoRow[]; withCaption: boolean; slotClass: string; onReload: () => void; onToast: (m: string) => void }) {
+function SalonPhotoGrid({ photos, facilityId, withCaption, slotClass, onReload, onToast }: { photos: PhotoRow[]; facilityId: string; withCaption: boolean; slotClass: string; onReload: () => void; onToast: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(photos.map((p) => [p.id, p.caption ?? ''])));
   useEffect(() => {
@@ -411,15 +411,15 @@ function SalonPhotoGrid({ photos, withCaption, slotClass, onReload, onToast }: {
       if (okMsg) onToast(okMsg); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
-  // 隣接2枚の表示順(sort_order)をインデックス基準で入れ替える（既存値が同値/欠損でも確実に並ぶ）
+  // 隣接2枚を入れ替え、単一の reorder RPC で原子的に sort_order を確定（#13: 2回PATCHの部分失敗を排除）
   const move = async (i: number, dir: -1 | 1) => {
-    const a = photos[i]; const b = photos[i + dir];
-    if (!a || !b || busy) return; setBusy(true);
+    const j = i + dir;
+    if (busy || j < 0 || j >= photos.length) return; setBusy(true);
     try {
-      for (const [id, so] of [[a.id, i + dir], [b.id, i]] as [string, number][]) {
-        const res = await fetch(`/api/admin/photos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: so }) });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
-      }
+      const ids = photos.map((p) => p.id);
+      [ids[i], ids[j]] = [ids[j], ids[i]];
+      const res = await fetch(`/api/admin/reorder?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity: 'photos', ids }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
       onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
@@ -631,7 +631,7 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
         <FormRow label="コピー" required><CharTextarea max={150} rows={3} placeholder="サロンの紹介文" defaultValue={fields.current.description} onValueChange={(v) => { fields.current.description = v; }} /></FormRow>
         <FormRow label="ＴＯＰ写真" required>
           <div className="flex flex-wrap gap-2 items-start">
-            <SalonPhotoGrid photos={topPhotos} withCaption={false} slotClass="w-24" onReload={onReloadPhotos} onToast={onToast} />
+            <SalonPhotoGrid photos={topPhotos} facilityId={facilityId} withCaption={false} slotClass="w-24" onReload={onReloadPhotos} onToast={onToast} />
             <div className="w-24 h-20 border border-gray-300 bg-sky-50 flex items-center justify-center text-[10px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('top')}>{uploading ? '中…' : <>画像を<br />アップロードする</>}</div>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">※最低1枚は内観写真を設定してください</p>
@@ -648,7 +648,7 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
       <Panel title="サロンの雰囲気・メニューなど" plan>
         <div className="px-3 py-2 bg-amber-50/50 border-b border-slate-200 text-xs text-gray-600">雰囲気写真・メニューなど ／ キャプション</div>
         <div className="flex flex-wrap gap-4 p-3 items-start">
-          <SalonPhotoGrid photos={atmosPhotos} withCaption slotClass="w-44" onReload={onReloadPhotos} onToast={onToast} />
+          <SalonPhotoGrid photos={atmosPhotos} facilityId={facilityId} withCaption slotClass="w-44" onReload={onReloadPhotos} onToast={onToast} />
           <div className="w-44 h-28 border border-gray-300 bg-sky-50 flex items-center justify-center text-[11px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('atmos')}>{uploading ? 'アップロード中…' : <>雰囲気写真を<br />アップロードする</>}</div>
         </div>
       </Panel>
@@ -855,14 +855,18 @@ function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows:
   const saveAll = async () => {
     if (saving) return; setSaving(true);
     try {
-      for (const [i, p] of rows.entries()) {
+      // 内容(キャプション/拡張)は写真ごとに保存（独立した属性のため逐次でよい）
+      for (const p of rows) {
         const dr = drafts[p.id] ?? draftOf(p);
-        const orderNo = parseInt(orders[p.id] ?? '', 10);
-        const sortOrder = Number.isFinite(orderNo) && orderNo > 0 ? orderNo - 1 : i;
-        const payload = { caption: dr.caption, sort_order: sortOrder, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published, coupon_id: dr.coupon_id || null } : {}) };
+        const payload = { caption: dr.caption, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published, coupon_id: dr.coupon_id || null } : {}) };
         const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       }
+      // 表示順は No. 昇順の id 配列を単一 reorder RPC で原子的に確定（#14: 逐次PATCHの順序不整合を排除）
+      const orderedIds = rows.map((p, i) => ({ id: p.id, no: Number.isFinite(parseInt(orders[p.id] ?? '', 10)) ? parseInt(orders[p.id] ?? '', 10) : i + 1 }))
+        .sort((a, b) => a.no - b.no).map((x) => x.id);
+      const rRes = await fetch(`/api/admin/reorder?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity: 'photos', ids: orderedIds }) });
+      if (!rRes.ok) { const d = await rRes.json().catch(() => ({})); onToast(d.error || '並び順の保存に失敗しました'); setSaving(false); return; }
       onToast('写真情報を保存しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
   };
@@ -1053,12 +1057,11 @@ function CouponListPage({ rows, facilityId, onReload, onToast }: { rows: CouponR
   const saveOrder = async () => {
     if (busy) return; setBusy(true);
     try {
-      for (const [i, c] of rows.entries()) {
-        const n = parseInt(orders[c.id] ?? '', 10);
-        const so = Number.isFinite(n) && n > 0 ? n - 1 : i;
-        const res = await fetch(`/api/admin/coupons/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: so }) });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
-      }
+      // No. 昇順の id 配列を単一 reorder RPC で原子的に確定（#14: 逐次PATCHの部分保存・順序不整合を排除）
+      const orderedIds = rows.map((c, i) => ({ id: c.id, no: Number.isFinite(parseInt(orders[c.id] ?? '', 10)) ? parseInt(orders[c.id] ?? '', 10) : i + 1 }))
+        .sort((a, b) => a.no - b.no).map((x) => x.id);
+      const res = await fetch(`/api/admin/reorder?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity: 'coupons', ids: orderedIds }) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
       onToast('並び順を保存しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
