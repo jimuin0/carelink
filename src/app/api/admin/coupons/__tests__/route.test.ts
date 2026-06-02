@@ -72,11 +72,14 @@ function memberSingle(data: unknown) {
 }
 
 function listChain(data: unknown[], error: unknown = null) {
-  return {
+  // GET は .order('sort_order').order('created_at') の二段 → order は chainable、await で {data,error} に解決
+  const chain = {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    order: jest.fn(() => Promise.resolve({ data, error })),
+    order: jest.fn().mockReturnThis(),
+    then: (resolve: (v: { data: unknown[]; error: unknown }) => unknown) => Promise.resolve({ data, error }).then(resolve),
   };
+  return chain;
 }
 
 function insertSingle(data: unknown, error: unknown = null) {

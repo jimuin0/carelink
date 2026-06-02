@@ -20,7 +20,7 @@ interface StaffRow { id: string; name: string; position: string | null; specialt
 interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; title?: string | null; genre?: string | null; search_category?: string | null; image_submission?: boolean | null; is_published?: boolean | null; coupon_id?: string | null; }
 interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; sort_order?: number | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
-interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; }
+interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; image_url?: string | null; image_submission?: boolean | null; sort_order?: number | null; }
 interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
 
@@ -1046,6 +1046,22 @@ function TokushuPage() {
 function CouponListPage({ rows, facilityId, onReload, onToast }: { rows: CouponRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const [editing, setEditing] = useState<CouponRow | 'new' | null>(null);
   const [busy, setBusy] = useState(false);
+  const [orders, setOrders] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((c, i) => [c.id, String((c.sort_order ?? i) + 1)])));
+  useEffect(() => {
+    setOrders((prev) => { const next = { ...prev }; let ch = false; rows.forEach((c, i) => { if (!(c.id in next)) { next[c.id] = String((c.sort_order ?? i) + 1); ch = true; } }); return ch ? next : prev; });
+  }, [rows]);
+  const saveOrder = async () => {
+    if (busy) return; setBusy(true);
+    try {
+      for (const [i, c] of rows.entries()) {
+        const n = parseInt(orders[c.id] ?? '', 10);
+        const so = Number.isFinite(n) && n > 0 ? n - 1 : i;
+        const res = await fetch(`/api/admin/coupons/${c.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: so }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
+      }
+      onToast('並び順を保存しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
   const toggleActive = async (c: CouponRow) => {
     if (busy) return; setBusy(true);
     try {
@@ -1068,7 +1084,7 @@ function CouponListPage({ rows, facilityId, onReload, onToast }: { rows: CouponR
       <h2 className="text-base font-bold text-gray-800">クーポン掲載情報一覧</h2>
       <div className="flex justify-between">
         <button onClick={() => setEditing('new')} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">クーポン新規追加</button>
-        <button onClick={() => onToast('並び替え登録は準備中です')} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded">クーポン並び替え登録</button>
+        <button disabled={busy} onClick={saveOrder} className="px-3 py-1.5 border border-sky-400 text-sky-600 text-xs font-bold rounded disabled:opacity-40">クーポン並び替え登録</button>
       </div>
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
         <div className="bg-gradient-to-b from-sky-100 to-sky-200 border-b border-slate-300 px-3 py-1.5 flex items-center justify-between">
@@ -1084,8 +1100,8 @@ function CouponListPage({ rows, facilityId, onReload, onToast }: { rows: CouponR
               <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">クーポンが登録されていません</td></tr>
             ) : rows.map((c, i) => (
               <tr key={c.id} className="text-center align-middle">
-                <td className="border border-slate-200 px-2 py-3">No <input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></td>
-                <td className="border border-slate-200 px-2 py-3"><div className="w-14 h-12 bg-gray-100 mx-auto" /></td>
+                <td className="border border-slate-200 px-2 py-3">No <input className="w-8 border border-gray-300 rounded text-center" value={orders[c.id] ?? String(i + 1)} onChange={(e) => setOrders((m) => ({ ...m, [c.id]: e.target.value.replace(/[^0-9]/g, '') }))} /></td>
+                <td className="border border-slate-200 px-2 py-3">{c.image_url ? <img src={c.image_url} alt="" className="w-14 h-12 object-cover mx-auto" /> : <div className="w-14 h-12 bg-gray-100 mx-auto" />}</td>
                 <td className="border border-slate-200 px-2 py-3 text-xs">{({ new_customer: '新規', repeat: '再来', limited_time: '期間限定', all: '全員' } as Record<string, string>)[c.coupon_type ?? ''] ?? '新規'}</td>
                 <td className="border border-slate-200 px-2 py-3 text-left text-xs">{c.name}{c.special_price != null && <span className="ml-1 font-bold">¥{c.special_price.toLocaleString()}</span>}</td>
                 <td className="border border-slate-200 px-2 py-3 text-xs">{c.valid_until ? fmtDate(c.valid_until) : 'なし'}</td>
@@ -1120,7 +1136,26 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
   const [searchCat1, setSearchCat1] = useState(row?.search_category1 ?? 'まつげ・メイクなど');
   const [searchCat2, setSearchCat2] = useState(row?.search_category2 ?? 'アイブロウ');
   const [duration, setDuration] = useState(row?.duration_minutes != null ? String(row.duration_minutes) : '120');
+  const [image, setImage] = useState(row?.image_url ?? '');
+  const [imageSubmission, setImageSubmission] = useState(row?.image_submission ?? false);
+  const [uploading, setUploading] = useState(false);
+  const couponFileRef = useRef<HTMLInputElement>(null);
   const [saving, setSaving] = useState(false);
+
+  const onPickCouponImg = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]; e.target.value = '';
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) { onToast('JPG, PNG, WebPのみ対応しています'); return; }
+    if (file.size > 5 * 1024 * 1024) { onToast('ファイルサイズは5MB以下にしてください'); return; }
+    setUploading(true);
+    try {
+      const fd = new FormData(); fd.append('file', file);
+      const up = await fetch(`/api/admin/photos/upload?facility_id=${facilityId}`, { method: 'POST', body: fd });
+      if (!up.ok) { const d = await up.json().catch(() => ({})); onToast(d.error || '画像のアップロードに失敗しました'); return; }
+      const { url } = await up.json();
+      setImage(url); onToast('画像をアップロードしました（登録ボタンで保存）');
+    } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
+  };
 
   const save = async () => {
     if (saving) return;
@@ -1144,6 +1179,8 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
         search_category1: searchCat1 || null,
         search_category2: searchCat2 || null,
         duration_minutes: duration ? parseInt(duration, 10) : null,
+        image_url: image || null,
+        image_submission: imageSubmission,
       };
       const url = row ? `/api/admin/coupons/${row.id}` : `/api/admin/coupons?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -1170,7 +1207,15 @@ function CouponEditPage({ row, facilityId, onClose, onSaved, onToast }: { row: C
         <FormRow label="クーポン名" required>
           <div className="flex gap-3">
             <div className="flex-1"><CharInput max={36} defaultValue={row?.name ?? ''} placeholder="クーポン名" onValueChange={setName} /></div>
-            <div className="w-28 text-center"><div className="w-24 h-20 bg-gray-100 relative mx-auto"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div><div className="text-[9px] text-gray-400 mt-0.5">画像ID:C043307344</div><label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label></div>
+            <div className="w-28 text-center">
+              <input ref={couponFileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPickCouponImg} />
+              <div className="w-24 h-20 bg-gray-100 relative mx-auto">
+                {image ? <img src={image} alt="" className="w-full h-full object-cover" /> : null}
+                {image && <button onClick={() => setImage('')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button>}
+              </div>
+              <button disabled={uploading} onClick={() => couponFileRef.current?.click()} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded disabled:opacity-50">{uploading ? '中…' : 'アップロード'}</button>
+              <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500 mt-0.5"><input type="checkbox" checked={imageSubmission} onChange={(e) => setImageSubmission(e.target.checked)} />画像応募</label>
+            </div>
           </div>
         </FormRow>
         <FormRow label="クーポン内容" required><CharTextarea max={90} rows={3} defaultValue={row?.description ?? ''} placeholder="クーポン内容" onValueChange={setDescription} /></FormRow>
