@@ -152,17 +152,20 @@ export async function POST(request: Request) {
       bookingId: booking.id,
     };
 
-    // Send appropriate email
-    try {
-      if (status === 'confirmed') {
-        await sendBookingConfirmed(emailData);
-      } else if (status === 'cancelled') {
-        await sendBookingCancelled(emailData);
-      } else {
-        await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
+    // Send appropriate email（店頭/電話予約は email を持たないため、宛先がある場合のみ送信。
+    // null 宛て送信は Resend で失敗し Sentry ノイズになるため事前にスキップする）
+    if (booking.email) {
+      try {
+        if (status === 'confirmed') {
+          await sendBookingConfirmed(emailData);
+        } else if (status === 'cancelled') {
+          await sendBookingCancelled(emailData);
+        } else {
+          await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
+        }
+      } catch (e) {
+        safeCaptureException(e, 'booking-email');
       }
-    } catch (e) {
-      safeCaptureException(e, 'booking-email');
     }
 
     // Push notification to booking user
