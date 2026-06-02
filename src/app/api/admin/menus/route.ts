@@ -5,6 +5,10 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+
+// 後続マイグレーションで追加された拡張列。未適用環境でも500にしないため除外候補にする（coupons/blog と同方針）
+const MENU_EXT_KEYS = ['subcategory', 'search_category', 'reservable', 'is_published', 'price_show_tilde', 'price_ask'] as const;
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -96,12 +100,18 @@ export async function POST(request: NextRequest) {
     .select('id', { count: 'exact', head: true })
     .eq('facility_id', facilityId);
 
-  const { data, error } = await admin.from('facility_menus').insert({
+  const insertRow = {
     facility_id: facilityId,
     ...parsed.data,
     photo_url: parsed.data.photo_url || null,
     sort_order: parsed.data.sort_order ?? (count ?? 0),
-  }).select().single();
+  };
+  let { data, error } = await admin.from('facility_menus').insert(insertRow).select().single();
+  // 拡張列が未適用の環境では除外して再試行（coupons/blog と対称な部分適用耐性）
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('facility_menus.insert');
+    ({ data, error } = await admin.from('facility_menus').insert(omitKeys(insertRow, MENU_EXT_KEYS)).select().single());
+  }
 
   // 一意制約 uniq_facility_menu_name 違反（競合・連打での同名重複）は 409 で返す
   if (error?.code === '23505') return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });

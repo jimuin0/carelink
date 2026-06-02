@@ -365,6 +365,10 @@ export interface BlogPost {
   content: string;
   thumbnail_url: string | null;
   image_urls?: string[] | null;
+  category?: string | null;
+  author_name_id?: string | null;
+  coupon_id?: string | null;
+  scheduled_at?: string | null;
   is_published: boolean;
   published_at: string | null;
   created_at: string;

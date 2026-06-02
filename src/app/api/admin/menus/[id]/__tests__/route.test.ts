@@ -193,6 +193,19 @@ test('PATCH: sort_order のみ → 200（並び替え保存・重複チェック
   expect(res.status).toBe(200);
 });
 
+test('PATCH: 拡張列未適用(PGRST204) → 除外して再試行し 200（#35 部分適用耐性）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return maybeSingleChain(null); // no duplicate
+    if (callNum === 2) return updateSingleChain(null, { code: 'PGRST204', message: 'column does not exist' });
+    return updateSingleChain({ id: MENU_UUID });
+  });
+  const res = await PATCH(makeRequest('PATCH', { name: 'x', reservable: false }), makeProps());
+  expect(res.status).toBe(200);
+});
+
 test('PATCH: DB更新失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));

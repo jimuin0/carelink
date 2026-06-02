@@ -6,6 +6,10 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+
+// 後続マイグレーションで追加された拡張列。未適用環境でも500にしないため除外候補にする
+const MENU_EXT_KEYS = ['subcategory', 'search_category', 'reservable', 'is_published', 'price_show_tilde', 'price_ask'] as const;
 
 const menuUpdateSchema = z.object({
   category: z.string().min(1).max(50).optional(),
@@ -79,13 +83,18 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const updateData: Record<string, unknown> = { ...parsed.data };
   if ('photo_url' in updateData) updateData.photo_url = updateData.photo_url || null;
-  const { data, error } = await admin
+  let { data, error } = await admin
     .from('facility_menus')
     .update(updateData)
     .eq('id', params.id)
     .eq('facility_id', ctx.facilityId)
     .select()
     .single();
+  // 拡張列が未適用の環境では除外して再試行
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('facility_menus.update');
+    ({ data, error } = await admin.from('facility_menus').update(omitKeys(updateData, MENU_EXT_KEYS)).eq('id', params.id).eq('facility_id', ctx.facilityId).select().single());
+  }
 
   // 一意制約 uniq_facility_menu_name 違反（改名で同名重複）は 409 で返す
   if (error?.code === '23505') return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });

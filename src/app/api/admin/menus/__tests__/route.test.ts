@@ -202,6 +202,19 @@ test('POST: photo_url が空文字 → 201', async () => {
   expect(res.status).toBe(201);
 });
 
+test('POST: 拡張列未適用(PGRST204) → 除外して再試行し 201（#35 部分適用耐性）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(0);
+    if (callNum === 3) return insertSingle(null, { code: 'PGRST204', message: 'column facility_menus.reservable does not exist' });
+    return insertSingle({ id: 'menu-1' });
+  });
+  expect((await POST(makePostRequest(validBody()))).status).toBe(201);
+});
+
 // ─── Additional coverage ──────────────────────────────────────────────────────
 
 test('POST: CSRF エラー → 403', async () => {
