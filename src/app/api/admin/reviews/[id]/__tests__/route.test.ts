@@ -57,7 +57,14 @@ test('PATCH: data なし → 404', async () => { setup({ facility_id: FACILITY_U
 test('PATCH: reply あり → replied_at 設定で 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID, reply: 'x' })); expect((await PATCH(makeReq({ reply: '返信します' }), makeProps())).status).toBe(200); });
 test('PATCH: reply 空文字 → replied_at null で 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID })); expect((await PATCH(makeReq({ reply: '' }), makeProps())).status).toBe(200); });
 test('PATCH: status のみ(reply 無し) → 200（replied_at 非設定）', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID })); expect((await PATCH(makeReq({ status: 'hidden' }), makeProps())).status).toBe(200); });
-test('PATCH: is_pickup のみ → 200（Pick Up 設定）', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID, is_pickup: true })); expect((await PATCH(makeReq({ is_pickup: true }), makeProps())).status).toBe(200); });
+test('PATCH: is_pickup のみ → 200（Pick Up 設定＋他の Pick Up をサーバ側で一括解除 #12）', async () => {
+  // 主更新(.eq.eq.select.single) と clear-others(.eq.eq.neq) の双方を満たすチェーン
+  const tail = { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: REVIEW_UUID, is_pickup: true }, error: null })) }), neq: jest.fn(() => Promise.resolve({ error: null })) };
+  const pickupChain = { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(tail) }) }) };
+  setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, pickupChain);
+  expect((await PATCH(makeReq({ is_pickup: true }), makeProps())).status).toBe(200);
+  expect(tail.neq).toHaveBeenCalledWith('id', REVIEW_UUID); // 他の Pick Up 解除が自分を除外して実行された
+});
 
 // ─── 拡張カラム不在フォールバック（#23） ──────────────────────────────────────
 test('PATCH: reply/replied_at カラム不在(PGRST204)→除外して再試行し 200', async () => {

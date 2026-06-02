@@ -1460,17 +1460,13 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
   const curPage = Math.min(page, totalPages);
   const view = filtered.slice((curPage - 1) * PER, curPage * PER);
   const openReply = (r: ReviewRow) => { setReplyId(r.id); setReplyText(r.reply ?? ''); };
-  // Pick Up（注目口コミ）: 対象を true にし、既存の Pick Up を false に戻す（サロン1件運用）
+  // Pick Up（注目口コミ）: 単一PATCHで設定。他の Pick Up 解除はサーバ側で一括実行されるため
+  // クライアントの2回PATCH競合(#12)が無くなり、常に「この1件のみ」が保証される。
   const setPickup = async (r: ReviewRow) => {
     if (saving || r.is_pickup) return; setSaving(true);
     try {
-      const prev = rows.find((x) => x.is_pickup && x.id !== r.id);
       const res = await fetch(`/api/admin/reviews/${r.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_pickup: true }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '更新に失敗しました'); setSaving(false); return; }
-      if (prev) {
-        const r2 = await fetch(`/api/admin/reviews/${prev.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ is_pickup: false }) });
-        if (!r2.ok) { const d = await r2.json().catch(() => ({})); onToast(d.error || '更新に失敗しました'); setSaving(false); return; }
-      }
       onToast('Pick Up を設定しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
   };

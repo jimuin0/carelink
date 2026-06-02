@@ -63,6 +63,12 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '口コミが見つかりません' }, { status: 404 });
 
+  // Pick Up を立てた場合は、同一施設の他の Pick Up をサーバ側で一括解除（#12: クライアント2回PATCHの
+  // 競合=Pick Up が0件/2件になる問題を排除。サーバ単一リクエストで「この1件のみ true」を保証）。
+  if (parsed.data.is_pickup === true) {
+    await admin.from('facility_reviews').update({ is_pickup: false }).eq('facility_id', facilityId).eq('is_pickup', true).neq('id', params.id);
+  }
+
   void writeAuditLog({ userId: user.id, facilityId, action: 'update', tableName: 'facility_reviews', recordId: params.id, newValues: { reply: parsed.data.reply ?? null }, ipAddress: ip });
   return NextResponse.json({ review: data });
 }
