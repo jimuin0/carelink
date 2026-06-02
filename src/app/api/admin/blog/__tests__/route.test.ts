@@ -269,3 +269,13 @@ test('POST: scheduled_at 指定 → 201（予約掲載・is_published=true/publi
   mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-sch' }));
   expect((await POST(makeRequest(validBody({ scheduled_at: '2026-07-01T00:00:00.000Z' })))).status).toBe(201);
 });
+
+test('POST: image_urls 指定 → 201（本文画像最大4枚）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-img' }));
+  expect((await POST(makeRequest(validBody({ image_urls: ['https://x/a.jpg', 'https://x/b.jpg'] })))).status).toBe(201);
+});
+test('POST: image_urls 5枚 → 400（上限4枚）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  expect((await POST(makeRequest(validBody({ image_urls: ['a', 'b', 'c', 'd', 'e'] })))).status).toBe(400);
+});

@@ -17,6 +17,7 @@ const blogUpdateSchema = z.object({
   thumbnail_url: z.string().max(200000).optional().nullable(),
   category: z.string().max(50).optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).optional().nullable(), // 予約掲載時刻(ISO)
+  image_urls: z.array(z.string().max(200000)).max(4).optional(), // 本文画像（最大4枚 #33）
 });
 
 async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
@@ -92,7 +93,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.update');
-    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id', 'author_name_id', 'scheduled_at'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
+    ({ data, error } = await admin.from('blog_posts').update(omitKeys(updatePayload, ['category', 'coupon_id', 'author_name_id', 'scheduled_at', 'image_urls'])).eq('id', params.id).eq('facility_id', facilityId).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

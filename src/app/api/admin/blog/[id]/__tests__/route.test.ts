@@ -331,3 +331,9 @@ test('PATCH: scheduled_at 指定 → 200（予約掲載・published_at=予約時
   mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
   expect((await PATCH(makeRequest('PATCH', { scheduled_at: '2026-07-01T00:00:00.000Z' }), makeProps())).status).toBe(200);
 });
+
+test('PATCH: image_urls 指定 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { image_urls: ['https://x/a.jpg'] }), makeProps())).status).toBe(200);
+});

@@ -18,6 +18,7 @@ const blogPostSchema = z.object({
   thumbnail_url: z.string().max(200000).optional().nullable(),
   category: z.string().max(50).optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).optional().nullable(), // 予約掲載時刻(ISO)
+  image_urls: z.array(z.string().max(200000)).max(4).optional(), // 本文画像（最大4枚 #33）
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
@@ -90,12 +91,13 @@ export async function POST(request: NextRequest) {
     // 予約掲載なら published_at=予約時刻、通常公開なら現在時刻、下書きなら null
     published_at: scheduledAt ? scheduledAt : (isPublished ? new Date().toISOString() : null),
     scheduled_at: scheduledAt,
+    image_urls: parsed.data.image_urls ?? [],
   };
-  // category / coupon_id / author_name_id / scheduled_at は後続マイグレーションで追加された列。部分適用環境でも500にしないため除外候補にする
+  // category / coupon_id / author_name_id / scheduled_at / image_urls は後続マイグレーションで追加された列。部分適用環境でも500にしないため除外候補にする
   let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.insert');
-    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category', 'coupon_id', 'author_name_id', 'scheduled_at'])).select().single());
+    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category', 'coupon_id', 'author_name_id', 'scheduled_at', 'image_urls'])).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

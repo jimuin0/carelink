@@ -122,6 +122,15 @@ export default async function BlogDetailPage(props: Props) {
             className="mt-6 prose prose-sm max-w-none text-gray-700 leading-relaxed"
             dangerouslySetInnerHTML={{ __html: renderMarkdown(post.content) }}
           />
+
+          {Array.isArray(post.image_urls) && post.image_urls.length > 0 && (
+            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {post.image_urls.map((u, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img key={`${u}-${i}`} src={u} alt={`${post.title} 画像${i + 1}`} className="w-full rounded-lg border border-gray-200 object-cover" />
+              ))}
+            </div>
+          )}
         </article>
 
         <div className="px-4 sm:px-6 pb-8">

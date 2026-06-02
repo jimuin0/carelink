@@ -21,7 +21,7 @@ interface PhotoRow { id: string; photo_url: string | null; photo_type: string | 
 interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
 interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; sort_order?: number | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; image_url?: string | null; image_submission?: boolean | null; sort_order?: number | null; }
-interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; scheduled_at?: string | null; }
+interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; scheduled_at?: string | null; image_urls?: string[] | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; is_pickup?: boolean | null; }
 
 const NAV: { key: ListingTab; label: string }[] = [
@@ -1362,12 +1362,16 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
     const d = new Date(new Date(row.scheduled_at).getTime() + 9 * 3600 * 1000);
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}T${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
   });
+  const [images, setImages] = useState<string[]>(row?.image_urls ?? []); // 本文画像（最大4枚 #33）
   const fileRef = useRef<HTMLInputElement>(null);
   const lineCount = body ? body.split('\n').length : 0;
+  // 1枚目はサムネイル、2枚目以降は本文画像(image_urls)。合計4枚まで。
   const onPickImage = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    const total = (thumbnail ? 1 : 0) + images.length;
+    if (total >= 4) { onToast('画像は4枚までです'); return; }
     setUploading(true);
     try {
       const fd = new FormData();
@@ -1375,7 +1379,7 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
       const res = await fetch(`/api/admin/photos/upload?facility_id=${facilityId}`, { method: 'POST', body: fd });
       const d = await res.json().catch(() => ({}));
       if (!res.ok || !d.url) { onToast(d.error || '画像のアップロードに失敗しました'); return; }
-      setThumbnail(d.url);
+      if (!thumbnail) setThumbnail(d.url); else setImages((arr) => [...arr, d.url]);
       onToast('画像をアップロードしました');
     } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
   };
@@ -1392,7 +1396,7 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
       const author_name_id = author.startsWith('ext:') ? author.slice(4) : null;
       // 予約掲載: datetime-local 入力を JST(+09:00)として ISO(UTC) 化。OFF時は null で予約解除
       const scheduled_at = scheduleOn && scheduleAt ? new Date(`${scheduleAt}:00+09:00`).toISOString() : null;
-      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id, author_name_id, thumbnail_url: thumbnail || null, category: category || null, scheduled_at };
+      const payload = { title: title.trim(), content: body.trim(), coupon_id: couponId || null, author_id, author_name_id, thumbnail_url: thumbnail || null, category: category || null, scheduled_at, image_urls: images };
       const url = row ? `/api/admin/blog/${row.id}?facility_id=${facilityId}` : `/api/admin/blog?facility_id=${facilityId}`;
       const res = await fetch(url, { method: row ? 'PATCH' : 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
@@ -1417,14 +1421,17 @@ function BlogEditPage({ row, coupons, staff, authors, facilityId, onClose, onSav
         <FormRow label="タイトル"><CharInput max={25} defaultValue={row?.title ?? ''} placeholder="タイトル" onValueChange={setTitle} /><p className="text-[11px] text-gray-400">※全角25文字以下</p></FormRow>
         <FormRow label="本文">
           <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={onPickImage} />
-          <button disabled={uploading} onClick={() => fileRef.current?.click()} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1 disabled:opacity-50">{uploading ? 'アップロード中…' : '画像アップロード'}</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
-          {thumbnail && <div className="mb-1"><img src={thumbnail} alt="サムネイル" className="h-20 rounded border border-gray-200" /></div>}
+          <button disabled={uploading || ((thumbnail ? 1 : 0) + images.length) >= 4} onClick={() => fileRef.current?.click()} className="px-2 py-0.5 bg-sky-500 text-white text-xs rounded mb-1 disabled:opacity-50">{uploading ? 'アップロード中…' : '画像アップロード'}</button> <span className="text-[11px] text-gray-400">※画像は4枚までアップロードできます。</span>
+          <div className="flex flex-wrap gap-2 mb-1">
+            {thumbnail && <div className="relative"><img src={thumbnail} alt="サムネイル" className="h-20 rounded border border-gray-200" /><span className="absolute bottom-0 left-0 bg-sky-600 text-white text-[8px] px-1">サムネ</span><button onClick={() => setThumbnail('')} className="absolute top-0 right-0 w-4 h-4 bg-gray-600 text-white text-[10px] leading-none rounded-bl">×</button></div>}
+            {images.map((u, i) => <div key={`${u}-${i}`} className="relative"><img src={u} alt="" className="h-20 rounded border border-gray-200" /><button onClick={() => setImages((arr) => arr.filter((_, idx) => idx !== i))} className="absolute top-0 right-0 w-4 h-4 bg-gray-600 text-white text-[10px] leading-none rounded-bl">×</button></div>)}
+          </div>
           <div className="flex items-start gap-2">
             <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={8} maxLength={1000} placeholder="本文" className={`${input} flex-1`} />
             <div className="flex flex-col gap-3 text-[10px] text-gray-400 shrink-0">
               <span>{hpbLen(body)}<br />/1000</span>
               <span>{lineCount}<br />/80</span>
-              <span>0<br />/4</span>
+              <span>{(thumbnail ? 1 : 0) + images.length}<br />/4</span>
             </div>
           </div>
         </FormRow>

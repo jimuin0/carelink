@@ -364,6 +364,7 @@ export interface BlogPost {
   slug: string;
   content: string;
   thumbnail_url: string | null;
+  image_urls?: string[] | null;
   is_published: boolean;
   published_at: string | null;
   created_at: string;
