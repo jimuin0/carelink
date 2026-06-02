@@ -89,7 +89,7 @@ npm run lint  # ESLint
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0（2026-06-01 確認） |
-| L2 | Jest ユニットテスト | ✅ | 4627 テスト全通過、188 スイート（2026-06-02） |
+| L2 | Jest ユニットテスト | ✅ | 4633 テスト全通過、194 スイート（2026-06-02） |
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 全体 100%（5890/5890 branches, 2026-06-02 実測）。前回 96.82% の未カバー187分岐（photos/blog-authors/reviews/staff/availability/notify 等）を全テスト追加で解消 |
 | L4 | Stryker ミューテーション | ✅ | 全11ファイル survived=0。Stryker 実行環境を修復（middleware-auth の jest-env mixin 統一・SITE_URL 確定化）。db-fallback.ts 追加＋seo-snippets の真の生存7件（前回 timeout で隠蔽）を撃破。2026-06-02 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
