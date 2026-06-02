@@ -12,6 +12,15 @@
 -- Fix: add SECURITY DEFINER to create_booking_atomic so the INSERT runs under
 -- the function owner's rights (bypassing RLS), then drop the client INSERT policy.
 -- All legitimate booking creation goes through this RPC via the API.
+--
+-- 2026-06-02 修正（root fix）: 当初版は競合チェックの `SELECT COUNT(*) ... FOR UPDATE`
+-- を持っていたが、PostgreSQL は集約関数(COUNT)と FOR UPDATE の併用を 0A000
+-- (FOR UPDATE is not allowed with aggregate functions) で**常に**拒否する。
+-- これは関数を呼ぶたびに必ず発火するプラン時エラーで、本来予約 API 全滅となる致命バグ。
+-- 本番は out-of-band 修正済みだったが repo に書き戻されておらず、新規 replay で再発する
+-- 状態だった（20260602 ライブ実測で確定: 本番は 23503/FK で正常通過＝FOR UPDATE 無し）。
+-- 併せて advisory lock key から start_time を除外する（理由は関数本体コメント参照）。
+-- 同一内容を 20260602_booking_atomic_0a000_fix.sql でも冪等再適用する。
 
 CREATE OR REPLACE FUNCTION create_booking_atomic(
   p_facility_id UUID,
@@ -40,10 +49,12 @@ DECLARE
   v_conflict_count INT;
   v_lock_key BIGINT;
 BEGIN
+  -- ロックキーは facility/staff + 予約日のみ（start_time は含めない）。
+  -- start_time を含めると「開始時刻は違うが時間帯が重なる」予約同士が別キーになり、
+  -- 直列化されず幻の二重予約レースが起きるため。日付単位で直列化するのが正。
   v_lock_key := ('x' || left(md5(
     COALESCE(p_staff_id::text, p_facility_id::text)
     || p_booking_date::text
-    || p_start_time::text
   ), 16))::bit(64)::bigint;
 
   PERFORM pg_advisory_xact_lock(v_lock_key);
@@ -55,8 +66,9 @@ BEGIN
       AND booking_date = p_booking_date
       AND status NOT IN ('cancelled', 'no_show')
       AND start_time < p_end_time
-      AND end_time > p_start_time
-    FOR UPDATE;
+      AND end_time > p_start_time;
+    -- FOR UPDATE は付けない: 上の pg_advisory_xact_lock で既に直列化済み。
+    -- かつ COUNT(集約) + FOR UPDATE は PostgreSQL が 0A000 で常に拒否するため致命的。
   ELSE
     SELECT COUNT(*) INTO v_conflict_count
     FROM bookings
@@ -64,8 +76,9 @@ BEGIN
       AND booking_date = p_booking_date
       AND status NOT IN ('cancelled', 'no_show')
       AND start_time < p_end_time
-      AND end_time > p_start_time
-    FOR UPDATE;
+      AND end_time > p_start_time;
+    -- FOR UPDATE は付けない: 上の pg_advisory_xact_lock で既に直列化済み。
+    -- かつ COUNT(集約) + FOR UPDATE は PostgreSQL が 0A000 で常に拒否するため致命的。
   END IF;
 
   IF v_conflict_count > 0 THEN

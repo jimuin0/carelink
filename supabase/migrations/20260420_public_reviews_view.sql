@@ -27,10 +27,14 @@ AS
     photo_urls,
     is_verified_visit,
     status,
-    user_id,
     created_at
   FROM facility_reviews
   WHERE status = 'published';
+-- NOTE: facility_reviews には user_id 列が存在しない（20260322 で定義されて以来一度も
+-- 追加されていない）。当初の本 migration は user_id を SELECT していたため CREATE VIEW が
+-- 42703 で失敗し、トランザクション全体がロールバック → public_reviews 未作成かつ直後の
+-- DROP POLICY "Public read published reviews" も未実行、という二重ドリフトを生んでいた。
+-- 2026-06-02 に user_id を除去して根本修正（20260602_drift_repair.sql も同一定義で冪等再適用）。
 
 -- Grant SELECT on the view to all roles.
 -- The underlying table's RLS still applies for direct access,
