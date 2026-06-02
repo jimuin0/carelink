@@ -36,6 +36,8 @@ BEGIN
   ), 16))::bit(64)::bigint;
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
+  -- advisory lock で同一スロットは直列化済みのため FOR UPDATE は不要。
+  -- （COUNT(*) は集約のため FOR UPDATE 自体が PostgreSQL で不正）
   IF p_staff_id IS NOT NULL THEN
     SELECT COUNT(*) INTO v_conflict_count
     FROM bookings
@@ -43,8 +45,7 @@ BEGIN
       AND booking_date = p_booking_date
       AND status NOT IN ('cancelled', 'no_show')
       AND start_time < p_end_time
-      AND end_time > p_start_time
-    FOR UPDATE;
+      AND end_time > p_start_time;
     IF v_conflict_count > 0 THEN
       RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
     END IF;
@@ -94,6 +95,7 @@ BEGIN
   ), 16))::bit(64)::bigint;
   PERFORM pg_advisory_xact_lock(v_lock_key);
 
+  -- advisory lock で同一スロットは直列化済みのため FOR UPDATE は不要。
   IF p_staff_id IS NOT NULL THEN
     SELECT COUNT(*) INTO v_conflict_count
     FROM bookings
@@ -102,8 +104,7 @@ BEGIN
       AND id <> p_booking_id
       AND status NOT IN ('cancelled', 'no_show')
       AND start_time < p_end_time
-      AND end_time > p_start_time
-    FOR UPDATE;
+      AND end_time > p_start_time;
     IF v_conflict_count > 0 THEN
       RAISE EXCEPTION 'BOOKING_CONFLICT: この時間帯は既に予約が入っています';
     END IF;
