@@ -89,9 +89,9 @@ npm run lint  # ESLint
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0（2026-06-01 確認） |
-| L2 | Jest ユニットテスト | ✅ | 4535 テスト全通過、188 スイート（2026-06-01） |
-| L3 | Jest ブランチカバレッジ 100% | ⚠️ | 全体 96.82%（5702/5889 branches, 2026-06-01 実測）。掲載ボード関連の変更ファイル（coupons/blog/staff/menu-remarks/bulk-coupon/db-fallback）は **branch 100%**。残 187 未カバー分岐は salon-board B系機能の旧コミット由来で本タスク外。全体100%復元は別途要対応 |
-| L4 | Stryker ミューテーション | ⚠️ | db-fallback.ts を mutate 追加済。ただし Stryker perTest ドライランが環境要因で全 mutate 対象エラー（未変更の safe.ts でも再現）→ 現状実行不可。新規 db-fallback.ts は L3 100%＋L5 プロパティで品質担保。Stryker 環境の修復は別途要対応 |
+| L2 | Jest ユニットテスト | ✅ | 4627 テスト全通過、188 スイート（2026-06-02） |
+| L3 | Jest ブランチカバレッジ 100% | ✅ | 全体 100%（5890/5890 branches, 2026-06-02 実測）。前回 96.82% の未カバー187分岐（photos/blog-authors/reviews/staff/availability/notify 等）を全テスト追加で解消 |
+| L4 | Stryker ミューテーション | ✅ | 全11ファイル survived=0。Stryker 実行環境を修復（middleware-auth の jest-env mixin 統一・SITE_URL 確定化）。db-fallback.ts 追加＋seo-snippets の真の生存7件（前回 timeout で隠蔽）を撃破。2026-06-02 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
 | L6 | npm audit / 認証テスト | ✅ | critical=0・high=0（moderate 5）、menu-remarks の認証/IDOR テスト追加（2026-06-01） |
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |

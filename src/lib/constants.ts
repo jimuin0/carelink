@@ -56,7 +56,9 @@ export function normalizeSiteUrl(raw: string | undefined): string {
   // 1. 先にtrim → 空白のみ文字列も falsy 扱いでデフォルトにフォールバック
   // 2. 末尾スラッシュ除去 → その後 trim（スラッシュ直前の空白を除去）
   // 3. 空文字になった場合（"/"のみ等）も再度デフォルトにフォールバック
-  const stripped = (raw?.trim() || 'https://carelink-jp.com').replace(/\/+$/, '').trim();
+  // 第1段は空文字フォールバックに留め、最終デフォルトは base（line below）に一本化する。
+  // （第1段を 'https://carelink-jp.com' にすると base 側のデフォルトと冗長になり等価変異を生む）
+  const stripped = (raw?.trim() || '').replace(/\/+$/, '').trim();
   const base = stripped || 'https://carelink-jp.com';
   return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
