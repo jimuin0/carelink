@@ -237,6 +237,32 @@ describe('POST /api/booking', () => {
     expect(res.status).toBe(409);
   });
 
+  test('確定層ゲート: 時間帯停止(SUSPENDED)→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => { callNum++; return callNum === 1 ? conflictChain : nullChain; });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'SUSPENDED: この時間帯はネット予約の受付を停止しています' } });
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('停止');
+  });
+
+  test('確定層ゲート: 日別受付上限(CAPACITY_FULL)→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => { callNum++; return callNum === 1 ? conflictChain : nullChain; });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'CAPACITY_FULL: 本日のネット予約受付は上限に達しました' } });
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('上限');
+  });
+
   test('ポイント残高不足→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
@@ -574,6 +600,29 @@ describe('POST /api/booking', () => {
 
     const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId }));
     expect(res.status).toBe(400);
+  });
+
+  test('回帰: valid_until が当日のDATE文字列(YYYY-MM-DD)でも有効（#2 当日無効化バグ修正）', async () => {
+    const { getTodayString } = require('@/lib/validations-booking');
+    const today = getTodayString(); // JST 'YYYY-MM-DD'
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    const couponId = '423e4567-e89b-12d3-a456-426614174000';
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler; menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+    // valid_from/valid_until を DATE 列の実戻り値('YYYY-MM-DD')で再現。当日が期限 → 当日中は有効であるべき
+    const couponChain = fluent({ data: { discount_type: 'fixed', discount_value: 500, is_active: true, valid_from: today, valid_until: today } });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => { callNum++; if (callNum === 1) return conflictChain; if (callNum === 2) return menuChain; if (callNum === 3) return couponChain; return fluent({ data: null }); });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId }));
+    expect(res.status).not.toBe(400);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_total_price: 9500 }));
   });
 
   test('無効メニュー（facility不一致）→400', async () => {

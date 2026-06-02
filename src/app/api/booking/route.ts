@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { bookingSchema } from '@/lib/validations-booking';
+import { bookingSchema, getTodayString } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
@@ -106,7 +106,9 @@ export async function POST(request: Request) {
       serverTotalPrice = menuRow.price;
       // Apply coupon discount if provided
       if (parsed.data.coupon_id) {
-        const nowIso = new Date().toISOString();
+        // valid_from/valid_until は DATE 列('YYYY-MM-DD')。日付粒度・JST で比較する
+        // （UTCタイムスタンプ文字列と比較すると当日が常に期限切れ判定になり、JST午前は前日にずれるため）。
+        const today = getTodayString();
         const { data: coupon } = await supabase
           .from('coupons')
           .select('discount_type, discount_value, is_active, valid_from, valid_until')
@@ -116,8 +118,8 @@ export async function POST(request: Request) {
         // Validate coupon is active and within its validity window server-side
         const couponValid = coupon &&
           coupon.is_active === true &&
-          (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
-          (coupon.valid_until == null || coupon.valid_until >= nowIso);
+          (coupon.valid_from == null || coupon.valid_from <= today) &&
+          (coupon.valid_until == null || coupon.valid_until >= today);
         if (couponValid && serverTotalPrice != null) {
           if (coupon.discount_type === 'percentage') {
             serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
@@ -204,6 +206,13 @@ export async function POST(request: Request) {
     // BOOKING_CONFLICT raised by the RPC
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+    }
+    // 確定層ゲート（時間帯停止 #03/#09/#10・日別受付上限 #05/#46）。表示とのレースでも DB レベルで拒否される。
+    if (error.message?.includes('SUSPENDED')) {
+      return NextResponse.json({ error: 'この時間帯はネット予約の受付を停止しています' }, { status: 409 });
+    }
+    if (error.message?.includes('CAPACITY_FULL')) {
+      return NextResponse.json({ error: '本日のネット予約受付は上限に達しました' }, { status: 409 });
     }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }

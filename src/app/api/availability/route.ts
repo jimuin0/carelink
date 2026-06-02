@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { safeCaptureException } from '@/lib/safe';
+import { getTodayString } from '@/lib/validations-booking';
 
 export const dynamic = 'force-dynamic';
 
@@ -52,8 +53,9 @@ export async function GET(request: Request) {
 
     // Calculate date range for the month
     const daysInMonth = new Date(year, month, 0).getDate();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 過去日判定は JST の 'YYYY-MM-DD' 文字列比較に統一（setHours はサーバTZ依存=Vercel UTC で1日ズレるため）。
+    // bookingSchema の過去判定(>= getTodayString())と同一規約にして表示と確定の境界を一致させる。
+    const todayStr = getTodayString();
 
     const dates: Record<string, { slots: number; status: 'available' | 'few' | 'full' }> = {};
 
@@ -61,8 +63,7 @@ export async function GET(request: Request) {
     const futureDates: string[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const dateObj = new Date(dateStr + 'T00:00:00+09:00');
-      if (dateObj < today) {
+      if (dateStr < todayStr) {
         dates[dateStr] = { slots: 0, status: 'full' };
       } else {
         futureDates.push(dateStr);
@@ -70,6 +71,8 @@ export async function GET(request: Request) {
     }
 
     // Process dates in batches to limit concurrent DB calls
+    // 注: 日別受付上限/時間帯停止の表示反映は slots(時間選択画面)で行い、最終的な可否は確定層RPC(20260603_booking_gates.sql)が
+    //     DBレベルで強制する。月カレンダー(本API)は粗いヒントのため当該反映は意図的に行わない。
     const BATCH_SIZE = 5;
     for (let i = 0; i < futureDates.length; i += BATCH_SIZE) {
       const batch = futureDates.slice(i, i + BATCH_SIZE);
