@@ -355,7 +355,7 @@ function TopPage({ salonName, statusLabel, slug, facilityId, reviewsCount, ratin
           </tbody>
         </table>
         <p className="text-[11px] text-gray-500 mt-3">反映までに通常15分程度かかります。システムメンテナンスなどによっては15分以上かかる場合があります。</p>
-        <div className="text-right mt-2"><button onClick={() => onToast('ページ上部へ')} className="text-[11px] text-sky-600 underline">← ページのトップへ</button></div>
+        <div className="text-right mt-2"><button onClick={(e) => { const sc = (e.currentTarget as HTMLElement).closest('.overflow-auto'); if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' }); else window.scrollTo({ top: 0, behavior: 'smooth' }); }} className="text-[11px] text-sky-600 underline">← ページのトップへ</button></div>
         <p className="text-[11px] text-gray-400 mt-3">掲載中サロン：<span className="font-bold text-gray-600">{salonName}</span>（{statusLabel}） / スタッフ {counts.staff}名・写真 {counts.photos}枚・メニュー {counts.menus}件・クーポン {counts.coupons}件</p>
       </div>
     </div>
@@ -448,6 +448,8 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [formKey, setFormKey] = useState(0); // キャンセル時に未制御入力(CharInput等)を再マウントしてリセット
+  const [equipCount, setEquipCount] = useState(3); // 設備明細の表示行数（「追加する」で増やせる）
+  const [staffCount, setStaffCount] = useState(3); // スタッフ数明細の表示行数
   const [imgs, setImgs] = useState<{ header: string; logo: string; owner: string }>({ header: '', logo: '', owner: '' });
   const [design, setDesign] = useState<{ template: string; color: string }>({ template: '', color: '' });
   const [uploading, setUploading] = useState(false);
@@ -504,9 +506,11 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
         const g = Array.isArray(d.genres) ? (d.genres as string[]) : [];
         genres.current = [0, 1, 2, 3, 4, 5].map((i) => g[i] ?? '');
         const eq = Array.isArray(d.equipment) ? (d.equipment as { name: string; count: number }[]) : [];
-        equip.current = [0, 1, 2].map((i) => ({ name: eq[i]?.name ?? '', count: eq[i]?.count != null ? String(eq[i].count) : '' }));
+        equip.current = Array.from({ length: Math.max(3, eq.length) }, (_, i) => ({ name: eq[i]?.name ?? '', count: eq[i]?.count != null ? String(eq[i].count) : '' }));
+        setEquipCount(Math.max(3, eq.length));
         const sbk = Array.isArray(d.staff_breakdown) ? (d.staff_breakdown as { role: string; count: number }[]) : [];
-        staffRows.current = [0, 1, 2].map((i) => ({ role: sbk[i]?.role ?? '', count: sbk[i]?.count != null ? String(sbk[i].count) : '' }));
+        staffRows.current = Array.from({ length: Math.max(3, sbk.length) }, (_, i) => ({ role: sbk[i]?.role ?? '', count: sbk[i]?.count != null ? String(sbk[i].count) : '' }));
+        setStaffCount(Math.max(3, sbk.length));
         const loadedImgs = { header: s('header_photo_url'), logo: s('logo_url'), owner: s('owner_photo_url') };
         const loadedDesign = { template: s('design_template') || 'standard', color: s('design_color') || 'pink' };
         setImgs(loadedImgs);
@@ -563,6 +567,8 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
       genres.current = [...snap.genres];
       equip.current = snap.equip.map((e) => ({ ...e }));
       staffRows.current = snap.staffRows.map((e) => ({ ...e }));
+      setEquipCount(Math.max(3, snap.equip.length));
+      setStaffCount(Math.max(3, snap.staffRows.length));
       setImgs({ ...snap.imgs });
       setDesign({ ...snap.design });
     }
@@ -662,14 +668,14 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
           <div className="flex gap-8">
             <div>
               <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={counts.current.seat} onChange={(e) => { counts.current.seat = e.target.value.replace(/[^0-9]/g, ''); }} /></div>
-              {[0, 1, 2].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><span className="text-xs text-gray-500 w-4">{n + 1}</span><select className={`${input} w-40 bg-white`} defaultValue={equip.current[n].name || ''} onChange={(e) => { equip.current[n].name = e.target.value; }}><option value="">未選択</option><option>リクライニングチェア</option><option>シャンプー台</option><option>個室</option>{equip.current[n].name && !['リクライニングチェア', 'シャンプー台', '個室'].includes(equip.current[n].name) && <option value={equip.current[n].name}>{equip.current[n].name}</option>}</select><input className={`${input} w-12`} placeholder="数" defaultValue={equip.current[n].count} onChange={(e) => { equip.current[n].count = e.target.value.replace(/[^0-9]/g, ''); }} /></div>)}
-              <button onClick={() => onToast('追加は登録後に行ってください')} className="text-sky-600 underline text-xs">追加する</button>
+              {Array.from({ length: equipCount }, (_, n) => n).map((n) => { if (!equip.current[n]) equip.current[n] = { name: '', count: '' }; return <div key={n} className="flex items-center gap-1 mb-1"><span className="text-xs text-gray-500 w-4">{n + 1}</span><select className={`${input} w-40 bg-white`} defaultValue={equip.current[n].name || ''} onChange={(e) => { equip.current[n].name = e.target.value; }}><option value="">未選択</option><option>リクライニングチェア</option><option>シャンプー台</option><option>個室</option>{equip.current[n].name && !['リクライニングチェア', 'シャンプー台', '個室'].includes(equip.current[n].name) && <option value={equip.current[n].name}>{equip.current[n].name}</option>}</select><input className={`${input} w-12`} placeholder="数" defaultValue={equip.current[n].count} onChange={(e) => { equip.current[n].count = e.target.value.replace(/[^0-9]/g, ''); }} /></div>; })}
+              <button onClick={() => { equip.current.push({ name: '', count: '' }); setEquipCount((c) => c + 1); }} className="text-sky-600 underline text-xs">追加する</button>
             </div>
             <div>
               <div className="text-xs font-bold text-gray-600 mb-1">スタッフ数</div>
               <div className="flex items-center gap-2 text-xs mb-1">総数<input className={`${input} w-12`} defaultValue={counts.current.staff} onChange={(e) => { counts.current.staff = e.target.value.replace(/[^0-9]/g, ''); }} /> 人</div>
-              {[0, 1, 2].map((n) => <div key={n} className="flex items-center gap-1 mb-1"><span className="text-xs text-gray-500 w-4">{n + 1}</span><select className={`${input} w-36 bg-white`} defaultValue={staffRows.current[n].role || ''} onChange={(e) => { staffRows.current[n].role = e.target.value; }}><option value="">未選択</option><option>施術者（まつげ）</option><option>施術者（眉）</option><option>施術者（エステ）</option><option>受付</option>{staffRows.current[n].role && !['施術者（まつげ）', '施術者（眉）', '施術者（エステ）', '受付'].includes(staffRows.current[n].role) && <option value={staffRows.current[n].role}>{staffRows.current[n].role}</option>}</select><input className={`${input} w-12`} placeholder="数" defaultValue={staffRows.current[n].count} onChange={(e) => { staffRows.current[n].count = e.target.value.replace(/[^0-9]/g, ''); }} /><span className="text-xs">人</span></div>)}
-              <button onClick={() => onToast('追加は登録後に行ってください')} className="text-sky-600 underline text-xs">追加する</button>
+              {Array.from({ length: staffCount }, (_, n) => n).map((n) => { if (!staffRows.current[n]) staffRows.current[n] = { role: '', count: '' }; return <div key={n} className="flex items-center gap-1 mb-1"><span className="text-xs text-gray-500 w-4">{n + 1}</span><select className={`${input} w-36 bg-white`} defaultValue={staffRows.current[n].role || ''} onChange={(e) => { staffRows.current[n].role = e.target.value; }}><option value="">未選択</option><option>施術者（まつげ）</option><option>施術者（眉）</option><option>施術者（エステ）</option><option>受付</option>{staffRows.current[n].role && !['施術者（まつげ）', '施術者（眉）', '施術者（エステ）', '受付'].includes(staffRows.current[n].role) && <option value={staffRows.current[n].role}>{staffRows.current[n].role}</option>}</select><input className={`${input} w-12`} placeholder="数" defaultValue={staffRows.current[n].count} onChange={(e) => { staffRows.current[n].count = e.target.value.replace(/[^0-9]/g, ''); }} /><span className="text-xs">人</span></div>; })}
+              <button onClick={() => { staffRows.current.push({ role: '', count: '' }); setStaffCount((c) => c + 1); }} className="text-sky-600 underline text-xs">追加する</button>
             </div>
           </div>
         </FormRow>
@@ -1378,7 +1384,14 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
   const [replyId, setReplyId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'replied' | 'unreplied'>('all');
+  const [page, setPage] = useState(1);
   void facilityId;
+  const PER = 10;
+  const filtered = rows.filter((r) => filter === 'replied' ? !!r.reply : filter === 'unreplied' ? !r.reply : true);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PER));
+  const curPage = Math.min(page, totalPages);
+  const view = filtered.slice((curPage - 1) * PER, curPage * PER);
   const openReply = (r: ReviewRow) => { setReplyId(r.id); setReplyText(r.reply ?? ''); };
   const sendReply = async (id: string) => {
     if (saving) return;
@@ -1395,16 +1408,16 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
       <h2 className="text-base font-bold text-gray-800">口コミ一覧</h2>
       <p className="text-[11px] text-gray-500">HOT PEPPER Beauty予約に対して投稿された、お客様からの口コミの確認・返信ができます。</p>
       <div className="flex flex-wrap gap-6 text-xs">
-        <div><div className="text-sky-700 font-bold mb-1">■ 口コミ表示切替</div><select className="border border-gray-300 rounded px-2 py-1 bg-white"><option>すべての口コミ</option></select></div>
+        <div><div className="text-sky-700 font-bold mb-1">■ 口コミ表示切替</div><select value={filter} onChange={(e) => { setFilter(e.target.value as 'all' | 'replied' | 'unreplied'); setPage(1); }} className="border border-gray-300 rounded px-2 py-1 bg-white"><option value="all">すべての口コミ</option><option value="replied">返信済みの口コミ</option><option value="unreplied">未返信の口コミ</option></select></div>
         <div><div className="text-sky-700 font-bold mb-1">■ 口コミお役立ち情報</div><button onClick={() => onToast('準備中です')} className="text-sky-600 underline">▸ GOOD返信事例集を見る</button></div>
         <div><div className="text-sky-700 font-bold mb-1">■ 口コミの掟</div><button onClick={() => onToast('準備中です')} className="text-sky-600 underline">▸ 口コミの掟を見る</button></div>
       </div>
       <div className="flex items-center justify-between">
-        <p className="text-xs text-gray-600">該当する口コミが <span className="text-rose-500 font-bold">{rows.length}</span> 件あります</p>
+        <p className="text-xs text-gray-600">該当する口コミが <span className="text-rose-500 font-bold">{filtered.length}</span> 件あります</p>
         <div className="flex items-center gap-2 text-xs">
-          <button onClick={() => onToast('準備中です')} className="px-2 py-0.5 border border-gray-300 rounded text-gray-400">◀前へ</button>
-          <span>1/1ページ</span>
-          <button onClick={() => onToast('準備中です')} className="px-2 py-0.5 border border-gray-300 rounded text-gray-400">次へ▶</button>
+          <button disabled={curPage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="px-2 py-0.5 border border-gray-300 rounded text-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed">◀前へ</button>
+          <span>{curPage}/{totalPages}ページ</span>
+          <button disabled={curPage >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))} className="px-2 py-0.5 border border-gray-300 rounded text-gray-600 disabled:text-gray-300 disabled:cursor-not-allowed">次へ▶</button>
         </div>
       </div>
       <div className="bg-white border border-slate-300 rounded overflow-hidden">
@@ -1420,11 +1433,11 @@ function ReviewListPage({ rows, staff, facilityId, onReload, onToast }: { rows: 
             <th className="border border-slate-200 px-2 py-1.5 font-bold">返信(審査状況)</th>
           </tr></thead>
           <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">口コミが登録されていません</td></tr>
-            ) : rows.map((r, i) => (
+            {view.length === 0 ? (
+              <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">{filter === 'all' ? '口コミが登録されていません' : '該当する口コミがありません'}</td></tr>
+            ) : view.map((r, i) => (
               <tr key={r.id} className="align-top">
-                <td className="border border-slate-200 px-2 py-3 text-center">{i === 0 && <div className="inline-block px-1.5 py-0.5 mb-1 rounded bg-pink-500 text-white text-[9px] font-bold">Pick Up</div>}<br /><input type="radio" name="pickup" defaultChecked={i === 0} /></td>
+                <td className="border border-slate-200 px-2 py-3 text-center">{curPage === 1 && i === 0 && <div className="inline-block px-1.5 py-0.5 mb-1 rounded bg-pink-500 text-white text-[9px] font-bold">Pick Up</div>}<br /><input type="radio" name="pickup" defaultChecked={curPage === 1 && i === 0} /></td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.id.slice(0, 8)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(r.created_at)}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{r.visit_date ? fmtDate(r.visit_date) : '—'}</td>
