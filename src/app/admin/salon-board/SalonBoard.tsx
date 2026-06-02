@@ -155,6 +155,11 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [suspensions, setSuspensions] = useState<{ id: string; suspend_date: string; start_time: string; end_time: string }[]>([]);
   const [susForm, setSusForm] = useState({ sh: '10', sm: '00', eh: '19', em: '00' });
   const [susBusy, setSusBusy] = useState(false);
+  // 受付可能枠数（日別 #05/#46）の編集モーダル
+  const [capModal, setCapModal] = useState<string | null>(null); // 編集中の YYYY-MM
+  const [capValues, setCapValues] = useState<Record<string, string>>({}); // date -> 上限(文字列)
+  const [capInitial, setCapInitial] = useState<Record<string, string>>({}); // 解除判定用の初期値
+  const [capBusy, setCapBusy] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerYM, setPickerYM] = useState(() => getTodayString().slice(0, 7)); // 左側に表示する月 YYYY-MM
   const [pickerPos, setPickerPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -196,6 +201,43 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       setToast({ type: 'success', message: '停止を解除しました（受付を再開）' });
       await loadSuspensions();
     } catch { setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setSusBusy(false); }
+  };
+
+  // 受付可能枠数（日別 #05/#46）: 指定月の上限を取得して編集モーダルを開く
+  const openCapModal = async (ym: string) => {
+    const y = parseInt(ym.slice(0, 4), 10); const m = parseInt(ym.slice(5, 7), 10);
+    const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const from = `${ym}-01`; const to = `${ym}-${String(last).padStart(2, '0')}`;
+    setCapModal(ym); setCapValues({}); setCapInitial({});
+    try {
+      const res = await fetch(`/api/admin/daily-capacity?facility_id=${facilityId}&from=${from}&to=${to}`);
+      if (res.ok) {
+        const d = await res.json().catch(() => null);
+        const map: Record<string, string> = {};
+        for (const c of (d?.capacities ?? []) as { capacity_date: string; max_bookings: number }[]) map[c.capacity_date] = String(c.max_bookings);
+        setCapValues(map); setCapInitial(map);
+      }
+    } catch { /* 取得失敗時は空で編集開始 */ }
+  };
+  const saveCap = async () => {
+    if (capBusy || !capModal) return; setCapBusy(true);
+    try {
+      const dates = new Set([...Object.keys(capValues), ...Object.keys(capInitial)]);
+      for (const date of dates) {
+        const cur = (capValues[date] ?? '').trim();
+        const init = (capInitial[date] ?? '').trim();
+        if (cur === init) continue;
+        if (cur === '') {
+          const res = await fetch(`/api/admin/daily-capacity?facility_id=${facilityId}&date=${date}`, { method: 'DELETE' });
+          if (!res.ok) { const e = await res.json().catch(() => ({})); setToast({ type: 'error', message: e.error || '保存に失敗しました' }); setCapBusy(false); return; }
+        } else {
+          const res = await fetch(`/api/admin/daily-capacity?facility_id=${facilityId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ capacity_date: date, max_bookings: parseInt(cur, 10) }) });
+          if (!res.ok) { const e = await res.json().catch(() => ({})); setToast({ type: 'error', message: e.error || '保存に失敗しました' }); setCapBusy(false); return; }
+        }
+      }
+      setToast({ type: 'success', message: '受付可能枠数を保存しました' });
+      setCapModal(null);
+    } catch { setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setCapBusy(false); }
   };
 
   const toggleAccept = async (action: 'suspend' | 'resume') => {
@@ -755,14 +797,16 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       {tab === 'accept' && (() => {
         const [y, mo] = date.split('-').map(Number);
         const months = Array.from({ length: 4 }, (_, i) => { const d = new Date(Date.UTC(y, mo - 1 + i, 1)); return `${d.getUTCFullYear()}年${String(d.getUTCMonth() + 1).padStart(2, '0')}月`; });
-        const MonthTable = ({ rowLabel }: { rowLabel: string }) => (
+        // i 番目の月の YYYY-MM
+        const ymOf = (i: number) => { const d = new Date(Date.UTC(y, mo - 1 + i, 1)); return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`; };
+        const MonthTable = ({ rowLabel, kind }: { rowLabel: string; kind: 'capacity' | 'shift' }) => (
           <div className="border border-gray-300 rounded overflow-hidden bg-white">
             <div className="grid grid-cols-5 text-[11px]">
               <div className="bg-amber-50 border-r border-b border-gray-200 px-2 py-2 font-bold text-gray-600 flex items-center">{rowLabel}</div>
               {months.map((m, i) => (
                 <div key={m} className={`border-b border-gray-200 px-2 py-2 text-center ${i < 3 ? 'border-r' : ''}`}>
                   <div className="text-gray-500 mb-1">{m}</div>
-                  <button type="button" onClick={() => setToast({ type: 'success', message: `${m}の詳細設定は準備中です` })} className="px-3 py-1 text-[11px] border border-sky-400 text-sky-600 rounded hover:bg-sky-50">設定</button>
+                  <button type="button" onClick={() => kind === 'capacity' ? openCapModal(ymOf(i)) : setToast({ type: 'success', message: `${m}のシフト設定は準備中です` })} className="px-3 py-1 text-[11px] border border-sky-400 text-sky-600 rounded hover:bg-sky-50">設定</button>
                 </div>
               ))}
             </div>
@@ -775,13 +819,13 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               <div>
                 <h3 className="text-sm font-bold text-gray-800 mb-1">■ サロンの受付設定 <span className="text-[11px] text-emerald-600">【自動延長中】</span></h3>
                 <p className="text-[11px] text-gray-500 mb-2">1ヶ月単位で、サロン全体の受付可能枠を日別に設定します。予約が受付枠数に達した日はネット予約の受付が自動停止します。</p>
-                <MonthTable rowLabel="サロンの営業時間帯・受付可能枠数（日別）" />
+                <MonthTable rowLabel="サロンの営業時間帯・受付可能枠数（日別）" kind="capacity" />
                 <button type="button" onClick={() => setToast({ type: 'success', message: '時間別設定は準備中です' })} className="mt-2 px-3 py-1.5 text-xs font-bold bg-sky-100 text-sky-700 rounded hover:bg-sky-200">サロンの受付可能枠数を時間別に設定する場合はこちら</button>
               </div>
               <div>
                 <h3 className="text-sm font-bold text-gray-800 mb-1">■ スタッフの受付設定 <span className="text-[11px] text-emerald-600">【自動延長中】</span></h3>
                 <p className="text-[11px] text-gray-500 mb-2">スタッフの1ヶ月分のシフトを設定します。休暇や枠を設定すると、ネット予約の受付が停止できます。</p>
-                <MonthTable rowLabel="勤務パターン設定・シフト設定" />
+                <MonthTable rowLabel="勤務パターン設定・シフト設定" kind="shift" />
               </div>
             </div>
           </div>
@@ -1087,6 +1131,38 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
           </div>
         </div>
       )}
+
+      {/* 受付可能枠数（日別 #05/#46）編集モーダル */}
+      {capModal && (() => {
+        const y = parseInt(capModal.slice(0, 4), 10); const m = parseInt(capModal.slice(5, 7), 10);
+        const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
+        const days = Array.from({ length: last }, (_, i) => `${capModal}-${String(i + 1).padStart(2, '0')}`);
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => !capBusy && setCapModal(null)}>
+            <div className="bg-white w-full max-w-md rounded-2xl shadow-xl max-h-[85vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between px-5 py-4 border-b sticky top-0 bg-white z-10">
+                <h2 className="text-base font-bold">{y}年{m}月 受付可能枠数（日別）</h2>
+                <button type="button" onClick={() => !capBusy && setCapModal(null)} aria-label="閉じる" className="text-gray-400 hover:text-gray-600">✕</button>
+              </div>
+              <div className="p-5 space-y-3">
+                <p className="text-[11px] text-gray-500">各日のネット予約受付上限を入力します（空欄＝無制限）。当日の予約数が上限に達するとネット予約が自動停止します。</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {days.map((d) => (
+                    <label key={d} className="flex items-center gap-2 text-xs">
+                      <span className="w-16 text-gray-600">{parseInt(d.slice(8), 10)}日</span>
+                      <input type="text" inputMode="numeric" value={capValues[d] ?? ''} onChange={(e) => setCapValues((v) => ({ ...v, [d]: e.target.value.replace(/[^0-9]/g, '') }))} placeholder="無制限" className="flex-1 border border-gray-300 rounded px-2 py-1" />
+                    </label>
+                  ))}
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button type="button" disabled={capBusy} onClick={saveCap} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{capBusy ? '保存中…' : '保存'}</button>
+                  <button type="button" disabled={capBusy} onClick={() => setCapModal(null)} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded disabled:opacity-50">キャンセル</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {modal && (
         <BookingModal init={modal} facilityId={facilityId} date={date} staffList={staffList} menuList={menuList}

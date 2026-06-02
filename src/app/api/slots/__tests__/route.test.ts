@@ -33,20 +33,34 @@ function setupDefaultMocks(hasSlots: boolean = true) {
   });
 
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
-  createServerSupabaseClient.mockReturnValue({
-    rpc: mockRpc,
-    // 停止枠取得（既定は停止なし）: from('facility_booking_suspensions').select().eq().eq()
-    from: jest.fn(() => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: suspensionsData }) }) }) })),
-  });
+  createServerSupabaseClient.mockReturnValue({ rpc: mockRpc, from: makeFrom() });
 }
 
-// 各テストで上書き可能な停止枠データ（既定なし）
+// 各テストで上書き可能な停止枠/上限/予約数（既定: 停止なし・上限なし・予約0）
 let suspensionsData: { start_time: string; end_time: string }[] = [];
+let capacityData: { max_bookings: number } | null = null;
+let bookedCount: number | null = 0;
+
+// table 名に応じてチェーンを返す共通モック（suspensions/daily_capacity/bookings）
+function makeFrom() {
+  return jest.fn((table: string) => {
+    if (table === 'facility_booking_suspensions') {
+      return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: suspensionsData }) }) }) };
+    }
+    if (table === 'facility_daily_capacity') {
+      return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: capacityData }) }) }) }) };
+    }
+    // bookings: select('id',{count}).eq().eq().not() で件数を返す
+    return { select: () => ({ eq: () => ({ eq: () => ({ not: () => Promise.resolve({ count: bookedCount }) }) }) }) };
+  });
+}
 
 beforeEach(() => {
   jest.clearAllMocks();
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
   suspensionsData = [];
+  capacityData = null;
+  bookedCount = 0;
   setupDefaultMocks();
 });
 
@@ -299,17 +313,57 @@ describe('GET /api/slots', () => {
 
   test('停止時間帯に重なるスロットは除外される(#03/#09/#10)', async () => {
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    suspensionsData = [{ start_time: '12:00', end_time: '13:00' }]; // 12:00-13:00 停止
     createServerSupabaseClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: [
         { slot_start: '09:00', slot_end: '10:00' },
-        { slot_start: '12:00', slot_end: '13:00' }, // 停止 12:00-13:00 と重なる → 除外
+        { slot_start: '12:00', slot_end: '13:00' }, // 停止と重なる → 除外
         { slot_start: '15:00', slot_end: '16:00' },
       ] }),
-      from: jest.fn(() => ({ select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: [{ start_time: '12:00', end_time: '13:00' }] }) }) }) })),
+      from: makeFrom(),
     });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.slots.map((s: { slot_start: string }) => s.slot_start)).toEqual(['09:00', '15:00']);
+  });
+
+  test('受付上限に達した日はスロット0(#05/#46)', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    capacityData = { max_bookings: 3 };
+    bookedCount = 3; // 上限3 に対し既に3件 → 満枠
+    createServerSupabaseClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: [{ slot_start: '09:00', slot_end: '10:00' }] }),
+      from: makeFrom(),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).slots).toEqual([]);
+  });
+
+  test('上限0かつ予約数null → スロット0（count ?? 0 の null 経路）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    capacityData = { max_bookings: 0 };
+    bookedCount = null; // count が null → (null ?? 0)=0 >= 0 で満枠
+    createServerSupabaseClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: [{ slot_start: '09:00', slot_end: '10:00' }] }),
+      from: makeFrom(),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).slots).toEqual([]);
+  });
+
+  test('受付上限未満の日はスロット維持(#05/#46)', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    capacityData = { max_bookings: 5 };
+    bookedCount = 2; // 上限5 に対し2件 → 受付継続
+    createServerSupabaseClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: [{ slot_start: '09:00', slot_end: '10:00' }] }),
+      from: makeFrom(),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).slots).toHaveLength(1);
   });
 });
