@@ -98,9 +98,37 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     totalSum: number; profile: { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null;
     rows: { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string; total_price: number | null }[];
   } | null>(null);
+  // お客様カルテ メモ/タグ/次回案内(#42-#45)の編集状態（custDetail とは別管理）
+  const [karteKey, setKarteKey] = useState('');
+  const [karteEdit, setKarteEdit] = useState<{ note: string; tags: string; nextDate: string; nextNote: string }>({ note: '', tags: '', nextDate: '', nextNote: '' });
+  const [karteSaving, setKarteSaving] = useState(false);
+
+  const saveKarte = async () => {
+    if (karteSaving || !karteKey) return; setKarteSaving(true);
+    try {
+      const tags = karteEdit.tags.split(',').map((t) => t.trim()).filter(Boolean).slice(0, 20);
+      const res = await fetch(`/api/admin/customer-note?facility_id=${facilityId}&customer_key=${encodeURIComponent(karteKey)}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ note: karteEdit.note.trim() || null, tags, next_visit_date: karteEdit.nextDate || null, next_visit_note: karteEdit.nextNote.trim() || null }),
+      });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setToast({ type: 'error', message: d.error || 'カルテの保存に失敗しました' }); setKarteSaving(false); return; }
+      setToast({ type: 'success', message: 'カルテを保存しました' });
+    } catch { setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setKarteSaving(false); }
+  };
 
   const openCustomerHistory = async (c: { key: string; name: string; email: string | null; phone: string | null }) => {
     setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: true, totalSum: 0, profile: null, rows: [] });
+    setKarteKey(c.key);
+    setKarteEdit({ note: '', tags: '', nextDate: '', nextNote: '' });
+    // カルテ（メモ/タグ/次回案内）を取得
+    try {
+      const nr = await fetch(`/api/admin/customer-note?facility_id=${facilityId}&customer_key=${encodeURIComponent(c.key)}`);
+      if (nr.ok) {
+        const nd = await nr.json().catch(() => null);
+        const n = nd?.note;
+        if (n) setKarteEdit({ note: n.note ?? '', tags: Array.isArray(n.tags) ? n.tags.join(', ') : '', nextDate: n.next_visit_date ?? '', nextNote: n.next_visit_note ?? '' });
+      }
+    } catch { /* カルテ取得失敗は致命的でない（来店履歴は表示する） */ }
     const supabase = createBrowserSupabaseClient();
     let q = supabase.from('bookings').select('id, booking_date, start_time, end_time, menu_id, staff_id, status, total_price').eq('facility_id', facilityId).neq('status', 'cancelled').order('booking_date', { ascending: false });
     q = c.email ? q.eq('email', c.email) : q.eq('customer_name', c.name);
@@ -970,6 +998,24 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                     {!custDetail.loading && custDetail.rows.length === 0 && <tr><td colSpan={6} className="py-6 text-center text-gray-400">来店履歴がありません</td></tr>}
                   </tbody>
                 </table>
+              </div>
+              {/* カルテ編集（メモ/タグ/次回案内） #42-#45 */}
+              <div className="border-t pt-3 space-y-3">
+                <div className="text-xs font-bold text-gray-600">カルテ（メモ・タグ・次回案内）</div>
+                <div>
+                  <label className="text-[11px] text-gray-500">顧客メモ</label>
+                  <textarea value={karteEdit.note} onChange={(e) => setKarteEdit((k) => ({ ...k, note: e.target.value }))} rows={3} maxLength={2000} placeholder="施術内容・好み・アレルギー等の自由メモ" className="w-full border border-gray-300 rounded px-2 py-1 text-xs" />
+                </div>
+                <div>
+                  <label className="text-[11px] text-gray-500">タグ（カンマ区切り・最大20）</label>
+                  <input value={karteEdit.tags} onChange={(e) => setKarteEdit((k) => ({ ...k, tags: e.target.value }))} placeholder="VIP, 敏感肌, 指名" className="w-full border border-gray-300 rounded px-2 py-1 text-xs" />
+                  <div className="flex flex-wrap gap-1 mt-1">{karteEdit.tags.split(',').map((t) => t.trim()).filter(Boolean).map((t, i) => <span key={`${t}-${i}`} className="px-1.5 py-0.5 bg-sky-100 text-sky-700 rounded text-[10px]">{t}</span>)}</div>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div><label className="text-[11px] text-gray-500 block">次回案内日</label><input type="date" value={karteEdit.nextDate} onChange={(e) => setKarteEdit((k) => ({ ...k, nextDate: e.target.value }))} className="border border-gray-300 rounded px-2 py-1 text-xs" /></div>
+                  <div className="flex-1"><label className="text-[11px] text-gray-500 block">次回案内メモ</label><input value={karteEdit.nextNote} onChange={(e) => setKarteEdit((k) => ({ ...k, nextNote: e.target.value }))} maxLength={200} placeholder="次回◯◯のご案内 等" className="w-full border border-gray-300 rounded px-2 py-1 text-xs" /></div>
+                </div>
+                <div className="text-right"><button type="button" disabled={karteSaving} onClick={saveKarte} className="px-4 py-1.5 bg-sky-500 text-white text-xs font-bold rounded disabled:opacity-50">{karteSaving ? '保存中…' : 'カルテを保存'}</button></div>
               </div>
             </div>
           </div>
