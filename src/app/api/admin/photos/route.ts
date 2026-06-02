@@ -71,11 +71,13 @@ export async function POST(request: NextRequest) {
     const { data: c } = await admin.from('coupons').select('id').eq('id', parsed.data.coupon_id).eq('facility_id', auth.facilityId).maybeSingle();
     if (!c) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 400 });
   }
-  const { count } = await admin.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId);
+  // sort_order の既定値は「現存最大 +1」(#22)。count 基準だと中間削除後に既存行と衝突し並び順が不定になるため。
+  const { data: maxRow } = await admin.from('facility_photos').select('sort_order').eq('facility_id', auth.facilityId).order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const nextSort = ((maxRow as { sort_order: number | null } | null)?.sort_order ?? -1) + 1;
   const { data, error } = await admin.from('facility_photos').insert({
     facility_id: auth.facilityId,
     ...parsed.data,
-    sort_order: parsed.data.sort_order ?? (count ?? 0),
+    sort_order: parsed.data.sort_order ?? nextSort,
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

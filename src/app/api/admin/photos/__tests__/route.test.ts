@@ -44,8 +44,9 @@ function listChain(data: unknown[], error: unknown = null) {
   };
   return chain;
 }
-function countChain(count: number | null) {
-  return { select: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ count })) }) };
+// 新規 sort_order 採番は「現存最大 +1」(#22)。max(sort_order) 取得チェーンを模す（引数=現存最大、null=行なし）。
+function countChain(maxSort: number | null) {
+  return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ limit: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: maxSort === null ? null : { sort_order: maxSort } })) }) }) }) }) };
 }
 function insertSingle(data: unknown, error: unknown = null) {
   return { insert: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data, error })) }) }) };

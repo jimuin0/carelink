@@ -100,6 +100,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   } | null>(null);
   // お客様カルテ メモ/タグ/次回案内(#42-#45)の編集状態（custDetail とは別管理）
   const [karteKey, setKarteKey] = useState('');
+  const karteOpenRef = useRef(''); // 最後に開いた顧客キー（stale 応答破棄用 #21）
   const [karteEdit, setKarteEdit] = useState<{ note: string; tags: string; nextDate: string; nextNote: string }>({ note: '', tags: '', nextDate: '', nextNote: '' });
   const [karteSaving, setKarteSaving] = useState(false);
 
@@ -117,14 +118,19 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   };
 
   const openCustomerHistory = async (c: { key: string; name: string; email: string | null; phone: string | null }) => {
+    // 連続オープン時の stale 応答対策(#21): 最後に開いた顧客キーを ref で追跡し、await 後に不一致なら破棄
+    const reqKey = c.key;
+    karteOpenRef.current = reqKey;
     setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: true, totalSum: 0, profile: null, rows: [] });
     setKarteKey(c.key);
     setKarteEdit({ note: '', tags: '', nextDate: '', nextNote: '' });
     // カルテ（メモ/タグ/次回案内）を取得
     try {
       const nr = await fetch(`/api/admin/customer-note?facility_id=${facilityId}&customer_key=${encodeURIComponent(c.key)}`);
+      if (karteOpenRef.current !== reqKey) return; // 別顧客が開かれた → 破棄
       if (nr.ok) {
         const nd = await nr.json().catch(() => null);
+        if (karteOpenRef.current !== reqKey) return;
         const n = nd?.note;
         if (n) setKarteEdit({ note: n.note ?? '', tags: Array.isArray(n.tags) ? n.tags.join(', ') : '', nextDate: n.next_visit_date ?? '', nextNote: n.next_visit_note ?? '' });
       }
@@ -133,6 +139,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     let q = supabase.from('bookings').select('id, booking_date, start_time, end_time, menu_id, staff_id, status, total_price').eq('facility_id', facilityId).neq('status', 'cancelled').order('booking_date', { ascending: false });
     q = c.email ? q.eq('email', c.email) : q.eq('customer_name', c.name);
     const bk = await q;
+    if (karteOpenRef.current !== reqKey) return; // 別顧客が開かれた → 古い来店履歴で上書きしない
     // 取得失敗を「来店0回・¥0」と誤表示しない
     if (bk.error) { setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: false, error: true, totalSum: 0, profile: null, rows: [] }); return; }
     const rows = (bk.data as { id: string; booking_date: string; start_time: string; end_time: string; menu_id: string | null; staff_id: string | null; status: string; total_price: number | null }[]) ?? [];
@@ -142,9 +149,11 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     if (c.email) {
       try {
         const r = await fetch(`/api/admin/customer-profile?facility_id=${facilityId}&email=${encodeURIComponent(c.email)}`);
+        if (karteOpenRef.current !== reqKey) return;
         if (r.ok) { const d = await r.json().catch(() => null); profile = d?.profile ?? null; }
       } catch { /* 属性取得失敗は致命的でないため握りつぶし、来店履歴は表示する */ }
     }
+    if (karteOpenRef.current !== reqKey) return;
     setCustDetail({ name: c.name, email: c.email, phone: c.phone, loading: false, totalSum, profile, rows });
   };
   const [listing, setListing] = useState<{ name: string; status: string; staff: number; photos: number; menus: number } | null>(null);
@@ -221,6 +230,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   };
   const saveCap = async () => {
     if (capBusy || !capModal) return; setCapBusy(true);
+    // 確定済みを追跡(#31)。途中失敗しても保存済み日は capInitial に反映し、再保存での二重 PUT/DELETE を防ぐ。
+    const committed: Record<string, string> = { ...capInitial };
     try {
       const dates = new Set([...Object.keys(capValues), ...Object.keys(capInitial)]);
       for (const date of dates) {
@@ -229,15 +240,18 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         if (cur === init) continue;
         if (cur === '') {
           const res = await fetch(`/api/admin/daily-capacity?facility_id=${facilityId}&date=${date}`, { method: 'DELETE' });
-          if (!res.ok) { const e = await res.json().catch(() => ({})); setToast({ type: 'error', message: e.error || '保存に失敗しました' }); setCapBusy(false); return; }
+          if (!res.ok) { const e = await res.json().catch(() => ({})); setCapInitial(committed); setToast({ type: 'error', message: e.error || '保存に失敗しました' }); setCapBusy(false); return; }
+          delete committed[date];
         } else {
           const res = await fetch(`/api/admin/daily-capacity?facility_id=${facilityId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ capacity_date: date, max_bookings: parseInt(cur, 10) }) });
-          if (!res.ok) { const e = await res.json().catch(() => ({})); setToast({ type: 'error', message: e.error || '保存に失敗しました' }); setCapBusy(false); return; }
+          if (!res.ok) { const e = await res.json().catch(() => ({})); setCapInitial(committed); setToast({ type: 'error', message: e.error || '保存に失敗しました' }); setCapBusy(false); return; }
+          committed[date] = cur;
         }
       }
+      setCapInitial(committed);
       setToast({ type: 'success', message: '受付可能枠数を保存しました' });
       setCapModal(null);
-    } catch { setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setCapBusy(false); }
+    } catch { setCapInitial(committed); setToast({ type: 'error', message: '通信エラーが発生しました' }); } finally { setCapBusy(false); }
   };
 
   const toggleAccept = async (action: 'suspend' | 'resume') => {
@@ -331,7 +345,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         .eq('facility_id', facilityId).gte('booking_date', from).lte('booking_date', to).neq('status', 'cancelled')
         .order('booking_date', { ascending: true }).order('start_time', { ascending: true });
       if (cancelled) return;
-      if (res.error) setToast({ type: 'error', message: '予約情報の読み込みに失敗しました。再読み込みしてください' });
+      // 取得失敗時は前の期間のデータを残さない（別期間の予約を誤表示しない #30）
+      if (res.error) { setRangeBookings([]); setToast({ type: 'error', message: '予約情報の読み込みに失敗しました。再読み込みしてください' }); }
       else setRangeBookings((res.data as typeof rangeBookings) ?? []);
       setRangeLoading(false);
     })().catch(() => { if (!cancelled) setRangeLoading(false); });
