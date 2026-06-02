@@ -19,7 +19,7 @@ interface Props {
 interface StaffRow { id: string; name: string; position: string | null; specialties: string[] | null; years_experience: number | null; photo_url: string | null; sort_order: number | null; is_active: boolean; bio: string | null; }
 interface PhotoRow { id: string; photo_url: string | null; photo_type: string | null; caption: string | null; sort_order: number | null; title?: string | null; genre?: string | null; search_category?: string | null; image_submission?: boolean | null; is_published?: boolean | null; coupon_id?: string | null; }
 interface PhotoDraft { title: string; caption: string; genre: string; search_category: string; image_submission: boolean; is_published: boolean; coupon_id: string; }
-interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
+interface MenuRow { id: string; category: string | null; name: string; description: string | null; price: number | null; price_note: string | null; duration_minutes: number | null; is_featured: boolean | null; sort_order?: number | null; subcategory?: string | null; search_category?: string | null; reservable?: boolean | null; is_published?: boolean | null; price_show_tilde?: boolean | null; price_ask?: boolean | null; }
 interface CouponRow { id: string; name: string; description: string | null; coupon_type: string | null; special_price: number | null; valid_from: string | null; valid_until: string | null; is_active: boolean | null; presentation_timing?: string | null; usage_condition?: string | null; search_category1?: string | null; search_category2?: string | null; duration_minutes?: number | null; }
 interface BlogRow { id: string; title: string; content?: string | null; is_published: boolean | null; published_at: string | null; created_at: string | null; thumbnail_url: string | null; author_id?: string | null; author_name_id?: string | null; coupon_id?: string | null; category?: string | null; }
 interface ReviewRow { id: string; reviewer_name: string | null; rating: number | null; comment: string | null; status: string | null; created_at: string | null; visit_date?: string | null; staff_id?: string | null; booking_id?: string | null; reply?: string | null; }
@@ -218,7 +218,7 @@ export default function ListingBoard({ facilityId, salonName, status, onToast, o
         ) : (
           <>
             {tab === 'top' && <TopPage salonName={salonName} statusLabel={statusLabel} slug={slug} facilityId={facilityId} reviewsCount={reviews.length} ratingAvg={reviews.length ? Math.round((reviews.reduce((s, r) => s + (r.rating ?? 0), 0) / reviews.length) * 10) / 10 : 0} counts={{ staff: staff.length, photos: photos.length, menus: menus.length, coupons: coupons.length }} onToast={onToast} onReloadStatus={onReloadStatus} />}
-            {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} onToast={onToast} />}
+            {tab === 'salon' && <SalonEditPage salonName={salonName} facilityId={facilityId} photos={photos} onReloadPhotos={reloadPhotos} onToast={onToast} />}
             {tab === 'staff' && <StaffListPage rows={staff} facilityId={facilityId} onReload={reloadStaff} onToast={onToast} />}
             {tab === 'photo' && <PhotoEditPage rows={photos} coupons={coupons} facilityId={facilityId} onReload={reloadPhotos} onToast={onToast} />}
             {tab === 'menu' && <MenuEditPage rows={menus} facilityId={facilityId} onReload={reloadMenus} onToast={onToast} />}
@@ -383,7 +383,67 @@ function Panel({ title, children, plan }: { title: string; children: React.React
   );
 }
 
-function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; facilityId: string; onToast: (m: string) => void }) {
+/* サロン編集 TOP写真／雰囲気写真の実データグリッド（削除・前へ/後ろへ・画像応募・キャプションを即時反映）。
+   フォトギャラリー(PhotoEditPage)と同じ /api/admin/photos エンドポイントを再利用する。 */
+function SalonPhotoGrid({ photos, withCaption, slotClass, onReload, onToast }: { photos: PhotoRow[]; withCaption: boolean; slotClass: string; onReload: () => void; onToast: (m: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(photos.map((p) => [p.id, p.caption ?? ''])));
+  useEffect(() => {
+    setCaps((prev) => {
+      const next = { ...prev }; let changed = false;
+      for (const p of photos) if (!(p.id in next)) { next[p.id] = p.caption ?? ''; changed = true; }
+      return changed ? next : prev;
+    });
+  }, [photos]);
+  const remove = async (id: string) => {
+    if (busy || !confirm('この写真を削除しますか？')) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/photos/${id}`, { method: 'DELETE' });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '削除に失敗しました'); return; }
+      onToast('写真を削除しました'); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  const patch = async (id: string, body: Record<string, unknown>, okMsg?: string) => {
+    if (busy) return; setBusy(true);
+    try {
+      const res = await fetch(`/api/admin/photos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); return; }
+      if (okMsg) onToast(okMsg); onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  // 隣接2枚の表示順(sort_order)をインデックス基準で入れ替える（既存値が同値/欠損でも確実に並ぶ）
+  const move = async (i: number, dir: -1 | 1) => {
+    const a = photos[i]; const b = photos[i + dir];
+    if (!a || !b || busy) return; setBusy(true);
+    try {
+      for (const [id, so] of [[a.id, i + dir], [b.id, i]] as [string, number][]) {
+        const res = await fetch(`/api/admin/photos/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sort_order: so }) });
+        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
+      }
+      onReload();
+    } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
+  };
+  const saveCaption = (p: PhotoRow) => { const v = caps[p.id] ?? ''; if (v !== (p.caption ?? '')) patch(p.id, { caption: v || null }, '保存しました'); };
+  if (photos.length === 0) return <p className="text-xs text-gray-400 px-3 py-3">登録された写真はありません。「画像をアップロードする」から追加してください。</p>;
+  return (
+    <>
+      {photos.map((p, i) => (
+        <div key={p.id} className={`${slotClass} text-center`}>
+          <div className={`${withCaption ? 'w-full h-28' : 'w-24 h-20'} bg-gray-100 relative`}>
+            {p.photo_url ? <img src={p.photo_url} alt="" className="w-full h-full object-cover" /> : null}
+            <button disabled={busy} onClick={() => remove(p.id)} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none disabled:opacity-40">×</button>
+          </div>
+          <div className="text-[9px] text-gray-400 mt-0.5">画像ID:C{p.id.slice(0, 8).toUpperCase()}</div>
+          <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" checked={p.image_submission ?? false} disabled={busy} onChange={(e) => patch(p.id, { image_submission: e.target.checked })} />画像応募</label>
+          {withCaption && <div className="flex items-start gap-1 mt-1"><textarea className="border border-gray-300 rounded px-1 py-0.5 text-[11px] w-full" rows={2} maxLength={30} placeholder="キャプション" value={caps[p.id] ?? ''} onChange={(e) => setCaps((m) => ({ ...m, [p.id]: e.target.value }))} onBlur={() => saveCaption(p)} /></div>}
+          <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button disabled={busy || i === 0} onClick={() => move(i, -1)} className="px-1 bg-sky-100 text-sky-600 rounded disabled:opacity-40">前へ</button><button disabled={busy || i === photos.length - 1} onClick={() => move(i, 1)} className="px-1 bg-sky-100 text-sky-600 rounded disabled:opacity-40">後ろへ</button></div>
+        </div>
+      ))}
+    </>
+  );
+}
+
+function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast }: { salonName: string; facilityId: string; photos: PhotoRow[]; onReloadPhotos: () => void; onToast: (m: string) => void }) {
   // 単純カラムに対応する主要項目を保存対象とする（キャッチ/コピー/アクセス/定休日）
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -411,6 +471,7 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         const res = await fetch(`/api/admin/photos?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ photo_url: url, photo_type: t === 'top' ? 'main' : 'other' }) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setUploading(false); return; }
         onToast(t === 'top' ? 'TOP写真を追加しました' : '雰囲気写真を追加しました');
+        onReloadPhotos();
       }
     } catch { onToast('通信エラーが発生しました'); } finally { setUploading(false); }
   };
@@ -521,6 +582,9 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
     </div>
   );
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
+  // TOP写真=photo_type 'main'、雰囲気写真=photo_type 'other'（フォトギャラリーと同じ facility_photos を共有）
+  const topPhotos = photos.filter((p) => p.photo_type === 'main');
+  const atmosPhotos = photos.filter((p) => p.photo_type === 'other');
   if (!loaded) return <div className="max-w-4xl"><div className="animate-pulse h-40 bg-gray-200 rounded" /></div>;
   return (
     <div key={formKey} className="max-w-4xl space-y-4">
@@ -560,15 +624,8 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
         <FormRow label="キャッチ" required><CharInput max={50} placeholder="キャッチコピー" below defaultValue={fields.current.catch_copy} onValueChange={(v) => { fields.current.catch_copy = v; }} /></FormRow>
         <FormRow label="コピー" required><CharTextarea max={150} rows={3} placeholder="サロンの紹介文" defaultValue={fields.current.description} onValueChange={(v) => { fields.current.description = v; }} /></FormRow>
         <FormRow label="ＴＯＰ写真" required>
-          <div className="flex flex-wrap gap-2">
-            {[0, 1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="w-24 text-center">
-                <div className="w-24 h-20 bg-gray-100 relative"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div>
-                <div className="text-[9px] text-gray-400 mt-0.5">画像ID:C0419048{60 + i}</div>
-                <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label>
-                <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">前へ</button><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">後ろへ</button></div>
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-2 items-start">
+            <SalonPhotoGrid photos={topPhotos} withCaption={false} slotClass="w-24" onReload={onReloadPhotos} onToast={onToast} />
             <div className="w-24 h-20 border border-gray-300 bg-sky-50 flex items-center justify-center text-[10px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('top')}>{uploading ? '中…' : <>画像を<br />アップロードする</>}</div>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">※最低1枚は内観写真を設定してください</p>
@@ -584,16 +641,9 @@ function SalonEditPage({ salonName, facilityId, onToast }: { salonName: string; 
 
       <Panel title="サロンの雰囲気・メニューなど" plan>
         <div className="px-3 py-2 bg-amber-50/50 border-b border-slate-200 text-xs text-gray-600">雰囲気写真・メニューなど ／ キャプション</div>
-        <div className="flex flex-wrap gap-4 p-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="w-44 text-center">
-              <div className="w-full h-28 bg-gray-100 relative"><button onClick={() => onToast('削除は準備中です')} className="absolute top-0 right-0 w-4 h-4 bg-gray-500 text-white text-[10px] leading-none">×</button></div>
-              <div className="text-[9px] text-gray-400 mt-0.5">画像ID：C0310666{36 + i}</div>
-              <label className="flex items-center justify-center gap-0.5 text-[9px] text-gray-500"><input type="checkbox" />画像応募</label>
-              <div className="flex items-start gap-1 mt-1"><CharTextarea max={30} rows={2} placeholder="キャプション" below={false} /></div>
-              <div className="flex justify-center gap-1 mt-0.5 text-[9px]"><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">前へ</button><button onClick={() => onToast('準備中です')} className="px-1 bg-sky-100 text-sky-600 rounded">後ろへ</button></div>
-            </div>
-          ))}
+        <div className="flex flex-wrap gap-4 p-3 items-start">
+          <SalonPhotoGrid photos={atmosPhotos} withCaption slotClass="w-44" onReload={onReloadPhotos} onToast={onToast} />
+          <div className="w-44 h-28 border border-gray-300 bg-sky-50 flex items-center justify-center text-[11px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('atmos')}>{uploading ? 'アップロード中…' : <>雰囲気写真を<br />アップロードする</>}</div>
         </div>
       </Panel>
 
@@ -752,12 +802,20 @@ function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows:
   const extOn = rows.length > 0 && 'genre' in (rows[0] as object);
   const draftOf = (p: PhotoRow): PhotoDraft => ({ title: p.title ?? '', caption: p.caption ?? '', genre: p.genre ?? 'まつげ・メイクなど', search_category: p.search_category ?? 'その他', image_submission: p.image_submission ?? false, is_published: p.is_published ?? true, coupon_id: p.coupon_id ?? '' });
   const [drafts, setDrafts] = useState<Record<string, PhotoDraft>>(() => Object.fromEntries(rows.map((p) => [p.id, draftOf(p)])));
+  // 表示順(No.)入力。sort_order があればそれ+1、無ければ表示位置+1 を初期値にする
+  const [orders, setOrders] = useState<Record<string, string>>(() => Object.fromEntries(rows.map((p, i) => [p.id, String((p.sort_order ?? i) + 1)])));
   // アップロードで写真が増えた場合、未登録 id の下書きを補完（saveAll の drafts[id] undefined クラッシュ防止）
   useEffect(() => {
     setDrafts((prev) => {
       let changed = false;
       const next = { ...prev };
       for (const p of rows) if (!next[p.id]) { next[p.id] = draftOf(p); changed = true; }
+      return changed ? next : prev;
+    });
+    setOrders((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      rows.forEach((p, i) => { if (!(p.id in next)) { next[p.id] = String((p.sort_order ?? i) + 1); changed = true; } });
       return changed ? next : prev;
     });
   }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -791,9 +849,11 @@ function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows:
   const saveAll = async () => {
     if (saving) return; setSaving(true);
     try {
-      for (const p of rows) {
+      for (const [i, p] of rows.entries()) {
         const dr = drafts[p.id] ?? draftOf(p);
-        const payload = { caption: dr.caption, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published, coupon_id: dr.coupon_id || null } : {}) };
+        const orderNo = parseInt(orders[p.id] ?? '', 10);
+        const sortOrder = Number.isFinite(orderNo) && orderNo > 0 ? orderNo - 1 : i;
+        const payload = { caption: dr.caption, sort_order: sortOrder, ...(extOn ? { title: dr.title || null, genre: dr.genre || null, search_category: dr.search_category || null, image_submission: dr.image_submission, is_published: dr.is_published, coupon_id: dr.coupon_id || null } : {}) };
         const res = await fetch(`/api/admin/photos/${p.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
         if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       }
@@ -822,7 +882,7 @@ function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows:
         ) : rows.map((p, i) => (
           <div key={p.id} className="flex gap-3 border-b border-slate-200 last:border-0 p-3">
             <div className="shrink-0 text-center">
-              <div className="text-xs font-bold text-gray-500">No.<input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></div>
+              <div className="text-xs font-bold text-gray-500">No.<input className="w-8 border border-gray-300 rounded text-center" value={orders[p.id] ?? String(i + 1)} onChange={(e) => setOrders((m) => ({ ...m, [p.id]: e.target.value.replace(/[^0-9]/g, '') }))} /></div>
               {p.photo_url ? <img src={p.photo_url} alt="" className="w-24 h-20 object-cover mt-1" /> : <div className="w-24 h-20 bg-gray-100 mt-1" />}
               <div className="text-[9px] text-gray-400 mt-0.5">画像ID: C{p.id.slice(0, 8).toUpperCase()}</div>
               <button disabled={uploading} onClick={() => pickFile(p.id)} className="mt-1 px-2 py-0.5 bg-sky-500 text-white text-[10px] rounded block mx-auto disabled:opacity-50">アップロード</button>
@@ -846,15 +906,17 @@ function PhotoEditPage({ rows, coupons, facilityId, onReload, onToast }: { rows:
 }
 
 /* ========================= メニュー掲載情報編集 ========================= */
-interface MenuDraft { id: string; category: string; subcategory: string; search_category: string; name: string; description: string; price: string; duration: string; reservable: boolean; isPublished: boolean; showTilde: boolean; priceAsk: boolean; }
+interface MenuDraft { id: string; category: string; subcategory: string; search_category: string; name: string; description: string; price: string; duration: string; reservable: boolean; isPublished: boolean; showTilde: boolean; priceAsk: boolean; sortNo: string; isNew?: boolean; }
 function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]; facilityId: string; onReload: () => void; onToast: (m: string) => void }) {
   const input = 'border border-gray-300 rounded px-2 py-1 text-sm';
   const extOn = rows.length > 0 && 'reservable' in (rows[0] as object); // 拡張カラム適用済みか
-  const [items, setItems] = useState<MenuDraft[]>(() => rows.map((m) => ({
+  const [items, setItems] = useState<MenuDraft[]>(() => rows.map((m, i) => ({
     id: m.id, category: m.category ?? 'まつげ・メイクなど', subcategory: m.subcategory ?? '', search_category: m.search_category ?? '',
     name: m.name, description: m.description ?? '', price: m.price != null ? String(m.price) : '', duration: m.duration_minutes != null ? String(m.duration_minutes) : '',
     reservable: m.reservable ?? true, isPublished: m.is_published ?? true, showTilde: m.price_show_tilde ?? false, priceAsk: m.price_ask ?? false,
+    sortNo: String((m.sort_order ?? i) + 1),
   })));
+  const addRow = () => setItems((arr) => [...arr, { id: `new-${globalThis.crypto.randomUUID()}`, category: 'まつげ・メイクなど', subcategory: '', search_category: '', name: '', description: '', price: '', duration: '', reservable: true, isPublished: true, showTilde: false, priceAsk: false, sortNo: String(arr.length + 1), isNew: true }]);
   const [saving, setSaving] = useState(false);
   const [remarks, setRemarks] = useState('');
   const [remarksSupported, setRemarksSupported] = useState(false);
@@ -877,12 +939,25 @@ function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]
         const rRes = await fetch(`/api/admin/menu-remarks?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ menu_remarks: remarks.trim() || null }) });
         if (!rRes.ok) { const d = await rRes.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
       }
-      for (const it of items) {
+      for (const [i, it] of items.entries()) {
         if (!it.name.trim() || !it.category.trim()) { onToast('カテゴリとメニュー名は必須です'); setSaving(false); return; }
-        const payload = { category: it.category, subcategory: it.subcategory || null, search_category: it.search_category || null, name: it.name.trim(), description: it.description.trim() || null, price: it.price ? parseInt(it.price, 10) : null, duration_minutes: it.duration ? parseInt(it.duration, 10) : null,
-          ...(extOn ? { reservable: it.reservable, is_published: it.isPublished, price_show_tilde: it.showTilde, price_ask: it.priceAsk } : {}) };
-        const res = await fetch(`/api/admin/menus/${it.id}?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+        const orderNo = parseInt(it.sortNo, 10);
+        const sortOrder = Number.isFinite(orderNo) && orderNo > 0 ? orderNo - 1 : i;
+        // 新規行は extOn に依存せず拡張フィールドを常に送る（POSTスキーマは全 optional 受理）。既存PATCHは extOn ゲート。
+        const extFields = { reservable: it.reservable, is_published: it.isPublished, price_show_tilde: it.showTilde, price_ask: it.priceAsk };
+        const base = { category: it.category, subcategory: it.subcategory || null, search_category: it.search_category || null, name: it.name.trim(), description: it.description.trim() || null, price: it.price ? parseInt(it.price, 10) : null, duration_minutes: it.duration ? parseInt(it.duration, 10) : null, sort_order: sortOrder };
+        if (it.isNew) {
+          const res = await fetch(`/api/admin/menus?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...base, ...extFields }) });
+          if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+          // 採番された実IDで item を確定し、再保存時の二重POSTを防ぐ
+          const created = await res.json().catch(() => null);
+          const newId = created?.menu?.id as string | undefined;
+          if (newId) setItems((arr) => arr.map((x) => x.id === it.id ? { ...x, id: newId, isNew: false } : x));
+        } else {
+          const payload = { ...base, ...(extOn ? extFields : {}) };
+          const res = await fetch(`/api/admin/menus/${it.id}?facility_id=${facilityId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '保存に失敗しました'); setSaving(false); return; }
+        }
       }
       onToast('メニューを保存しました'); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setSaving(false); }
@@ -901,6 +976,7 @@ function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]
     <div className="max-w-4xl space-y-3">
       <h2 className="text-base font-bold text-gray-800">メニュー掲載情報編集</h2>
       <div className="flex justify-end gap-2"><button disabled={saving} onClick={saveAll} className="px-5 py-1.5 bg-sky-500 text-white text-sm font-bold rounded disabled:opacity-50">{saving ? '保存中…' : '登録'}</button><button onClick={onReload} className="px-5 py-1.5 bg-gray-400 text-white text-sm font-bold rounded">キャンセル</button></div>
+      <button onClick={addRow} className="px-3 py-1.5 bg-sky-500 text-white text-xs font-bold rounded">＋ メニューを追加する</button>
       <Panel title="メニュー備考">
         <FormRow label="備考"><textarea className={`${input} w-full`} rows={4} maxLength={500} placeholder="メニュー全体の備考" value={remarks} onChange={(e) => setRemarks(e.target.value)} disabled={!remarksSupported} /><div className="text-right"><Counter n={hpbLen(remarks)} max={500} /></div>{!remarksSupported && <p className="text-[10px] text-gray-400">※備考機能の準備中です。</p>}</FormRow>
       </Panel>
@@ -909,7 +985,7 @@ function MenuEditPage({ rows, facilityId, onReload, onToast }: { rows: MenuRow[]
           <div className="px-4 py-10 text-center text-gray-400 text-sm">メニューが登録されていません</div>
         ) : items.map((m, i) => (
           <div key={m.id} className="flex gap-3 border-b border-slate-200 last:border-0 p-3 text-sm">
-            <div className="shrink-0 text-xs font-bold text-gray-500 w-10 text-center">No.<br /><input className="w-8 border border-gray-300 rounded text-center" defaultValue={i + 1} /></div>
+            <div className="shrink-0 text-xs font-bold text-gray-500 w-10 text-center">No.<br /><input className="w-8 border border-gray-300 rounded text-center" value={m.sortNo} onChange={(e) => upd(i, 'sortNo', e.target.value.replace(/[^0-9]/g, ''))} /></div>
             <div className="flex-1 space-y-2">
               <div className="flex items-start gap-2"><span className="w-24 text-xs text-gray-500 bg-amber-50 px-1 py-0.5 rounded">カテゴリ</span>
                 <div className="space-y-1"><select className={`${input} bg-white block`} value={m.category} onChange={(e) => upd(i, 'category', e.target.value)}><option>まつげ・メイクなど</option><option>エステ</option></select><select className={`${input} bg-white block`} value={m.subcategory} onChange={(e) => upd(i, 'subcategory', e.target.value)}><option value="">その他まつげメニュー</option>{m.subcategory && <option value={m.subcategory}>{m.subcategory}</option>}</select></div>
@@ -1144,6 +1220,12 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
     } catch { onToast('通信エラーが発生しました'); }
   };
   const authorName = (id?: string | null) => (id ? staff.find((s) => s.id === id)?.name ?? '—' : '—');
+  // 投稿者列: 外部投稿者(author_name_id)優先 → スタッフ(author_id) → 未設定
+  const authorLabel = (b: BlogRow): { kind: string; name: string } => {
+    if (b.author_name_id) return { kind: '投稿者', name: authors.find((a) => a.id === b.author_name_id)?.name ?? '—' };
+    if (b.author_id) return { kind: 'スタッフ', name: authorName(b.author_id) };
+    return { kind: '—', name: '' };
+  };
   const view = applied === 'published' ? rows.filter((b) => b.is_published) : applied === 'unpublished' ? rows.filter((b) => !b.is_published) : rows;
   const remove = async (b: BlogRow) => {
     if (busy) return; setBusy(true);
@@ -1196,9 +1278,9 @@ function BlogListPage({ rows, staff, coupons, facilityId, onReload, onToast }: {
               <tr><td colSpan={5} className="px-4 py-10 text-center text-gray-400">ブログが登録されていません</td></tr>
             ) : view.map((b) => (
               <tr key={b.id} className="align-top">
-                <td className="border border-slate-200 px-0 py-0"><div className="flex h-full"><div className="flex-1 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button></div><div className="w-24 px-2 py-3 border-l border-slate-200 text-[10px] text-gray-500">ビューティー</div></div></td>
+                <td className="border border-slate-200 px-0 py-0"><div className="flex h-full"><div className="flex-1 px-2 py-3"><button onClick={() => setEditing(b)} className="text-sky-600 underline text-xs">{b.title}</button></div><div className="w-24 px-2 py-3 border-l border-slate-200 text-[10px] text-gray-500">{b.category || 'ビューティー'}</div></div></td>
                 <td className="border border-slate-200 px-2 py-3 text-center">{b.thumbnail_url ? <img src={b.thumbnail_url} alt="" className="w-16 h-12 object-cover mx-auto" /> : <div className="w-16 h-12 bg-gray-100 mx-auto" />}</td>
-                <td className="border border-slate-200 px-2 py-3 text-center text-xs">スタッフ<br /><span className="text-gray-400">({authorName(b.author_id)})</span></td>
+                <td className="border border-slate-200 px-2 py-3 text-center text-xs">{(() => { const a = authorLabel(b); return <>{a.kind}{a.name && <><br /><span className="text-gray-400">({a.name})</span></>}</>; })()}</td>
                 <td className="border border-slate-200 px-2 py-3 text-center text-xs">{fmtDate(b.published_at ?? b.created_at)}<br /><span className={b.is_published ? 'text-emerald-600' : 'text-gray-400'}>{b.is_published ? '掲載中' : '非掲載'}</span></td>
                 <td className="border border-slate-200 px-2 py-3 text-center"><button onClick={() => setEditing(b)} className="px-2 py-0.5 bg-sky-100 text-sky-700 rounded text-xs mb-1">詳細</button><br /><button disabled={busy} onClick={() => { if (confirm('このブログを削除しますか？')) remove(b); }} className="px-2 py-0.5 bg-gray-200 text-gray-600 rounded text-xs disabled:opacity-40">削除</button></td>
               </tr>

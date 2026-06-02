@@ -16,6 +16,7 @@ const menuUpdateSchema = z.object({
   duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
+  sort_order: z.number().int().min(0).optional(),
   subcategory: z.string().max(100).optional().nullable(),
   search_category: z.string().max(100).optional().nullable(),
   reservable: z.boolean().optional(),

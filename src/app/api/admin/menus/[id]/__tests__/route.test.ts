@@ -186,6 +186,13 @@ test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
   expect(innerEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
 });
 
+test('PATCH: sort_order のみ → 200（並び替え保存・重複チェックなし）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateSingleChain({ id: MENU_UUID, sort_order: 3 }));
+  const res = await PATCH(makeRequest('PATCH', { sort_order: 3 }), makeProps());
+  expect(res.status).toBe(200);
+});
+
 test('PATCH: DB更新失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
