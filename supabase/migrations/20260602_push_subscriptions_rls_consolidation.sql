@@ -41,6 +41,9 @@ DROP POLICY IF EXISTS "Service role full access" ON push_subscriptions;
 -- 本番に存在し得る別名（命名ゆらぎ対策）
 DROP POLICY IF EXISTS "Users manage own push subscriptions" ON push_subscriptions;
 
+-- 統合後ポリシー自身も DROP（同一ファイル再実行時の 42710 を防ぎ完全冪等化）
+DROP POLICY IF EXISTS "push_subscriptions_owner_all" ON push_subscriptions;
+
 -- 統合後の唯一の正ポリシー（本人のみ全操作可）
 CREATE POLICY "push_subscriptions_owner_all"
   ON push_subscriptions FOR ALL

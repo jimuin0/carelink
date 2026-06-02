@@ -125,6 +125,56 @@ describeIfConfigured('schema invariants (staging)', () => {
     });
   });
 
+  // ── 2b. RLS 不変条件: anon の直接 INSERT が拒否される（攻撃面の封鎖確認） ──
+  // 20260602 の RLS ハードニング（contacts 撤去 / push_subscriptions 本人限定 /
+  // intake・waitlist 詐称封鎖 / nps anon 撤去）が本番へ反映されているかを検知する。
+  describe('RLS 不変条件（anon の直接 INSERT 拒否）', () => {
+    test('contacts への anon 直接 INSERT は拒否される（送信は service_role 経由のみ）', async () => {
+      // contacts は INSERT ポリシーを持たない（deny by default）。
+      // 正規の問い合わせ送信は API が service_role で行うため anon 直接 INSERT は不要。
+      // 万一ポリシーが復活（WITH CHECK(true)）すると本テストが失敗し回帰を検知する。
+      const { error } = await anon
+        .from('contacts')
+        .insert({
+          name: 'contract-probe',
+          email: 'contract-probe@example.invalid',
+          inquiry_type: 'other',
+          message: 'contract drift probe (should be rejected by RLS)',
+        });
+      // RLS で弾かれる（42501 等）はず。null（成功）なら過大公開の回帰。
+      expect(error).not.toBeNull();
+    });
+
+    test('push_subscriptions への anon 直接 INSERT は拒否される（本人のみ）', async () => {
+      // 統合ポリシー push_subscriptions_owner_all は auth.uid() = user_id を要求。
+      // anon は auth.uid() = null のため WITH CHECK で拒否される。
+      // さらに user_id = ZERO_UUID は auth.users に存在せず FK(23503) でも弾かれるため、
+      // 仮に RLS をすり抜けても行は永続化しない（副作用ゼロ）。
+      const { error } = await anon
+        .from('push_subscriptions')
+        .insert({
+          user_id: ZERO_UUID,
+          endpoint: 'https://example.invalid/contract-probe',
+          p256dh: 'contract-probe',
+          auth: 'contract-probe',
+        });
+      expect(error).not.toBeNull();
+    });
+
+    test('nps_surveys への anon 直接 INSERT は拒否される（service_role 経由のみ）', async () => {
+      // nps_own_insert 撤去後は INSERT ポリシー不在 = deny by default。
+      // 正規の NPS 登録は API が service_role で行う。
+      const { error } = await anon
+        .from('nps_surveys')
+        .insert({
+          score: 0,
+          comment: 'contract drift probe (should be rejected by RLS)',
+          category: 'overall',
+        });
+      expect(error).not.toBeNull();
+    });
+  });
+
   // ── 3. カラム/View 存在（service_role があれば確定的に検証） ──
   (URL && SRK ? describe : describe.skip)('カラム/View 存在（service_role）', () => {
     // 上と同様、未設定時に createClient が throw しないよう設定済みのときだけ生成。
