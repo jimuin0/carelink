@@ -26,6 +26,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_platform_blog_updated_at ON platform_blog_posts;
 CREATE TRIGGER trg_platform_blog_updated_at
   BEFORE UPDATE ON platform_blog_posts
   FOR EACH ROW EXECUTE FUNCTION update_platform_blog_updated_at();

@@ -9,7 +9,10 @@ CREATE TABLE IF NOT EXISTS group_bookings (
   start_time TIME NOT NULL,
   end_time TIME NOT NULL,
   menu_id UUID REFERENCES facility_menus(id) ON DELETE SET NULL,
-  staff_id UUID REFERENCES facility_staff(id) ON DELETE SET NULL,
+  -- FK 先は canonical な staff_profiles（`facility_staff` は本番にも migration にも存在せず、
+  --   このまま適用すると 42P01 で失敗する dangling FK だった。他テーブルの staff_id は全て
+  --   staff_profiles(id) を参照しており、それに統一する root fix）。
+  staff_id UUID REFERENCES staff_profiles(id) ON DELETE SET NULL,
   total_members INT NOT NULL DEFAULT 2 CHECK (total_members BETWEEN 2 AND 10),
   confirmed_members INT NOT NULL DEFAULT 1,
   status TEXT NOT NULL DEFAULT 'pending'
@@ -77,6 +80,7 @@ CREATE OR REPLACE FUNCTION update_group_bookings_updated_at()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END; $$;
 
+DROP TRIGGER IF EXISTS trg_group_bookings_updated_at ON group_bookings;
 CREATE TRIGGER trg_group_bookings_updated_at
   BEFORE UPDATE ON group_bookings
   FOR EACH ROW EXECUTE FUNCTION update_group_bookings_updated_at();

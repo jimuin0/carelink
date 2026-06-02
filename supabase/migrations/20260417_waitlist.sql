@@ -33,6 +33,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_waitlist_updated_at ON booking_waitlist;
 CREATE TRIGGER trg_waitlist_updated_at
   BEFORE UPDATE ON booking_waitlist
   FOR EACH ROW EXECUTE FUNCTION update_waitlist_updated_at();

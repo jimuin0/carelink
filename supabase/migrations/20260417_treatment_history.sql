@@ -34,6 +34,7 @@ RETURNS TRIGGER AS $$
 BEGIN NEW.updated_at = NOW(); RETURN NEW; END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_treatment_records_updated_at ON treatment_records;
 CREATE TRIGGER trg_treatment_records_updated_at
   BEFORE UPDATE ON treatment_records
   FOR EACH ROW EXECUTE FUNCTION update_treatment_records_updated_at();

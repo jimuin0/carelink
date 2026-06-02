@@ -14,7 +14,9 @@ CREATE POLICY "Allow anonymous upload images only" ON storage.objects
 
 -- Authenticated upload to photos bucket: restrict to image extensions
 -- (admin facility photo uploads — browser client uses authenticated session)
-CREATE POLICY IF NOT EXISTS "Allow authenticated upload photos" ON storage.objects
+-- NOTE: `CREATE POLICY IF NOT EXISTS` は未対応構文（42601）。各ポリシーを DROP+CREATE で冪等化。
+DROP POLICY IF EXISTS "Allow authenticated upload photos" ON storage.objects;
+CREATE POLICY "Allow authenticated upload photos" ON storage.objects
   FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'photos'
@@ -22,7 +24,8 @@ CREATE POLICY IF NOT EXISTS "Allow authenticated upload photos" ON storage.objec
   );
 
 -- Authenticated upload to avatars bucket: restrict to image extensions
-CREATE POLICY IF NOT EXISTS "Allow authenticated upload avatars" ON storage.objects
+DROP POLICY IF EXISTS "Allow authenticated upload avatars" ON storage.objects;
+CREATE POLICY "Allow authenticated upload avatars" ON storage.objects
   FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'avatars'
@@ -30,7 +33,8 @@ CREATE POLICY IF NOT EXISTS "Allow authenticated upload avatars" ON storage.obje
   );
 
 -- Authenticated upload to review-photos bucket: restrict to image extensions
-CREATE POLICY IF NOT EXISTS "Allow authenticated upload review-photos" ON storage.objects
+DROP POLICY IF EXISTS "Allow authenticated upload review-photos" ON storage.objects;
+CREATE POLICY "Allow authenticated upload review-photos" ON storage.objects
   FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'review-photos'
@@ -38,14 +42,17 @@ CREATE POLICY IF NOT EXISTS "Allow authenticated upload review-photos" ON storag
   );
 
 -- Public read for photos and avatars
-CREATE POLICY IF NOT EXISTS "Public read photos" ON storage.objects
+DROP POLICY IF EXISTS "Public read photos" ON storage.objects;
+CREATE POLICY "Public read photos" ON storage.objects
   FOR SELECT TO anon
   USING (bucket_id = 'photos');
 
-CREATE POLICY IF NOT EXISTS "Public read avatars" ON storage.objects
+DROP POLICY IF EXISTS "Public read avatars" ON storage.objects;
+CREATE POLICY "Public read avatars" ON storage.objects
   FOR SELECT TO anon
   USING (bucket_id = 'avatars');
 
-CREATE POLICY IF NOT EXISTS "Public read review-photos" ON storage.objects
+DROP POLICY IF EXISTS "Public read review-photos" ON storage.objects;
+CREATE POLICY "Public read review-photos" ON storage.objects
   FOR SELECT TO anon
   USING (bucket_id = 'review-photos');
