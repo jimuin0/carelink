@@ -46,8 +46,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
   }
 
-  // reCAPTCHA v3 検証（キー設定時のみ）
-  if (parsed.data.recaptcha_token && process.env.RECAPTCHA_SECRET_KEY) {
+  // reCAPTCHA v3 検証（fail-closed: secret設定時=本番はtoken必須）
+  // ★ 旧実装は `if (token && secret)` でtoken省略時に検証全体を素通り（fail-open）させていた。
+  //   recaptcha_token は zod で .optional() のため、攻撃者がtokenを送らないだけでBot検証を
+  //   完全バイパスできた。secretが設定されている環境ではtokenを必須化し、欠如・検証失敗の
+  //   双方を403で遮断する（発症前予防・fail-closed）。secret未設定の開発環境のみスキップ。
+  if (process.env.RECAPTCHA_SECRET_KEY) {
+    if (!parsed.data.recaptcha_token) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
     const captcha = await verifyRecaptcha(parsed.data.recaptcha_token, 'review', 0.4);
     if (!captcha.success) {
       return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
