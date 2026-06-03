@@ -12,12 +12,12 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock('next/headers');
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 let mockCookieSet: jest.Mock;
@@ -35,7 +35,7 @@ function setupDefaultMocks() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockResolvedValue(false);
   setupDefaultMocks();
 });
 
@@ -53,7 +53,7 @@ function makeRequest(query: string = '', ip = '192.168.1.1') {
 
 describe('GET /api/auth/line', () => {
   test('rate limiting → 302 with error', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
     const res = await GET(makeRequest() as any);
 
@@ -171,28 +171,28 @@ describe('GET /api/auth/line', () => {
   });
 
   test('rate limit params (20 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest('', '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(20);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('line-auth');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(20);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('line-auth');
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest('', '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request('http://localhost/api/auth/line', {
       method: 'GET',
@@ -204,8 +204,8 @@ describe('GET /api/auth/line', () => {
 
     GET(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('exception caught → 302 with error=line_unexpected', async () => {

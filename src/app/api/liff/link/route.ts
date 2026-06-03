@@ -6,7 +6,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
 
@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'liff-link')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'liff-link')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
@@ -75,7 +75,7 @@ export async function DELETE(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const deleteIp = getClientIp(req);
-  if (inMemoryRateLimit(deleteIp, 5, 60_000, 'liff-link-delete')) {
+  if (await checkRateLimit(null, deleteIp, 5, 60_000, 'liff-link-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {

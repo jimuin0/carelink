@@ -5,7 +5,7 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { verifyLineAccessToken } from '@/lib/line';
@@ -16,7 +16,7 @@ export async function POST(req: NextRequest) {
     if (csrfError) return csrfError;
 
     const ip = getClientIp(req);
-    if (inMemoryRateLimit(ip, 20, 60_000, 'liff-auth')) {
+    if (await checkRateLimit(null, ip, 20, 60_000, 'liff-auth')) {
       return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
     }
 
