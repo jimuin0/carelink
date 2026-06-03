@@ -445,6 +445,73 @@ describe('POST /api/booking', () => {
     expect(json.error).toContain('競合');
   });
 
+  // round6 #1: ポイント控除 insert 失敗を握りつぶさず予約を取消（値引き＋ポイント据え置きの二重特典防止）
+  test('ポイント控除insert失敗 → 予約取消して500', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
+    const nullChain = fluent({ data: null });
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'insert failed' } })) })),
+    }));
+    const cancelChain: Record<string, unknown> = {};
+    cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    mockRpc.mockResolvedValue({ data: 'booking-x', error: null });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points') return deductionChain;
+      if (table === 'bookings') return cancelChain;
+      return nullChain;
+    });
+    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    expect(res.status).toBe(500);
+    expect(cancelChain.update).toHaveBeenCalledWith({ status: 'cancelled' });
+  });
+
+  // round6 #1: 残高再検証クエリ自体が失敗 → ガード空振りを避け安全側で巻き戻し
+  test('ポイント残高recheck失敗 → 控除巻き戻し＋予約取消して500', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 200 }] }));
+    const nullChain = fluent({ data: null });
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' }, error: null })) })),
+    }));
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: null, error: { message: 'recheck failed' } }));
+    const deleteChain: Record<string, unknown> = {};
+    deleteChain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    const cancelChain: Record<string, unknown> = {};
+    cancelChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    mockRpc.mockResolvedValue({ data: 'booking-y', error: null });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (table === 'user_points') return deleteChain;
+      if (table === 'bookings') return cancelChain;
+      return nullChain;
+    });
+    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    expect(res.status).toBe(500);
+    expect(deleteChain.delete).toHaveBeenCalled();
+    expect(cancelChain.update).toHaveBeenCalledWith({ status: 'cancelled' });
+  });
+
   test('create_booking_atomic がnullを返す→500', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     mockRpc.mockResolvedValue({ data: null, error: null });

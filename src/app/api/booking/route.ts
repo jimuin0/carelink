@@ -277,7 +277,7 @@ export async function POST(request: Request) {
   // roll back and cancel the booking.
   if (pointsUsed > 0 && user && newBookingId) {
     const serviceSupabase = createServiceRoleClient();
-    const { data: deductionRow } = await serviceSupabase
+    const { data: deductionRow, error: deductionErr } = await serviceSupabase
       .from('user_points')
       .insert({
         user_id: user.id,
@@ -287,8 +287,27 @@ export async function POST(request: Request) {
       .select('id')
       .single();
 
+    // 控除 insert が失敗したら、値引きは確定済み(finalPrice/points_used 保存済み)なのに台帳が減らず
+    // 「値引き＋ポイント据え置き」の二重特典になる。予約を取消して整合を保つ（発症前の根本対策 round6）。
+    if (deductionErr) {
+      const { error: cancelErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      /* istanbul ignore next */
+      if (cancelErr) console.error('[booking] points deduction insert failed AND booking cancel failed — manual cleanup', { bookingId: newBookingId, err: cancelErr });
+      console.error('[booking] points deduction insert failed — booking cancelled', { bookingId: newBookingId, err: deductionErr });
+      return NextResponse.json({ error: '予約に失敗しました（ポイント処理エラー）' }, { status: 500 });
+    }
+
     // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
+    const { data: recheck, error: recheckErr } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
+    // 残高検証クエリ自体が失敗したら recheck=null→newBalance=0 でガードが空振りするため、安全側で巻き戻す。
+    if (recheckErr) {
+      // deductionErr 時は上で早期 return 済みのため、ここでは deductionRow は常に存在（?. は防御的・false側は到達不可）
+      /* istanbul ignore next */
+      if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
+      await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      console.error('[booking] points recheck failed — rolled back deduction and booking', { bookingId: newBookingId, err: recheckErr });
+      return NextResponse.json({ error: '予約に失敗しました（ポイント処理エラー）' }, { status: 500 });
+    }
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (newBalance < 0) {
       // CAS failed: another concurrent request deducted points between our read and write.
