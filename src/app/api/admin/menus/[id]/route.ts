@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { revalidateFacilityById } from '@/lib/revalidate';
 
 // 後続マイグレーションで追加された拡張列。未適用環境でも500にしないため除外候補にする
 const MENU_EXT_KEYS = ['subcategory', 'search_category', 'reservable', 'is_published', 'price_show_tilde', 'price_ask'] as const;
@@ -111,6 +112,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     ipAddress: ip,
   });
 
+  await revalidateFacilityById(ctx.facilityId); // 公開ページ(ISR)へ即時反映（round6）
   return NextResponse.json({ menu: data });
 }
 
@@ -147,5 +149,6 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     ipAddress: ip,
   });
 
+  await revalidateFacilityById(ctx.facilityId); // 公開ページ(ISR)へ即時反映（round6）
   return NextResponse.json({ ok: true });
 }

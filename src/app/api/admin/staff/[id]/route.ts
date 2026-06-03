@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { revalidateFacilityById } from '@/lib/revalidate';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -84,6 +85,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     ipAddress: ip,
     userAgent: ua,
   });
+  await revalidateFacilityById(auth.facilityId); // ISR再検証(round6)
   return NextResponse.json({ staff: data });
 }
 
@@ -116,5 +118,6 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     ipAddress: ip,
     userAgent: ua,
   });
+  await revalidateFacilityById(auth.facilityId); // ISR再検証(round6)
   return NextResponse.json({ message: 'deleted' });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { revalidateFacilityById } from '@/lib/revalidate';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -100,6 +101,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+  await revalidateFacilityById(facilityId); // ISR再検証(round6)
   return NextResponse.json({ post: data });
 }
 
@@ -131,5 +133,6 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const r = row as { thumbnail_url: string | null; image_urls: string[] | null } | null;
   const paths = storagePathsFromUrls([r?.thumbnail_url, ...((r?.image_urls) ?? [])]);
   if (paths.length > 0) { try { await admin.storage.from(UPLOAD_BUCKET).remove(paths); } catch { /* 実体削除失敗はDB削除を覆さない */ } }
+  await revalidateFacilityById(facilityId); // ISR再検証(round6)
   return NextResponse.json({ ok: true });
 }

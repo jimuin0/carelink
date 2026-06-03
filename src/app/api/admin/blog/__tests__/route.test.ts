@@ -11,6 +11,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 

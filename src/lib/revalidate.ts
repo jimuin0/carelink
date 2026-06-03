@@ -1,4 +1,5 @@
 import { revalidatePath } from 'next/cache';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 /**
  * 施設の公開ページ（ISR キャッシュ）を on-demand 再検証する共有窓口（round6）。
@@ -11,4 +12,19 @@ import { revalidatePath } from 'next/cache';
 export function revalidateFacilityPublicPages(slug: string | null | undefined): void {
   if (!slug) return;
   revalidatePath(`/facility/${slug}`, 'layout');
+}
+
+/**
+ * facility_id から slug を解決して公開ページを再検証する。メニュー/クーポン/スタッフ/写真/ブログ等
+ * 施設配下コンテンツの更新点から呼ぶための窓口（slug を持たない route 向け）。失敗は握って無視する
+ * （再検証は本処理の付随処理であり、失敗で本処理を巻き戻さない）。
+ */
+export async function revalidateFacilityById(facilityId: string): Promise<void> {
+  try {
+    const admin = createServiceRoleClient();
+    const { data } = await admin.from('facility_profiles').select('slug').eq('id', facilityId).single();
+    revalidateFacilityPublicPages((data as { slug?: string } | null)?.slug);
+  } catch {
+    // 再検証失敗は本処理に影響させない
+  }
 }

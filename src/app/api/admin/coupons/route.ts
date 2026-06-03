@@ -8,6 +8,7 @@ import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 import { IMAGE_URL } from '@/lib/image-url-schema';
+import { revalidateFacilityById } from '@/lib/revalidate';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -127,5 +128,6 @@ export async function POST(request: NextRequest) {
     userAgent: ua,
   });
 
+  await revalidateFacilityById(auth.facilityId); // 公開ページ(ISR)へ即時反映（round6）
   return NextResponse.json({ coupon: data }, { status: 201 });
 }

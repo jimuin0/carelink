@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { revalidateFacilityById } from '@/lib/revalidate';
 
 // 後続マイグレーションで追加された拡張列。未適用環境でも500にしないため除外候補にする（coupons/blog と同方針）
 const MENU_EXT_KEYS = ['subcategory', 'search_category', 'reservable', 'is_published', 'price_show_tilde', 'price_ask'] as const;
@@ -116,5 +117,6 @@ export async function POST(request: NextRequest) {
   // 一意制約 uniq_facility_menu_name 違反（競合・連打での同名重複）は 409 で返す
   if (error?.code === '23505') return NextResponse.json({ error: '同じ名前のメニューが既に存在します' }, { status: 409 });
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  await revalidateFacilityById(facilityId); // 公開ページ(ISR)へ即時反映（round6）
   return NextResponse.json({ menu: data }, { status: 201 });
 }

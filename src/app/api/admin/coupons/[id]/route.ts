@@ -9,6 +9,7 @@ import { writeAuditLog } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 import { storagePathFromPublicUrl, UPLOAD_BUCKET } from '@/lib/storage-cleanup';
 import { IMAGE_URL } from '@/lib/image-url-schema';
+import { revalidateFacilityById } from '@/lib/revalidate';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -108,6 +109,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     ipAddress: ip,
   });
 
+  await revalidateFacilityById(facilityId); // 公開ページ(ISR)へ即時反映（round6）
   return NextResponse.json({ coupon: data });
 }
 
@@ -146,5 +148,6 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     ipAddress: ip,
   });
 
+  await revalidateFacilityById(facilityId); // 公開ページ(ISR)へ即時反映（round6）
   return NextResponse.json({ message: 'deleted' });
 }
