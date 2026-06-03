@@ -23,10 +23,22 @@ const DEP_TIMEOUT_MS = 1500;
 type DepResult = { ok: boolean; elapsed_ms: number; error?: string };
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms)),
-  ]);
+  // タイマーを必ず clearTimeout する（race で p が勝った場合も timeout が発火した場合も）。
+  // 未 clear だと plain setTimeout（unref されない）が ms 間 event loop を生かし続け、
+  // テストでは mock 済み deps が即解決するため毎回 1500ms のタイマーが残留 →
+  // jest worker が teardown 猶予内に exit できず "failed to exit gracefully" を招いていた。
+  // 本番でも /health 成功毎にタイマーが残る実リークであり、症状抑止でなく発生源を断つ。
+  // timer は Promise executor（同期実行）内で必ず代入されるため definite assignment(!)。
+  // clearTimeout は無条件呼び出し（発火済みタイマーへの呼び出しも no-op）→ 分岐を増やさず L3 100% を維持。
+  let timer!: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function probe(label: string, fn: () => Promise<void>): Promise<DepResult> {
