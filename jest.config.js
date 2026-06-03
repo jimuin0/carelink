@@ -15,7 +15,11 @@ const config = {
   ],
   collectCoverageFrom: [
     'src/lib/**/*.ts',
-    'src/app/api/**/*.ts',
+    // API ルートは .ts に加え .tsx も測定対象に含める。
+    // OGP 画像生成など JSX を返す Route Handler（例: src/app/api/og/route.tsx）が
+    // .ts 限定 glob だと測定漏れ（盲点）になり、未テストでも branches 100% が
+    // 偽って維持される事象を物理的に防ぐ（発症前予防）。
+    'src/app/api/**/*.{ts,tsx}',
     '!src/**/*.d.ts',
   ],
   coverageThreshold: {
