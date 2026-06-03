@@ -90,6 +90,14 @@ test('POST: count が null でも 201（?? 0）', async () => {
   mockAdminFrom.mockReturnValueOnce(countChain(null)).mockReturnValueOnce(insertSingle({ id: 'p2' }));
   expect((await POST(makePost(validBody()))).status).toBe(201);
 });
+test('POST: 拡張列未適用(PGRST204) → 除外して再試行し 201（round2 #02 部分適用耐性）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(countChain(0))
+    .mockReturnValueOnce(insertSingle(null, { code: 'PGRST204', message: 'column facility_photos.genre does not exist' }))
+    .mockReturnValueOnce(insertSingle({ id: 'p-fb' }));
+  expect((await POST(makePost(validBody()))).status).toBe(201);
+});
 test('POST: sort_order 明示指定 → 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValueOnce(countChain(0)).mockReturnValueOnce(insertSingle({ id: 'p3' }));

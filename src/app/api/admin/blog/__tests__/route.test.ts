@@ -213,6 +213,19 @@ test('POST: category カラム不在(PGRST204)なら除外して再試行し 201
   expect(res.status).toBe(201);
 });
 
+test('POST: scheduled_at 列不在＋予約掲載指定 → 即時公開せず下書きで保存(201, is_published=false)（round2 #10）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let captured: { is_published?: boolean; published_at?: unknown } | null = null;
+  const retry = { insert: jest.fn((row: { is_published?: boolean; published_at?: unknown }) => { captured = row; return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: 'p-sch-fb' }, error: null })) }) }; }) };
+  mockAdminFrom
+    .mockReturnValueOnce(insertSingle(null, { code: 'PGRST204', message: 'column blog_posts.scheduled_at does not exist' }))
+    .mockReturnValueOnce(retry);
+  const res = await POST(makeRequest(validBody({ scheduled_at: '2026-07-01T00:00:00.000Z' })));
+  expect(res.status).toBe(201);
+  expect(captured!.is_published).toBe(false); // 予約掲載が強制できないため即時公開させない
+  expect(captured!.published_at).toBeNull();
+});
+
 test('POST: 非カラム不在エラーは再試行せず 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle(null, { code: 'XX999', message: 'other error' }));

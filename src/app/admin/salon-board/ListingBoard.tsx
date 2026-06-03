@@ -385,7 +385,7 @@ function Panel({ title, children, plan }: { title: string; children: React.React
 
 /* サロン編集 TOP写真／雰囲気写真の実データグリッド（削除・前へ/後ろへ・画像応募・キャプションを即時反映）。
    フォトギャラリー(PhotoEditPage)と同じ /api/admin/photos エンドポイントを再利用する。 */
-function SalonPhotoGrid({ photos, facilityId, withCaption, slotClass, onReload, onToast }: { photos: PhotoRow[]; facilityId: string; withCaption: boolean; slotClass: string; onReload: () => void; onToast: (m: string) => void }) {
+function SalonPhotoGrid({ photos, allPhotos, facilityId, withCaption, slotClass, onReload, onToast }: { photos: PhotoRow[]; allPhotos: PhotoRow[]; facilityId: string; withCaption: boolean; slotClass: string; onReload: () => void; onToast: (m: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [caps, setCaps] = useState<Record<string, string>>(() => Object.fromEntries(photos.map((p) => [p.id, p.caption ?? ''])));
   useEffect(() => {
@@ -411,14 +411,20 @@ function SalonPhotoGrid({ photos, facilityId, withCaption, slotClass, onReload, 
       if (okMsg) onToast(okMsg); onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
   };
-  // 隣接2枚を入れ替え、単一の reorder RPC で原子的に sort_order を確定（#13: 2回PATCHの部分失敗を排除）
+  // 隣接2枚を入れ替え、単一の reorder RPC で原子的に sort_order を確定（#13）。
+  // reorder は渡した ids に 0..N-1 を振るため、photo_type サブセットだけ渡すと他typeの sort_order と
+  // 衝突する（round2監査 #00/#05）。よって facility 全 photos の順序を保ったまま該当2枚の「全体内位置」を
+  // 入れ替えた完全な id 配列を送り、単一 sort_order 名前空間の衝突を原理的に防ぐ。
   const move = async (i: number, dir: -1 | 1) => {
     const j = i + dir;
     if (busy || j < 0 || j >= photos.length) return; setBusy(true);
     try {
-      const ids = photos.map((p) => p.id);
-      [ids[i], ids[j]] = [ids[j], ids[i]];
-      const res = await fetch(`/api/admin/reorder?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity: 'photos', ids }) });
+      const fullIds = allPhotos.map((p) => p.id);
+      const ai = fullIds.indexOf(photos[i].id);
+      const bj = fullIds.indexOf(photos[j].id);
+      if (ai < 0 || bj < 0) { setBusy(false); return; }
+      [fullIds[ai], fullIds[bj]] = [fullIds[bj], fullIds[ai]];
+      const res = await fetch(`/api/admin/reorder?facility_id=${facilityId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity: 'photos', ids: fullIds }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); onToast(d.error || '並び替えに失敗しました'); setBusy(false); return; }
       onReload();
     } catch { onToast('通信エラーが発生しました'); } finally { setBusy(false); }
@@ -631,7 +637,7 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
         <FormRow label="コピー" required><CharTextarea max={150} rows={3} placeholder="サロンの紹介文" defaultValue={fields.current.description} onValueChange={(v) => { fields.current.description = v; }} /></FormRow>
         <FormRow label="ＴＯＰ写真" required>
           <div className="flex flex-wrap gap-2 items-start">
-            <SalonPhotoGrid photos={topPhotos} facilityId={facilityId} withCaption={false} slotClass="w-24" onReload={onReloadPhotos} onToast={onToast} />
+            <SalonPhotoGrid photos={topPhotos} allPhotos={photos} facilityId={facilityId} withCaption={false} slotClass="w-24" onReload={onReloadPhotos} onToast={onToast} />
             <div className="w-24 h-20 border border-gray-300 bg-sky-50 flex items-center justify-center text-[10px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('top')}>{uploading ? '中…' : <>画像を<br />アップロードする</>}</div>
           </div>
           <p className="text-[11px] text-gray-400 mt-1">※最低1枚は内観写真を設定してください</p>
@@ -648,7 +654,7 @@ function SalonEditPage({ salonName, facilityId, photos, onReloadPhotos, onToast 
       <Panel title="サロンの雰囲気・メニューなど" plan>
         <div className="px-3 py-2 bg-amber-50/50 border-b border-slate-200 text-xs text-gray-600">雰囲気写真・メニューなど ／ キャプション</div>
         <div className="flex flex-wrap gap-4 p-3 items-start">
-          <SalonPhotoGrid photos={atmosPhotos} facilityId={facilityId} withCaption slotClass="w-44" onReload={onReloadPhotos} onToast={onToast} />
+          <SalonPhotoGrid photos={atmosPhotos} allPhotos={photos} facilityId={facilityId} withCaption slotClass="w-44" onReload={onReloadPhotos} onToast={onToast} />
           <div className="w-44 h-28 border border-gray-300 bg-sky-50 flex items-center justify-center text-[11px] text-sky-600 cursor-pointer" onClick={() => !uploading && pickImg('atmos')}>{uploading ? 'アップロード中…' : <>雰囲気写真を<br />アップロードする</>}</div>
         </div>
       </Panel>

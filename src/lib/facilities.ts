@@ -159,7 +159,9 @@ export async function getFacilityPhotos(facilityId: string) {
     .from('facility_photos')
     .select('*')
     .eq('facility_id', facilityId)
-    .order('sort_order');
+    // sort_order が同値（旧データ・複数 photo_type の共有空間）でも順序を決定的にする二次キー（管理GETと対称）
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
   return { photos: (data || []) as FacilityPhoto[], error };
 }
 

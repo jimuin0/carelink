@@ -97,7 +97,10 @@ export async function POST(request: NextRequest) {
   let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
   if (isMissingColumnError(error)) {
     warnMissingColumnFallback('blog_posts.insert');
-    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(insertRow, ['category', 'coupon_id', 'author_name_id', 'scheduled_at', 'image_urls'])).select().single());
+    // scheduled_at 列が無い環境では予約掲載を強制できない。未来予約が即時公開されるのを防ぐため、
+    // 予約掲載指定時は is_published=false / published_at=null の下書きとして保存する（round2監査 #10）。
+    const fallbackRow = scheduledAt ? { ...insertRow, is_published: false, published_at: null } : insertRow;
+    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(fallbackRow, ['category', 'coupon_id', 'author_name_id', 'scheduled_at', 'image_urls'])).select().single());
   }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

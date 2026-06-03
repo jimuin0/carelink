@@ -75,6 +75,12 @@ test('PUT: 日付不正 → 400', async () => { expect((await PUT(putReq({ ...VA
 test('PUT: max_bookings 負 → 400', async () => { expect((await PUT(putReq({ ...VALID, max_bookings: -1 }))).status).toBe(400); });
 test('PUT: DBエラー → 500', async () => { mockAdminFrom.mockReturnValue(upsertChain(null, { message: 'e' })); expect((await PUT(putReq(VALID))).status).toBe(500); });
 test('PUT: 正常 → 200', async () => { mockAdminFrom.mockReturnValue(upsertChain(VALID)); const r = await PUT(putReq(VALID)); expect(r.status).toBe(200); expect((await r.json()).capacity.max_bookings).toBe(5); });
+test('PUT: upsert に facility_id スコープと onConflict が渡る（IDOR/一意性の固定）', async () => {
+  const upsert = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: VALID, error: null })) }) });
+  mockAdminFrom.mockReturnValue({ upsert });
+  await PUT(putReq(VALID));
+  expect(upsert).toHaveBeenCalledWith(expect.objectContaining({ facility_id: FACILITY_UUID, capacity_date: '2026-07-01', max_bookings: 5 }), { onConflict: 'facility_id,capacity_date' });
+});
 
 // ── DELETE ──
 test('DELETE: CSRF → 403', async () => { (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}', { status: 403 })); expect((await DELETE(delReq())).status).toBe(403); });
@@ -84,3 +90,11 @@ test('DELETE: date なし → 400', async () => { expect((await DELETE(delReq(ba
 test('DELETE: date 不正 → 400', async () => { expect((await DELETE(delReq({ ...base, date: 'bad' }))).status).toBe(400); });
 test('DELETE: DBエラー → 500', async () => { mockAdminFrom.mockReturnValue(deleteChain({ message: 'e' })); expect((await DELETE(delReq())).status).toBe(500); });
 test('DELETE: 正常 → 200', async () => { mockAdminFrom.mockReturnValue(deleteChain()); const r = await DELETE(delReq()); expect(r.status).toBe(200); expect((await r.json()).ok).toBe(true); });
+test('DELETE: WHERE に facility_id と capacity_date が含まれる（他施設の枠を消せない＝IDOR防御）', async () => {
+  const eqDate = jest.fn(() => Promise.resolve({ error: null }));
+  const eqFac = jest.fn().mockReturnValue({ eq: eqDate });
+  mockAdminFrom.mockReturnValue({ delete: jest.fn().mockReturnValue({ eq: eqFac }) });
+  await DELETE(delReq());
+  expect(eqFac).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
+  expect(eqDate).toHaveBeenCalledWith('capacity_date', '2026-07-01');
+});

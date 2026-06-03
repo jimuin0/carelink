@@ -76,6 +76,12 @@ test('POST: 開始>=終了 → 400', async () => { expect((await POST(postReq({ 
 test('POST: 時刻形式不正 → 400', async () => { expect((await POST(postReq({ ...VALID_BODY, start_time: '9:0' }))).status).toBe(400); });
 test('POST: DBエラー → 500', async () => { mockAdminFrom.mockReturnValue(insertChain(null, { message: 'e' })); expect((await POST(postReq(VALID_BODY))).status).toBe(500); });
 test('POST: 正常 → 201', async () => { mockAdminFrom.mockReturnValue(insertChain({ id: SUS_UUID, ...VALID_BODY })); const r = await POST(postReq(VALID_BODY)); expect(r.status).toBe(201); expect((await r.json()).suspension.id).toBe(SUS_UUID); });
+test('POST: insert に facility_id スコープが含まれる（IDOR防御の固定）', async () => {
+  const insert = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: SUS_UUID, ...VALID_BODY }, error: null })) }) });
+  mockAdminFrom.mockReturnValue({ insert });
+  await POST(postReq(VALID_BODY));
+  expect(insert).toHaveBeenCalledWith(expect.objectContaining({ facility_id: FACILITY_UUID, suspend_date: '2026-07-01', start_time: '12:00', end_time: '13:00' }));
+});
 
 // ── DELETE ──
 test('DELETE: CSRF → 403', async () => { (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}', { status: 403 })); expect((await DELETE(delReq())).status).toBe(403); });
@@ -85,3 +91,11 @@ test('DELETE: id なし → 400', async () => { expect((await DELETE(delReq(base
 test('DELETE: id 不正 → 400', async () => { expect((await DELETE(delReq({ ...baseParams, id: 'bad' }))).status).toBe(400); });
 test('DELETE: DBエラー → 500', async () => { mockAdminFrom.mockReturnValue(deleteChain({ message: 'e' })); expect((await DELETE(delReq())).status).toBe(500); });
 test('DELETE: 正常 → 200', async () => { mockAdminFrom.mockReturnValue(deleteChain()); const r = await DELETE(delReq()); expect(r.status).toBe(200); expect((await r.json()).ok).toBe(true); });
+test('DELETE: WHERE に id と facility_id が含まれる（他施設の停止枠を消せない＝IDOR防御）', async () => {
+  const eqFac = jest.fn(() => Promise.resolve({ error: null }));
+  const eqId = jest.fn().mockReturnValue({ eq: eqFac });
+  mockAdminFrom.mockReturnValue({ delete: jest.fn().mockReturnValue({ eq: eqId }) });
+  await DELETE(delReq());
+  expect(eqId).toHaveBeenCalledWith('id', SUS_UUID);
+  expect(eqFac).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
+});

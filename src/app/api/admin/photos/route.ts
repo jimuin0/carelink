@@ -6,8 +6,11 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const VALID_PHOTO_TYPES = ['main', 'interior', 'exterior', 'staff', 'menu', 'other'] as const;
+// 後続マイグレーションで追加された拡張列。未適用環境でも500にしないため除外候補にする（photos/[id] と対称）
+const PHOTO_EXT_KEYS = ['title', 'genre', 'search_category', 'image_submission', 'is_published', 'coupon_id'] as const;
 
 const photoSchema = z.object({
   photo_url: z.string().min(1).max(200000), // 公開URL or data URI（Storage連携前のフォールバック）
@@ -74,11 +77,17 @@ export async function POST(request: NextRequest) {
   // sort_order の既定値は「現存最大 +1」(#22)。count 基準だと中間削除後に既存行と衝突し並び順が不定になるため。
   const { data: maxRow } = await admin.from('facility_photos').select('sort_order').eq('facility_id', auth.facilityId).order('sort_order', { ascending: false }).limit(1).maybeSingle();
   const nextSort = ((maxRow as { sort_order: number | null } | null)?.sort_order ?? -1) + 1;
-  const { data, error } = await admin.from('facility_photos').insert({
+  const insertRow = {
     facility_id: auth.facilityId,
     ...parsed.data,
     sort_order: parsed.data.sort_order ?? nextSort,
-  }).select().single();
+  };
+  let { data, error } = await admin.from('facility_photos').insert(insertRow).select().single();
+  // 拡張列が未適用の環境では除外して再試行（menus/coupons/blog と対称な部分適用耐性）
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('facility_photos.insert');
+    ({ data, error } = await admin.from('facility_photos').insert(omitKeys(insertRow, PHOTO_EXT_KEYS)).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
