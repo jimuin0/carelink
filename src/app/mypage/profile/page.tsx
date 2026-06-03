@@ -139,13 +139,16 @@ export default function ProfileEditPage() {
                 onChange={async (e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
+                  // MIME 検証（他のアップロードと一貫させる。content-type 偽装＋拡張子由来パスを排除・round6）
+                  const MIME_EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' };
+                  const ext = MIME_EXT[file.type];
+                  if (!ext) { setToast({ type: 'error', message: 'JPEG / PNG / WebP の画像を選択してください' }); return; }
                   if (file.size > 5 * 1024 * 1024) { setToast({ type: 'error', message: '5MB以下の画像を選択してください' }); return; }
                   setUploading(true);
                   try {
                     const supabase = createBrowserSupabaseClient();
                     const { data: { user } } = await supabase.auth.getUser();
                     if (!user) return;
-                    const ext = file.name.split('.').pop() || 'jpg';
                     const path = `${user.id}/avatar.${ext}`;
                     const { error: uploadError } = await supabase.storage.from('avatars').upload(path, file, { upsert: true, contentType: file.type });
                     if (uploadError) throw uploadError;

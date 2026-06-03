@@ -45,7 +45,8 @@ async function verifyCacheValue(userId: string, cookieVal: string): Promise<bool
 }
 
 function getMembershipCacheKey(userId: string): string {
-  // UUID全体（36文字）をキーに含める。先頭8文字のみだと衝突率が高く別ユーザーのキャッシュを参照するリスクがある
+  // de-hyphen 後の先頭16hex(64bit)をキーに使う。万一プレフィックスが衝突しても、キャッシュ値は
+  // verifyCacheValue でフル user.id に対し HMAC 署名検証されるため誤認可は起きず DB 再確認にフォールバックする。
   return `_cm_mbr_${userId.replace(/-/g, '').slice(0, 16)}`;
 }
 
