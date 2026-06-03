@@ -5,12 +5,22 @@ import Stripe from 'stripe';
 import { SITE_URL } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getPayjp } from '@/lib/payjp';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
   area_banner: 4900,
   category_top: 7800,
 };
+
+const PLAN_LABELS: Record<string, string> = {
+  search_top: '検索結果トップ表示（月額）',
+  area_banner: 'エリアページバナー（月額）',
+  category_top: 'カテゴリトップ表示（月額）',
+};
+
+// PAY.JP のカードトークンは 'tok_' + 英数字。
+const PAYJP_TOKEN_RE = /^tok_[A-Za-z0-9]+$/;
 
 async function getFacilityId(userId: string) {
   const admin = createServiceRoleClient();
@@ -106,7 +116,43 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
-  // Create Stripe Checkout session for payment
+  // PAY.JP 同期課金（token があれば優先。Stripe からの移行 Phase 3）。
+  // クライアントがカードをトークン化して token を送る → 即時課金 → 成立で is_active=true を同期確定。
+  // 課金失敗時は作成済みスロットを削除して孤児を残さない。
+  const payjp = getPayjp();
+  if (payjp && typeof body.token === 'string') {
+    if (body.token.length > 100 || !PAYJP_TOKEN_RE.test(body.token)) {
+      await admin.from('featured_slots').delete().eq('id', slot.id);
+      return NextResponse.json({ error: 'カードトークンが不正です' }, { status: 400 });
+    }
+    try {
+      const charge = await payjp.charges.create({
+        amount: PLAN_PRICES[slot_type],
+        currency: 'jpy',
+        card: body.token,
+        capture: true,
+        description: PLAN_LABELS[slot_type] || /* istanbul ignore next */ '広告プラン',
+        metadata: { slot_id: slot.id, facility_id: facilityId },
+      });
+      if (!charge.paid || !charge.captured) {
+        await admin.from('featured_slots').delete().eq('id', slot.id);
+        return NextResponse.json({ error: '決済が完了しませんでした' }, { status: 402 });
+      }
+      const { error: activateErr } = await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
+      if (activateErr) {
+        // 課金成立済み。返金は運用対応とし、孤児スロットは残さず 500 を返してログに残す。
+        console.error('[featured-ads] payjp charged but activate failed — needs manual reconcile', { slotId: slot.id, chargeId: charge.id, err: activateErr.message });
+        return NextResponse.json({ error: '決済は完了しましたが有効化に失敗しました。サポートにお問い合わせください。', chargeId: charge.id }, { status: 500 });
+      }
+      return NextResponse.json({ slot: { ...slot, is_active: true }, paid: true, chargeId: charge.id }, { status: 201 });
+    } catch (chargeErr) {
+      await admin.from('featured_slots').delete().eq('id', slot.id);
+      console.error('[featured-ads] payjp charge failed', { slotId: slot.id, err: chargeErr instanceof Error ? chargeErr.message : String(chargeErr) });
+      return NextResponse.json({ error: '決済に失敗しました。カード情報をご確認ください。' }, { status: 402 });
+    }
+  }
+
+  // Create Stripe Checkout session for payment（移行期フォールバック）
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
     // No Stripe configured: activate immediately (development/demo mode)
@@ -119,11 +165,6 @@ export async function POST(req: NextRequest) {
   }
 
   const stripe = new Stripe(stripeKey, { apiVersion: '2026-03-25.dahlia' });
-  const planLabels: Record<string, string> = {
-    search_top: '検索結果トップ表示（月額）',
-    area_banner: 'エリアページバナー（月額）',
-    category_top: 'カテゴリトップ表示（月額）',
-  };
 
   const session = await stripe.checkout.sessions.create({
     mode: 'payment',
@@ -132,7 +173,7 @@ export async function POST(req: NextRequest) {
       price_data: {
         currency: 'jpy',
         unit_amount: PLAN_PRICES[slot_type],
-        product_data: { name: planLabels[slot_type] || /* istanbul ignore next */ '広告プラン' },
+        product_data: { name: PLAN_LABELS[slot_type] || /* istanbul ignore next */ '広告プラン' },
       },
     }],
     success_url: `${SITE_URL}/admin/featured-ads?payment=success&slot=${slot.id}`,
