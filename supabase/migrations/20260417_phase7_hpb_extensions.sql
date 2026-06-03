@@ -169,7 +169,17 @@ CREATE INDEX IF NOT EXISTS idx_user_preferred_staff    ON user_preferred_staff (
 -- ============================================================
 -- Realtime: chat_messages を有効化
 -- ============================================================
-ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
+-- ALTER PUBLICATION ... ADD TABLE は IF NOT EXISTS 非対応。既に publication 配下に
+-- ある状態で再適用すると 42710(duplicate_object) で migration 全体が失敗し、
+-- catch-up apply / 部分再実行を壊す。pg_publication_tables を見て未登録時のみ追加する。
+DO $$ BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND tablename = 'chat_messages'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE chat_messages;
+  END IF;
+END $$;
 
 -- ============================================================
 -- GRANT
