@@ -159,7 +159,15 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
 - ✅ Phase 1 予約事前決済: `POST /api/payment/payjp/charge`（token→同期課金→payment_status=paid 確定）。
   migration `20260604_payjp_charge_column.sql`（bookings.payjp_charge_id 加算）。branch100%。
 - ⏭️ キャンセル料: 神原さん指示でスキップ
-- 🔲 Phase 3 有料広告 / Phase 4 webhook(非同期)・領収書 / Phase 5 Stripe撤去: 未着手
+- ✅ Phase 3 有料広告: featured-ads POST に token 同期課金（成立で is_active=true・失敗でスロット削除）。branch100%。
+- ✅ Phase 4a 領収書: `GET /api/payment/payjp/receipt?bookingId=`（bookings由来）。HTML を `lib/receipt-html.ts` に
+  共通化し stripe/receipt も同ライブラリへ統一。branch100%。
+- ⏭️ Phase 4b webhook(非同期: 返金/サブスク): 現状フローは同期課金で確定するため未実装（返金/キャンセル料/
+  サブスク導入時に追加）。
+- 🔲 Phase 5 Stripe撤去: ライブ検証後に実施（検証前に撤去すると本番決済が壊れるため保留）。
+
+移行済みサーバフロー（booking/ads/receipt）はいずれも logic をモックテストで branch100% 担保。実鍵・
+クライアント payjp.js 連携・テストモード実機決済は未実施（GO LIVE 前ゲート）。
 
 **🔴 GO LIVE 前ゲート（神原さん）:** ①PAYJP_SECRET_KEY・公開鍵を本番/テスト環境変数に設定（会話に貼らない）
 ②クライアント payjp.js 連携（決済UI）③テストモードで実機決済1本を確証（→確証後に Phase3〜5 を複製）
