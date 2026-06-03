@@ -9,6 +9,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -30,7 +31,7 @@ export async function POST(request: Request) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 5, 60_000, 'waitlist')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -104,7 +105,7 @@ export async function POST(request: Request) {
 export async function DELETE(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'waitlist-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

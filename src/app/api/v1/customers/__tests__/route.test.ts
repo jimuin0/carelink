@@ -150,12 +150,12 @@ describe('GET /api/v1/customers', () => {
     expect(call[2]).toBe(60_000);
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
     (inMemoryRateLimit as jest.Mock).mockClear();
     await GET(makeRequest('test-key', '', '10.0.0.1, 192.168.1.1') as any);
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('expired API key → 401', async () => {

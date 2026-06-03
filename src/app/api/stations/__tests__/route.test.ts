@@ -64,7 +64,7 @@ describe('GET /api/stations', () => {
       headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
     }) as any);
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 });
 

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 100, 60_000, 'ab-test')) {
     return NextResponse.json({ ok: true }); // サイレント無視
   }
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
 
 // A/Bテスト結果の取得（プラットフォーム管理者専用）
 export async function GET(request: NextRequest) {
-  const getIp = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const getIp = getClientIp(request);
   if (inMemoryRateLimit(getIp, 20, 60_000, 'ab-test-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

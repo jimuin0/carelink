@@ -106,7 +106,7 @@ test('GET: レートリミットのIPが x-forwarded-for 先頭から取得', ()
   });
   GET(req);
   const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[0]).toBe('10.0.0.1');
+  expect(call[0]).toBe('192.168.1.1');
 });
 
 test('GET: x-forwarded-for なしの場合は unknown', () => {

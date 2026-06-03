@@ -14,6 +14,9 @@
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
+jest.mock('@/lib/line', () => ({
+  verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
+}));
 jest.mock('@/lib/supabase-server');
 
 import { inMemoryRateLimit } from '@/lib/rate-limit';
@@ -229,13 +232,13 @@ describe('GET /api/liff/points', () => {
     expect(call[3]).toBe('liff-points');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest('token', '10.0.0.1, 192.168.1.1') as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', () => {
@@ -347,5 +350,13 @@ describe('GET /api/liff/points', () => {
     const res = await GET(makeRequest('valid-token') as any);
     const json = await res.json();
     expect(json.total).toBe(100);
+  });
+
+  // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）
+  test('verifyLineAccessToken fails (audience mismatch) → 401', async () => {
+    const { verifyLineAccessToken } = require('@/lib/line');
+    (verifyLineAccessToken as jest.Mock).mockResolvedValueOnce({ ok: false });
+    const res = await GET(makeRequest('foreign-token') as any);
+    expect(res.status).toBe(401);
   });
 });

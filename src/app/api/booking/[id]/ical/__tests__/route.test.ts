@@ -335,7 +335,7 @@ describe('GET /api/booking/[id]/ical', () => {
     expect(call[3]).toBe('booking-ical');
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
     await GET(makeRequest(BOOKING_UUID, '10.0.0.1, 192.168.1.1') as any, {
@@ -343,7 +343,7 @@ describe('GET /api/booking/[id]/ical', () => {
     } as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', async () => {

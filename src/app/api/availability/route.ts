@@ -2,13 +2,14 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (inMemoryRateLimit(ip, 10, 60_000, 'availability')) {
       return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
     }

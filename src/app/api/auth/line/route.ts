@@ -2,12 +2,13 @@ import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { safeCaptureException } from '@/lib/safe';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (inMemoryRateLimit(ip, 20, 60_000, 'line-auth')) {
       return NextResponse.redirect(new URL('/auth/login?error=too_many_requests', request.url));
     }

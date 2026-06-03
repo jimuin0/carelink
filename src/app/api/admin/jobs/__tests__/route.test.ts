@@ -303,5 +303,5 @@ test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
 });

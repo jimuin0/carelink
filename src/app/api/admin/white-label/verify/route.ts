@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { promises as dns } from 'dns';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 async function getFacilityId(userId: string) {
   const admin = createServiceRoleClient();
@@ -20,7 +21,7 @@ async function getFacilityId(userId: string) {
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 5, 60_000, 'white-label-verify')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

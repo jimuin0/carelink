@@ -164,11 +164,11 @@ describe('GET /api/facilities/suggest', () => {
     expect(call[1]).toBe(30);
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
     GET(makeRequest('?q=test', '10.0.0.1, 192.168.1.1') as any);
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('only published facilities returned', async () => {

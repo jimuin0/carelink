@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const featureUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -43,7 +44,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'admin-features-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -75,7 +76,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'admin-features-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

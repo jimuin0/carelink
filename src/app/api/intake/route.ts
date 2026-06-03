@@ -9,12 +9,13 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 30, 60_000, 'intake-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -48,7 +49,7 @@ export async function POST(request: Request) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 5, 60_000, 'intake')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

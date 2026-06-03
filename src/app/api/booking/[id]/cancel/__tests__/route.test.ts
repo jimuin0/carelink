@@ -343,7 +343,7 @@ describe('POST /api/booking/[id]/cancel', () => {
     });
     await POST(req, { params: Promise.resolve({ id: validId }) });
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('10.0.0.1');
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('x-forwarded-for なしは unknown IP を使う', async () => {

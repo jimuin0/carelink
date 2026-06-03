@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const menuSchema = z.object({
   category: z.string().min(1).max(50),
@@ -38,7 +39,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 30, 60_000, 'menus-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -60,7 +61,7 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'admin-menus-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

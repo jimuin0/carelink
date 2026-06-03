@@ -292,7 +292,7 @@ test('POST: x-forwarded-for ヘッダ → IP抽出', async () => {
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await POST(req, makeProps());
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
 });
 
 test('DELETE: x-forwarded-for ヘッダ → IP抽出', async () => {
@@ -309,5 +309,5 @@ test('DELETE: x-forwarded-for ヘッダ → IP抽出', async () => {
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await DELETE(req, makeProps());
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
 });

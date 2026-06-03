@@ -8,6 +8,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 function toJST(isoString: string) {
@@ -29,7 +30,7 @@ function toCsvRow(cols: (string | number | null | undefined)[]): string {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'accounting-export')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

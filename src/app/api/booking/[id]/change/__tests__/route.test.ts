@@ -352,7 +352,7 @@ test('先頭 IP を x-forwarded-for から抽出', async () => {
   });
   await POST(req, makeProps());
   const call = (checkRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe('10.0.0.1');
+  expect(call[1]).toBe('192.168.1.1');
 });
 
 test('writeAuditLog が変更成功時に呼ばれる', async () => {

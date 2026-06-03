@@ -227,13 +227,13 @@ describe('GET /api/recommendations', () => {
     expect(call[3]).toBe('recommendations');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(6, undefined, '10.0.0.1, 192.168.1.1') as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('fetches up to 20 bookings', async () => {

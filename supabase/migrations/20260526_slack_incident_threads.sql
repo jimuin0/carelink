@@ -21,6 +21,11 @@ CREATE TABLE IF NOT EXISTS slack_incident_threads (
 CREATE INDEX IF NOT EXISTS idx_slack_threads_expires
   ON slack_incident_threads (expires_at);
 
+-- RLS: deny-by-default。アクセスは SECURITY DEFINER の get/record_incident_thread() 経由のみ。
+-- anon/authenticated からの直アクセスを物理的に遮断（fresh replay でも露出しない）。
+ALTER TABLE slack_incident_threads ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON slack_incident_threads FROM anon, authenticated;
+
 -- 既存スレッドを取得（失効済みは無視）
 CREATE OR REPLACE FUNCTION get_incident_thread(p_key TEXT)
 RETURNS TABLE(channel TEXT, thread_ts TEXT) AS $$

@@ -11,6 +11,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-03-25.dahlia',
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
   try {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 5, 60_000, 'cancel-fee')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }

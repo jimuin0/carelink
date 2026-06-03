@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 async function requirePlatformAdmin() {
@@ -19,7 +20,7 @@ async function requirePlatformAdmin() {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'newsletter-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -40,7 +41,7 @@ export async function GET(request: NextRequest) {
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 5, 60_000, 'newsletter-create')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }

@@ -6,14 +6,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
+import { verifyLineAccessToken } from '@/lib/line';
 
 export async function POST(req: NextRequest) {
   try {
     const csrfError = checkCsrf(req);
     if (csrfError) return csrfError;
 
-    const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(req);
     if (inMemoryRateLimit(ip, 20, 60_000, 'liff-auth')) {
       return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
     }
@@ -24,6 +26,14 @@ export async function POST(req: NextRequest) {
     }
     if (access_token.length > 512) {
       return NextResponse.json({ error: 'Invalid access_token' }, { status: 400 });
+    }
+
+    // ★ audience(channel)検証: /v2/profile は発行元チャネル(client_id)を検証しないため、
+    //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
+    //   line_user_id 詐称＝アカウント乗っ取りを遮断）。fail-closed。
+    const tokenCheck = await verifyLineAccessToken(access_token);
+    if (!tokenCheck.ok) {
+      return NextResponse.json({ error: 'Invalid LINE token' }, { status: 401 });
     }
 
     // LINE Profile APIでトークンを検証

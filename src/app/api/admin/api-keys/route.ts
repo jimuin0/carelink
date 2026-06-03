@@ -10,6 +10,7 @@ import { createHash, randomBytes } from 'crypto';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const VALID_SCOPES = ['bookings:read', 'customers:read', 'reviews:read'];
@@ -24,7 +25,7 @@ function generateApiKey(): { raw: string; hash: string; prefix: string } {
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'api-keys-create')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -84,7 +85,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'api-keys-list')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

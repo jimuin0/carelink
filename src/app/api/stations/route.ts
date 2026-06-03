@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 30, 60_000, 'stations')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

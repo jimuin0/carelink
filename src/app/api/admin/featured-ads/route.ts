@@ -5,6 +5,7 @@ import Stripe from 'stripe';
 import { SITE_URL } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -25,7 +26,7 @@ async function getFacilityId(userId: string) {
 }
 
 export async function GET(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 20, 60_000, 'featured-ads-get')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
   try {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 10, 60_000, 'featured-ads')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }

@@ -261,13 +261,13 @@ describe('GET /api/availability', () => {
     expect(call[3]).toBe('availability');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(VALID_UUID, undefined, 2026, 5, '10.0.0.1, 192.168.1.1') as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('exception during processing → 500', async () => {

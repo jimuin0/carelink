@@ -7,6 +7,73 @@ import crypto from 'crypto';
 
 const LINE_API_URL = 'https://api.line.me/v2/bot/message/push';
 const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
+const LINE_VERIFY_URL = 'https://api.line.me/oauth2/v2.1/verify';
+
+/**
+ * 検証に使う自社 LINE Login / LIFF チャネルIDを取得する。
+ *
+ * サーバ専用 env `LINE_LOGIN_CHANNEL_ID` を優先し、無ければ既存の
+ * `NEXT_PUBLIC_LINE_CHANNEL_ID`（LINE Login チャネルIDと同値）へフォールバックする。
+ * 本番(production)で両方未設定なら、検証不能 = fail-closed のため null を返す。
+ */
+export function getLineLoginChannelId(): string | null {
+  const id =
+    process.env.LINE_LOGIN_CHANNEL_ID ||
+    process.env.NEXT_PUBLIC_LINE_CHANNEL_ID ||
+    null;
+  return id && id.trim() !== '' ? id : null;
+}
+
+/**
+ * LINE アクセストークンの正当性を oauth2/v2.1/verify で検証する。
+ *
+ * `/v2/profile` は「トークンが有効か」しか見ず、どのチャネルで発行された
+ * トークンか（audience / client_id）を検証しない。攻撃者が自前チャネルで
+ * 取得したトークンで被害者の line_user_id を名乗れてしまうため、
+ * verify エンドポイントで `client_id` が自社チャネルIDと一致することを必須化する。
+ *
+ * 成功条件: HTTP200 かつ `client_id === 自社チャネルID` かつ `expires_in > 0`。
+ * 失敗・例外・チャネルID未設定はすべて fail-closed で `{ ok: false }` を返す。
+ */
+export async function verifyLineAccessToken(
+  accessToken: string
+): Promise<{ ok: boolean; userId?: string }> {
+  const expectedChannelId = getLineLoginChannelId();
+  if (!expectedChannelId) {
+    // チャネルID未設定 = 検証不能。fail-closed で拒否する。
+    console.error('[LINE] verifyLineAccessToken: channel id not configured');
+    return { ok: false };
+  }
+
+  if (!accessToken || typeof accessToken !== 'string') {
+    return { ok: false };
+  }
+
+  try {
+    const res = await fetch(
+      `${LINE_VERIFY_URL}?access_token=${encodeURIComponent(accessToken)}`,
+      { signal: AbortSignal.timeout(10000) }
+    );
+    if (!res.ok) {
+      return { ok: false };
+    }
+    const body = (await res.json()) as {
+      client_id?: string;
+      expires_in?: number;
+    };
+    if (
+      body.client_id === expectedChannelId &&
+      typeof body.expires_in === 'number' &&
+      body.expires_in > 0
+    ) {
+      return { ok: true };
+    }
+    return { ok: false };
+  } catch (e) {
+    console.error('[LINE] verifyLineAccessToken error:', e);
+    return { ok: false };
+  }
+}
 
 function getToken(): string {
   const token = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;

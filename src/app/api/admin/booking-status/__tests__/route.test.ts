@@ -538,7 +538,7 @@ describe('POST /api/admin/booking-status - notifications', () => {
     });
     const res = await POST(req);
     expect(res.status).toBe(200);
-    expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('10.0.0.1');
+    expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
   });
 
   test('user-agent ヘッダあり → auditLog 監査ログに記録', async () => {

@@ -120,11 +120,11 @@ describe('POST /api/symptoms/suggest', () => {
     expect(call[1]).toBe(10);
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
     POST(makeRequest(validRequest, '10.0.0.1, 192.168.1.1') as any);
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('invalid JSON → 400', async () => {

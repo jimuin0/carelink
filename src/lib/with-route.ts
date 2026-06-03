@@ -19,6 +19,7 @@
 import { NextResponse } from 'next/server';
 import { checkCsrf } from './csrf';
 import { checkRateLimit, type RateLimitConfig } from './rate-limit';
+import { getClientIp } from './client-ip';
 import { safeCaptureException } from './safe';
 
 type Handler = (request: Request) => Promise<NextResponse>;
@@ -52,8 +53,9 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Handle
       }
 
       if (rateLimit) {
-        const ip =
-          request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+        // クライアント詐称可能な x-forwarded-for 先頭値ではなく、
+        // 信頼できるプラットフォーム由来IP（x-real-ip 優先・XFF末尾）を使う。
+        const ip = getClientIp(request);
         if (
           await checkRateLimit(
             rateLimit.limiter,

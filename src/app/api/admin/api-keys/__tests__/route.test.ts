@@ -294,7 +294,7 @@ test('POST: x-forwarded-for ヘッダ → IP抽出', async () => {
     body: JSON.stringify({ facility_id: FACILITY_UUID, name: 'X', scopes: ['bookings:read'] }),
   });
   await POST(req as unknown as NextRequest);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
 });
 
 test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
@@ -308,7 +308,7 @@ test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
 });
 
 test('POST: customers:read スコープ → 201', async () => {

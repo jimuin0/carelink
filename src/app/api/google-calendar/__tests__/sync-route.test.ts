@@ -161,14 +161,14 @@ describe('POST /api/google-calendar/sync', () => {
     expect(call[3]).toBe('gcal-sync');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
     (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makeRequest({ bookingId: BOOKING_UUID }, '10.0.0.1, 192.168.1.1'));
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('UUID format validation - lowercase accepted', async () => {

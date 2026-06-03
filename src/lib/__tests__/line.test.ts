@@ -16,6 +16,8 @@ import {
   sendBookingReminder,
   verifyLineSignature,
   sendLineReply,
+  getLineLoginChannelId,
+  verifyLineAccessToken,
 } from '../line';
 
 const MOCK_TOKEN = 'test-channel-access-token';
@@ -235,6 +237,117 @@ describe('verifyLineSignature', () => {
     const body = 'test';
     // Very short signature (length mismatch with SHA256 base64)
     expect(verifyLineSignature(body, 'abc')).toBe(false);
+  });
+});
+
+describe('getLineLoginChannelId', () => {
+  afterEach(() => {
+    delete process.env.LINE_LOGIN_CHANNEL_ID;
+    delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+  });
+
+  test('LINE_LOGIN_CHANNEL_ID を最優先で返す', () => {
+    process.env.LINE_LOGIN_CHANNEL_ID = 'login-channel';
+    process.env.NEXT_PUBLIC_LINE_CHANNEL_ID = 'public-channel';
+    expect(getLineLoginChannelId()).toBe('login-channel');
+  });
+
+  test('LINE_LOGIN_CHANNEL_ID 未設定なら NEXT_PUBLIC_LINE_CHANNEL_ID にフォールバック', () => {
+    delete process.env.LINE_LOGIN_CHANNEL_ID;
+    process.env.NEXT_PUBLIC_LINE_CHANNEL_ID = 'public-channel';
+    expect(getLineLoginChannelId()).toBe('public-channel');
+  });
+
+  test('両方未設定なら null', () => {
+    delete process.env.LINE_LOGIN_CHANNEL_ID;
+    delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+    expect(getLineLoginChannelId()).toBeNull();
+  });
+
+  test('空白のみの値は無効 → null', () => {
+    process.env.LINE_LOGIN_CHANNEL_ID = '   ';
+    delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+    expect(getLineLoginChannelId()).toBeNull();
+  });
+});
+
+describe('verifyLineAccessToken', () => {
+  beforeEach(() => {
+    process.env.LINE_LOGIN_CHANNEL_ID = 'my-channel-id';
+    jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    delete process.env.LINE_LOGIN_CHANNEL_ID;
+    delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+  });
+
+  function mockVerify(body: object, ok = true) {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok,
+      json: async () => body,
+    } as unknown as Response);
+  }
+
+  test('チャネルID未設定 → fail-closed { ok: false }', async () => {
+    delete process.env.LINE_LOGIN_CHANNEL_ID;
+    global.fetch = jest.fn();
+    const result = await verifyLineAccessToken('any-token');
+    expect(result).toEqual({ ok: false });
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  test('accessToken が空文字 → { ok: false }', async () => {
+    const result = await verifyLineAccessToken('');
+    expect(result).toEqual({ ok: false });
+  });
+
+  test('accessToken が string でない → { ok: false }', async () => {
+    const result = await verifyLineAccessToken(123 as unknown as string);
+    expect(result).toEqual({ ok: false });
+  });
+
+  test('verify が HTTP非200 → { ok: false }', async () => {
+    mockVerify({}, false);
+    const result = await verifyLineAccessToken('tok');
+    expect(result).toEqual({ ok: false });
+  });
+
+  test('client_id 一致 & expires_in > 0 → { ok: true }', async () => {
+    mockVerify({ client_id: 'my-channel-id', expires_in: 3600 });
+    const result = await verifyLineAccessToken('tok');
+    expect(result).toEqual({ ok: true });
+  });
+
+  test('client_id 不一致（他チャネル発行）→ { ok: false }', async () => {
+    mockVerify({ client_id: 'foreign-channel', expires_in: 3600 });
+    const result = await verifyLineAccessToken('tok');
+    expect(result).toEqual({ ok: false });
+  });
+
+  test('expires_in が number でない → { ok: false }', async () => {
+    mockVerify({ client_id: 'my-channel-id', expires_in: undefined });
+    const result = await verifyLineAccessToken('tok');
+    expect(result).toEqual({ ok: false });
+  });
+
+  test('expires_in <= 0（期限切れ）→ { ok: false }', async () => {
+    mockVerify({ client_id: 'my-channel-id', expires_in: 0 });
+    const result = await verifyLineAccessToken('tok');
+    expect(result).toEqual({ ok: false });
+  });
+
+  test('verify URL に access_token を encode して付与', async () => {
+    mockVerify({ client_id: 'my-channel-id', expires_in: 3600 });
+    await verifyLineAccessToken('a b&c');
+    const [url] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(url).toContain('access_token=a%20b%26c');
+  });
+
+  test('fetch 例外 → catch で { ok: false }', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network'));
+    const result = await verifyLineAccessToken('tok');
+    expect(result).toEqual({ ok: false });
   });
 });
 

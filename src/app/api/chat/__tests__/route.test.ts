@@ -294,7 +294,7 @@ describe('POST /api/chat', () => {
     expect(call[3]).toBe('chat');
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
     await POST(
@@ -305,7 +305,7 @@ describe('POST /api/chat', () => {
     );
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('missing x-forwarded-for → uses "unknown" IP', async () => {

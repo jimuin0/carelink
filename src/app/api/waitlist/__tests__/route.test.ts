@@ -227,13 +227,13 @@ describe('POST /api/waitlist', () => {
     expect(call[3]).toBe('waitlist');
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
 
     await POST(makePostRequest(validWaitlist, '10.0.0.1, 192.168.1.1'));
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('non-auth user + facility found + insert success → 200', async () => {

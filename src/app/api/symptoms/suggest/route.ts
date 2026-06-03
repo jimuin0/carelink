@@ -7,6 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { z } from 'zod';
 
@@ -20,7 +21,7 @@ const schema = z.object({
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'symptoms-suggest')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

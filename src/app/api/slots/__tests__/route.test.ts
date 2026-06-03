@@ -227,13 +227,13 @@ describe('GET /api/slots', () => {
     expect(call[3]).toBe('slots');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(VALID_UUID, VALID_UUID, VALID_DATE, '60', '10.0.0.1, 192.168.1.1') as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', () => {

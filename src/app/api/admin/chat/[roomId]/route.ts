@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const sendMessageSchema = z.object({
   content: z.string().min(1).max(2000),
@@ -47,7 +48,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ room
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'admin-chat-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -85,7 +86,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ roo
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'admin-chat-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

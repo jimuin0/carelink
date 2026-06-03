@@ -12,6 +12,11 @@ CREATE TABLE IF NOT EXISTS rate_limit_buckets (
 CREATE INDEX IF NOT EXISTS idx_rate_limit_buckets_window_start
   ON rate_limit_buckets (window_start);
 
+-- RLS: deny-by-default。アクセスは SECURITY DEFINER の check_rate_limit() 経由のみ。
+-- anon/authenticated からの直アクセスを物理的に遮断（fresh replay でも露出しない）。
+ALTER TABLE rate_limit_buckets ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON rate_limit_buckets FROM anon, authenticated;
+
 -- atomic INCR + ウィンドウ判定の RPC
 -- 戻り値 TRUE = limited（429 を返すべき）
 -- 戻り値 FALSE = allowed

@@ -321,5 +321,5 @@ test('POST: x-forwarded-for ヘッダあり → IP抽出', async () => {
   });
   await POST(req);
   const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[0]).toBe('10.0.0.1');
+  expect(call[0]).toBe('1.2.3.4');
 });

@@ -404,7 +404,7 @@ test('GET: x-forwarded-for あり', async () => {
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
 });
 
 test('POST: gbp_place_id なし → クリア（null保存）', async () => {

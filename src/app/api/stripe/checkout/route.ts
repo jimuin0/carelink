@@ -10,6 +10,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 5, 60_000, 'stripe-checkout')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

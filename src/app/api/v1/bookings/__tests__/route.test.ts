@@ -147,11 +147,11 @@ describe('GET /api/v1/bookings', () => {
     expect(call[1]).toBe(60);
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
     GET(makeRequest('test-key', '', '10.0.0.1, 192.168.1.1') as any);
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   test('rate limit window is 60s', () => {

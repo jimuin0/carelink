@@ -368,7 +368,7 @@ describe('POST /api/notify', () => {
     expect(call[4]).toBe('notify');
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     await POST(
@@ -388,7 +388,7 @@ describe('POST /api/notify', () => {
     );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('10.0.0.1');
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('message field max 2000 chars', async () => {

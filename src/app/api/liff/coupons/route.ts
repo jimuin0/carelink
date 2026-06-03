@@ -10,9 +10,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export async function GET(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 30, 60_000, 'liff-coupons')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }

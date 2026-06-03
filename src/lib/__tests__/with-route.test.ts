@@ -7,6 +7,7 @@ jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: 
 jest.mock('../csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('../rate-limit', () => ({
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
+  getClientIp: jest.fn(() => '1.2.3.4'),
 }));
 
 import { NextResponse } from 'next/server';

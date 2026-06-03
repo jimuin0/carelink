@@ -292,7 +292,7 @@ test('GET: x-forwarded-for ヘッダあり → IP抽出', async () => {
   });
   await GET(req);
   const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[0]).toBe('10.0.0.1');
+  expect(call[0]).toBe('192.168.1.1');
 });
 
 test('POST: レートリミット → 429', async () => {

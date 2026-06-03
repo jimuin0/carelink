@@ -294,7 +294,7 @@ describe('PUT /api/profile', () => {
     expect(call[4]).toBe('profile');
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     await PUT(
@@ -305,7 +305,7 @@ describe('PUT /api/profile', () => {
     );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('10.0.0.1');
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('exception during processing → 500', async () => {

@@ -12,6 +12,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 async function requirePlatformAdmin() {
@@ -36,7 +37,7 @@ async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'backup-get')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
@@ -70,7 +71,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 3, 60_000 * 10, 'backup-export')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }

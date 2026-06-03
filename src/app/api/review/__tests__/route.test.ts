@@ -266,7 +266,7 @@ describe('POST /api/review', () => {
     await POST(makeRequest(validReview, '10.0.0.1, 192.168.1.1'));
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('10.0.0.1');
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', async () => {

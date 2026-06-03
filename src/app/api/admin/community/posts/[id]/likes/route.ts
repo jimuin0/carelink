@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 async function requireFacilityMember(userId: string): Promise<boolean> {
   const admin = createServiceRoleClient();
@@ -21,7 +22,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 30, 60_000, 'community-likes')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -68,7 +69,7 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
   const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(req);
   if (inMemoryRateLimit(ip, 30, 60_000, 'community-likes-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

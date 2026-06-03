@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 
 const updateSchema = z.object({
@@ -39,7 +40,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'subscription-plans-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
@@ -77,7 +78,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const params = await props.params;
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'subscription-plans-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

@@ -16,6 +16,9 @@
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/line', () => ({
+  verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
+}));
 jest.mock('@/lib/rate-limit', () => ({
   inMemoryRateLimit: jest.fn(() => false),
 }));
@@ -229,7 +232,7 @@ describe('POST/DELETE /api/liff/link', () => {
       expect(call[3]).toBe('liff-link');
     });
 
-    test('extracts first IP from x-forwarded-for', async () => {
+    test('extracts last (trusted) IP from x-forwarded-for', async () => {
       (inMemoryRateLimit as jest.Mock).mockClear();
 
       await POST(
@@ -240,7 +243,7 @@ describe('POST/DELETE /api/liff/link', () => {
       );
 
       const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-      expect(call[0]).toBe('10.0.0.1');
+      expect(call[0]).toBe('192.168.1.1');
     });
 
     test('uses unknown IP when x-forwarded-for missing', async () => {
@@ -281,6 +284,18 @@ describe('POST/DELETE /api/liff/link', () => {
 
       // Should call select().eq('line_user_id', ...).neq('id', ...)
       expect(mockProfilesSelect).toHaveBeenCalled();
+    });
+
+    // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）
+    test('verifyLineAccessToken fails (audience mismatch) → 401', async () => {
+      const { verifyLineAccessToken } = require('@/lib/line');
+      (verifyLineAccessToken as jest.Mock).mockResolvedValueOnce({ ok: false });
+      const res = await POST(
+        makePostRequest({ access_token: 'foreign-token' }) as any
+      );
+      expect(res.status).toBe(401);
+      const json = await res.json();
+      expect(json.error).toContain('Invalid LINE token');
     });
   });
 

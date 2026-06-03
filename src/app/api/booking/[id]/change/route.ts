@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
@@ -24,7 +25,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'booking-change')) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
     }

@@ -6,6 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 
@@ -29,7 +30,7 @@ export async function POST(request: Request) {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'admin-status')) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
     }
@@ -116,7 +117,7 @@ export async function POST(request: Request) {
       recordId: bookingId,
       oldValues: { status: booking.status },
       newValues: { status, reason: reason ?? null },
-      ipAddress: request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
+      ipAddress: getClientIp(request),
       userAgent: request.headers.get('user-agent') ?? null,
     });
 

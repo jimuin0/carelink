@@ -166,14 +166,14 @@ describe('GET /api/google-calendar', () => {
     expect(call[3]).toBe('google-calendar-get');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
     (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
 
     GET(makeGetRequest('10.0.0.1, 192.168.1.1') as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   // Branch coverage: line 16 — x-forwarded-for ヘッダなし → 'unknown' にフォールバック
@@ -255,14 +255,14 @@ describe('POST /api/google-calendar', () => {
     expect(call[3]).toBe('google-calendar');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
     (inMemoryRateLimit as jest.Mock).mockClear();
     (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makePostRequest({}, '10.0.0.1, 192.168.1.1') as any);
 
     const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    expect(call[0]).toBe('192.168.1.1');
   });
 
   // Branch coverage: line 41 — x-forwarded-for ヘッダなし → 'unknown' にフォールバック

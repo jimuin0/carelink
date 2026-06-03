@@ -4,6 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const platformBlogSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます'),
@@ -35,7 +36,7 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 20, 60_000, 'admin-platform-blog-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

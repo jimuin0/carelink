@@ -15,6 +15,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createHmac, timingSafeEqual } from 'crypto';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 
 export const dynamic = 'force-dynamic';
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (inMemoryRateLimit(ip, 10, 60_000, 'unsubscribe')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

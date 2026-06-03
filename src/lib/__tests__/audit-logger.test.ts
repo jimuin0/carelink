@@ -22,22 +22,34 @@ describe('getRequestContext', () => {
     expect(ip).toBe('192.168.1.1');
   });
 
-  test('extracts first IP from x-forwarded-for with multiple IPs', () => {
+  test('extracts LAST (trusted proxy) IP from x-forwarded-for with multiple IPs', () => {
+    // セキュリティ修正: クライアントが詐称できる先頭値ではなく、最も外側の
+    // 信頼できるプロキシが付与した末尾値を採用する。
     const req = createMockRequest({ 'x-forwarded-for': '192.168.1.1, 10.0.0.1, 172.16.0.1' });
     const { ip } = getRequestContext(req);
-    expect(ip).toBe('192.168.1.1');
+    expect(ip).toBe('172.16.0.1');
   });
 
-  test('handles x-forwarded-for with whitespace', () => {
+  test('trims and takes last element of x-forwarded-for with whitespace', () => {
     const req = createMockRequest({ 'x-forwarded-for': '  192.168.1.1  , 10.0.0.1' });
     const { ip } = getRequestContext(req);
-    expect(ip).toBe('  192.168.1.1  ');
+    expect(ip).toBe('10.0.0.1');
   });
 
-  test('returns null for missing x-forwarded-for', () => {
+  test('prefers x-real-ip over x-forwarded-for', () => {
+    // プラットフォーム(Vercel 等)由来の x-real-ip を最優先する。
+    const req = createMockRequest({
+      'x-real-ip': '203.0.113.7',
+      'x-forwarded-for': '1.2.3.4, 5.6.7.8',
+    });
+    const { ip } = getRequestContext(req);
+    expect(ip).toBe('203.0.113.7');
+  });
+
+  test('returns "unknown" for missing IP headers', () => {
     const req = createMockRequest({});
     const { ip } = getRequestContext(req);
-    expect(ip).toBeNull();
+    expect(ip).toBe('unknown');
   });
 
   test('extracts user-agent header', () => {
