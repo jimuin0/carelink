@@ -22,7 +22,9 @@ const config = {
     global: {
       lines: 80,
       functions: 75,
-      branches: 70,
+      // L3: ブランチカバレッジ100%維持を CI で物理ゲート（測定スコープ内で実測100%）。
+      // 下回ると jest --coverage が exit 1 し、ci.yml の Coverage Gate で検知される。
+      branches: 100,
       statements: 80,
     },
   },

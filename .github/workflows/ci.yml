@@ -49,21 +49,28 @@ jobs:
           name: coverage-report
           path: coverage/
           retention-days: 30
-      - name: Coverage Gate（80%未満で失敗）
+      - name: Coverage Gate（Lines 80%未満 / Branches 100%未満で失敗）
         run: |
-          LINES=$(cat coverage/coverage-summary.json 2>/dev/null | python3 -c "
+          read LINES BRANCHES <<< "$(cat coverage/coverage-summary.json 2>/dev/null | python3 -c "
           import sys, json
           d = json.load(sys.stdin)
           total = d.get('total', {})
           lines = total.get('lines', {}).get('pct', 0)
-          print(lines)
-          " 2>/dev/null || echo "0")
+          branches = total.get('branches', {}).get('pct', 0)
+          print(lines, branches)
+          " 2>/dev/null || echo "0 0")"
           echo "Line coverage: ${LINES}%"
+          echo "Branch coverage: ${BRANCHES}%"
           if (( $(echo "$LINES < 80" | bc -l) )); then
-            echo "❌ カバレッジが 80% を下回っています: ${LINES}%"
+            echo "❌ Lineカバレッジが 80% を下回っています: ${LINES}%"
             exit 1
           fi
-          echo "✅ カバレッジ OK: ${LINES}%"
+          # L3: ブランチカバレッジは測定スコープ内で100%を維持（発症前予防の物理ゲート）
+          if (( $(echo "$BRANCHES < 100" | bc -l) )); then
+            echo "❌ Branchカバレッジが 100% を下回っています: ${BRANCHES}%（L3 退行）"
+            exit 1
+          fi
+          echo "✅ カバレッジ OK: Lines ${LINES}% / Branches ${BRANCHES}%"
 
   e2e-test:
     name: E2E Tests (Playwright)
