@@ -120,8 +120,9 @@ npm run lint  # ESLint
 - 予約e2e #3 サーバ再計算した確定額がAPI応答/完了画面に返らず確認画面表示と乖離し得る（価格の保存・
   メール送信は正常＝データ不整合なし、UX改善事項）。
 
-**🔴 神原さん 適用待ちマイグレーション（ファイル名順）:**
+**✅ マイグレーション適用済み（2026-06-03・Supabase SQL Editor で "Success. No rows returned" 確認）:**
 1. `20260604_facility_status_gate.sql` / `20260604_booking_status_cancel_fee.sql` / `20260604_daily_capacity_dedup_index.sql`（round3）
 2. `20260604_service_packages_menu_fk_fix.sql`（#C・既存環境向け是正）
 3. `20260604_concurrency_hardening.sql`（#H/#I/#J）
 4. `20260604_facility_customers_rpc.sql`（#F）
+→ 本番でフォールバックではなく本来の RPC・advisory lock・確定層ゲートが有効。
