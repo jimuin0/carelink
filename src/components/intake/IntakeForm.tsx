@@ -32,6 +32,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
   const [submitting, setSubmitting] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [consent, setConsent] = useState(false);
 
   const setValue = (fieldId: string, value: unknown) => {
     setResponses((prev) => ({ ...prev, [fieldId]: value }));
@@ -49,6 +50,11 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
     }
     if (missing.length > 0) {
       setError(`未回答の必須項目があります: ${missing.map(f => f.label).join('、')}`);
+      return;
+    }
+    // 要配慮個人情報（健康・既往歴等）の取得には本人同意が必要（個人情報保護法20条2項）。
+    if (!consent) {
+      setError('健康情報の取扱いについてご確認・同意のうえ送信してください');
       return;
     }
 
@@ -214,13 +220,30 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
           </div>
         ))}
 
+        {/* 要配慮個人情報の取得同意（個人情報保護法20条2項・オプトイン） */}
+        <label className="flex items-start gap-2.5 text-xs text-gray-600 bg-gray-50 rounded-lg p-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={consent}
+            onChange={(e) => setConsent(e.target.checked)}
+            className="mt-0.5 shrink-0 w-4 h-4 accent-sky-500"
+            aria-required="true"
+          />
+          <span>
+            問診票に記入した健康状態・既往歴等の情報を、施術の安全な提供と施設からのご連絡のために
+            利用することに同意します。取扱いの詳細は
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-sky-600 underline mx-0.5">プライバシーポリシー</a>
+            をご確認ください。
+          </span>
+        </label>
+
         {error && (
           <p className="text-sm text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>
         )}
 
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || !consent}
           className="w-full bg-sky-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? '送信中...' : '問診票を送信する'}

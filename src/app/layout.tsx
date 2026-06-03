@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import Script from "next/script";
 import { Noto_Sans_JP } from "next/font/google";
-import { GoogleAnalytics } from "@next/third-parties/google";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
+import ConsentedAnalytics from "@/components/ConsentedAnalytics";
 import { safeJsonLd } from "@/lib/json-ld";
 
 const notoSansJp = Noto_Sans_JP({
@@ -164,14 +164,9 @@ export default function RootLayout({
         <Script src="/sw-register.js" strategy="lazyOnload" />
         <Analytics />
         <SpeedInsights />
-        {clarityId && (
-          <Script
-            src={`https://www.clarity.ms/tag/${clarityId}`}
-            strategy="lazyOnload"
-          />
-        )}
+        {/* GA4 / Clarity は Cookie 同意後にのみロード（同意ゲート・scale監査 #4） */}
+        <ConsentedAnalytics gaId={gaId} clarityId={clarityId} />
       </body>
-      {gaId && <GoogleAnalytics gaId={gaId} />}
     </html>
   );
 }

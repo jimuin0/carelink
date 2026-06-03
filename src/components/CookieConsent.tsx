@@ -38,6 +38,8 @@ export default function CookieConsent() {
 
   const save = (p: CookiePreferences) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
+    // 同意ゲート付きアナリティクス(ConsentedAnalytics)へ即時反映（リロード不要）。
+    window.dispatchEvent(new Event('cookie-consent-changed'));
     setVisible(false);
   };
 
