@@ -112,7 +112,8 @@ export async function POST(request: Request) {
         const { data: coupon } = await supabase
           .from('coupons')
           // special_price 種別の金額は special_price 列に入る（discount_value は null）。必ず取得する（round3 #04/#05）
-          .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
+          // coupon_type は対象者限定（新規/リピート）の確定層検証に使う（round4 #B）
+          .select('discount_type, discount_value, special_price, coupon_type, is_active, valid_from, valid_until')
           .eq('id', parsed.data.coupon_id)
           .eq('facility_id', parsed.data.facility_id)
           .single();
@@ -134,6 +135,40 @@ export async function POST(request: Request) {
             const sp = coupon.special_price ?? coupon.discount_value;
             if (sp == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
             serverTotalPrice = sp;
+          }
+          // クーポン適用条件のサーバ検証（表示層を信頼しない）。
+          // #A メニュー限定: coupon_menus に行があれば、予約メニューが全てその許可集合に含まれること。
+          const { data: cmRows, error: cmErr } = await supabase
+            .from('coupon_menus')
+            .select('menu_id')
+            .eq('coupon_id', parsed.data.coupon_id);
+          if (cmErr) return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+          const allowedMenuIds = new Set((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
+          if (allowedMenuIds.size > 0 && !menuIdsToPrice.every((id) => allowedMenuIds.has(id))) {
+            return NextResponse.json({ error: 'このクーポンは選択されたメニューには利用できません' }, { status: 400 });
+          }
+          // #B 種別限定: new_customer=ご来店履歴なし限定 / repeat=履歴あり限定。
+          // 履歴は施設単位の有効予約(cancelled/no_show除く)有無で判定。ログイン時は user_id、
+          // 未ログイン時は email（bookingSchema で email は必須のため guest でも常に突合可能）。
+          // RLS(顧客は他予約を読めない)に依存せず確実に読むためサービスロールを使用。
+          if (coupon.coupon_type === 'new_customer' || coupon.coupon_type === 'repeat') {
+            const eligClient = createServiceRoleClient();
+            const histQuery = eligClient
+              .from('bookings')
+              .select('id')
+              .eq('facility_id', parsed.data.facility_id)
+              .not('status', 'in', '("cancelled","no_show")')
+              .eq(user ? 'user_id' : 'email', user ? user.id : parsed.data.email)
+              .limit(1);
+            const { data: histRows, error: histErr } = await histQuery;
+            if (histErr) return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+            const hasHistory = (histRows ?? []).length > 0;
+            if (coupon.coupon_type === 'new_customer' && hasHistory) {
+              return NextResponse.json({ error: 'このクーポンは新規のお客様限定です' }, { status: 400 });
+            }
+            if (coupon.coupon_type === 'repeat' && !hasHistory) {
+              return NextResponse.json({ error: 'このクーポンはご来店履歴のあるお客様限定です' }, { status: 400 });
+            }
           }
         } else {
           // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン

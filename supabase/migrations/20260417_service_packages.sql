@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS service_packages (
   facility_id     UUID NOT NULL REFERENCES facility_profiles(id) ON DELETE CASCADE,
   name            TEXT NOT NULL,
   description     TEXT,
-  menu_id         UUID REFERENCES menus(id) ON DELETE SET NULL,
+  menu_id         UUID REFERENCES facility_menus(id) ON DELETE SET NULL,
   session_count   INTEGER NOT NULL DEFAULT 5 CHECK (session_count > 0),
   bonus_count     INTEGER NOT NULL DEFAULT 0 CHECK (bonus_count >= 0),
   price           INTEGER NOT NULL DEFAULT 0 CHECK (price >= 0),

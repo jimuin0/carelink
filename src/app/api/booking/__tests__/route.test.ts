@@ -114,6 +114,7 @@ function fluent(resolvedValue: unknown) {
   self.gte = handler;
   self.lte = handler;
   self.in = handler;
+  self.limit = handler;
   self.maybeSingle = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
@@ -574,6 +575,102 @@ describe('POST /api/booking', () => {
 
   test('coupon fixed で discount_value null → 400', async () => {
     setupCoupon({ discount_type: 'fixed', discount_value: null });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(400);
+  });
+
+  // round4 #A/#B: クーポン適用条件のサーバ検証（メニュー限定・対象者限定）
+  // 呼び出し順: 1 conflict / 2 facility_menus / 3 coupons / 4 coupon_menus / 5 bookings履歴(種別限定時のみ)
+  function setupCouponEligibility(opts: {
+    coupon?: Record<string, unknown>;
+    cmRows?: unknown; cmError?: boolean;
+    histRows?: unknown; histError?: boolean;
+    user?: { id: string } | null;
+  }) {
+    mockGetUser.mockResolvedValue({ data: { user: opts.user ?? null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const menuResult = { data: [{ id: MENU_ID, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler; menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+    const couponChain = fluent({ data: { is_active: true, valid_from: null, valid_until: null, coupon_type: 'all', discount_type: 'fixed', discount_value: 0, ...opts.coupon } });
+    // coupon_menus: .select('menu_id').eq('coupon_id') が終端
+    const cmResolved = opts.cmError ? { data: null, error: { message: 'cm error' } } : { data: opts.cmRows ?? null, error: null };
+    const cmChain: Record<string, unknown> = {};
+    cmChain.select = jest.fn(() => cmChain);
+    cmChain.eq = jest.fn(() => Promise.resolve(cmResolved));
+    // bookings 履歴: .select('id').eq(facility).not(status).eq(key).limit(1) が終端
+    const histResolved = opts.histError ? { data: null, error: { message: 'hist error' } } : { data: opts.histRows ?? null, error: null };
+    const histChain: Record<string, unknown> = {};
+    const histHandler = jest.fn(() => histChain);
+    histChain.select = histHandler; histChain.eq = histHandler; histChain.not = histHandler;
+    histChain.limit = jest.fn(() => Promise.resolve(histResolved));
+    const usesHistory = opts.coupon?.coupon_type === 'new_customer' || opts.coupon?.coupon_type === 'repeat';
+    const nullChain = fluent({ data: null });
+    let n = 0;
+    mockFrom.mockImplementation(() => {
+      n++;
+      if (n === 1) return conflictChain;
+      if (n === 2) return menuChain;
+      if (n === 3) return couponChain;
+      if (n === 4) return cmChain;
+      if (n === 5 && usesHistory) return histChain; // 種別限定時のみ履歴照合（call5）
+      return nullChain;
+    });
+  }
+  const OTHER_MENU = '999e4567-e89b-12d3-a456-426614174999';
+
+  test('#A メニュー限定クーポンを対象メニューに適用→成功', async () => {
+    setupCouponEligibility({ cmRows: [{ menu_id: MENU_ID }] });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }));
+    expect((await res.json()).success).toBe(true);
+  });
+
+  test('#A メニュー限定クーポンを対象外メニューに適用→400', async () => {
+    setupCouponEligibility({ cmRows: [{ menu_id: OTHER_MENU }] });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('メニュー');
+  });
+
+  test('#A coupon_menus 取得エラー→500', async () => {
+    setupCouponEligibility({ cmError: true });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(500);
+  });
+
+  test('#B new_customer クーポン + 来店履歴あり→400', async () => {
+    setupCouponEligibility({ coupon: { coupon_type: 'new_customer' }, histRows: [{ id: 'past' }] });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('新規');
+  });
+
+  test('#B new_customer クーポン + 履歴なし→成功', async () => {
+    setupCouponEligibility({ coupon: { coupon_type: 'new_customer' }, histRows: [] });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).not.toBe(400);
+  });
+
+  test('#B repeat クーポン + 履歴なし(null)→400', async () => {
+    setupCouponEligibility({ coupon: { coupon_type: 'repeat' }, histRows: null });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toContain('履歴');
+  });
+
+  test('#B repeat クーポン + 来店履歴あり→成功', async () => {
+    setupCouponEligibility({ coupon: { coupon_type: 'repeat' }, histRows: [{ id: 'past' }] });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).not.toBe(400);
+  });
+
+  test('#B 履歴取得エラー→500', async () => {
+    setupCouponEligibility({ coupon: { coupon_type: 'new_customer' }, histError: true });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(500);
+  });
+
+  test('#B ログインユーザーは user_id で履歴判定（new_customer + 履歴あり→400）', async () => {
+    setupCouponEligibility({ coupon: { coupon_type: 'new_customer' }, histRows: [{ id: 'past' }], user: { id: 'user-xyz' } });
     expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(400);
   });
 
