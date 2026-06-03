@@ -41,6 +41,10 @@ const updateSchema = z.object({
 }).refine(
   (data) => !(data.discount_type === 'percentage' && data.discount_value != null && data.discount_value > 100),
   { message: 'percentage discount_value must be 0-100', path: ['discount_value'] },
+).refine(
+  // 有効期間の前後関係（両方が更新ペイロードに含まれる場合のみ検証・round3 #17）
+  (data) => !(data.valid_from != null && data.valid_until != null && data.valid_from > data.valid_until),
+  { message: '有効期限の開始は終了より前にしてください', path: ['valid_until'] },
 );
 
 async function verifyCouponAdmin(couponId: string, userId: string): Promise<string | null> {

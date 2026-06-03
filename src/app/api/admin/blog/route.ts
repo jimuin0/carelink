@@ -8,6 +8,13 @@ import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
+// 画像URLは https もしくは data:image(svg除く) のみ許可。javascript:/data:text/html/data:image/svg+xml 等の
+// 危険スキームを書込時に弾く（公開ページの<img src>直挿しに対する多層防御・round3 #16）。
+const IMAGE_URL = z.string().max(200000).refine(
+  (s) => /^https:\/\//i.test(s) || /^data:image\/(png|jpe?g|gif|webp);/i.test(s),
+  '画像URLは https または data:image のみ許可されます',
+);
+
 const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
   content: z.string().min(1).max(50000),
@@ -15,10 +22,10 @@ const blogPostSchema = z.object({
   coupon_id: z.string().uuid().optional().nullable(),
   author_id: z.string().uuid().optional().nullable(),
   author_name_id: z.string().uuid().optional().nullable(), // 外部投稿者(blog_authors)
-  thumbnail_url: z.string().max(200000).optional().nullable(),
+  thumbnail_url: IMAGE_URL.optional().nullable(),
   category: z.string().max(50).optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).optional().nullable(), // 予約掲載時刻(ISO)
-  image_urls: z.array(z.string().max(200000)).max(4).optional(), // 本文画像（最大4枚 #33）
+  image_urls: z.array(IMAGE_URL).max(4).optional(), // 本文画像（最大4枚 #33）
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {

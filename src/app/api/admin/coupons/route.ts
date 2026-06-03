@@ -41,6 +41,14 @@ const couponSchema = z.object({
 }).refine(
   (data) => !(data.discount_type === 'percentage' && data.discount_value != null && data.discount_value > 100),
   { message: 'percentage discount_value must be 0-100', path: ['discount_value'] },
+).refine(
+  // discount_type 別の必須値（special_price→special_price, fixed/percentage→discount_value）。値欠落クーポンの作成を防ぐ（round3 #05）
+  (data) => data.discount_type === 'special_price' ? data.special_price != null : data.discount_value != null,
+  { message: '割引種別に対応する金額(special_price または discount_value)が必要です', path: ['discount_value'] },
+).refine(
+  // 有効期間の前後関係（round3 #17）
+  (data) => !(data.valid_from != null && data.valid_until != null && data.valid_from > data.valid_until),
+  { message: '有効期限の開始は終了より前にしてください', path: ['valid_until'] },
 );
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {

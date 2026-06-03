@@ -31,6 +31,14 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServerSupabaseClient();
+  // #03: 非公開(draft/suspended)施設はネット予約不可。確定層(RPC)が権威だが、表示層も空スロットで一致させる。
+  // anon RLS は published 行のみ可視のため、行が取れない=非公開→空スロット。
+  const { data: fac } = await supabase
+    .from('facility_profiles').select('status').eq('id', facilityId).maybeSingle();
+  if ((fac as { status: string } | null)?.status !== 'published') {
+    return NextResponse.json({ slots: [] });
+  }
+
   const { data } = await supabase.rpc('get_available_slots', {
     p_facility_id: facilityId,
     p_staff_id: staffId,

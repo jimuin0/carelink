@@ -111,7 +111,8 @@ export async function POST(request: Request) {
         const today = getTodayString();
         const { data: coupon } = await supabase
           .from('coupons')
-          .select('discount_type, discount_value, is_active, valid_from, valid_until')
+          // special_price 種別の金額は special_price 列に入る（discount_value は null）。必ず取得する（round3 #04/#05）
+          .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
           .eq('id', parsed.data.coupon_id)
           .eq('facility_id', parsed.data.facility_id)
           .single();
@@ -122,11 +123,17 @@ export async function POST(request: Request) {
           (coupon.valid_until == null || coupon.valid_until >= today);
         if (couponValid && serverTotalPrice != null) {
           if (coupon.discount_type === 'percentage') {
+            // 値欠落クーポンで NaN/null 価格が確定するのを防ぐ（欠落時は割引せず元価格を維持）
+            if (coupon.discount_value == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
             serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
           } else if (coupon.discount_type === 'fixed') {
+            if (coupon.discount_value == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
             serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
           } else if (coupon.discount_type === 'special_price') {
-            serverTotalPrice = coupon.discount_value;
+            // special_price 列を優先（旧データ互換で discount_value もフォールバック）。両方 null は不正設定で 400
+            const sp = coupon.special_price ?? coupon.discount_value;
+            if (sp == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
+            serverTotalPrice = sp;
           }
         } else {
           // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
@@ -213,6 +220,10 @@ export async function POST(request: Request) {
     }
     if (error.message?.includes('CAPACITY_FULL')) {
       return NextResponse.json({ error: '本日のネット予約受付は上限に達しました' }, { status: 409 });
+    }
+    // 施設が非公開(draft/suspended)→ネット予約不可（確定層ゲート #03）
+    if (error.message?.includes('FACILITY_NOT_BOOKABLE')) {
+      return NextResponse.json({ error: 'この施設は現在ネット予約を受け付けていません' }, { status: 409 });
     }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }

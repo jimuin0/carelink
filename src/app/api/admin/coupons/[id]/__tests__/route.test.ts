@@ -128,6 +128,12 @@ test('PATCH: percentage discount_value = 100 → 200 (境界値)', async () => {
   expect(res.status).toBe(200);
 });
 
+test('PATCH: valid_from > valid_until → 400（有効期間の前後 refine・round3 #17）', async () => {
+  setupOwnership();
+  const res = await PATCH(makeRequest('PATCH', { valid_from: '2026-08-01', valid_until: '2026-07-01' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
 test('PATCH: fixed discount_value > 100 は許可', async () => {
   setupOwnership();
   const res = await PATCH(makeRequest('PATCH', { discount_type: 'fixed', discount_value: 5000 }), makeProps());

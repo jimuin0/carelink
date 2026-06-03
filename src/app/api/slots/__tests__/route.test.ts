@@ -36,14 +36,19 @@ function setupDefaultMocks(hasSlots: boolean = true) {
   createServerSupabaseClient.mockReturnValue({ rpc: mockRpc, from: makeFrom() });
 }
 
-// 各テストで上書き可能な停止枠/上限/予約数（既定: 停止なし・上限なし・予約0）
+// 各テストで上書き可能な停止枠/上限/予約数/施設status（既定: 停止なし・上限なし・予約0・published）
 let suspensionsData: { start_time: string; end_time: string }[] = [];
 let capacityData: { max_bookings: number } | null = null;
 let bookedCount: number | null = 0;
+let facilityStatus: string | null = 'published';
 
-// table 名に応じてチェーンを返す共通モック（suspensions/daily_capacity/bookings）
+// table 名に応じてチェーンを返す共通モック（facility_profiles/suspensions/daily_capacity/bookings）
 function makeFrom() {
   return jest.fn((table: string) => {
+    if (table === 'facility_profiles') {
+      // #03 施設status ゲート: select('status').eq('id').maybeSingle()
+      return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: facilityStatus === null ? null : { status: facilityStatus } }) }) }) };
+    }
     if (table === 'facility_booking_suspensions') {
       return { select: () => ({ eq: () => ({ eq: () => Promise.resolve({ data: suspensionsData }) }) }) };
     }
@@ -61,6 +66,7 @@ beforeEach(() => {
   suspensionsData = [];
   capacityData = null;
   bookedCount = 0;
+  facilityStatus = 'published';
   setupDefaultMocks();
 });
 
@@ -277,6 +283,7 @@ describe('GET /api/slots', () => {
         data: null,
         error: { message: 'Database error' },
       }),
+      from: makeFrom(),
     });
 
     const res = await GET(makeRequest() as any);
@@ -365,5 +372,19 @@ describe('GET /api/slots', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect((await res.json()).slots).toHaveLength(1);
+  });
+
+  test('非公開施設(suspended)はスロット0(#03 施設statusゲート)', async () => {
+    facilityStatus = 'suspended';
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).slots).toEqual([]);
+  });
+
+  test('施設行が取得不可(RLSで不可視/未存在)もスロット0(#03)', async () => {
+    facilityStatus = null;
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).slots).toEqual([]);
   });
 });

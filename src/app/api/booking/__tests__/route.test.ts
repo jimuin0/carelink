@@ -536,6 +536,60 @@ describe('POST /api/booking', () => {
     );
   });
 
+  // round3 #04/#05: special_price は special_price 列に入る本番形/値欠落クーポンの扱い
+  const MENU_ID = '323e4567-e89b-12d3-a456-426614174000';
+  const COUPON_ID = '423e4567-e89b-12d3-a456-426614174000';
+  function setupCoupon(couponData: Record<string, unknown>) {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const menuResult = { data: [{ id: MENU_ID, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler; menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+    const couponChain = fluent({ data: { is_active: true, valid_from: null, valid_until: null, ...couponData } });
+    const nullChain = fluent({ data: null });
+    let n = 0;
+    mockFrom.mockImplementation(() => { n++; if (n === 1) return conflictChain; if (n === 2) return menuChain; if (n === 3) return couponChain; return nullChain; });
+  }
+
+  test('coupon special_price は special_price 列を採用（本番形・discount_value=null）', async () => {
+    setupCoupon({ discount_type: 'special_price', special_price: 3000, discount_value: null });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }));
+    expect((await res.json()).success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_total_price: 3000 }));
+  });
+
+  test('coupon special_price で special_price/discount_value とも null → 400（不正設定）', async () => {
+    setupCoupon({ discount_type: 'special_price', special_price: null, discount_value: null });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(400);
+  });
+
+  test('coupon percentage で discount_value null → 400（NaN価格を防止）', async () => {
+    setupCoupon({ discount_type: 'percentage', discount_value: null });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(400);
+  });
+
+  test('coupon fixed で discount_value null → 400', async () => {
+    setupCoupon({ discount_type: 'fixed', discount_value: null });
+    expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).toBe(400);
+  });
+
+  test('確定層ゲート: 非公開施設(FACILITY_NOT_BOOKABLE)→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let n = 0;
+    mockFrom.mockImplementation(() => { n++; return n === 1 ? conflictChain : nullChain; });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'FACILITY_NOT_BOOKABLE: この施設は現在ネット予約を受け付けていません' } });
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain('受け付けていません');
+  });
+
   test('無効クーポン→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';

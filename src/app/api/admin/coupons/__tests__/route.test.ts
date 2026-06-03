@@ -166,6 +166,28 @@ test('POST: percentage で discount_value が 101 → 400 (refine)', async () =>
   expect(res.status).toBe(400);
 });
 
+test('POST: special_price で special_price 未設定 → 400（discount_type別必須値 refine・round3 #05）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ discount_type: 'special_price', discount_value: null, special_price: null })));
+  expect(res.status).toBe(400);
+});
+test('POST: special_price で special_price 設定済 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c-sp' }));
+  const res = await POST(makePostRequest(validPostBody({ discount_type: 'special_price', discount_value: null, special_price: 3000 })));
+  expect(res.status).toBe(201);
+});
+test('POST: fixed で discount_value 未設定 → 400（必須値 refine）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ discount_type: 'fixed', discount_value: null })));
+  expect(res.status).toBe(400);
+});
+test('POST: valid_from > valid_until → 400（有効期間の前後 refine・round3 #17）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makePostRequest(validPostBody({ valid_from: '2026-08-01', valid_until: '2026-07-01' })));
+  expect(res.status).toBe(400);
+});
+
 test('POST: percentage で discount_value が 100 → 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle({ id: 'aaa' }));

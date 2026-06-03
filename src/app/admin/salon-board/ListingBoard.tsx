@@ -163,42 +163,49 @@ export default function ListingBoard({ facilityId, salonName, status, onToast, o
 
   useEffect(() => { load().catch(() => setLoading(false)); }, [load]);
 
-  // クーポンのみ軽量再取得（全画面スケルトンを出さず保存後に一覧反映）
+  // 軽量再取得（保存後に一覧反映）。Supabase は失敗時 throw せず {data:null,error} を返すため必ず error を検査し、
+  // 取得失敗時に空配列で確定上書きして「保存した途端に一覧が全消し」という誤表示を起こさない（原典バグ#1の再発防止 / round3 #01）。
   const reloadCoupons = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    const { data, error } = await sb.from('coupons').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    if (error) { onToast('クーポンの再読み込みに失敗しました。画面を再読み込みしてください'); return; }
     setCoupons((data as CouponRow[]) ?? []);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   const reloadMenus = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    const { data, error } = await sb.from('facility_menus').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    if (error) { onToast('メニューの再読み込みに失敗しました。画面を再読み込みしてください'); return; }
     setMenus((data as MenuRow[]) ?? []);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   const reloadBlogs = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('blog_posts').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    const { data, error } = await sb.from('blog_posts').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    if (error) { onToast('ブログの再読み込みに失敗しました。画面を再読み込みしてください'); return; }
     setBlogs((data as BlogRow[]) ?? []);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   const reloadPhotos = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    const { data, error } = await sb.from('facility_photos').select('*').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    if (error) { onToast('写真の再読み込みに失敗しました。画面を再読み込みしてください'); return; }
     setPhotos((data as PhotoRow[]) ?? []);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   const reloadStaff = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    const { data, error } = await sb.from('staff_profiles').select('id,name,position,specialties,years_experience,photo_url,sort_order,is_active,bio').eq('facility_id', facilityId).order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+    if (error) { onToast('スタッフの再読み込みに失敗しました。画面を再読み込みしてください'); return; }
     setStaff((data as StaffRow[]) ?? []);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   const reloadReviews = useCallback(async () => {
     const sb = createBrowserSupabaseClient();
-    const { data } = await sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    const { data, error } = await sb.from('facility_reviews').select('*').eq('facility_id', facilityId).order('created_at', { ascending: false });
+    if (error) { onToast('口コミの再読み込みに失敗しました。画面を再読み込みしてください'); return; }
     setReviews((data as ReviewRow[]) ?? []);
-  }, [facilityId]);
+  }, [facilityId, onToast]);
 
   const statusLabel = status === 'published' ? '掲載中' : status === 'suspended' ? '停止中' : '下書き';
 

@@ -402,6 +402,13 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
       ]);
       if (!cancelled) {
+        // Supabase は失敗時 throw せず {error} を返す。取得失敗時に「下書き・0件」へ誤確定させず、
+        // トーストで通知して既存表示を保持する（瞬断で掲載ステータス/件数を誤表示しない・round3 #09）。
+        if (fac.error || st.error || ph.error || mn.error) {
+          setToast({ type: 'error', message: '掲載情報の取得に失敗しました。再読み込みしてください' });
+          setListingLoading(false);
+          return;
+        }
         const f = fac.data as { name: string; status: string } | null;
         setListing({ name: f?.name ?? '—', status: f?.status ?? 'draft', staff: st.count ?? 0, photos: ph.count ?? 0, menus: mn.count ?? 0 });
         setListingLoading(false);
