@@ -6,8 +6,10 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { checkRateLimit } from '@/lib/rate-limit';
+import { alertCaughtError } from '@/lib/alert';
 import { GET } from '../route';
 
 function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
@@ -65,6 +67,22 @@ describe('GET /api/v1/bookings', () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(429);
+  });
+
+  test('想定外 throw → JSON 500（契約維持）+ alertCaughtError で Slack 通報', async () => {
+    (checkRateLimit as jest.Mock).mockImplementation(() => {
+      throw new Error('unexpected boom');
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal Server Error');
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    expect(alertCaughtError).toHaveBeenCalledWith(
+      'v1-bookings',
+      expect.any(Error),
+      '/api/v1/bookings'
+    );
   });
 
   test('missing Authorization header → 401', async () => {
