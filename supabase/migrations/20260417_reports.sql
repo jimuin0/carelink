@@ -20,7 +20,11 @@ CREATE INDEX IF NOT EXISTS idx_reports_status ON reports(status);
 
 -- 同一IPからの重複通報防止（24h以内の同一対象への通報は1件のみ）
 CREATE UNIQUE INDEX IF NOT EXISTS idx_reports_ip_target_day
-  ON reports(reporter_ip, target_type, target_id, date_trunc('day', created_at))
+  -- created_at は timestamptz のため date_trunc(text, timestamptz) は STABLE 扱いで
+  -- index 式に使えない（42P17: functions in index expression must be marked IMMUTABLE）。
+  -- AT TIME ZONE 'UTC' で timestamp(without tz) に固定変換すると date_trunc が IMMUTABLE になる。
+  -- UTC 日境界での一意性（同一IP・同一対象・同一日に1件）として決定的に機能する。
+  ON reports(reporter_ip, target_type, target_id, date_trunc('day', (created_at AT TIME ZONE 'UTC')))
   WHERE reporter_ip IS NOT NULL;
 
 ALTER TABLE reports ENABLE ROW LEVEL SECURITY;

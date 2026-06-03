@@ -27,7 +27,11 @@ CREATE POLICY "nps_admin_read" ON nps_surveys FOR SELECT USING (
 
 -- 1ユーザー＋1施設＋1ヶ月で1回まで（重複防止）
 CREATE UNIQUE INDEX IF NOT EXISTS idx_nps_unique_monthly
-  ON nps_surveys (user_id, facility_id, date_trunc('month', created_at))
+  -- created_at は timestamptz のため date_trunc(text, timestamptz) は STABLE 扱いで
+  -- index 式に使えない（42P17: functions in index expression must be marked IMMUTABLE）。
+  -- AT TIME ZONE 'UTC' で timestamp(without tz) に固定変換すると date_trunc が IMMUTABLE になる。
+  -- UTC 月境界での一意性（1ユーザー＋1施設＋1ヶ月で1回）として決定的に機能する。
+  ON nps_surveys (user_id, facility_id, date_trunc('month', (created_at AT TIME ZONE 'UTC')))
   WHERE user_id IS NOT NULL AND facility_id IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS idx_nps_facility ON nps_surveys(facility_id);

@@ -33,60 +33,30 @@ const MIGRATIONS_DIR = join(__dirname, '..', '..', 'supabase', 'migrations');
 const TYPES_FILE = join(__dirname, '..', '..', 'src', 'types', 'database.types.ts');
 
 /**
- * 本番へ未適用と判明している migration 定義テーブル（2026-06-02 時点・要 catch-up apply）。
- * 適用＋型再生成のたびに該当行を削除すること。新規追加は原則禁止（上記運用ルール参照）。
+ * 本番へ未適用と判明している migration 定義テーブル。
+ *
+ * 2026-06-03: 旧 43 テーブルを本番（ref: xzafxiupbflvgbarrihe）へ catch-up apply 完了し、
+ *   database.types.ts を prod introspection で再生成・反映した（psql で applied_count=43 を実測確認）。
+ *   よって本リストは空＝ドリフト 0 の状態。
+ *   ※ 適用時に判明し恒久修正した landmine:
+ *     - profiles に role / is_platform_admin 欠落 → supabase/migrations/20260324_profiles_admin_columns.sql で補完。
+ *     - 20260417_nps_surveys / 20260417_reports の date_trunc(..., timestamptz) 部分 index が
+ *       非 IMMUTABLE で失敗 → AT TIME ZONE 'UTC' 付与で IMMUTABLE 化（UTC 月/日境界で決定的）。
+ *   新規 migration は「本番適用 → 型再生成」をワンセットで完了させること。このリストへの追加は原則禁止。
  */
-const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
-  'ab_test_events',
-  'api_keys',
-  'audit_logs',
-  'booking_calendar_events',
-  'booking_waitlist',
-  'community_likes',
-  'community_posts',
-  'community_replies',
-  'contact_replies',
-  'cron_logs',
-  'email_unsubscribe_tokens',
-  'feature_flags',
-  'featured_slots',
-  'gbp_audit_cache',
-  'gbp_posts',
-  'google_calendar_tokens',
-  'group_booking_members',
-  'group_bookings',
-  'intake_form_responses',
-  'intake_form_templates',
-  'job_applications',
-  'moderation_queue',
-  'newsletter_campaigns',
-  'newsletter_subscriptions',
-  'nps_surveys',
-  'package_usage_logs',
-  'platform_blog_posts',
-  'reports',
-  'sent_reminders',
-  'service_packages',
-  'stripe_sessions',
-  'stripe_webhook_logs',
-  'subscription_plans',
-  'subscription_usage_logs',
-  'telehealth_sessions',
-  'treatment_plans',
-  'treatment_records',
-  'user_coupon_codes',
-  'user_packages',
-  'user_preferred_staff',
-  'user_subscriptions',
-  'webhook_retry_queue',
-  'white_label_domains',
-]);
+const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([]);
 
 /**
  * 本番に実在するが migration を持たない「残存テーブル」。
  * spatial_ref_sys は PostGIS のシステムテーブル（拡張機能が作成）。
  * features / job_postings は現行アプリが利用中だが migration 不在（要追補・別タスク）。
  * facilities / recruits / blog_authors / booking_menus は旧世代の未使用残存。
+ * facility_booking_suspensions / facility_daily_capacity / salon_customer_notes は
+ *   PR #53（feat/salon-board）所有のテーブル。当該ブランチに CREATE TABLE migration
+ *   （20260602_booking_suspensions / 20260602_daily_capacity / 20260602_customer_notes）と
+ *   アプリコードが存在するが、main 未マージのため main 視点では migration-less に見える。
+ *   2026-06-03 時点で本番に先行適用済み（各 0 行）。PR #53 が main へマージされたら
+ *   migrationTables に含まれるため、本リストの該当 3 行は削除すること（残すと無害だが陳腐化）。
  */
 const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
   'spatial_ref_sys',
@@ -96,6 +66,10 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
   'recruits',
   'blog_authors',
   'booking_menus',
+  // PR #53 (feat/salon-board) 所有・main 未マージ → マージ時に削除
+  'facility_booking_suspensions',
+  'facility_daily_capacity',
+  'salon_customer_notes',
 ]);
 
 function migrationDefinedTables(): Set<string> {

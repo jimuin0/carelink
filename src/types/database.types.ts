@@ -12,8 +12,126 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      ab_test_events: {
+        Row: {
+          created_at: string
+          event_type: string
+          experiment_key: string
+          id: string
+          metadata: Json | null
+          page_path: string | null
+          session_id: string | null
+          user_id: string | null
+          variant: string
+        }
+        Insert: {
+          created_at?: string
+          event_type: string
+          experiment_key: string
+          id?: string
+          metadata?: Json | null
+          page_path?: string | null
+          session_id?: string | null
+          user_id?: string | null
+          variant: string
+        }
+        Update: {
+          created_at?: string
+          event_type?: string
+          experiment_key?: string
+          id?: string
+          metadata?: Json | null
+          page_path?: string | null
+          session_id?: string | null
+          user_id?: string | null
+          variant?: string
+        }
+        Relationships: []
+      }
+      api_keys: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expires_at: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          key_hash: string
+          key_prefix: string
+          last_used_at: string | null
+          name: string
+          scopes: string[]
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          key_hash: string
+          key_prefix: string
+          last_used_at?: string | null
+          name: string
+          scopes?: string[]
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          key_hash?: string
+          key_prefix?: string
+          last_used_at?: string | null
+          name?: string
+          scopes?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "api_keys_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       area_seo_contents: {
         Row: {
           body_text: string
@@ -85,6 +203,48 @@ export type Database = {
           },
         ]
       }
+      audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          facility_id: string | null
+          id: string
+          ip_address: string | null
+          new_values: Json | null
+          old_values: Json | null
+          record_id: string | null
+          table_name: string
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          ip_address?: string | null
+          new_values?: Json | null
+          old_values?: Json | null
+          record_id?: string | null
+          table_name: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          ip_address?: string | null
+          new_values?: Json | null
+          old_values?: Json | null
+          record_id?: string | null
+          table_name?: string
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       blog_authors: {
         Row: {
           created_at: string | null
@@ -131,8 +291,10 @@ export type Database = {
           created_at: string | null
           facility_id: string
           id: string
+          image_urls: string[]
           is_published: boolean | null
           published_at: string | null
+          scheduled_at: string | null
           slug: string
           thumbnail_url: string | null
           title: string
@@ -147,8 +309,10 @@ export type Database = {
           created_at?: string | null
           facility_id: string
           id?: string
+          image_urls?: string[]
           is_published?: boolean | null
           published_at?: string | null
+          scheduled_at?: string | null
           slug: string
           thumbnail_url?: string | null
           title: string
@@ -163,8 +327,10 @@ export type Database = {
           created_at?: string | null
           facility_id?: string
           id?: string
+          image_urls?: string[]
           is_published?: boolean | null
           published_at?: string | null
+          scheduled_at?: string | null
           slug?: string
           thumbnail_url?: string | null
           title?: string
@@ -208,6 +374,41 @@ export type Database = {
           },
         ]
       }
+      booking_calendar_events: {
+        Row: {
+          booking_id: string
+          calendar_id: string
+          google_event_id: string
+          id: string
+          synced_at: string
+          user_id: string
+        }
+        Insert: {
+          booking_id: string
+          calendar_id?: string
+          google_event_id: string
+          id?: string
+          synced_at?: string
+          user_id: string
+        }
+        Update: {
+          booking_id?: string
+          calendar_id?: string
+          google_event_id?: string
+          id?: string
+          synced_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_calendar_events_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       booking_menus: {
         Row: {
           booking_id: string
@@ -246,6 +447,91 @@ export type Database = {
           },
           {
             foreignKeyName: "booking_menus_menu_id_fkey"
+            columns: ["menu_id"]
+            isOneToOne: false
+            referencedRelation: "facility_menus"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      booking_waitlist: {
+        Row: {
+          created_at: string
+          customer_name: string
+          date: string
+          email: string | null
+          end_time: string
+          expires_at: string | null
+          facility_id: string
+          id: string
+          line_user_id: string | null
+          menu_id: string | null
+          notes: string | null
+          notified_at: string | null
+          phone: string | null
+          staff_id: string | null
+          start_time: string
+          status: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          customer_name: string
+          date: string
+          email?: string | null
+          end_time: string
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          line_user_id?: string | null
+          menu_id?: string | null
+          notes?: string | null
+          notified_at?: string | null
+          phone?: string | null
+          staff_id?: string | null
+          start_time: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          customer_name?: string
+          date?: string
+          email?: string | null
+          end_time?: string
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          line_user_id?: string | null
+          menu_id?: string | null
+          notes?: string | null
+          notified_at?: string | null
+          phone?: string | null
+          staff_id?: string | null
+          start_time?: string
+          status?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "booking_waitlist_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_waitlist_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "booking_waitlist_menu_id_fkey"
             columns: ["menu_id"]
             isOneToOne: false
             referencedRelation: "facility_menus"
@@ -438,8 +724,178 @@ export type Database = {
           },
         ]
       }
+      community_likes: {
+        Row: {
+          created_at: string
+          id: string
+          post_id: string | null
+          reply_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          post_id?: string | null
+          reply_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          post_id?: string | null
+          reply_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_likes_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "community_posts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "community_likes_reply_id_fkey"
+            columns: ["reply_id"]
+            isOneToOne: false
+            referencedRelation: "community_replies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      community_posts: {
+        Row: {
+          author_id: string
+          body: string
+          category: string
+          created_at: string
+          id: string
+          is_locked: boolean
+          is_pinned: boolean
+          last_reply_at: string | null
+          like_count: number
+          reply_count: number
+          title: string
+          updated_at: string
+          view_count: number
+        }
+        Insert: {
+          author_id: string
+          body: string
+          category?: string
+          created_at?: string
+          id?: string
+          is_locked?: boolean
+          is_pinned?: boolean
+          last_reply_at?: string | null
+          like_count?: number
+          reply_count?: number
+          title: string
+          updated_at?: string
+          view_count?: number
+        }
+        Update: {
+          author_id?: string
+          body?: string
+          category?: string
+          created_at?: string
+          id?: string
+          is_locked?: boolean
+          is_pinned?: boolean
+          last_reply_at?: string | null
+          like_count?: number
+          reply_count?: number
+          title?: string
+          updated_at?: string
+          view_count?: number
+        }
+        Relationships: []
+      }
+      community_replies: {
+        Row: {
+          author_id: string
+          body: string
+          created_at: string
+          id: string
+          is_solution: boolean
+          like_count: number
+          post_id: string
+          updated_at: string
+        }
+        Insert: {
+          author_id: string
+          body: string
+          created_at?: string
+          id?: string
+          is_solution?: boolean
+          like_count?: number
+          post_id: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string
+          body?: string
+          created_at?: string
+          id?: string
+          is_solution?: boolean
+          like_count?: number
+          post_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "community_replies_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "community_posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      contact_replies: {
+        Row: {
+          author_id: string | null
+          author_name: string
+          body: string
+          contact_id: string
+          created_at: string
+          id: string
+          is_internal: boolean
+          sent_at: string | null
+        }
+        Insert: {
+          author_id?: string | null
+          author_name?: string
+          body: string
+          contact_id: string
+          created_at?: string
+          id?: string
+          is_internal?: boolean
+          sent_at?: string | null
+        }
+        Update: {
+          author_id?: string | null
+          author_name?: string
+          body?: string
+          contact_id?: string
+          created_at?: string
+          id?: string
+          is_internal?: boolean
+          sent_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "contact_replies_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       contacts: {
         Row: {
+          assigned_to: string | null
           created_at: string | null
           email: string
           id: string
@@ -447,8 +903,13 @@ export type Database = {
           message: string
           name: string
           phone: string | null
+          priority: string
+          resolved_at: string | null
+          ticket_notes: string | null
+          ticket_status: string
         }
         Insert: {
+          assigned_to?: string | null
           created_at?: string | null
           email: string
           id?: string
@@ -456,8 +917,13 @@ export type Database = {
           message: string
           name: string
           phone?: string | null
+          priority?: string
+          resolved_at?: string | null
+          ticket_notes?: string | null
+          ticket_status?: string
         }
         Update: {
+          assigned_to?: string | null
           created_at?: string | null
           email?: string
           id?: string
@@ -465,6 +931,10 @@ export type Database = {
           message?: string
           name?: string
           phone?: string | null
+          priority?: string
+          resolved_at?: string | null
+          ticket_notes?: string | null
+          ticket_status?: string
         }
         Relationships: []
       }
@@ -511,6 +981,8 @@ export type Database = {
           duration_minutes: number | null
           facility_id: string
           id: string
+          image_submission: boolean
+          image_url: string | null
           is_active: boolean | null
           name: string
           presentation_timing: string | null
@@ -531,6 +1003,8 @@ export type Database = {
           duration_minutes?: number | null
           facility_id: string
           id?: string
+          image_submission?: boolean
+          image_url?: string | null
           is_active?: boolean | null
           name: string
           presentation_timing?: string | null
@@ -551,6 +1025,8 @@ export type Database = {
           duration_minutes?: number | null
           facility_id?: string
           id?: string
+          image_submission?: boolean
+          image_url?: string | null
           is_active?: boolean | null
           name?: string
           presentation_timing?: string | null
@@ -578,6 +1054,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      cron_logs: {
+        Row: {
+          duration_ms: number | null
+          error_msg: string | null
+          id: string
+          job_name: string
+          meta: Json | null
+          processed: number | null
+          skipped: number | null
+          started_at: string
+          status: string
+        }
+        Insert: {
+          duration_ms?: number | null
+          error_msg?: string | null
+          id?: string
+          job_name: string
+          meta?: Json | null
+          processed?: number | null
+          skipped?: number | null
+          started_at?: string
+          status: string
+        }
+        Update: {
+          duration_ms?: number | null
+          error_msg?: string | null
+          id?: string
+          job_name?: string
+          meta?: Json | null
+          processed?: number | null
+          skipped?: number | null
+          started_at?: string
+          status?: string
+        }
+        Relationships: []
       }
       customer_segments: {
         Row: {
@@ -754,6 +1266,35 @@ export type Database = {
           },
         ]
       }
+      email_unsubscribe_tokens: {
+        Row: {
+          created_at: string | null
+          token: string
+          used_at: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string | null
+          token: string
+          used_at?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string | null
+          token?: string
+          used_at?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_unsubscribe_tokens_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facilities: {
         Row: {
           address: string | null
@@ -801,6 +1342,51 @@ export type Database = {
           website?: string | null
         }
         Relationships: []
+      }
+      facility_booking_suspensions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          end_time: string
+          facility_id: string
+          id: string
+          start_time: string
+          suspend_date: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          end_time: string
+          facility_id: string
+          id?: string
+          start_time: string
+          suspend_date: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          end_time?: string
+          facility_id?: string
+          id?: string
+          start_time?: string
+          suspend_date?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_booking_suspensions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_booking_suspensions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       facility_cancel_policies: {
         Row: {
@@ -882,6 +1468,48 @@ export type Database = {
           },
           {
             foreignKeyName: "facility_certifications_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_daily_capacity: {
+        Row: {
+          capacity_date: string
+          created_by: string | null
+          facility_id: string
+          id: string
+          max_bookings: number
+          updated_at: string
+        }
+        Insert: {
+          capacity_date: string
+          created_by?: string | null
+          facility_id: string
+          id?: string
+          max_bookings: number
+          updated_at?: string
+        }
+        Update: {
+          capacity_date?: string
+          created_by?: string | null
+          facility_id?: string
+          id?: string
+          max_bookings?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_daily_capacity_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_daily_capacity_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: false
             referencedRelation: "facility_profiles"
@@ -1228,9 +1856,12 @@ export type Database = {
           coupon_id: string | null
           created_at: string | null
           facility_id: string
+          flag_reason: string | null
+          flagged_at: string | null
           genre: string | null
           id: string
           image_submission: boolean | null
+          is_flagged: boolean
           is_published: boolean | null
           photo_type: string
           photo_url: string
@@ -1243,9 +1874,12 @@ export type Database = {
           coupon_id?: string | null
           created_at?: string | null
           facility_id: string
+          flag_reason?: string | null
+          flagged_at?: string | null
           genre?: string | null
           id?: string
           image_submission?: boolean | null
+          is_flagged?: boolean
           is_published?: boolean | null
           photo_type: string
           photo_url: string
@@ -1258,9 +1892,12 @@ export type Database = {
           coupon_id?: string | null
           created_at?: string | null
           facility_id?: string
+          flag_reason?: string | null
+          flagged_at?: string | null
           genre?: string | null
           id?: string
           image_submission?: boolean | null
+          is_flagged?: boolean
           is_published?: boolean | null
           photo_type?: string
           photo_url?: string
@@ -1304,12 +1941,17 @@ export type Database = {
           city: string
           created_at: string | null
           credit_card: boolean | null
+          deposit_amount: number | null
+          deposit_type: string | null
           description: string | null
           design_color: string | null
           design_template: string | null
           directions: string | null
           equipment: Json | null
           features: string[] | null
+          gbp_cid: string | null
+          gbp_connected_at: string | null
+          gbp_place_id: string | null
           genres: string[] | null
           google_rating: number | null
           google_review_count: number | null
@@ -1342,6 +1984,8 @@ export type Database = {
           staff_breakdown: Json | null
           staff_count: number | null
           status: string | null
+          stripe_account_id: string | null
+          stripe_enabled: boolean
           updated_at: string | null
           view_count: number | null
           website_url: string | null
@@ -1357,12 +2001,17 @@ export type Database = {
           city: string
           created_at?: string | null
           credit_card?: boolean | null
+          deposit_amount?: number | null
+          deposit_type?: string | null
           description?: string | null
           design_color?: string | null
           design_template?: string | null
           directions?: string | null
           equipment?: Json | null
           features?: string[] | null
+          gbp_cid?: string | null
+          gbp_connected_at?: string | null
+          gbp_place_id?: string | null
           genres?: string[] | null
           google_rating?: number | null
           google_review_count?: number | null
@@ -1395,6 +2044,8 @@ export type Database = {
           staff_breakdown?: Json | null
           staff_count?: number | null
           status?: string | null
+          stripe_account_id?: string | null
+          stripe_enabled?: boolean
           updated_at?: string | null
           view_count?: number | null
           website_url?: string | null
@@ -1410,12 +2061,17 @@ export type Database = {
           city?: string
           created_at?: string | null
           credit_card?: boolean | null
+          deposit_amount?: number | null
+          deposit_type?: string | null
           description?: string | null
           design_color?: string | null
           design_template?: string | null
           directions?: string | null
           equipment?: Json | null
           features?: string[] | null
+          gbp_cid?: string | null
+          gbp_connected_at?: string | null
+          gbp_place_id?: string | null
           genres?: string[] | null
           google_rating?: number | null
           google_review_count?: number | null
@@ -1448,6 +2104,8 @@ export type Database = {
           staff_breakdown?: Json | null
           staff_count?: number | null
           status?: string | null
+          stripe_account_id?: string | null
+          stripe_enabled?: boolean
           updated_at?: string | null
           view_count?: number | null
           website_url?: string | null
@@ -1517,6 +2175,7 @@ export type Database = {
           flag_reason: string | null
           id: string
           is_flagged: boolean | null
+          is_pickup: boolean
           is_verified_visit: boolean | null
           photo_urls: string[] | null
           rating: number
@@ -1541,6 +2200,7 @@ export type Database = {
           flag_reason?: string | null
           id?: string
           is_flagged?: boolean | null
+          is_pickup?: boolean
           is_verified_visit?: boolean | null
           photo_urls?: string[] | null
           rating: number
@@ -1565,6 +2225,7 @@ export type Database = {
           flag_reason?: string | null
           id?: string
           is_flagged?: boolean | null
+          is_pickup?: boolean
           is_verified_visit?: boolean | null
           photo_urls?: string[] | null
           rating?: number
@@ -1724,6 +2385,105 @@ export type Database = {
         }
         Relationships: []
       }
+      feature_flags: {
+        Row: {
+          created_at: string
+          description: string | null
+          enabled: boolean
+          id: string
+          key: string
+          metadata: Json | null
+          rollout_pct: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          key: string
+          metadata?: Json | null
+          rollout_pct?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          enabled?: boolean
+          id?: string
+          key?: string
+          metadata?: Json | null
+          rollout_pct?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      featured_slots: {
+        Row: {
+          area: string | null
+          budget_yen: number
+          business_type: string | null
+          clicks: number
+          created_at: string
+          ends_at: string
+          facility_id: string
+          id: string
+          impressions: number
+          is_active: boolean
+          slot_type: string
+          starts_at: string
+          stripe_session_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          area?: string | null
+          budget_yen?: number
+          business_type?: string | null
+          clicks?: number
+          created_at?: string
+          ends_at: string
+          facility_id: string
+          id?: string
+          impressions?: number
+          is_active?: boolean
+          slot_type: string
+          starts_at: string
+          stripe_session_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          area?: string | null
+          budget_yen?: number
+          business_type?: string | null
+          clicks?: number
+          created_at?: string
+          ends_at?: string
+          facility_id?: string
+          id?: string
+          impressions?: number
+          is_active?: boolean
+          slot_type?: string
+          starts_at?: string
+          stripe_session_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "featured_slots_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "featured_slots_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       features: {
         Row: {
           banner_image_url: string | null
@@ -1777,6 +2537,472 @@ export type Database = {
           updated_at?: string | null
         }
         Relationships: []
+      }
+      gbp_audit_cache: {
+        Row: {
+          details: Json | null
+          facility_id: string
+          fetched_at: string | null
+          id: string
+          score: number | null
+        }
+        Insert: {
+          details?: Json | null
+          facility_id: string
+          fetched_at?: string | null
+          id?: string
+          score?: number | null
+        }
+        Update: {
+          details?: Json | null
+          facility_id?: string
+          fetched_at?: string | null
+          id?: string
+          score?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gbp_audit_cache_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gbp_audit_cache_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      gbp_posts: {
+        Row: {
+          body: string
+          created_at: string | null
+          cta_type: string | null
+          cta_url: string | null
+          facility_id: string
+          gbp_post_id: string | null
+          id: string
+          photo_url: string | null
+          post_type: string | null
+          published_at: string | null
+          scheduled_at: string | null
+          status: string | null
+          title: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          body: string
+          created_at?: string | null
+          cta_type?: string | null
+          cta_url?: string | null
+          facility_id: string
+          gbp_post_id?: string | null
+          id?: string
+          photo_url?: string | null
+          post_type?: string | null
+          published_at?: string | null
+          scheduled_at?: string | null
+          status?: string | null
+          title?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          body?: string
+          created_at?: string | null
+          cta_type?: string | null
+          cta_url?: string | null
+          facility_id?: string
+          gbp_post_id?: string | null
+          id?: string
+          photo_url?: string | null
+          post_type?: string | null
+          published_at?: string | null
+          scheduled_at?: string | null
+          status?: string | null
+          title?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "gbp_posts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "gbp_posts_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      google_calendar_tokens: {
+        Row: {
+          access_token: string
+          created_at: string
+          expires_at: string
+          id: string
+          refresh_token: string | null
+          scope: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token: string
+          created_at?: string
+          expires_at: string
+          id?: string
+          refresh_token?: string | null
+          scope?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string
+          created_at?: string
+          expires_at?: string
+          id?: string
+          refresh_token?: string | null
+          scope?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      group_booking_members: {
+        Row: {
+          created_at: string
+          group_booking_id: string
+          guest_email: string | null
+          guest_name: string | null
+          guest_phone: string | null
+          id: string
+          is_organizer: boolean
+          joined_at: string | null
+          status: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          group_booking_id: string
+          guest_email?: string | null
+          guest_name?: string | null
+          guest_phone?: string | null
+          id?: string
+          is_organizer?: boolean
+          joined_at?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          group_booking_id?: string
+          guest_email?: string | null
+          guest_name?: string | null
+          guest_phone?: string | null
+          id?: string
+          is_organizer?: boolean
+          joined_at?: string | null
+          status?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_booking_members_group_booking_id_fkey"
+            columns: ["group_booking_id"]
+            isOneToOne: false
+            referencedRelation: "group_bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      group_bookings: {
+        Row: {
+          booking_date: string
+          confirmed_members: number
+          created_at: string
+          end_time: string
+          facility_id: string
+          id: string
+          menu_id: string | null
+          notes: string | null
+          organizer_id: string | null
+          share_code: string | null
+          staff_id: string | null
+          start_time: string
+          status: string
+          total_members: number
+          updated_at: string
+        }
+        Insert: {
+          booking_date: string
+          confirmed_members?: number
+          created_at?: string
+          end_time: string
+          facility_id: string
+          id?: string
+          menu_id?: string | null
+          notes?: string | null
+          organizer_id?: string | null
+          share_code?: string | null
+          staff_id?: string | null
+          start_time: string
+          status?: string
+          total_members?: number
+          updated_at?: string
+        }
+        Update: {
+          booking_date?: string
+          confirmed_members?: number
+          created_at?: string
+          end_time?: string
+          facility_id?: string
+          id?: string
+          menu_id?: string | null
+          notes?: string | null
+          organizer_id?: string | null
+          share_code?: string | null
+          staff_id?: string | null
+          start_time?: string
+          status?: string
+          total_members?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "group_bookings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bookings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bookings_menu_id_fkey"
+            columns: ["menu_id"]
+            isOneToOne: false
+            referencedRelation: "facility_menus"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "group_bookings_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      intake_form_responses: {
+        Row: {
+          booking_id: string | null
+          created_at: string
+          customer_name: string
+          facility_id: string
+          id: string
+          responses: Json
+          submitted_at: string
+          template_id: string
+          user_id: string | null
+          viewed_at: string | null
+        }
+        Insert: {
+          booking_id?: string | null
+          created_at?: string
+          customer_name: string
+          facility_id: string
+          id?: string
+          responses?: Json
+          submitted_at?: string
+          template_id: string
+          user_id?: string | null
+          viewed_at?: string | null
+        }
+        Update: {
+          booking_id?: string | null
+          created_at?: string
+          customer_name?: string
+          facility_id?: string
+          id?: string
+          responses?: Json
+          submitted_at?: string
+          template_id?: string
+          user_id?: string | null
+          viewed_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_form_responses_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_form_responses_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_form_responses_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_form_responses_template_id_fkey"
+            columns: ["template_id"]
+            isOneToOne: false
+            referencedRelation: "intake_form_templates"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      intake_form_templates: {
+        Row: {
+          created_at: string
+          description: string | null
+          facility_id: string
+          fields: Json
+          id: string
+          is_active: boolean
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          fields?: Json
+          id?: string
+          is_active?: boolean
+          title?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          fields?: Json
+          id?: string
+          is_active?: boolean
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "intake_form_templates_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "intake_form_templates_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      job_applications: {
+        Row: {
+          applicant_email: string
+          applicant_name: string
+          applicant_phone: string | null
+          applicant_user_id: string | null
+          cover_letter: string | null
+          created_at: string
+          facility_id: string
+          fee_invoiced_at: string | null
+          fee_paid_at: string | null
+          hired_at: string | null
+          id: string
+          job_posting_id: string | null
+          notes: string | null
+          referral_fee_yen: number | null
+          resume_url: string | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          applicant_email: string
+          applicant_name: string
+          applicant_phone?: string | null
+          applicant_user_id?: string | null
+          cover_letter?: string | null
+          created_at?: string
+          facility_id: string
+          fee_invoiced_at?: string | null
+          fee_paid_at?: string | null
+          hired_at?: string | null
+          id?: string
+          job_posting_id?: string | null
+          notes?: string | null
+          referral_fee_yen?: number | null
+          resume_url?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          applicant_email?: string
+          applicant_name?: string
+          applicant_phone?: string | null
+          applicant_user_id?: string | null
+          cover_letter?: string | null
+          created_at?: string
+          facility_id?: string
+          fee_invoiced_at?: string | null
+          fee_paid_at?: string | null
+          hired_at?: string | null
+          id?: string
+          job_posting_id?: string | null
+          notes?: string | null
+          referral_fee_yen?: number | null
+          resume_url?: string | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "job_applications_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_applications_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "job_applications_job_posting_id_fkey"
+            columns: ["job_posting_id"]
+            isOneToOne: false
+            referencedRelation: "job_postings"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       job_postings: {
         Row: {
@@ -2005,6 +3231,295 @@ export type Database = {
           },
         ]
       }
+      moderation_queue: {
+        Row: {
+          auto_flags: Json | null
+          content_id: string
+          content_type: string
+          created_at: string
+          facility_id: string | null
+          id: string
+          report_reason: string | null
+          reporter_id: string | null
+          review_note: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+        }
+        Insert: {
+          auto_flags?: Json | null
+          content_id: string
+          content_type: string
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          report_reason?: string | null
+          reporter_id?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Update: {
+          auto_flags?: Json | null
+          content_id?: string
+          content_type?: string
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          report_reason?: string | null
+          reporter_id?: string | null
+          review_note?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "moderation_queue_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "moderation_queue_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      newsletter_campaigns: {
+        Row: {
+          campaign_type: string
+          created_at: string
+          created_by: string | null
+          html_content: string
+          id: string
+          scheduled_at: string | null
+          sent_at: string | null
+          stats: Json | null
+          status: string
+          subject: string
+          target_segment: Json | null
+          text_content: string | null
+          updated_at: string
+        }
+        Insert: {
+          campaign_type: string
+          created_at?: string
+          created_by?: string | null
+          html_content: string
+          id?: string
+          scheduled_at?: string | null
+          sent_at?: string | null
+          stats?: Json | null
+          status?: string
+          subject: string
+          target_segment?: Json | null
+          text_content?: string | null
+          updated_at?: string
+        }
+        Update: {
+          campaign_type?: string
+          created_at?: string
+          created_by?: string | null
+          html_content?: string
+          id?: string
+          scheduled_at?: string | null
+          sent_at?: string | null
+          stats?: Json | null
+          status?: string
+          subject?: string
+          target_segment?: Json | null
+          text_content?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      newsletter_subscriptions: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          is_active: boolean
+          source: string | null
+          subscription_type: string
+          unsubscribed_at: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          source?: string | null
+          subscription_type: string
+          unsubscribed_at?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          is_active?: boolean
+          source?: string | null
+          subscription_type?: string
+          unsubscribed_at?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      nps_surveys: {
+        Row: {
+          booking_id: string | null
+          category: string | null
+          comment: string | null
+          created_at: string
+          facility_id: string | null
+          id: string
+          ip_hash: string | null
+          score: number
+          user_id: string | null
+        }
+        Insert: {
+          booking_id?: string | null
+          category?: string | null
+          comment?: string | null
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          ip_hash?: string | null
+          score: number
+          user_id?: string | null
+        }
+        Update: {
+          booking_id?: string | null
+          category?: string | null
+          comment?: string | null
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          ip_hash?: string | null
+          score?: number
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "nps_surveys_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_surveys_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "nps_surveys_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      package_usage_logs: {
+        Row: {
+          booking_id: string | null
+          id: string
+          notes: string | null
+          used_at: string
+          user_package_id: string
+        }
+        Insert: {
+          booking_id?: string | null
+          id?: string
+          notes?: string | null
+          used_at?: string
+          user_package_id: string
+        }
+        Update: {
+          booking_id?: string | null
+          id?: string
+          notes?: string | null
+          used_at?: string
+          user_package_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "package_usage_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "package_usage_logs_user_package_id_fkey"
+            columns: ["user_package_id"]
+            isOneToOne: false
+            referencedRelation: "user_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      platform_blog_posts: {
+        Row: {
+          author_name: string
+          category: string
+          content: Json
+          created_at: string
+          description: string
+          id: string
+          is_published: boolean
+          published_at: string | null
+          reading_time: number
+          slug: string
+          tags: string[]
+          thumbnail_url: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          author_name?: string
+          category?: string
+          content?: Json
+          created_at?: string
+          description?: string
+          id?: string
+          is_published?: boolean
+          published_at?: string | null
+          reading_time?: number
+          slug: string
+          tags?: string[]
+          thumbnail_url?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          author_name?: string
+          category?: string
+          content?: Json
+          created_at?: string
+          description?: string
+          id?: string
+          is_published?: boolean
+          published_at?: string | null
+          reading_time?: number
+          slug?: string
+          tags?: string[]
+          thumbnail_url?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -2013,10 +3528,13 @@ export type Database = {
           created_at: string | null
           display_name: string
           email: string | null
+          email_unsubscribed: boolean | null
           gender: string | null
           id: string
+          is_platform_admin: boolean
           phone: string | null
           prefecture: string | null
+          role: string | null
           updated_at: string | null
         }
         Insert: {
@@ -2026,10 +3544,13 @@ export type Database = {
           created_at?: string | null
           display_name?: string
           email?: string | null
+          email_unsubscribed?: boolean | null
           gender?: string | null
           id: string
+          is_platform_admin?: boolean
           phone?: string | null
           prefecture?: string | null
+          role?: string | null
           updated_at?: string | null
         }
         Update: {
@@ -2039,10 +3560,13 @@ export type Database = {
           created_at?: string | null
           display_name?: string
           email?: string | null
+          email_unsubscribed?: boolean | null
           gender?: string | null
           id?: string
+          is_platform_admin?: boolean
           phone?: string | null
           prefecture?: string | null
+          role?: string | null
           updated_at?: string | null
         }
         Relationships: []
@@ -2215,6 +3739,63 @@ export type Database = {
         }
         Relationships: []
       }
+      reports: {
+        Row: {
+          created_at: string | null
+          detail: string | null
+          id: string
+          reason: string
+          reporter_ip: string | null
+          reporter_user_id: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          target_id: string
+          target_type: string
+        }
+        Insert: {
+          created_at?: string | null
+          detail?: string | null
+          id?: string
+          reason: string
+          reporter_ip?: string | null
+          reporter_user_id?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          target_id: string
+          target_type: string
+        }
+        Update: {
+          created_at?: string | null
+          detail?: string | null
+          id?: string
+          reason?: string
+          reporter_ip?: string | null
+          reporter_user_id?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          target_id?: string
+          target_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reports_reporter_user_id_fkey"
+            columns: ["reporter_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reports_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       review_helpful: {
         Row: {
           created_at: string | null
@@ -2286,6 +3867,57 @@ export type Database = {
             columns: ["review_id"]
             isOneToOne: true
             referencedRelation: "public_reviews"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      salon_customer_notes: {
+        Row: {
+          customer_key: string
+          facility_id: string
+          id: string
+          next_visit_date: string | null
+          next_visit_note: string | null
+          note: string | null
+          tags: string[]
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          customer_key: string
+          facility_id: string
+          id?: string
+          next_visit_date?: string | null
+          next_visit_note?: string | null
+          note?: string | null
+          tags?: string[]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          customer_key?: string
+          facility_id?: string
+          id?: string
+          next_visit_date?: string | null
+          next_visit_note?: string | null
+          note?: string | null
+          tags?: string[]
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "salon_customer_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "salon_customer_notes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -2408,6 +4040,108 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sent_reminders: {
+        Row: {
+          booking_id: string
+          id: string
+          reminder_date: string
+          sent_at: string
+        }
+        Insert: {
+          booking_id: string
+          id?: string
+          reminder_date: string
+          sent_at?: string
+        }
+        Update: {
+          booking_id?: string
+          id?: string
+          reminder_date?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sent_reminders_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      service_packages: {
+        Row: {
+          bonus_count: number
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          menu_id: string | null
+          name: string
+          notes: string | null
+          price: number
+          session_count: number
+          sort_order: number
+          updated_at: string
+          valid_days: number
+        }
+        Insert: {
+          bonus_count?: number
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          menu_id?: string | null
+          name: string
+          notes?: string | null
+          price?: number
+          session_count?: number
+          sort_order?: number
+          updated_at?: string
+          valid_days?: number
+        }
+        Update: {
+          bonus_count?: number
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          menu_id?: string | null
+          name?: string
+          notes?: string | null
+          price?: number
+          session_count?: number
+          sort_order?: number
+          updated_at?: string
+          valid_days?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "service_packages_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_packages_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "service_packages_menu_id_fkey"
+            columns: ["menu_id"]
+            isOneToOne: false
+            referencedRelation: "facility_menus"
             referencedColumns: ["id"]
           },
         ]
@@ -2629,6 +4363,211 @@ export type Database = {
         }
         Relationships: []
       }
+      stripe_sessions: {
+        Row: {
+          amount: number
+          booking_id: string | null
+          created_at: string
+          currency: string
+          expires_at: string | null
+          facility_id: string
+          id: string
+          metadata: Json | null
+          payment_type: string
+          refund_amount: number | null
+          refunded_at: string | null
+          status: string
+          stripe_payment_intent_id: string | null
+          stripe_session_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          booking_id?: string | null
+          created_at?: string
+          currency?: string
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          metadata?: Json | null
+          payment_type?: string
+          refund_amount?: number | null
+          refunded_at?: string | null
+          status?: string
+          stripe_payment_intent_id?: string | null
+          stripe_session_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          booking_id?: string | null
+          created_at?: string
+          currency?: string
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          metadata?: Json | null
+          payment_type?: string
+          refund_amount?: number | null
+          refunded_at?: string | null
+          status?: string
+          stripe_payment_intent_id?: string | null
+          stripe_session_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stripe_sessions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_sessions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stripe_sessions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stripe_webhook_logs: {
+        Row: {
+          created_at: string
+          error: string | null
+          event_id: string
+          event_type: string
+          id: string
+          payload: Json
+          processed: boolean
+        }
+        Insert: {
+          created_at?: string
+          error?: string | null
+          event_id: string
+          event_type: string
+          id?: string
+          payload: Json
+          processed?: boolean
+        }
+        Update: {
+          created_at?: string
+          error?: string | null
+          event_id?: string
+          event_type?: string
+          id?: string
+          payload?: Json
+          processed?: boolean
+        }
+        Relationships: []
+      }
+      subscription_plans: {
+        Row: {
+          created_at: string
+          description: string | null
+          facility_id: string
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          price: number
+          sessions_per_month: number
+          sort_order: number
+          valid_months: number
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          facility_id: string
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          price: number
+          sessions_per_month?: number
+          sort_order?: number
+          valid_months?: number
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          facility_id?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          price?: number
+          sessions_per_month?: number
+          sort_order?: number
+          valid_months?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_plans_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscription_plans_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      subscription_usage_logs: {
+        Row: {
+          booking_id: string | null
+          id: string
+          notes: string | null
+          subscription_id: string
+          used_at: string
+        }
+        Insert: {
+          booking_id?: string | null
+          id?: string
+          notes?: string | null
+          subscription_id: string
+          used_at?: string
+        }
+        Update: {
+          booking_id?: string | null
+          id?: string
+          notes?: string | null
+          subscription_id?: string
+          used_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_usage_logs_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscription_usage_logs_subscription_id_fkey"
+            columns: ["subscription_id"]
+            isOneToOne: false
+            referencedRelation: "user_subscriptions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       symptoms: {
         Row: {
           category: string
@@ -2652,6 +4591,89 @@ export type Database = {
           sort_order?: number | null
         }
         Relationships: []
+      }
+      telehealth_sessions: {
+        Row: {
+          booking_id: string | null
+          created_at: string
+          duration_minutes: number
+          facility_id: string
+          fee: number | null
+          id: string
+          meeting_url: string | null
+          patient_notes: string | null
+          platform: string | null
+          room_id: string | null
+          scheduled_at: string
+          session_notes: string | null
+          staff_id: string | null
+          status: string
+          user_id: string
+        }
+        Insert: {
+          booking_id?: string | null
+          created_at?: string
+          duration_minutes?: number
+          facility_id: string
+          fee?: number | null
+          id?: string
+          meeting_url?: string | null
+          patient_notes?: string | null
+          platform?: string | null
+          room_id?: string | null
+          scheduled_at: string
+          session_notes?: string | null
+          staff_id?: string | null
+          status?: string
+          user_id: string
+        }
+        Update: {
+          booking_id?: string | null
+          created_at?: string
+          duration_minutes?: number
+          facility_id?: string
+          fee?: number | null
+          id?: string
+          meeting_url?: string | null
+          patient_notes?: string | null
+          platform?: string | null
+          room_id?: string | null
+          scheduled_at?: string
+          session_notes?: string | null
+          staff_id?: string | null
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "telehealth_sessions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "telehealth_sessions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "telehealth_sessions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "telehealth_sessions_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       treatment_catalogs: {
         Row: {
@@ -2721,6 +4743,283 @@ export type Database = {
           },
         ]
       }
+      treatment_plans: {
+        Row: {
+          completed_sessions: number
+          created_at: string
+          diagnosis: string | null
+          duration_weeks: number | null
+          ended_at: string | null
+          facility_id: string
+          frequency: string | null
+          goal: string | null
+          id: string
+          notes: string | null
+          staff_id: string | null
+          started_at: string | null
+          status: string
+          title: string
+          total_sessions: number
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          completed_sessions?: number
+          created_at?: string
+          diagnosis?: string | null
+          duration_weeks?: number | null
+          ended_at?: string | null
+          facility_id: string
+          frequency?: string | null
+          goal?: string | null
+          id?: string
+          notes?: string | null
+          staff_id?: string | null
+          started_at?: string | null
+          status?: string
+          title: string
+          total_sessions?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          completed_sessions?: number
+          created_at?: string
+          diagnosis?: string | null
+          duration_weeks?: number | null
+          ended_at?: string | null
+          facility_id?: string
+          frequency?: string | null
+          goal?: string | null
+          id?: string
+          notes?: string | null
+          staff_id?: string | null
+          started_at?: string | null
+          status?: string
+          title?: string
+          total_sessions?: number
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "treatment_plans_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_plans_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_plans_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      treatment_records: {
+        Row: {
+          assessment: string | null
+          booking_id: string | null
+          created_at: string
+          facility_id: string
+          id: string
+          menu_name: string | null
+          next_visit_note: string | null
+          notes: string | null
+          objective: string | null
+          plan: string | null
+          staff_id: string | null
+          subjective: string | null
+          treated_at: string
+          updated_at: string
+          user_id: string | null
+        }
+        Insert: {
+          assessment?: string | null
+          booking_id?: string | null
+          created_at?: string
+          facility_id: string
+          id?: string
+          menu_name?: string | null
+          next_visit_note?: string | null
+          notes?: string | null
+          objective?: string | null
+          plan?: string | null
+          staff_id?: string | null
+          subjective?: string | null
+          treated_at?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Update: {
+          assessment?: string | null
+          booking_id?: string | null
+          created_at?: string
+          facility_id?: string
+          id?: string
+          menu_name?: string | null
+          next_visit_note?: string | null
+          notes?: string | null
+          objective?: string | null
+          plan?: string | null
+          staff_id?: string | null
+          subjective?: string | null
+          treated_at?: string
+          updated_at?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "treatment_records_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_records_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_records_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "treatment_records_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_coupon_codes: {
+        Row: {
+          code: string
+          created_at: string | null
+          discount_type: string
+          discount_value: number
+          email: string
+          facility_id: string
+          id: string
+          reason: string | null
+          used_at: string | null
+          valid_until: string
+        }
+        Insert: {
+          code: string
+          created_at?: string | null
+          discount_type?: string
+          discount_value: number
+          email: string
+          facility_id: string
+          id?: string
+          reason?: string | null
+          used_at?: string | null
+          valid_until: string
+        }
+        Update: {
+          code?: string
+          created_at?: string | null
+          discount_type?: string
+          discount_value?: number
+          email?: string
+          facility_id?: string
+          id?: string
+          reason?: string | null
+          used_at?: string | null
+          valid_until?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_coupon_codes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_coupon_codes_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_packages: {
+        Row: {
+          expires_at: string | null
+          facility_id: string
+          id: string
+          notes: string | null
+          package_id: string
+          purchased_at: string
+          sessions_remaining: number
+          sessions_total: number
+          user_id: string
+        }
+        Insert: {
+          expires_at?: string | null
+          facility_id: string
+          id?: string
+          notes?: string | null
+          package_id: string
+          purchased_at?: string
+          sessions_remaining: number
+          sessions_total: number
+          user_id: string
+        }
+        Update: {
+          expires_at?: string | null
+          facility_id?: string
+          id?: string
+          notes?: string | null
+          package_id?: string
+          purchased_at?: string
+          sessions_remaining?: number
+          sessions_total?: number
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_packages_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_packages_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_packages_package_id_fkey"
+            columns: ["package_id"]
+            isOneToOne: false
+            referencedRelation: "service_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_points: {
         Row: {
           booking_id: string | null
@@ -2752,6 +5051,201 @@ export type Database = {
             columns: ["booking_id"]
             isOneToOne: false
             referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_preferred_staff: {
+        Row: {
+          created_at: string
+          id: string
+          staff_id: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          staff_id: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          staff_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_preferred_staff_staff_id_fkey"
+            columns: ["staff_id"]
+            isOneToOne: false
+            referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_subscriptions: {
+        Row: {
+          created_at: string
+          ends_at: string | null
+          facility_id: string
+          id: string
+          month_reset_at: string
+          notes: string | null
+          plan_id: string
+          sessions_used_this_month: number
+          started_at: string
+          status: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          ends_at?: string | null
+          facility_id: string
+          id?: string
+          month_reset_at?: string
+          notes?: string | null
+          plan_id: string
+          sessions_used_this_month?: number
+          started_at?: string
+          status?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          ends_at?: string | null
+          facility_id?: string
+          id?: string
+          month_reset_at?: string
+          notes?: string | null
+          plan_id?: string
+          sessions_used_this_month?: number
+          started_at?: string
+          status?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_subscriptions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_subscriptions_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "subscription_plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      webhook_retry_queue: {
+        Row: {
+          attempt_count: number
+          created_at: string
+          facility_id: string | null
+          id: string
+          last_error: string | null
+          max_attempts: number
+          payload: Json
+          processed_at: string | null
+          scheduled_at: string
+          status: string
+          target_id: string
+          webhook_type: string
+        }
+        Insert: {
+          attempt_count?: number
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          payload: Json
+          processed_at?: string | null
+          scheduled_at?: string
+          status?: string
+          target_id: string
+          webhook_type: string
+        }
+        Update: {
+          attempt_count?: number
+          created_at?: string
+          facility_id?: string | null
+          id?: string
+          last_error?: string | null
+          max_attempts?: number
+          payload?: Json
+          processed_at?: string | null
+          scheduled_at?: string
+          status?: string
+          target_id?: string
+          webhook_type?: string
+        }
+        Relationships: []
+      }
+      white_label_domains: {
+        Row: {
+          brand_name: string | null
+          created_at: string
+          domain: string
+          facility_id: string
+          id: string
+          is_verified: boolean
+          logo_url: string | null
+          primary_color: string | null
+          txt_record: string | null
+          updated_at: string
+          verified_at: string | null
+        }
+        Insert: {
+          brand_name?: string | null
+          created_at?: string
+          domain: string
+          facility_id: string
+          id?: string
+          is_verified?: boolean
+          logo_url?: string | null
+          primary_color?: string | null
+          txt_record?: string | null
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Update: {
+          brand_name?: string | null
+          created_at?: string
+          domain?: string
+          facility_id?: string
+          id?: string
+          is_verified?: boolean
+          logo_url?: string | null
+          primary_color?: string | null
+          txt_record?: string | null
+          updated_at?: string
+          verified_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "white_label_domains_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "white_label_domains_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -3030,6 +5524,9 @@ export type Database = {
         Args: { p_key: string; p_limit: number; p_window_ms: number }
         Returns: boolean
       }
+      cleanup_old_audit_logs: { Args: never; Returns: undefined }
+      cleanup_old_cron_logs: { Args: never; Returns: undefined }
+      cleanup_old_webhook_retry: { Args: never; Returns: undefined }
       create_admin_booking_atomic: {
         Args: {
           p_booking_date: string
@@ -3045,6 +5542,10 @@ export type Database = {
           p_start_time: string
           p_total_price: number
         }
+        Returns: string
+      }
+      create_blog_author_atomic: {
+        Args: { p_facility_id: string; p_name: string }
         Returns: string
       }
       create_booking_atomic: {
@@ -3271,6 +5772,18 @@ export type Database = {
       postgis_wagyu_version: { Args: never; Returns: string }
       record_incident_thread: {
         Args: { p_channel: string; p_key: string; p_thread_ts: string }
+        Returns: undefined
+      }
+      reorder_coupons: {
+        Args: { p_facility_id: string; p_ids: string[] }
+        Returns: undefined
+      }
+      reorder_facility_menus: {
+        Args: { p_facility_id: string; p_ids: string[] }
+        Returns: undefined
+      }
+      reorder_facility_photos: {
+        Args: { p_facility_id: string; p_ids: string[] }
         Returns: undefined
       }
       search_facilities_nearby: {
@@ -4052,6 +6565,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
