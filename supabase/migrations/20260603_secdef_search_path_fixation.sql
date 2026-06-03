@@ -28,6 +28,13 @@
 --   ※ Supabase advisor 推奨の `SET search_path = ''`（全参照を schema 修飾）は全関数
 --     本体の書き換えを要し侵襲的。mutable search_path 解消という同等の安全性を
 --     非侵襲で得る本方式を採用する。
+--
+-- 【拡張機能メンバー関数の除外（重要）】
+--   本プロジェクトは PostGIS を public スキーマに導入しているため、PostGIS の
+--   システム関数（例: st_estimatedextent ×3）も public 内の SECURITY DEFINER 関数
+--   として列挙される。これらを ALTER すると PostGIS アップグレードで上書き/破損し得る
+--   うえ、本来アプリの管理対象外。pg_depend(deptype='e') で拡張メンバーを除外し、
+--   アプリ自身が定義した関数だけを固定する（2026-06-03 本番 pg_proc 実査で確認）。
 -- =============================================================================
 
 DO $$
@@ -42,6 +49,10 @@ BEGIN
     JOIN pg_namespace n ON n.oid = p.pronamespace
     WHERE n.nspname = 'public'
       AND p.prosecdef = true                 -- SECURITY DEFINER のみ
+      AND NOT EXISTS (                        -- 拡張機能メンバー（PostGIS 等）は対象外
+        SELECT 1 FROM pg_depend d
+        WHERE d.objid = p.oid AND d.deptype = 'e'
+      )
       AND (
         p.proconfig IS NULL                  -- 設定そのものが無い
         OR NOT EXISTS (                      -- もしくは search_path だけ無い
