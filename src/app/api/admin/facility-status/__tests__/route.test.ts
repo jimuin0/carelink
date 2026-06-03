@@ -8,6 +8,7 @@ jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('next/cache', () => ({ revalidatePath: jest.fn() }));
 
 const uuid = (c: string) => `${c.repeat(8)}-${c.repeat(4)}-4${c.repeat(3)}-8${c.repeat(3)}-${c.repeat(12)}`;
 const FACILITY_UUID = uuid('2');
@@ -105,7 +106,7 @@ test('更新0件 → 404', async () => {
 });
 
 test('正常: 受付停止 → 200 / status=suspended', async () => {
-  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: FACILITY_UUID, status: 'suspended' }], error: null }));
+  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: FACILITY_UUID, status: 'suspended', slug: 'test-salon' }], error: null }));
   const res = await POST(makeRequest({ action: 'suspend' }));
   expect(res.status).toBe(200);
   const json = await res.json();
@@ -113,7 +114,7 @@ test('正常: 受付停止 → 200 / status=suspended', async () => {
 });
 
 test('正常: 受付再開 → 200 / status=published', async () => {
-  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: FACILITY_UUID, status: 'published' }], error: null }));
+  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: FACILITY_UUID, status: 'published', slug: 'test-salon' }], error: null }));
   const res = await POST(makeRequest({ action: 'resume' }));
   expect(res.status).toBe(200);
   const json = await res.json();
@@ -121,7 +122,7 @@ test('正常: 受付再開 → 200 / status=published', async () => {
 });
 
 test('audit用 getUser が null でも 200（userId null 分岐）', async () => {
-  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: FACILITY_UUID, status: 'suspended' }], error: null }));
+  mockAdminFrom.mockReturnValueOnce(chain({ data: [{ id: FACILITY_UUID, status: 'suspended', slug: 'test-salon' }], error: null }));
   mockGetUser
     .mockResolvedValueOnce({ data: { user: { id: USER_ID } } })
     .mockResolvedValueOnce({ data: { user: null } });

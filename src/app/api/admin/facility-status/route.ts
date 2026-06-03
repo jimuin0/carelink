@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { safeCaptureException } from '@/lib/safe';
+import { revalidateFacilityPublicPages } from '@/lib/revalidate';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
       .from('facility_profiles')
       .update({ status: newStatus, updated_at: new Date().toISOString() })
       .eq('id', facilityId)
-      .select('id, status');
+      .select('id, status, slug');
 
     if (error) {
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
@@ -67,6 +68,9 @@ export async function POST(request: NextRequest) {
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
     }
+
+    // 公開/非公開の切替を公開ページ(ISR)へ即時反映（非公開化したのにページが残る/公開したのに出ない を防ぐ・round6）
+    revalidateFacilityPublicPages((updated[0] as { slug?: string }).slug);
 
     const supabaseAuth = await createServerSupabaseAuthClient();
     const { data: { user } } = await supabaseAuth.auth.getUser();
