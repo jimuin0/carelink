@@ -89,7 +89,7 @@ npm run lint  # ESLint
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0（2026-06-03 確認、HPB同等化＋8観点監査の根本対策反映後） |
-| L2 | Jest ユニットテスト | ✅ | 4899 テスト全通過、205 スイート（2026-06-03、round5＋PAY.JP移行＋残バグ修正のテスト追加） |
+| L2 | Jest ユニットテスト | ✅ | 4919 テスト全通過、207 スイート（2026-06-03、round6 修正のテスト追加） |
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/lib(blog,suspensions)）。2026-06-03 |
 | L4 | Stryker ミューテーション | ✅ | 全12ファイル survived=0（2026-06-03、lib/suspensions.ts を追加し mutation score 100%）。lib/blog.ts は supabase IO ありで L4基準「外部副作用なし」非該当のため対象外。 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
@@ -154,6 +154,31 @@ npm run lint  # ESLint
 
 **判断保留（PAY.JP 移行で解消予定）:**
 - 🔴 Stripe webhook 2系統分裂 → PAY.JP 移行（同期課金で webhook 依存が消える）で構造的に解消するため Stripe個別修正は記録のみ。[[payjp-migration-pending]]
+
+### 8観点監査 ラウンド6（2026-06-03）
+
+8体エージェント＋統合で被らない8観点（例外握りつぶし / Nextキャッシュ整合 / 暗黙行上限 / 入力正規化・重複 /
+認証セッション境界 / アップロード境界 / カウンタ並行更新 / SSRF・ログPII）を監査。
+認証セッション境界・カウンタ並行更新・SSRF の3観点は健全確認（既存対策が保持）。確認した全件を根本修正。
+
+**修正済み（発症前の恒久対策・全push済み）:**
+- 🔴 予約ポイント控除 insert/recheck の error 握りつぶし → 失敗時は予約取消で整合維持（値引き＋ポイント据え置きの二重特典防止）
+- 🟡 入力正規化の非対称（最良の真の予防・1原因→3症状一掃）: bookingSchema の email を保存時小文字化・name trim。
+  既存是正マイグレーション 20260604_normalize_booking_email.sql。クーポン二重取得・顧客分裂・属性突合漏れを解消。
+- 🟡 行上限(PostgREST 1000)取りこぼし: LIFFポイント残高(全件SUM RPC)・accounting-export/backup/newsletter/flag-reviews/
+  getMonthlyBookingCounts を .range() 全件ページング化（共有 lib/paginate.ts）。
+- 🟡 Nextキャッシュ陳腐化: 公開ページ on-demand 再検証を lib/revalidate.ts に集約し、施設の公開/非公開＋
+  メニュー/クーポン/スタッフ/写真/ブログの全 create/update/delete から呼び出し（最大1時間の陳腐化を解消）。
+- 🟡 クーポン image_url スキーム検証欠落 → blog の IMAGE_URL を lib/image-url-schema.ts に共通化し横展開。
+- 🟢 アバターMIME検証/アップロード拡張子のfile.name依存排除/customer-segment のPIIログマスク/middlewareコメント是正。
+
+**🔴 神原さん 適用待ちマイグレーション（round5/6・ファイル名順）:**
+`20260604_cancel_fee_paid_slot_release.sql`（round5）/ `20260604_payjp_charge_column.sql` /
+`20260604_normalize_booking_email.sql` / `20260604_user_points_balance_rpc.sql`
+
+**残課題（根本解決の方向性は確定・別タスク）:**
+- customer-segment の RFM集計が2年2000件超の繁忙施設で頭打ち → email別集計RPC化（行数非依存）。
+- Nextブログ予約投稿(scheduled_at)の時刻到来公開が ISR ラグを受ける → 予約時刻での revalidateTag 発火 or 短縮revalidate。
 
 ### 決済プロバイダ移行 Stripe → PAY.JP（2026-06-03 着手・神原さん方針）
 
