@@ -53,6 +53,9 @@ export async function GET(request: Request) {
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
     for (const job of jobs) {
+      // 「外部送信(不可逆)」と「成功マークのDB書き込み」を分離する（round5 #通知-1）。
+      // 送信成功後に success 更新が失敗しても再送(=重複配信)しない。delivered 確定後の例外は再送対象外。
+      let delivered = false;
       try {
         if (job.webhook_type === 'line_push') {
           await sendLineText(job.target_id, job.payload.message as string);
@@ -65,9 +68,11 @@ export async function GET(request: Request) {
             html: p.html,
           });
         }
+        delivered = true;
 
-        // 成功
-        await supabase
+        // 成功マーク。ここでの失敗は配信済みを覆さない（再送せずログのみ。job は processing のまま残るが
+        // 本cronは pending のみ拾うため二重配信は起きない）。supabase は throw せず {error} を返す経路。
+        const { error: markErr } = await supabase
           .from('webhook_retry_queue')
           .update({
             status: 'success',
@@ -75,9 +80,19 @@ export async function GET(request: Request) {
             processed_at: new Date().toISOString(),
           })
           .eq('id', job.id);
+        if (markErr) {
+          console.error('[webhook-retry] delivered but success-mark failed (will NOT resend)', { id: job.id, err: markErr.message });
+        }
         success++;
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);
+        if (delivered) {
+          // 配信後の例外（success更新の throw 等）は再送しない＝顧客への重複配信を防ぐ。
+          console.error('[webhook-retry] delivered but post-send exception; NOT rescheduling', { id: job.id, err: errorMsg });
+          success++;
+          continue;
+        }
+        // 配信前の失敗のみ再送対象。
         await scheduleRetry(job.id, job.attempt_count + 1, errorMsg);
         failed++;
       }

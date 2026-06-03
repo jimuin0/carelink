@@ -58,8 +58,17 @@ import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
+// 予約変更は JST 過去日ガード(>= 今日, <= 1年先)が入るため、固定日でなく動的な未来日を使う（再現性確保）。
+function futureDate(daysAhead = 60): string {
+  const t = new Date(Date.now() + 9 * 3600 * 1000); // JST
+  const ms = Date.UTC(t.getUTCFullYear(), t.getUTCMonth(), t.getUTCDate(), 12) + daysAhead * 86400000;
+  const d = new Date(ms);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+const FUTURE_DATE = futureDate(60);
+
 const VALID_BODY = {
-  booking_date: '2026-12-01',
+  booking_date: FUTURE_DATE,
   start_time: '14:00',
   end_time: '15:00',
 };
@@ -149,7 +158,23 @@ test('booking_date が不正フォーマット → 400', async () => {
 });
 
 test('start_time が不正フォーマット → 400', async () => {
-  const res = await POST(makeRequest({ booking_date: '2026-12-01', start_time: '14時', end_time: '15:00' }), makeProps());
+  const res = await POST(makeRequest({ booking_date: FUTURE_DATE, start_time: '14時', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+// round5 #TZ-2: 予約変更にも作成と同一の JST 日付境界ゲートが効くことを実証
+test('過去日への変更 → 400（JST過去日ガード）', async () => {
+  const res = await POST(makeRequest({ booking_date: '2020-01-01', start_time: '14:00', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('1年超先への変更 → 400（JST上限ガード）', async () => {
+  const res = await POST(makeRequest({ booking_date: '2099-01-01', start_time: '14:00', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('暦上不正な日付(月13) → 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2026-13-01', start_time: '14:00', end_time: '15:00' }), makeProps());
   expect(res.status).toBe(400);
 });
 
@@ -309,7 +334,7 @@ test('HH:MM:SS 形式の start_time も受け付ける', async () => {
     return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
   });
   const res = await POST(
-    makeRequest({ booking_date: '2026-12-01', start_time: '14:00:00', end_time: '15:00:00' }),
+    makeRequest({ booking_date: FUTURE_DATE, start_time: '14:00:00', end_time: '15:00:00' }),
     makeProps()
   );
   expect(res.status).toBe(200);
@@ -401,7 +426,7 @@ test('時間重複チェック: 隣接時間（重複なし）は予約可能', 
     return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
   });
   const res = await POST(
-    makeRequest({ booking_date: '2026-12-01', start_time: '13:00', end_time: '14:00' }),
+    makeRequest({ booking_date: FUTURE_DATE, start_time: '13:00', end_time: '14:00' }),
     makeProps()
   );
   expect(res.status).toBe(200);

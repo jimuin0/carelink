@@ -226,6 +226,29 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).toHaveBeenCalled();
   });
 
+  // round5 #通知-1: 配信成功後に success 更新が失敗しても再送しない（顧客への重複配信防止）
+  test('配信後に success更新が{error}返却 → 再送せず処理成功扱い', async () => {
+    setupDefaultMocks(1);
+    mockSuccessUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'db write failed' } }) });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(scheduleRetry).not.toHaveBeenCalled(); // 配信済みのため再送しない
+    expect(json.processed).toBe(2);
+  });
+
+  test('配信後に success更新がthrow → 再送せず処理成功扱い（delivered ガード）', async () => {
+    setupDefaultMocks(1);
+    mockSuccessUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockRejectedValue(new Error('db throw')) });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(scheduleRetry).not.toHaveBeenCalled(); // delivered 後の例外は再送対象外
+    expect(json.processed).toBe(2);
+  });
+
   test('failure includes error message and attempt_count++', async () => {
     setupDefaultMocks(1, false, true);
 

@@ -9,11 +9,18 @@ import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 
 export const dynamic = 'force-dynamic';
 
+// 予約変更も作成(bookingSchema)と同一の JST 日付境界を強制する（round5 #TZ-2）。
+// 以前は構文チェックのみで過去日への変更を受理し得た（作成APIと非対称・表示層の過去日full化とも不整合）。
 const changeSchema = z.object({
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date' }),
+  booking_date: z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date' }) // 月13/2/30 等の暦上不正日を拒否
+    .refine((d) => d >= getTodayString(), { message: '過去の日付には変更できません' })
+    .refine((d) => d <= getMaxDateString(), { message: '1年以上先の日付には変更できません' }),
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
 });
