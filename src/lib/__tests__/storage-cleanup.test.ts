@@ -1,7 +1,8 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/storage-cleanup.ts（画像削除時の孤児化防止 #06）
+ * env は Stryker(L4) と通常 jest の双方で動くミックスイン環境に統一（suspensions.test と同様）。
  */
 import { storagePathFromPublicUrl, storagePathsFromUrls, UPLOAD_BUCKET } from '../storage-cleanup';
 
