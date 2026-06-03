@@ -126,3 +126,40 @@ npm run lint  # ESLint
 3. `20260604_concurrency_hardening.sql`（#H/#I/#J）
 4. `20260604_facility_customers_rpc.sql`（#F）
 → 本番でフォールバックではなく本来の RPC・advisory lock・確定層ゲートが有効。
+
+### 8観点監査 ラウンド5（2026-06-03）
+
+8体エージェント＋統合で被らない8観点（決済webhook / 通知副作用 / zod入力境界 / 時刻TZ全域 / RLS実体 /
+トランザクション部分失敗 / 金額計算 / 予約状態機械）を監査。RLS実体は健全確認（残 referral_codes Low 1件）。
+
+**修正済み（発症前の恒久対策・push済み）:**
+- 🔴 cancel_fee_paid を占有判定から除外し枠解放（真の予防）。SQL `booking_status_occupies()` 関数＋
+  アプリ `NON_OCCUPYING_STATUS_FILTER` 定数に占有判定を一元集約（今後のステータス追加に追従）。
+- Stripe webhook の cancel_fee を `status='cancelled'` ガード（状態遷移マシン迂回を封鎖）
+- キャンセル料 daysUntil を JST暦日差に是正（UTC起点の料率1段ズレ＝金銭）
+- 予約変更API に JST過去日/上限/暦上不正日ガード追加（作成APIと対称化）
+- webhook-retry の配信後例外を再送対象外化（二重配信防止）
+- 施設検索 .or() フィルタ注入を無害化（getFeaturedFacilities type/area・searchFacilities keyword）
+- L4衛生: storage-cleanup.test の jest env を Stryker mixin に統一（ドライラン破壊の取りこぼし是正）
+
+**🔴 神原さん 適用待ちマイグレーション:** `20260604_cancel_fee_paid_slot_release.sql`（占有判定一元化）
+
+**判断保留（神原さん確認待ち・事実として未修正）:**
+- 🔴 Stripe webhook 2系統分裂（登録 `/api/payment/webhook` は payment_status のみ、未登録 `/api/stripe/webhook`
+  に stripe_sessions確定/cancel_fee遷移/広告公開/deposit確定が偏在）→ **PAY.JP 移行で解消する前提**で Stripe個別修正は記録のみ。
+- account削除の部分失敗で孤児PII / group-booking 部分失敗ロールバック無し / waitlist-notify 通知喪失 /
+  accounting-export が存在しない列(total_amount/menu_name)参照で500（会計=集計領域）/ referral_codes 公開読取(Low)
+
+### 決済プロバイダ移行 Stripe → PAY.JP（2026-06-03 着手・神原さん方針）
+
+PAY.JP はホスト型リダイレクト決済が無く「クライアントでトークン化→サーバ `charges.create` 同期課金」型。
+Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
+
+- ✅ Phase 0 基盤: `payjp@3.1.2` 導入、`src/lib/payjp.ts`（getPayjp/PAYJP_SECRET_KEY 未設定なら null）
+- ✅ Phase 1 予約事前決済: `POST /api/payment/payjp/charge`（token→同期課金→payment_status=paid 確定）。
+  migration `20260604_payjp_charge_column.sql`（bookings.payjp_charge_id 加算）。branch100%。
+- ⏭️ キャンセル料: 神原さん指示でスキップ
+- 🔲 Phase 3 有料広告 / Phase 4 webhook(非同期)・領収書 / Phase 5 Stripe撤去: 未着手
+
+**🔴 GO LIVE 前ゲート（神原さん）:** ①PAYJP_SECRET_KEY・公開鍵を本番/テスト環境変数に設定（会話に貼らない）
+②クライアント payjp.js 連携（決済UI）③テストモードで実機決済1本を確証（→確証後に Phase3〜5 を複製）
