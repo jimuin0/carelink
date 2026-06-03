@@ -144,11 +144,16 @@ npm run lint  # ESLint
 
 **🔴 神原さん 適用待ちマイグレーション:** `20260604_cancel_fee_paid_slot_release.sql`（占有判定一元化）
 
-**判断保留（神原さん確認待ち・事実として未修正）:**
-- 🔴 Stripe webhook 2系統分裂（登録 `/api/payment/webhook` は payment_status のみ、未登録 `/api/stripe/webhook`
-  に stripe_sessions確定/cancel_fee遷移/広告公開/deposit確定が偏在）→ **PAY.JP 移行で解消する前提**で Stripe個別修正は記録のみ。
-- account削除の部分失敗で孤児PII / group-booking 部分失敗ロールバック無し / waitlist-notify 通知喪失 /
-  accounting-export が存在しない列(total_amount/menu_name)参照で500（会計=集計領域）/ referral_codes 公開読取(Low)
+**追加修正済み（2026-06-03・神原さん「残りの確定バグを全部修正」指示）:**
+- 🔴 account削除の部分失敗で孤児PII → 部分失敗時は auth.users を消さず500（冪等再実行で完遂）
+- 🟡 group-booking 部分失敗 → 補償削除でロールバックして500
+- 🟡 waitlist-notify 送信失敗で通知喪失 → claim を waiting に戻し次回再通知
+- 🟡 accounting-export 存在しない列(total_amount/menu_name)で500 → 実列(total_price/customer_name/menu結合)に是正＋テストモックも実スキーマ化
+- 🟢 referral_codes 公開読取 → 20260420 で既にDROP済み（誤検知・是正済み確認）
+全API branch100%維持・131テスト通過。
+
+**判断保留（PAY.JP 移行で解消予定）:**
+- 🔴 Stripe webhook 2系統分裂 → PAY.JP 移行（同期課金で webhook 依存が消える）で構造的に解消するため Stripe個別修正は記録のみ。[[payjp-migration-pending]]
 
 ### 決済プロバイダ移行 Stripe → PAY.JP（2026-06-03 着手・神原さん方針）
 
