@@ -48,18 +48,21 @@ export async function GET(request: Request) {
 
   let slots = (data ?? []) as AvailableSlot[];
   if (slots.length > 0) {
-    // 時間帯停止(#03/#09/#10): 当該日の停止範囲に重なるスロットを除外
-    const { data: sus } = await supabase
-      .from('facility_booking_suspensions').select('start_time, end_time')
-      .eq('facility_id', facilityId).eq('suspend_date', date);
+    // 停止範囲・日別受付上限は相互に独立 → 並列取得で直列レイテンシを削減（round4 perf #E）
+    const [{ data: sus }, { data: cap }] = await Promise.all([
+      // 時間帯停止(#03/#09/#10): 当該日の停止範囲に重なるスロットを除外
+      supabase
+        .from('facility_booking_suspensions').select('start_time, end_time')
+        .eq('facility_id', facilityId).eq('suspend_date', date),
+      // 受付可能枠数（日別 #05/#46）: 当日の予約数が上限に達していれば当日のネット予約を停止
+      supabase
+        .from('facility_daily_capacity').select('max_bookings')
+        .eq('facility_id', facilityId).eq('capacity_date', date).maybeSingle(),
+    ]);
     if (sus && sus.length > 0) {
       const ranges = sus as SuspensionRange[];
       slots = slots.filter((s) => !isRangeSuspended(s.slot_start, s.slot_end, ranges));
     }
-    // 受付可能枠数（日別 #05/#46）: 当日の予約数が上限に達していれば当日のネット予約を停止
-    const { data: cap } = await supabase
-      .from('facility_daily_capacity').select('max_bookings')
-      .eq('facility_id', facilityId).eq('capacity_date', date).maybeSingle();
     const maxBookings = (cap as { max_bookings: number } | null)?.max_bookings;
     if (typeof maxBookings === 'number') {
       const { count } = await supabase

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -85,6 +85,12 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   // 履歴取得が失敗した場合は null（判定不能）にして「新規」バッジを誤表示しない
   const [priorKeys, setPriorKeys] = useState<Set<string> | null>(new Set());
   const [listingReloadKey, setListingReloadKey] = useState(0); // 掲載ステータス再取得トリガ
+  // ListingBoard へ渡すコールバックは useCallback で安定参照にする（round4 hooks #D）。
+  // インライン関数だと60秒タイマー等の親再レンダーごとに identity が変わり、子の load/reload 系
+  // useCallback が再生成→useEffect([load]) 再発火で掲載6テーブルが無駄に全再取得されるため。
+  // setToast/setListingReloadKey は React が同一性を保証する setter なので空依存で安全。
+  const handleListingToast = useCallback((message: string) => setToast({ type: 'success', message }), []);
+  const handleReloadStatus = useCallback(() => setListingReloadKey((k) => k + 1), []);
   const [section, setSection] = useState<'reservation' | 'customers' | 'listing' | 'sales' | 'billing' | 'settings'>('reservation');
   const [sales, setSales] = useState<{ monthCount: number; monthSum: number; todayCount: number; todaySum: number; byDay: Record<string, { c: number; s: number }> } | null>(null);
   const [salesLoading, setSalesLoading] = useState(false);
@@ -93,6 +99,14 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [custSearch, setCustSearch] = useState('');
   const [custSearchVisit, setCustSearchVisit] = useState('');
   const [custSearchSince, setCustSearchSince] = useState('');
+  // 検索条件適用後の顧客リスト。フィルタ後0件と元データ0件を区別して空状態を出し分ける（round4 #K）。
+  const filteredCustomers = useMemo(() => customers.filter((c) => {
+    const q = custSearch.trim().toLowerCase();
+    if (q && !(c.name.toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q))) return false;
+    if (custSearchVisit && c.count < Number(custSearchVisit)) return false;
+    if (custSearchSince && c.last < custSearchSince) return false;
+    return true;
+  }), [customers, custSearch, custSearchVisit, custSearchSince]);
   const [custDetail, setCustDetail] = useState<{
     name: string; email: string | null; phone: string | null; loading: boolean; error?: boolean;
     totalSum: number; profile: { birth_date: string | null; gender: string | null; prefecture: string | null; city: string | null } | null;
@@ -333,7 +347,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   const [rangeBookings, setRangeBookings] = useState<{ id: string; booking_date: string; start_time: string; end_time: string; status: string; customer_name: string; staff_id: string | null; menu_id: string | null }[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
   useEffect(() => {
-    if (view === 'day') return;
+    // 週/月の範囲予約は予約セクション専用。他セクション表示中や日ビューでは取得不要（round4 hooks #K）。
+    if (section !== 'reservation' || view === 'day') return;
     let cancelled = false;
     (async () => {
       setRangeLoading(true);
@@ -351,7 +366,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       setRangeLoading(false);
     })().catch(() => { if (!cancelled) setRangeLoading(false); });
     return () => { cancelled = true; };
-  }, [view, date, facilityId]);
+  }, [section, view, date, facilityId]);
 
   useEffect(() => {
     const update = () => {
@@ -950,13 +965,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                 ))}</tr>
               </thead>
               <tbody>
-                {customers.filter((c) => {
-                  const q = custSearch.trim().toLowerCase();
-                  if (q && !(c.name.toLowerCase().includes(q) || (c.phone || '').includes(q) || (c.email || '').toLowerCase().includes(q))) return false;
-                  if (custSearchVisit && c.count < Number(custSearchVisit)) return false;
-                  if (custSearchSince && c.last < custSearchSince) return false;
-                  return true;
-                }).map((c) => (
+                {filteredCustomers.map((c) => (
                   <tr key={c.key} className="border-b border-gray-100 hover:bg-sky-50 cursor-pointer" onClick={() => openCustomerHistory(c)}>
                     <td className="px-3 py-2 font-bold whitespace-nowrap">{c.name} 様</td>
                     <td className="px-3 py-2 whitespace-nowrap">{c.phone || '—'}</td>
@@ -965,8 +974,8 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                     <td className="px-3 py-2 whitespace-nowrap">{c.last}</td>
                   </tr>
                 ))}
-                {customers.length === 0 && (
-                  <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">お客様データがありません</td></tr>
+                {filteredCustomers.length === 0 && (
+                  <tr><td colSpan={5} className="px-3 py-10 text-center text-gray-400">{customers.length === 0 ? 'お客様データがありません' : '該当するお客様がいません'}</td></tr>
                 )}
               </tbody>
             </table>
@@ -979,7 +988,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         listingLoading || !listing ? (
           <div className="flex-1 overflow-auto bg-gray-50 p-4"><div className="animate-pulse"><div className="h-48 bg-gray-200 rounded max-w-2xl" /></div></div>
         ) : (
-          <ListingBoard facilityId={facilityId} salonName={listing.name} status={listing.status} onToast={(message) => setToast({ type: 'success', message })} onReloadStatus={() => setListingReloadKey((k) => k + 1)} />
+          <ListingBoard facilityId={facilityId} salonName={listing.name} status={listing.status} onToast={handleListingToast} onReloadStatus={handleReloadStatus} />
         )
       )}
 

@@ -73,9 +73,15 @@ function minToHM(min: number | null): string {
   return `${h ? `${h}時間` : ''}${m ? `${m}分` : h ? '' : ''}`;
 }
 // HPB 文字数カウンタ：半角は 0.5 換算
+// 半角カナ(U+FF61–U+FF9F)も半角として 0.5 換算する（round4 display #K）。
+// 以前は <= 0xFF のみ半角扱いで、半角カナをコードポイント超過のため全角(1.0)と誤カウントしていた。
 function hpbLen(s: string): number {
   let n = 0;
-  for (const ch of s) n += ch.charCodeAt(0) <= 0xff ? 0.5 : 1;
+  for (const ch of s) {
+    const code = ch.charCodeAt(0);
+    const isHalfWidth = code <= 0xff || (code >= 0xff61 && code <= 0xff9f);
+    n += isHalfWidth ? 0.5 : 1;
+  }
   return n;
 }
 
