@@ -1,0 +1,140 @@
+name: SECURITY DEFINER search_path Lint
+
+# 発症前予防（L6）: SECURITY DEFINER 関数を SET search_path 固定なしで「新規追加」する
+# migration を PR 段階で弾く。20260603_secdef_search_path_fixation.sql が本番を一括
+# 是正した後、新規 migration で未固定の SECURITY DEFINER 関数が再混入するのを物理的に
+# 防止するチョークポイント（症状対処でなく恒久予防）。
+#
+# 【スコープ設計】
+#   既存（歴史的）migration は本番一括是正 migration の動的 ALTER で固定済みのため、
+#   ファイル本文を後追い編集しない方針。よって本 lint は「この PR/push で新規追加
+#   または変更された migration のみ」を対象にし、歴史的ファイルはグランドファザリングする。
+#   これにより歴史的未固定で常時 fail することなく、新規混入だけを確実に弾く。
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+      - '.github/workflows/secdef-search-path-lint.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Reject newly-added SECURITY DEFINER without SET search_path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # diff 計算のため履歴を取得
+
+      - name: Determine changed migration files
+        id: changed
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="origin/${{ github.base_ref }}"
+            git fetch origin "${{ github.base_ref }}" --depth=1 || true
+            RANGE="${BASE}...HEAD"
+          else
+            # push: 直前コミットとの差分（初回 push 等で before が 0 の場合は全件にフォールバック）
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+               || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              RANGE=""
+            else
+              RANGE="${BEFORE}...HEAD"
+            fi
+          fi
+          if [ -z "$RANGE" ]; then
+            FILES=$(git ls-files 'supabase/migrations/**.sql')
+          else
+            FILES=$(git diff --name-only --diff-filter=d "$RANGE" -- 'supabase/migrations/**.sql')
+          fi
+          echo "files<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FILES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+          echo "Changed migrations:"; echo "$FILES"
+
+      - name: Lint changed migrations
+        env:
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
+        run: |
+          python3 - <<'PY'
+          import os, re, sys
+
+          FIX_FILE = '20260603_secdef_search_path_fixation.sql'
+          files = [f.strip() for f in os.environ.get('CHANGED_FILES', '').splitlines() if f.strip()]
+          if not files:
+              print("✅ 対象となる新規/変更 migration なし")
+              sys.exit(0)
+
+          def strip_sql_comments(sql: str) -> str:
+              # /* ... */ ブロックコメントと -- 行コメントを除去（コメント中の
+              # "SECURITY DEFINER" 等の誤検出を防ぐ）。文字列リテラル内は単純化のため
+              # 区別しないが、本用途（DDL 検査）では実害なし。
+              sql = re.sub(r'/\*.*?\*/', ' ', sql, flags=re.DOTALL)
+              sql = re.sub(r'--[^\n]*', ' ', sql)
+              return sql
+
+          # CREATE [OR REPLACE] FUNCTION 名(...) ... 本体 $tag$...$tag$ ... ; を 1 件ずつ抽出。
+          # 本体のドル引用タグ（$$ または $name$）に対応し、本体終端〜直後の ; までを
+          # 関数定義ブロックとして扱う。
+          func_re = re.compile(
+              r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(?P<name>\w+)\s*\([^;]*?\)'
+              r'.*?AS\s+(?P<tag>\$\w*\$).*?(?P=tag)'   # 本体（ドル引用）
+              r'(?P<attrs>[^;]*?);',                   # 本体後の属性（LANGUAGE / SECURITY 等）〜;
+              re.IGNORECASE | re.DOTALL,
+          )
+
+          errors = []
+          for path in files:
+              if path.endswith(FIX_FILE):
+                  continue  # 一括是正 migration 自身（動的 ALTER）は対象外
+              if not os.path.exists(path):
+                  continue
+              with open(path, encoding='utf-8') as fh:
+                  raw = fh.read()
+              sql = strip_sql_comments(raw)
+
+              # 同一ファイル内で ALTER FUNCTION <name>(...) SET search_path 済みの関数名
+              altered = set(
+                  m.group(1).lower()
+                  for m in re.finditer(
+                      r'ALTER\s+FUNCTION\s+(?:public\.)?(\w+)\s*\([^)]*\)\s+SET\s+search_path',
+                      sql, re.IGNORECASE)
+              )
+              # DO ブロックで動的に search_path を ALTER しているファイルは丸ごと許容
+              if re.search(r'ALTER\s+FUNCTION[^\n;]*SET\s+search_path', sql, re.IGNORECASE) \
+                 and re.search(r'\bDO\s+\$\$', sql, re.IGNORECASE):
+                  continue
+
+              for m in func_re.finditer(sql):
+                  body_and_attrs = m.group(0)
+                  if not re.search(r'SECURITY\s+DEFINER', body_and_attrs, re.IGNORECASE):
+                      continue
+                  if re.search(r'SET\s+search_path', body_and_attrs, re.IGNORECASE):
+                      continue
+                  fname = m.group('name')
+                  if fname.lower() in altered:
+                      continue
+                  errors.append(f"{path}: function `{fname}` is SECURITY DEFINER but has no SET search_path")
+
+          if errors:
+              print("🔴 新規/変更 migration の SECURITY DEFINER 関数に search_path 固定がありません:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("")
+              print("【対応】関数定義に次のいずれかを付与してください:")
+              print("  ... $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp;")
+              print("  （pg_temp を最後に明示し temp テーブルの shadowing を封じる）")
+              print("  もしくは ALTER FUNCTION <name>(<args>) SET search_path = ...; を同一 migration に追加")
+              sys.exit(1)
+
+          print("✅ 新規/変更 migration の SECURITY DEFINER 関数は全て search_path 固定済み")
+          PY
