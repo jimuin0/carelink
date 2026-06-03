@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { storagePathFromPublicUrl, UPLOAD_BUCKET } from '@/lib/storage-cleanup';
 
 const VALID_PHOTO_TYPES = ['main', 'interior', 'exterior', 'staff', 'menu', 'other'] as const;
 // マイグレーション部分適用環境でも500にしないための拡張カラム
@@ -97,8 +98,12 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+  // 孤児化防止(#06): DB行削除前に photo_url を取得し、削除成功後に Storage 実体も消す
+  const { data: row } = await admin.from('facility_photos').select('photo_url').eq('id', params.id).eq('facility_id', facilityId).maybeSingle();
   const { error } = await admin.from('facility_photos').delete().eq('id', params.id).eq('facility_id', facilityId);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  const path = storagePathFromPublicUrl((row as { photo_url: string | null } | null)?.photo_url);
+  if (path) { try { await admin.storage.from(UPLOAD_BUCKET).remove([path]); } catch { /* 実体削除失敗はDB削除を覆さない(孤児sweepで回収) */ } }
 
   void writeAuditLog({ userId: user.id, facilityId, action: 'delete', tableName: 'facility_photos', recordId: params.id, ipAddress: ip });
   return NextResponse.json({ message: 'deleted' });

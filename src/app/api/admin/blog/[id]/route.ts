@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { storagePathsFromUrls, UPLOAD_BUCKET } from '@/lib/storage-cleanup';
 
 // 画像URLは https もしくは data:image(svg除く) のみ許可（公開<img>直挿しへの多層防御・round3 #16）
 const IMAGE_URL = z.string().max(200000).refine(
@@ -123,6 +124,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+  // 孤児化防止(#06): 削除前に thumbnail_url + image_urls を取得し、DB削除成功後に Storage 実体も消す
+  const { data: row } = await admin.from('blog_posts').select('thumbnail_url, image_urls').eq('id', params.id).eq('facility_id', facilityId).maybeSingle();
   const { error } = await admin
     .from('blog_posts')
     .delete()
@@ -130,5 +133,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('facility_id', facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  const r = row as { thumbnail_url: string | null; image_urls: string[] | null } | null;
+  const paths = storagePathsFromUrls([r?.thumbnail_url, ...((r?.image_urls) ?? [])]);
+  if (paths.length > 0) { try { await admin.storage.from(UPLOAD_BUCKET).remove(paths); } catch { /* 実体削除失敗はDB削除を覆さない */ } }
   return NextResponse.json({ ok: true });
 }

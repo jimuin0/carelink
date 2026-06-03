@@ -292,3 +292,13 @@ test('POST: image_urls 5枚 → 400（上限4枚）', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   expect((await POST(makeRequest(validBody({ image_urls: ['a', 'b', 'c', 'd', 'e'] })))).status).toBe(400);
 });
+
+test('POST: thumbnail_url が data:image → 201（IMAGE_URL refine data経路・round3 #16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-img' }));
+  expect((await POST(makeRequest(validBody({ thumbnail_url: 'data:image/png;base64,AAAA' })))).status).toBe(201);
+});
+test('POST: thumbnail_url が javascript: → 400（危険スキーム拒否・#16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  expect((await POST(makeRequest(validBody({ thumbnail_url: 'javascript:alert(1)' })))).status).toBe(400);
+});

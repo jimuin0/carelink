@@ -21,12 +21,13 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockAdminFrom = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
+const mockStorageRemove = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, storage: { from: () => ({ remove: mockStorageRemove }) } }),
 }));
 
 import { PATCH, DELETE } from '../route';
@@ -207,9 +208,12 @@ test('DELETE: DELETEのWHEREにfacility_idが含まれ成功 → 200', async () 
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
   const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
 
+  // pre-delete: image_url 取得（null → Storage削除なし）
+  const imgChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { image_url: null } })) }) }) }) };
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return imgChain;
     return { delete: deleteMock };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
@@ -222,11 +226,25 @@ test('DELETE: DELETEのWHEREにfacility_idが含まれ成功 → 200', async () 
   expect(innerEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
 });
 
+test('DELETE: image_url が carelink-uploads → Storage実体も削除(#06)', async () => {
+  mockStorageRemove.mockClear();
+  let n = 0;
+  const imgChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { image_url: 'https://x.supabase.co/storage/v1/object/public/carelink-uploads/coupons/c.jpg' } })) }) }) }) };
+  const delChain = { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+  mockAdminFrom.mockImplementation(() => { n++; if (n === 1) return singleChain({ facility_id: FACILITY_UUID }); if (n === 2) return imgChain; return delChain; });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
+  expect(mockStorageRemove).toHaveBeenCalledWith(['coupons/c.jpg']);
+});
+
 test('DELETE: DB削除失敗 → 500', async () => {
   let adminCallNum = 0;
+  const imgChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { image_url: null } })) }) }) }) };
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return imgChain;
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({

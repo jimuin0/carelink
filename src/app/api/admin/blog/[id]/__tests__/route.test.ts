@@ -20,12 +20,13 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockStorageRemove = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, storage: { from: () => ({ remove: mockStorageRemove }) } }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -69,8 +70,10 @@ function updateFacilityChain(data: unknown, error: unknown = null) {
   };
 }
 
-function deleteFacilityChain(error: unknown = null) {
+function deleteFacilityChain(error: unknown = null, row: { thumbnail_url: string | null; image_urls: string[] | null } = { thumbnail_url: null, image_urls: null }) {
   return {
+    // DELETE は pre-delete の select(thumbnail_url,image_urls).maybeSingle() と delete() の双方を呼ぶ
+    select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: row })) }) }) }),
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         eq: jest.fn(() => Promise.resolve({ error })),
@@ -172,13 +175,25 @@ test('DELETE: DB削除失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-test('DELETE: 正常削除 → 200 ok:true', async () => {
+test('DELETE: 正常削除 → 200 ok:true（画像なし→Storage削除なし）', async () => {
+  mockStorageRemove.mockClear();
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(deleteFacilityChain(null));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+  expect(mockStorageRemove).not.toHaveBeenCalled();
+});
+
+test('DELETE: thumbnail/image_urls の carelink-uploads 実体も削除(#06)', async () => {
+  mockStorageRemove.mockClear();
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const base = 'https://x.supabase.co/storage/v1/object/public/carelink-uploads/';
+  mockAdminFrom.mockReturnValue(deleteFacilityChain(null, { thumbnail_url: base + 'blog/t.jpg', image_urls: [base + 'blog/1.jpg', 'data:image/png;base64,AAAA'] }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
+  expect(mockStorageRemove).toHaveBeenCalledWith(['blog/t.jpg', 'blog/1.jpg']); // data URI は除外
 });
 
 test('PATCH: CSRF エラー → 403', async () => {
@@ -336,4 +351,14 @@ test('PATCH: image_urls 指定 → 200', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
   expect((await PATCH(makeRequest('PATCH', { image_urls: ['https://x/a.jpg'] }), makeProps())).status).toBe(200);
+});
+
+test('PATCH: image_urls に data:image → 200（IMAGE_URL refine data経路・#16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { image_urls: ['data:image/webp;base64,AAAA'] }), makeProps())).status).toBe(200);
+});
+test('PATCH: thumbnail_url が data:text/html → 400（危険スキーム拒否・#16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { thumbnail_url: 'data:text/html,<script>x</script>' }), makeProps())).status).toBe(400);
 });

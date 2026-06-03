@@ -14,8 +14,9 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockStorageRemove = jest.fn(() => Promise.resolve({ error: null }));
 jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }) }));
-jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom }) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom, storage: { from: () => ({ remove: mockStorageRemove }) } }) }));
 
 import { NextRequest } from 'next/server';
 import { PATCH, DELETE } from '../route';
@@ -34,6 +35,13 @@ function updateChain(data: unknown, error: unknown = null) {
 }
 function deleteChain(error: unknown = null) {
   return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error })) }) }) };
+}
+// DELETE は pre-delete の select(photo_url).maybeSingle() と delete() の双方を呼ぶため両対応のチェーン
+function deleteWithRow(photoUrl: string | null, error: unknown = null) {
+  return {
+    select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { photo_url: photoUrl } })) }) }) }),
+    delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error })) }) }),
+  };
 }
 // admin: 1st call = photo lookup (verifyPhotoAdmin), 2nd call = update/delete
 function setup(photoData: unknown, memberData: unknown, second?: unknown) {
@@ -67,8 +75,14 @@ test('DELETE: レートリミット → 429', async () => { (inMemoryRateLimit a
 test('DELETE: 不正UUID → 400', async () => { expect((await DELETE(makeReq('DELETE'), makeProps('bad'))).status).toBe(400); });
 test('DELETE: 未認証 → 401', async () => { mockGetUser.mockResolvedValue({ data: { user: null } }); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(401); });
 test('DELETE: 非権限 → 401', async () => { setup(null, { facility_id: FACILITY_UUID }); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(401); });
-test('DELETE: DB削除失敗 → 500', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteChain({ message: 'e' })); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(500); });
-test('DELETE: 正常 → 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteChain(null)); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(200); });
+test('DELETE: DB削除失敗 → 500', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteWithRow(null, { message: 'e' })); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(500); });
+test('DELETE: 正常(photo_url=null/data URI) → 200・Storage削除なし', async () => { mockStorageRemove.mockClear(); setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteWithRow(null)); expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(200); expect(mockStorageRemove).not.toHaveBeenCalled(); });
+test('DELETE: 正常(carelink-uploads URL) → 200・Storage実体も削除(#06)', async () => {
+  mockStorageRemove.mockClear();
+  setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, deleteWithRow('https://x.supabase.co/storage/v1/object/public/carelink-uploads/salons/abc/p.jpg'));
+  expect((await DELETE(makeReq('DELETE'), makeProps())).status).toBe(200);
+  expect(mockStorageRemove).toHaveBeenCalledWith(['salons/abc/p.jpg']);
+});
 
 // ─── 拡張カラム不在フォールバック（#22）＋ coupon_id 施設検証（#3） ─────────────
 function scopeRow(data: unknown) {

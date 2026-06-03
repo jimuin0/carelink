@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { storagePathFromPublicUrl, UPLOAD_BUCKET } from '@/lib/storage-cleanup';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -127,9 +128,13 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+  // 孤児化防止(#06): 削除前に image_url を取得し、DB削除成功後に Storage 実体も消す
+  const { data: row } = await admin.from('coupons').select('image_url').eq('id', params.id).eq('facility_id', facilityId).maybeSingle();
   // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
   const { error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  const cpath = storagePathFromPublicUrl((row as { image_url: string | null } | null)?.image_url);
+  if (cpath) { try { await admin.storage.from(UPLOAD_BUCKET).remove([cpath]); } catch { /* 実体削除失敗はDB削除を覆さない */ } }
 
   void writeAuditLog({
     userId: user.id,
