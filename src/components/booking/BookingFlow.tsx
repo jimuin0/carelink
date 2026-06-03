@@ -31,6 +31,15 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // a11y: 検証エラー時に対象フィールドへフォーカス移動＋aria-invalid を立てる（scale監査 #7）
+  const [fieldError, setFieldError] = useState<{ field: 'name' | 'email'; message: string } | null>(null);
+
+  const focusField = (id: string) => {
+    if (typeof document === 'undefined') return;
+    const el = document.getElementById(id) as HTMLElement | null;
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.focus({ preventScroll: true });
+  };
 
   // Pre-fill from user profile
   useEffect(() => {
@@ -123,13 +132,21 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const handleSubmit = async () => {
     if (submitting) return;
     if (!customerName || !email) {
-      setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
+      const which = !customerName ? 'name' : 'email';
+      const message = 'お名前とメールアドレスは必須です';
+      setFieldError({ field: which, message });
+      setToast({ type: 'error', message });
+      focusField(which === 'name' ? 'booking-name' : 'booking-email');
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
+      const message = '正しいメールアドレスを入力してください';
+      setFieldError({ field: 'email', message });
+      setToast({ type: 'error', message });
+      focusField('booking-email');
       return;
     }
+    setFieldError(null);
     setSubmitting(true);
 
     try {
@@ -508,25 +525,35 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               <input
                 id="booking-name"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => { setCustomerName(e.target.value); if (fieldError?.field === 'name') setFieldError(null); }}
                 className="form-input"
                 placeholder="山田 太郎"
                 aria-required="true"
+                aria-invalid={fieldError?.field === 'name' || undefined}
+                aria-describedby={fieldError?.field === 'name' ? 'booking-name-error' : undefined}
                 maxLength={50}
               />
+              {fieldError?.field === 'name' && (
+                <p id="booking-name-error" role="alert" className="text-sm text-red-600 mt-1">{fieldError.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="booking-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
               <input
                 id="booking-email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); if (fieldError?.field === 'email') setFieldError(null); }}
                 type="email"
                 className="form-input"
                 placeholder="example@email.com"
                 aria-required="true"
+                aria-invalid={fieldError?.field === 'email' || undefined}
+                aria-describedby={fieldError?.field === 'email' ? 'booking-email-error' : undefined}
                 maxLength={254}
               />
+              {fieldError?.field === 'email' && (
+                <p id="booking-email-error" role="alert" className="text-sm text-red-600 mt-1">{fieldError.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="booking-phone" className="form-label">電話番号</label>
