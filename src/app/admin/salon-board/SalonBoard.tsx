@@ -378,27 +378,24 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     return () => clearInterval(timer);
   }, []);
 
-  // お客様管理：全予約から顧客一覧を集計（来店回数・最終来店）。DB追加不要。
+  // お客様管理：来店回数・最終来店をサーバ側 GROUP BY で集計（#F）。
+  // 以前はクライアントで bookings 全行を取得して Map 集計していたが、PostgREST の
+  // db-max-rows(既定1000) により予約が累積した施設で取得行が頭打ちになり集計が欠落していた。
+  // get_facility_customers RPC（メンバーシップ検証付き）で集計済み顧客行のみ受け取る。
   useEffect(() => {
     if (section !== 'customers') return;
     let cancelled = false;
     (async () => {
       setCustLoading(true);
       const supabase = createBrowserSupabaseClient();
-      const { data, error } = await supabase.from('bookings')
-        .select('customer_name, email, phone, booking_date')
-        .eq('facility_id', facilityId).neq('status', 'cancelled')
-        .order('booking_date', { ascending: false });
+      const { data, error } = await supabase.rpc('get_facility_customers', { p_facility_id: facilityId });
       // 取得失敗を「0名」と誤表示しない
       if (error) { if (!cancelled) { setToast({ type: 'error', message: 'お客様情報の取得に失敗しました' }); setCustLoading(false); } return; }
-      const map = new Map<string, { key: string; name: string; email: string | null; phone: string | null; count: number; last: string }>();
-      for (const b of (data as { customer_name: string; email: string | null; phone: string | null; booking_date: string }[] ?? [])) {
-        const key = (b.email || b.customer_name || '').toLowerCase();
-        const ex = map.get(key);
-        if (ex) { ex.count++; if (b.booking_date > ex.last) ex.last = b.booking_date; }
-        else map.set(key, { key, name: b.customer_name, email: b.email, phone: b.phone, count: 1, last: b.booking_date });
+      const rows = (data as { customer_key: string; name: string; email: string | null; phone: string | null; visit_count: number; last_visit: string }[] ?? []);
+      if (!cancelled) {
+        setCustomers(rows.map((r) => ({ key: r.customer_key, name: r.name, email: r.email, phone: r.phone, count: Number(r.visit_count), last: r.last_visit })));
+        setCustLoading(false);
       }
-      if (!cancelled) { setCustomers(Array.from(map.values()).sort((a, b) => b.last.localeCompare(a.last))); setCustLoading(false); }
     })().catch(() => { if (!cancelled) setCustLoading(false); });
     return () => { cancelled = true; };
   }, [section, facilityId]);
