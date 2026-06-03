@@ -53,15 +53,14 @@ export async function GET(request: Request) {
 
     for (const facility of facilities) {
       // 完了済み予約からメール別に集計（直近2年分、最大2000件）。
-      // order を付けて「直近2000件」を決定的に取得する（order 無しだと非決定的に取りこぼし→RFM誤判定・クーポン誤発行）。
-      // 注: 2年で2000件超の繁忙施設では集計が頭打ちになる。完全解は email 別集計RPC（別途・[[carelink-rowlimit-aggregate-pending]]）。
+      // 注: 2年で2000件超の繁忙施設では集計が頭打ちになり得る。完全な根本解決は email 別の集計RPC化
+      // （count/sum/min/max を施設×期間で返す）。本セッションでは未実装で別タスクとして記録（CLAUDE.md round6）。
       const { data: bookings } = await supabase
         .from('bookings')
         .select('email, customer_name, booking_date, total_price, status')
         .eq('facility_id', facility.id)
         .in('status', ['completed', 'confirmed'])
         .gte('booking_date', twoYearsAgo)
-        .order('booking_date', { ascending: false })
         .limit(2000);
 
       if (!bookings || bookings.length === 0) { skipped++; continue; }
