@@ -16,13 +16,16 @@ jest.mock('@/lib/supabase-server', () => ({
   })),
 }));
 
-import { postAlert, alertError, alertWarning } from '../alert';
+import { postAlert, alertError, alertWarning, alertCaughtError } from '../alert';
 
 describe('alert', () => {
   let originalFetch: typeof fetch;
   let mockFetch: jest.Mock;
   const ORIGINAL_TOKEN = process.env.SLACK_BOT_TOKEN;
   const ORIGINAL_CHANNEL = process.env.SLACK_DEFAULT_CHANNEL;
+  const ORIGINAL_COMMIT = process.env.VERCEL_GIT_COMMIT_SHA;
+  const ORIGINAL_VERCEL_ENV = process.env.VERCEL_ENV;
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 
   beforeEach(() => {
     originalFetch = global.fetch;
@@ -42,6 +45,12 @@ describe('alert', () => {
     else process.env.SLACK_BOT_TOKEN = ORIGINAL_TOKEN;
     if (ORIGINAL_CHANNEL === undefined) delete process.env.SLACK_DEFAULT_CHANNEL;
     else process.env.SLACK_DEFAULT_CHANNEL = ORIGINAL_CHANNEL;
+    if (ORIGINAL_COMMIT === undefined) delete process.env.VERCEL_GIT_COMMIT_SHA;
+    else process.env.VERCEL_GIT_COMMIT_SHA = ORIGINAL_COMMIT;
+    if (ORIGINAL_VERCEL_ENV === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = ORIGINAL_VERCEL_ENV;
+    if (ORIGINAL_NODE_ENV === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = ORIGINAL_NODE_ENV;
   });
 
   test('SLACK_BOT_TOKEN 未設定 → 投稿しない', async () => {
@@ -236,5 +245,48 @@ describe('alert', () => {
     createServiceRoleClient.mockImplementation(() => ({
       rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
     }));
+  });
+
+  describe('alertCaughtError（catch 経路の Slack 通知ヘルパー）', () => {
+    test('Error+stack / route 省略 / commit・VERCEL_ENV 設定済 → 全 truthy ブランチ', async () => {
+      process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef1234567';
+      process.env.VERCEL_ENV = 'production';
+      alertCaughtError('with-route', new Error('boom'));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).toHaveBeenCalled();
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[with-route] boom');
+      expect(body.text).toContain('500');
+      expect(body.text).toContain('abcdef1'); // 先頭7文字
+      expect(body.text).toContain('production');
+    });
+
+    test('非 Error / route 指定 / commit 未設定 / VERCEL_ENV 未設定・NODE_ENV 設定 → falsy 側ブランチ', async () => {
+      delete process.env.VERCEL_GIT_COMMIT_SHA;
+      delete process.env.VERCEL_ENV;
+      process.env.NODE_ENV = 'test';
+      alertCaughtError('tag', 'string-error', '/api/x');
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).toHaveBeenCalled();
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[tag] string-error');
+      expect(body.text).toContain('/api/x');
+      expect(body.text).toContain('test'); // NODE_ENV フォールバック
+      expect(body.text).not.toContain('*commit:*');
+    });
+
+    test('Error（stack 無し）/ VERCEL_ENV・NODE_ENV 両未設定 → stack null・env null ブランチ', async () => {
+      delete process.env.VERCEL_GIT_COMMIT_SHA;
+      delete process.env.VERCEL_ENV;
+      delete process.env.NODE_ENV;
+      const err = new Error('no-stack');
+      delete err.stack;
+      alertCaughtError('tag2', err);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).toHaveBeenCalled();
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[tag2] no-stack');
+      expect(body.text).not.toContain('*env:*');
+    });
   });
 });

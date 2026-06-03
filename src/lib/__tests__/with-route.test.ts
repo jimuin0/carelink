@@ -12,12 +12,14 @@ jest.mock('../rate-limit', () => ({
 jest.mock('../supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(),
 }));
+jest.mock('../alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { NextResponse } from 'next/server';
 import { withRoute } from '../with-route';
 import { checkCsrf } from '../csrf';
 import { checkRateLimit } from '../rate-limit';
 import { createServerSupabaseAuthClient } from '../supabase-server-auth';
+import { alertCaughtError } from '../alert';
 
 function mockAuthUser(user: { id: string } | null) {
   (createServerSupabaseAuthClient as jest.Mock).mockResolvedValue({
@@ -100,6 +102,13 @@ describe('withRoute', () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toContain('サーバーエラー');
+    // catch 経路でも Slack 通知（alertCaughtError）を必ず発火する（通知漏れ防止）
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    expect(alertCaughtError).toHaveBeenCalledWith(
+      'route',
+      expect.any(Error),
+      '/api/test'
+    );
     await new Promise((r) => setTimeout(r, 10));
     consoleSpy.mockRestore();
   });

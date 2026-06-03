@@ -23,6 +23,7 @@ import { checkRateLimit, type RateLimitConfig } from './rate-limit';
 import { getClientIp } from './client-ip';
 import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { safeCaptureException } from './safe';
+import { alertCaughtError } from './alert';
 
 /**
  * ハンドラに渡される実行コンテキスト。
@@ -115,6 +116,10 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Wrappe
       return await handler(request, ctx);
     } catch (e) {
       safeCaptureException(e, sentryTag);
+      // catch して 500 を返すと例外が instrumentation.ts の onRequestError に
+      // 伝播せず Slack 通知が漏れる（/api/profile 級の盲点）。catch 経路でも
+      // 必ず Slack に通知する（fire-and-forget・本体応答は妨げない）。
+      alertCaughtError(sentryTag, e, new URL(request.url).pathname);
       return NextResponse.json(
         { error: 'サーバーエラーが発生しました' },
         { status: 500 }

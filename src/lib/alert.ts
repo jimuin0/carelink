@@ -104,3 +104,29 @@ export function alertError(message: string, opts: Omit<AlertPayload, 'level' | '
 export function alertWarning(message: string, opts: Omit<AlertPayload, 'level' | 'message'> = {}): void {
   postAlert({ level: 'warning', message, ...opts });
 }
+
+/**
+ * try-catch で捕捉した 500 級例外を Slack に通知する共通ヘルパー。
+ *
+ * 背景（恒久対策）: ハンドラ内で例外を catch して 500 を返すと、例外が
+ * `instrumentation.ts` の onRequestError に伝播せず Slack 通知が漏れる
+ * （/api/profile 級の 500 が数日放置された事象と同型の盲点）。
+ * catch 経路（withRoute の catch 等）では本関数で必ず通知する。
+ *
+ * fire-and-forget で本体応答を一切妨げない（alertError は throw しない）。
+ * commit_sha / env / stack を onRequestError と同等の粒度で付与する。
+ */
+export function alertCaughtError(tag: string, error: unknown, route?: string | null): void {
+  const message = error instanceof Error ? error.message : String(error);
+  const stack =
+    error instanceof Error && error.stack
+      ? error.stack.split('\n').slice(0, 8).join('\n')
+      : null;
+  alertError(`[${tag}] ${message}`, {
+    route: route ?? null,
+    status: 500,
+    commit_sha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
+    env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
+    extra: { stack },
+  });
+}
