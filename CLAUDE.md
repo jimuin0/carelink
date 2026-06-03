@@ -220,8 +220,9 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
   を status分岐・本体更新の両方に追加。
 全変更ファイル branch 100%・tsc/eslint 0・全4920テスト通過。
 
-**🔴 適用待ちマイグレーション（神原さん・Supabase SQL Editor）:** `20260604_profiles_admin_columns.sql`
-（未適用だと platform-admin 機能・該当RLSが参照先カラム不在でエラーになり得る）。
+**✅ マイグレーション適用済み（2026-06-03・Supabase SQL Editor "Success. No rows returned" 確認）:**
+`20260604_profiles_admin_columns.sql`（profiles.role / is_platform_admin / idx_profiles_platform_admin。
+冪等・非破壊のため本番は no-op、migration からの新環境構築でも列不在エラーが起きなくなった）。
 
 **🟡 要件依存・神原さん判断待ち（仕様決定が必要なため未実装）:**
 - 施設ごとの機能フラグ / プラン・課金枠（quota）/ スタッフ権限ロールの多段化
