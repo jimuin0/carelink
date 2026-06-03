@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const API_VERSION = '1.0.0';
@@ -27,7 +27,7 @@ async function resolveApiKey(apiKey: string) {
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 60, 60_000, 'v1-customers')) {
+  if (await checkRateLimit(null, ip, 60, 60_000, 'v1-customers')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const authHeader = request.headers.get('Authorization');

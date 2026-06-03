@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 
@@ -41,7 +41,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'subscription-plans-patch')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'subscription-plans-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
@@ -79,7 +79,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'subscription-plans-delete')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'subscription-plans-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });

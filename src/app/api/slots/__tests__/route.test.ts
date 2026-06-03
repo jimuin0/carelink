@@ -12,11 +12,11 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 let mockRpc: jest.Mock;
@@ -40,7 +40,7 @@ function setupDefaultMocks(hasSlots: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
 
@@ -59,7 +59,7 @@ function makeRequest(facilityId: string = VALID_UUID, staffId: string = VALID_UU
 
 describe('GET /api/slots', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(makeRequest() as any);
 
@@ -216,28 +216,28 @@ describe('GET /api/slots', () => {
   });
 
   test('rate limit params (30 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(VALID_UUID, VALID_UUID, VALID_DATE, '60', '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(30);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('slots');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(30);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('slots');
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(VALID_UUID, VALID_UUID, VALID_DATE, '60', '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request(`http://localhost/api/slots?facilityId=${VALID_UUID}&staffId=${VALID_UUID}&date=${VALID_DATE}`, {
       method: 'GET',
@@ -245,8 +245,8 @@ describe('GET /api/slots', () => {
 
     GET(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('RPC error → 200 with empty slots (route ignores error field, uses data ?? [])', async () => {

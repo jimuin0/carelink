@@ -9,7 +9,7 @@
  *   - DB failure → 500
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
@@ -30,7 +30,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { PATCH, DELETE } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(method: string, body?: object) {
@@ -86,7 +86,7 @@ function buildUpdateOrDeleteChain(error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -244,7 +244,7 @@ test('PATCH: CSRFエラー → そのまま返却', async () => {
 });
 
 test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(429);
 });
@@ -257,7 +257,7 @@ test('DELETE: CSRFエラー → そのまま返却', async () => {
 });
 
 test('DELETE: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(429);
 });

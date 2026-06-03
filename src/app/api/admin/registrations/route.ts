@@ -7,7 +7,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,7 @@ async function getPlatformAdminUser(): Promise<string | null> {
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 30, 60_000, 'admin-registrations-get')) {
+  if (await checkRateLimit(null, ip, 30, 60_000, 'admin-registrations-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

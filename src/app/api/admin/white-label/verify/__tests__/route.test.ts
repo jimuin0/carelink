@@ -8,7 +8,7 @@
  *   - TXT record mismatch → 200 { verified: false }
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 jest.mock('dns', () => ({ promises: { resolveTxt: jest.fn() } }));
@@ -27,7 +27,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { promises as dns } from 'dns';
 
@@ -64,7 +64,7 @@ function updateChain(error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -92,7 +92,7 @@ test('未認証 → 401', async () => {
 });
 
 test('レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makeRequest());
   expect(res.status).toBe(429);
 });
@@ -188,12 +188,12 @@ test('ネストしたTXTレコード配列も正しく照合される', async ()
 test('レートリミット params', async () => {
   setupOwnershipAndDomain(null);
   (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await POST(makeRequest());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBeGreaterThan(0);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBeGreaterThan(0);
+  expect(call[3]).toBe(60_000);
 });
 
 test('レスポンスが { verified: true } 形式', async () => {
@@ -215,12 +215,12 @@ test('CSRF エラー → 403', async () => {
 test('x-forwarded-for ヘッダあり → IP抽出', async () => {
   setupOwnershipAndDomain(null);
   (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const req = new Request('http://localhost/api/admin/white-label/verify', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
     body: '{}',
   });
   await POST(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });

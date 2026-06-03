@@ -12,12 +12,12 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@supabase/supabase-js');
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 let mockBookingsSelect: jest.Mock;
@@ -30,7 +30,7 @@ function setupDefaultMocks(
   bookingsCount: number = 2,
   favoritesCount: number = 1
 ) {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
 
   mockGetUser = jest.fn().mockResolvedValue({
     data: { user: hasUser ? { id: 'user-123' } : null },
@@ -129,7 +129,7 @@ function makeRequest(limit?: number, exclude?: string, ip = '192.168.1.1') {
 
 describe('GET /api/recommendations', () => {
   test('rate limiting → returns empty array', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(makeRequest() as any);
 
@@ -216,24 +216,24 @@ describe('GET /api/recommendations', () => {
   });
 
   test('rate limit params (30 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(6, undefined, '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(30);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('recommendations');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(30);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('recommendations');
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(6, undefined, '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('fetches up to 20 bookings', async () => {
@@ -249,12 +249,12 @@ describe('GET /api/recommendations', () => {
   });
 
   test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/recommendations', { method: 'GET' });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('facility_profiles が null → processEntry で早期 return', async () => {

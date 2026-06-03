@@ -11,7 +11,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
@@ -42,7 +42,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (csrfError) return csrfError;
 
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'admin-moderation-patch')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'admin-moderation-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -68,7 +68,7 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'staff-schedule-put')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'staff-schedule-put')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'staff-schedule-post')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'staff-schedule-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
@@ -155,7 +155,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'staff-schedule-delete')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'staff-schedule-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

@@ -10,7 +10,6 @@
 
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
   mutationRateLimit: {},
 }));
@@ -29,7 +28,7 @@ jest.mock('@supabase/ssr', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest() {
   return new NextRequest('http://localhost/api/admin/jobs', { method: 'GET' });
@@ -82,7 +81,6 @@ function insertSingle(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -98,7 +96,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockResolvedValue(true);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(429);
 });
@@ -224,12 +222,12 @@ test('POST: レスポンスが { job: ... } 形式', async () => {
 
 test('GET: レートリミット params (20/60s)', async () => {
   mockAnonFrom.mockReturnValue(membersChain([]));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await GET(makeGetRequest());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });
 
 // ─── Branch coverage gaps ─────────────────────────────────────────────────────
@@ -297,11 +295,11 @@ test('POST: 未処理例外 → 500', async () => {
 
 test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
   mockAnonFrom.mockReturnValue(membersChain([]));
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const req = new NextRequest('http://localhost/api/admin/jobs', {
     method: 'GET',
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });

@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const menuSchema = z.object({
@@ -40,7 +40,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 30, 60_000, 'menus-get')) {
+  if (await checkRateLimit(null, ip, 30, 60_000, 'menus-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const facilityId = await getAdminFacilityId(request);
@@ -62,7 +62,7 @@ export async function POST(request: NextRequest) {
   if (csrfError) return csrfError;
 
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-menus-post')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'admin-menus-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

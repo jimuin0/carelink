@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 30, 60_000, 'gbp-posts-get')) {
+  if (await checkRateLimit(null, ip, 30, 60_000, 'gbp-posts-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'gbp-posts')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'gbp-posts')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -76,7 +76,7 @@ export async function PATCH(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'gbp-posts-patch')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'gbp-posts-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -121,7 +121,7 @@ export async function DELETE(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'gbp-posts-delete')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'gbp-posts-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();

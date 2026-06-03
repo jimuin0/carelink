@@ -9,7 +9,7 @@
  *   - Approved/rejected audit log action
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
@@ -32,7 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { PATCH } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeRequest(body?: object) {
   return new Request(`http://localhost/api/admin/registrations/${SALON_UUID}`, {
@@ -64,7 +64,7 @@ function updateChain(error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -77,7 +77,7 @@ test('PATCH: 未認証 → 403', async () => {
 });
 
 test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
   expect(res.status).toBe(429);
 });
@@ -156,11 +156,11 @@ test('PATCH: writeAuditLog が rejected アクションで呼ばれる', async (
 test('PATCH: レートリミット params (10/60s)', async () => {
   mockAnonFrom.mockReturnValue(profileChain(true));
   mockAdminFrom.mockReturnValue(updateChain());
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   await PATCH(makeRequest({ status: 'approved' }), makeProps());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(10);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(10);
+  expect(call[3]).toBe(60_000);
 });
 
 test('PATCH: body なし → 400', async () => {

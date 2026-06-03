@@ -3,7 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { promises as dns } from 'dns';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 async function getFacilityId(userId: string) {
@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 5, 60_000, 'white-label-verify')) {
+  if (await checkRateLimit(null, ip, 5, 60_000, 'white-label-verify')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();

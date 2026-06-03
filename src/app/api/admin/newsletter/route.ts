@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
@@ -21,7 +21,7 @@ async function requirePlatformAdmin() {
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'newsletter-get')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'newsletter-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const user = await requirePlatformAdmin();
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 5, 60_000, 'newsletter-create')) {
+  if (await checkRateLimit(null, ip, 5, 60_000, 'newsletter-create')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const user = await requirePlatformAdmin();

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { jobFormSchema } from '@/lib/jobs';
 
@@ -25,7 +25,7 @@ async function getOwnerFacilityIds() {
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-jobs-get')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'admin-jobs-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {

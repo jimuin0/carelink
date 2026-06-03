@@ -22,7 +22,7 @@ jest.mock('@/lib/supabase-server');
 jest.mock('next/headers');
 jest.mock('crypto');
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 let mockUpsert: jest.Mock;
@@ -37,7 +37,7 @@ function setupDefaultMocks(
   tokenExchangeSucceeds: boolean = true,
   upsertSucceeds: boolean = true
 ) {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(rateLimited);
+  (checkRateLimit as jest.Mock).mockReturnValue(rateLimited);
 
   mockCookieGet = jest.fn().mockReturnValue(
     nonceCookieFound ? { value: '1234567890abcdef' } : undefined
@@ -112,7 +112,7 @@ function createValidState(): string {
 
 describe('GET /api/google-calendar/callback', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(
       makeRequest({ code: 'code-123', state: createValidState() }) as any
@@ -390,20 +390,20 @@ describe('GET /api/google-calendar/callback', () => {
   });
 
   test('rate limit params (10 req/min per IP)', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     await GET(
       makeRequest({ code: 'code-123', state: createValidState() }, '192.168.1.1') as any
     );
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(10);
-    expect(call[2]).toBe(60_000);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(10);
+    expect(call[3]).toBe(60_000);
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     await GET(
       makeRequest(
@@ -412,12 +412,12 @@ describe('GET /api/google-calendar/callback', () => {
       ) as any
     );
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request(
       `http://localhost/api/google-calendar/callback?code=code-123&state=${createValidState()}`,
@@ -426,8 +426,8 @@ describe('GET /api/google-calendar/callback', () => {
 
     await GET(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('nonce empty string → mismatch error', async () => {

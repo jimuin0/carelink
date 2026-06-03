@@ -10,7 +10,7 @@
  *   - DB update failure → 500
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
@@ -34,7 +34,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { PATCH } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(body?: object) {
@@ -73,7 +73,7 @@ function setupAdmin() {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -88,7 +88,7 @@ test('PATCH: 未認証 → 403', async () => {
 });
 
 test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(makeRequest({ decision: 'approved' }), makeProps());
   expect(res.status).toBe(429);
 });

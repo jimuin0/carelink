@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import crypto from 'crypto';
 
@@ -15,7 +15,7 @@ const SCOPES = [
 // GET /api/google-calendar — check connection status
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'google-calendar-get')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'google-calendar-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'google-calendar')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'google-calendar')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();

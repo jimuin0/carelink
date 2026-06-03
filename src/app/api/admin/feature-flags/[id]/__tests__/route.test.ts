@@ -8,7 +8,7 @@
  *   - rollout_pct clamped to 0-100 by Zod
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
@@ -31,7 +31,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { PATCH } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(body: object = { enabled: true }) {
@@ -64,7 +64,7 @@ function updateChain(error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -80,7 +80,7 @@ test('未認証 → 403 (platform admin required)', async () => {
 });
 
 test('レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(makeRequest(), makeProps());
   expect(res.status).toBe(429);
 });
@@ -187,10 +187,10 @@ test('レスポンスが { ok: true } 形式', async () => {
 test('レートリミット params (20/60s)', async () => {
   mockAnonFrom.mockReturnValue(singleChain({ is_platform_admin: true }));
   mockAdminFrom.mockReturnValue(updateChain());
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await PATCH(makeRequest({ enabled: true }), makeProps());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });

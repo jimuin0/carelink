@@ -9,7 +9,7 @@
  *   - body required → 400
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -28,7 +28,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeProps(id = POST_UUID) {
   return { params: Promise.resolve({ id }) };
@@ -81,7 +81,7 @@ function insertReplySingle(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -96,7 +96,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(makeRequest('GET'), makeProps());
   expect(res.status).toBe(429);
 });
@@ -244,7 +244,7 @@ test('GET: DB エラー → 500', async () => {
 // ─── Branch coverage gaps ─────────────────────────────────────────────────────
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makeRequest('POST', { body: 'r' }), makeProps());
   expect(res.status).toBe(429);
 });
@@ -292,13 +292,13 @@ test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
     if (callNum === 1) return memberSingle({ facility_id: '11' });
     return replyListChain([]);
   });
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const req = new NextRequest(`http://localhost/api/admin/community/posts/${POST_UUID}/replies`, {
     method: 'GET',
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req, makeProps());
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });
 
 test('POST: レスポンスが { reply: ... } 形式', async () => {

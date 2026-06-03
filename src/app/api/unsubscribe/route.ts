@@ -14,7 +14,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { createHmac, timingSafeEqual } from 'crypto';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 
@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   if (csrfError) return csrfError;
 
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'unsubscribe')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'unsubscribe')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

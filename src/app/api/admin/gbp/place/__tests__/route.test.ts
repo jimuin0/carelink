@@ -10,7 +10,7 @@
  *   - DB failure → 500
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 jest.mock('@/lib/gbp', () => ({
@@ -33,7 +33,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { fetchPlaceDetails } from '@/lib/gbp';
 
 // Membership check: limit(1).single()
@@ -85,7 +85,7 @@ const FACILITY_DATA = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -95,7 +95,7 @@ beforeEach(() => {
 // ─── GET ──────────────────────────────────────────────────────────────────────
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
   expect(res.status).toBe(429);
 });
@@ -142,7 +142,7 @@ test('GET: gbp_place_id なし → 200 with placeData null', async () => {
 // ─── POST ─────────────────────────────────────────────────────────────────────
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
@@ -218,12 +218,12 @@ test('GET: rate limit params (20/60s)', async () => {
     if (callNum === 2) return facilityProfileSingle(FACILITY_DATA);
     return upsertChain(null);
   });
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });
 
 test('POST: rate limit params (10/60s)', async () => {
@@ -233,15 +233,15 @@ test('POST: rate limit params (10/60s)', async () => {
     if (callNum === 1) return membershipSingle(MEMBER_DATA);
     return updateEq(null);
   });
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
   }));
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(10);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(10);
+  expect(call[3]).toBe(60_000);
 });
 
 test('GET: レスポンスが { placeData, audit } 形式', async () => {
@@ -398,13 +398,13 @@ test('GET: x-forwarded-for あり', async () => {
     if (callNum === 2) return facilityProfileSingle(FACILITY_DATA);
     return upsertChain(null);
   });
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const req = new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'GET',
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });
 
 test('POST: gbp_place_id なし → クリア（null保存）', async () => {

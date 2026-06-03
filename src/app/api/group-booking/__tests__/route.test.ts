@@ -11,14 +11,14 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST, GET } from '../route';
 
 let mockGetUser: jest.Mock;
@@ -26,7 +26,7 @@ let mockGetUser: jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
 
   mockGetUser = jest.fn().mockResolvedValue({
     data: { user: { id: 'user-123', email: 'test@example.com' } },
@@ -101,7 +101,7 @@ describe('POST /api/group-booking', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await POST(makeRequest(validGroupBooking) as any);
 
@@ -234,26 +234,26 @@ describe('POST /api/group-booking', () => {
   });
 
   test('rate limit params (5 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makeRequest(validGroupBooking) as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(5);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('group-booking');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(5);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('group-booking');
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makeRequest(validGroupBooking, '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('total_members boundary validation (2-10 range)', () => {
@@ -294,7 +294,7 @@ describe('POST /api/group-booking - success flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (checkCsrf as jest.Mock).mockReturnValue(null);
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     const { createServerSupabaseAuthClient } = require('@/lib/supabase-server-auth');
     createServerSupabaseAuthClient.mockResolvedValue({
@@ -532,16 +532,16 @@ describe('POST /api/group-booking - success flow', () => {
   });
 
   test('POST: x-forwarded-for なし → unknown IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
     const req = new Request('http://localhost/api/group-booking', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(validGroupBookingForSuccess),
     });
     await POST(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('POST: 空の guest_members 配列 → guest insert スキップ', async () => {
@@ -642,7 +642,7 @@ describe('GET /api/group-booking', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
     setupGetMocks(
       { data: groupData },
       { data: membersData }
@@ -650,7 +650,7 @@ describe('GET /api/group-booking', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(makeGetRequest('ABC123') as any);
 
@@ -750,26 +750,26 @@ describe('GET /api/group-booking', () => {
   });
 
   test('rate limit params (30 req/min) with group-booking-get key', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     GET(makeGetRequest('ABC123', '10.0.0.2') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.2');
-    expect(call[1]).toBe(30);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('group-booking-get');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('10.0.0.2');
+    expect(call[2]).toBe(30);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('group-booking-get');
   });
 
   test('GET: x-forwarded-for なし → unknown IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
     const req = new Request('http://localhost/api/group-booking?code=ABC123', { method: 'GET' });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     await GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('group data is included in response', async () => {

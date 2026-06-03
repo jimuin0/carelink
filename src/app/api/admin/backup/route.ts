@@ -11,7 +11,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
@@ -38,7 +38,7 @@ async function getTableCount(supabase: ReturnType<typeof createServiceRoleClient
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'backup-get')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'backup-get')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   // 管理者権限チェック
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 3, 60_000 * 10, 'backup-export')) {
+  if (await checkRateLimit(null, ip, 3, 60_000 * 10, 'backup-export')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   // 管理者権限チェック

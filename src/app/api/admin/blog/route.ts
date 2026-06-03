@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
   if (csrfError) return csrfError;
 
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-blog-post')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'admin-blog-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

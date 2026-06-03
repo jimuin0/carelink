@@ -2,12 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'gbp-place-get')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'gbp-place-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'gbp-place')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'gbp-place')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   // place_id を facility_profiles に保存

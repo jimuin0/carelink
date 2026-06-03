@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
@@ -47,7 +47,7 @@ async function getAdminInfo(request: NextRequest): Promise<{ userId: string; fac
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 30, 60_000, 'coupons-get')) {
+  if (await checkRateLimit(null, ip, 30, 60_000, 'coupons-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminInfo(request);
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'coupons-create')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'coupons-create')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminInfo(request);

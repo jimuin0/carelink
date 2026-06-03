@@ -13,7 +13,7 @@
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 // Use closure so module-level `new Anthropic()` in route always delegates to current mockMessagesCreate
 let mockMessagesCreate: jest.Mock = jest.fn();
@@ -27,7 +27,7 @@ jest.mock('@anthropic-ai/sdk', () => ({
 }));
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';
 
 function setupDefaultMocks(aiSucceeds: boolean = true) {
@@ -47,7 +47,7 @@ function setupDefaultMocks(aiSucceeds: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
 
@@ -75,7 +75,7 @@ describe('POST /api/chat', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await POST(
       makeRequest({ messages: [{ role: 'user', content: 'Hello' }] }) as any
@@ -278,7 +278,7 @@ describe('POST /api/chat', () => {
   });
 
   test('rate limit params (5 req/min per IP)', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     await POST(
       makeRequest(
@@ -287,15 +287,15 @@ describe('POST /api/chat', () => {
       ) as any
     );
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(5);
-    expect(call[2]).toBe(60000);
-    expect(call[3]).toBe('chat');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(5);
+    expect(call[3]).toBe(60000);
+    expect(call[4]).toBe('chat');
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     await POST(
       makeRequest(
@@ -304,20 +304,20 @@ describe('POST /api/chat', () => {
       ) as any
     );
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('missing x-forwarded-for → uses "unknown" IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ messages: [{ role: 'user', content: 'Hi' }] }),
     });
     await POST(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('null entry in messages array → filtered out', async () => {

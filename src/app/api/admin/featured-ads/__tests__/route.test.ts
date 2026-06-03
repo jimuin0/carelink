@@ -11,7 +11,7 @@
  *   - No STRIPE_SECRET_KEY → dev mode (activate immediately, checkout_url null)
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 jest.mock('@/lib/constants', () => ({ SITE_URL: 'http://localhost', UUID_REGEX: /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i }));
@@ -32,7 +32,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest() {
   return new NextRequest('http://localhost/api/admin/featured-ads', { method: 'GET' });
@@ -91,7 +91,7 @@ function updateEq(error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -107,7 +107,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(429);
 });
@@ -140,7 +140,7 @@ test('POST: 未認証 → 401', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makePostRequest(validPostBody()));
   expect(res.status).toBe(429);
 });
@@ -219,12 +219,12 @@ test('GET: rate limit params (20/60s)', async () => {
     if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
     return listChain([]);
   });
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await GET(makeGetRequest());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });
 
 test('POST: rate limit params (10/60s)', async () => {
@@ -235,13 +235,13 @@ test('POST: rate limit params (10/60s)', async () => {
     if (callNum === 2) return insertSingle({ id: SLOT_UUID });
     return updateEq(null);
   });
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await POST(makePostRequest(validPostBody()));
-  const postCall = (inMemoryRateLimit as jest.Mock).mock.calls.find((c: unknown[]) => c[3] === 'featured-ads');
+  const postCall = (checkRateLimit as jest.Mock).mock.calls.find((c: unknown[]) => c[4] === 'featured-ads');
   expect(postCall).toBeDefined();
-  expect(postCall[1]).toBe(10);
-  expect(postCall[2]).toBe(60_000);
+  expect(postCall[2]).toBe(10);
+  expect(postCall[3]).toBe(60_000);
 });
 
 test('GET: レスポンスが { slots: [] } 形式', async () => {

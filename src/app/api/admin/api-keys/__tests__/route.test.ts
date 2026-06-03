@@ -10,7 +10,7 @@
  *   - GET: non-member → 403
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
@@ -35,7 +35,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest(facilityId: string | null = FACILITY_UUID) {
   const url = new URL('http://localhost/api/admin/api-keys');
@@ -80,7 +80,7 @@ function insertChain(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -95,7 +95,7 @@ test('POST: 未認証 → 401', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makePostRequest() as any);
   expect(res.status).toBe(429);
 });
@@ -215,12 +215,12 @@ test('POST: name が空白のみ → 400', async () => {
 test('POST: レートリミット params (10/60s)', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'テストキー', key_prefix: 'ck_live_abcd' }));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await POST(makePostRequest() as any);
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(10);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(10);
+  expect(call[3]).toBe(60_000);
 });
 
 test('GET: レスポンスが配列形式', async () => {
@@ -234,7 +234,7 @@ test('GET: レスポンスが配列形式', async () => {
 // ─── Branch coverage gaps ─────────────────────────────────────────────────────
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(429);
 });
@@ -287,20 +287,20 @@ test('POST: newKey が null かつ error なし → 500', async () => {
 test('POST: x-forwarded-for ヘッダ → IP抽出', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'X', key_prefix: 'ck_live_xxxx' }));
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const req = new Request('http://localhost/api/admin/api-keys', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
     body: JSON.stringify({ facility_id: FACILITY_UUID, name: 'X', scopes: ['bookings:read'] }),
   });
   await POST(req as unknown as NextRequest);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });
 
 test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(adminListChain([]));
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const url = new URL('http://localhost/api/admin/api-keys');
   url.searchParams.set('facility_id', FACILITY_UUID);
   const req = new NextRequest(url.toString(), {
@@ -308,7 +308,7 @@ test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('1.2.3.4');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });
 
 test('POST: customers:read スコープ → 201', async () => {
@@ -321,10 +321,10 @@ test('POST: customers:read スコープ → 201', async () => {
 test('GET: レートリミット params (20/60s)', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'admin' }));
   mockAdminFrom.mockReturnValue(adminListChain([]));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await GET(makeGetRequest());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });

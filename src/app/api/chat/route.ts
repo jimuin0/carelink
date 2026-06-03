@@ -6,7 +6,7 @@
 
 import { NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { withRoute } from '@/lib/with-route';
 
@@ -34,7 +34,7 @@ CareLinKは鍼灸・整体・マッサージなどの施術施設を検索・予
 
 export const POST = withRoute(async (request) => {
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 5, 60000, 'chat')) {
+  if (await checkRateLimit(null, ip, 5, 60000, 'chat')) {
     return NextResponse.json({ error: 'Rate limit exceeded' }, { status: 429 });
   }
 

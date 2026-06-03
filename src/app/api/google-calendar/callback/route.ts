@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 export async function GET(req: NextRequest) {
@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
   const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'gcal-callback')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'gcal-callback')) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
   }
   const { searchParams } = new URL(req.url);

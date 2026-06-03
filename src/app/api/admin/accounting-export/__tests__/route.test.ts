@@ -11,7 +11,7 @@
  *   - Success → 200 text/csv with BOM
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
   getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
@@ -34,7 +34,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest(params: Record<string, string> = { facility_id: FACILITY_UUID }) {
   const url = new URL('http://localhost/api/admin/accounting-export');
@@ -66,7 +66,7 @@ function bookingQueryChain(data: unknown[], error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -81,7 +81,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(429);
 });
@@ -197,12 +197,12 @@ test('GET: mf形式 → 200 text/csv', async () => {
 test('GET: レートリミット params', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(bookingQueryChain([]));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBeGreaterThan(0);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBeGreaterThan(0);
+  expect(call[3]).toBe(60_000);
 });
 
 test('GET: generic形式 → 200', async () => {

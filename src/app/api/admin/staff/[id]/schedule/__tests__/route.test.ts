@@ -11,7 +11,7 @@
  *   - DELETE: override_id must be RFC 4122 UUID
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -33,7 +33,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { PUT, POST, DELETE } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeProps(id = STAFF_UUID) {
@@ -107,7 +107,7 @@ const VALID_SCHEDULE = { schedules: [{ day_of_week: 1, start_time: '09:00', end_
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -142,7 +142,7 @@ test('PUT: 不正UUID → 400', async () => {
 });
 
 test('PUT: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
   expect(res.status).toBe(429);
 });
@@ -378,13 +378,13 @@ test('DELETE: CSRFエラー → そのまま返却', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makeRequest('POST', { date: '2026-01-15', is_holiday: true }), makeProps());
   expect(res.status).toBe(429);
 });
 
 test('DELETE: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
   expect(res.status).toBe(429);
 });

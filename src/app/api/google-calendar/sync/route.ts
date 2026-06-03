@@ -3,7 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
@@ -31,7 +31,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'gcal-sync')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'gcal-sync')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -163,7 +163,7 @@ export async function DELETE(req: NextRequest) {
     const csrfError = checkCsrf(req);
     if (csrfError) return csrfError;
     const ip = getClientIp(req);
-    if (inMemoryRateLimit(ip, 20, 60_000, 'gcal-sync-delete')) {
+    if (await checkRateLimit(null, ip, 20, 60_000, 'gcal-sync-delete')) {
       return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
     }
     const supabase = await createServerSupabaseAuthClient();

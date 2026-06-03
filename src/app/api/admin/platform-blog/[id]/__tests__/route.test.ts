@@ -9,7 +9,7 @@
  *   - DB failure → 500
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -29,7 +29,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { PATCH, DELETE } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeProps(id = POST_UUID) {
   return { params: Promise.resolve({ id }) };
@@ -79,7 +79,7 @@ function deleteEq(error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -94,7 +94,7 @@ test('PATCH: 未認証 → 403', async () => {
 });
 
 test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(makePatchRequest({ title: '新しいタイトル' }), makeProps());
   expect(res.status).toBe(429);
 });
@@ -184,12 +184,12 @@ test('PATCH: CSRF エラー → 403', async () => {
 test('PATCH: レートリミット params (20/60s)', async () => {
   mockAnonFrom.mockReturnValue(profileSingle(true));
   mockAdminFrom.mockReturnValue(updateSingle({ id: POST_UUID, title: 'test' }));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await PATCH(makePatchRequest({ title: 'test' }), makeProps());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });
 
 test('DELETE: CSRF エラー → 403', async () => {
@@ -210,7 +210,7 @@ test('PATCH: レスポンスが { post } 形式', async () => {
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
 
 test('DELETE: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(makeDeleteRequest(), makeProps());
   expect(res.status).toBe(429);
 });

@@ -13,7 +13,7 @@
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
 }));
@@ -46,7 +46,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { PATCH } from '../route';
 
@@ -70,7 +70,7 @@ import { NextRequest } from 'next/server';
 beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
 
   mockFacilitySelect.mockReturnValue({
@@ -109,7 +109,7 @@ describe('PATCH /api/admin/treatment-plans/[id]', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await PATCH(makeRequest({ status: 'active' }), {
       params: Promise.resolve({ id: PLAN_UUID }),

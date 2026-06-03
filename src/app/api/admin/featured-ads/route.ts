@@ -4,7 +4,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import Stripe from 'stripe';
 import { SITE_URL } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 const PLAN_PRICES: Record<string, number> = {
@@ -27,7 +27,7 @@ async function getFacilityId(userId: string) {
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 20, 60_000, 'featured-ads-get')) {
+  if (await checkRateLimit(null, ip, 20, 60_000, 'featured-ads-get')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'featured-ads')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'featured-ads')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();

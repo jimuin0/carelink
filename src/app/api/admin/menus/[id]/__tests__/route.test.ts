@@ -9,7 +9,7 @@
  *   - facility_id query param required
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
@@ -31,7 +31,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { PATCH, DELETE } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeRequest(method: string, body?: object, facilityId: string | null = FACILITY_UUID) {
@@ -97,7 +97,7 @@ function setupMemberAndAdmin(adminCallSetup: () => Record<string, unknown>) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -122,7 +122,7 @@ test('PATCH: 不正なUUID → 400', async () => {
 });
 
 test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
   expect(res.status).toBe(429);
 });
@@ -242,7 +242,7 @@ test('DELETE: CSRFエラー → そのまま返却', async () => {
 });
 
 test('DELETE: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(429);
 });

@@ -6,7 +6,7 @@
  * immediately to prevent orphaned charges (customer charged, no DB record).
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
@@ -49,7 +49,7 @@ jest.mock('stripe', () =>
 );
 
 import { POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 const STRIPE_SESSION = { id: 'cs_test_abc123', url: 'https://checkout.stripe.com/abc123' };
@@ -94,7 +94,7 @@ function setupHappyPath(insertError: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
@@ -112,7 +112,7 @@ test('未認証 → 401', async () => {
 });
 
 test('レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
   expect(res.status).toBe(429);
 });
@@ -294,7 +294,7 @@ test('payment_type=deposit → セッション名にデポジット', async () =
 });
 
 test('x-forwarded-for なし → unknown IP', async () => {
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   let callNum = 0;
   mockFrom.mockImplementation((table: string) => {
     callNum++;
@@ -312,8 +312,8 @@ test('x-forwarded-for なし → unknown IP', async () => {
   });
   Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
   await POST(req as any);
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[0]).toBe('unknown');
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[1]).toBe('unknown');
 });
 
 test('booking_idなし → product description undefined, success_url が /mypage/bookings 直下', async () => {

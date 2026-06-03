@@ -5,14 +5,14 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
 
 export async function GET(req: NextRequest) {
   try {
   const ip = getClientIp(req);
-  if (inMemoryRateLimit(ip, 30, 60_000, 'liff-bookings')) {
+  if (await checkRateLimit(null, ip, 30, 60_000, 'liff-bookings')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
 

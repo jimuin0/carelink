@@ -9,7 +9,7 @@ import { createHmac } from 'crypto';
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 
 const mockFrom = jest.fn();
@@ -31,11 +31,11 @@ function makeHmac(email: string): string {
 }
 
 import { POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   process.env.NEWSLETTER_UNSUBSCRIBE_SECRET = TEST_SECRET;
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
@@ -122,7 +122,7 @@ describe('HMAC path (方式B)', () => {
   });
 
   test('レートリミット → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: makeHmac(TEST_EMAIL) }));
     expect(res.status).toBe(429);
   });
@@ -227,7 +227,7 @@ describe('Token path (方式A)', () => {
   });
 
   test('missing x-forwarded-for → uses "unknown"', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     mockFrom.mockImplementation(() => ({
       select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
       single: jest.fn(() => Promise.resolve({ data: null, error: { code: 'PGRST116' } })),
@@ -237,8 +237,8 @@ describe('Token path (方式A)', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: VALID_TOKEN }),
     }));
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('NEWSLETTER_UNSUBSCRIBE_SECRET 未設定 → verifyUnsubHmac は false → already:true', async () => {

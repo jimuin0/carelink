@@ -3,7 +3,19 @@
   "plugins": ["carelink-safety"],
   "rules": {
     "carelink-safety/no-await-fire-and-forget": "error",
-    "carelink-safety/no-bare-sentry-capture": "error"
+    "carelink-safety/no-bare-sentry-capture": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@/lib/rate-limit",
+            "importNames": ["inMemoryRateLimit"],
+            "message": "inMemoryRateLimit はプロセス内Mapのためサーバーレス環境ではインスタンス分散でバイパス可能です。共有DBベースの checkRateLimit を使用してください（inMemoryRateLimit は rate-limit.ts 内部のフォールバック専用）。"
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
@@ -13,6 +25,12 @@
         "@typescript-eslint/no-require-imports": "off",
         "carelink-safety/no-bare-sentry-capture": "off",
         "carelink-safety/no-await-fire-and-forget": "off"
+      }
+    },
+    {
+      "files": ["src/lib/__tests__/rate-limit.test.ts"],
+      "rules": {
+        "no-restricted-imports": "off"
       }
     },
     {

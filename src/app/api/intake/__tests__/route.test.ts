@@ -10,13 +10,13 @@
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 let mockSelectTemplate: jest.Mock;
 let mockInsert: jest.Mock;
@@ -65,13 +65,13 @@ function setupDefaultMocks(templateExists: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
 
 describe('GET /api/intake', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const { GET } = await import('../route');
     const req = new Request('http://localhost/api/intake?facility_id=11111111-1111-1111-1111-111111111111');
@@ -265,7 +265,7 @@ describe('POST /api/intake', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const { POST } = await import('../route');
     const res = await POST(new Request('http://localhost/api/intake', {

@@ -3,7 +3,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 
@@ -18,7 +18,7 @@ jest.mock('@anthropic-ai/sdk', () => ({
   })),
 }));
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { POST } from '../route';
 
@@ -28,7 +28,7 @@ const VALID_AI_RESPONSE = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockCreate = jest.fn().mockResolvedValue(VALID_AI_RESPONSE);
   process.env.ANTHROPIC_API_KEY = 'test-key';
@@ -54,7 +54,7 @@ describe('POST /api/symptoms/suggest', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await POST(makeRequest(validRequest) as any);
     expect(res.status).toBe(429);
   });
@@ -114,17 +114,17 @@ describe('POST /api/symptoms/suggest', () => {
   });
 
   test('rate limit params (10 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     POST(makeRequest(validRequest, '192.168.1.1') as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe(10);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(10);
   });
 
   test('extracts last (trusted) IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     POST(makeRequest(validRequest, '10.0.0.1, 192.168.1.1') as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('invalid JSON → 400', async () => {
@@ -138,15 +138,15 @@ describe('POST /api/symptoms/suggest', () => {
   });
 
   test('x-forwarded-for ヘッダーなし → "unknown" を使用', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/symptoms/suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(validRequest),
     });
     POST(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('AI レスポンスに JSON なし → 500', async () => {

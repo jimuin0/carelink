@@ -8,7 +8,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 
@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   if (csrfError) return csrfError;
 
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 5, 60_000, 'waitlist')) {
+  if (await checkRateLimit(null, ip, 5, 60_000, 'waitlist')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
@@ -106,7 +106,7 @@ export async function DELETE(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
   const ip = getClientIp(request);
-  if (inMemoryRateLimit(ip, 10, 60_000, 'waitlist-delete')) {
+  if (await checkRateLimit(null, ip, 10, 60_000, 'waitlist-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const { searchParams } = new URL(request.url);

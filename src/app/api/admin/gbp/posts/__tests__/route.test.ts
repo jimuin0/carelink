@@ -11,7 +11,7 @@
  * Note: All operations use the SSR (anon) Supabase client, not service role.
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -31,7 +31,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST, PATCH, DELETE } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 // Membership check: limit(1).single() → Promise
@@ -92,7 +92,7 @@ const MEMBER_DATA = { facility_id: FACILITY_UUID };
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -107,7 +107,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
   expect(res.status).toBe(429);
 });
@@ -467,7 +467,7 @@ test('DELETE: CSRFエラー → そのまま返却', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body: 'x' }),
   }));
@@ -475,7 +475,7 @@ test('POST: レートリミット → 429', async () => {
 });
 
 test('PATCH: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: POST_UUID }),
   }));
@@ -483,7 +483,7 @@ test('PATCH: レートリミット → 429', async () => {
 });
 
 test('DELETE: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
   expect(res.status).toBe(429);
 });
