@@ -14,8 +14,9 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }) }));
-jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom }) }));
+jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }) }));
 
 import { NextRequest } from 'next/server';
 import { PATCH } from '../route';
@@ -43,6 +44,7 @@ beforeEach(() => {
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockAdminRpc.mockResolvedValue({ error: null });
 });
 
 test('PATCH: CSRF → 403', async () => { (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}', { status: 403 })); expect((await PATCH(makeReq({ reply: 'x' }), makeProps())).status).toBe(403); });
@@ -57,13 +59,27 @@ test('PATCH: data なし → 404', async () => { setup({ facility_id: FACILITY_U
 test('PATCH: reply あり → replied_at 設定で 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID, reply: 'x' })); expect((await PATCH(makeReq({ reply: '返信します' }), makeProps())).status).toBe(200); });
 test('PATCH: reply 空文字 → replied_at null で 200', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID })); expect((await PATCH(makeReq({ reply: '' }), makeProps())).status).toBe(200); });
 test('PATCH: status のみ(reply 無し) → 200（replied_at 非設定）', async () => { setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID })); expect((await PATCH(makeReq({ status: 'hidden' }), makeProps())).status).toBe(200); });
-test('PATCH: is_pickup のみ → 200（Pick Up 設定＋他の Pick Up をサーバ側で一括解除 #12）', async () => {
-  // 主更新(.eq.eq.select.single) と clear-others(.eq.eq.neq) の双方を満たすチェーン
+test('PATCH: is_pickup のみ → 200（原子RPCで Pick Up を厳密1件に設定 #I）', async () => {
+  setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID, is_pickup: true }));
+  expect((await PATCH(makeReq({ is_pickup: true }), makeProps())).status).toBe(200);
+  // 原子RPCに review_id/facility_id が渡って呼ばれる
+  expect(mockAdminRpc).toHaveBeenCalledWith('set_review_pickup_atomic', { p_review_id: REVIEW_UUID, p_facility_id: FACILITY_UUID });
+});
+
+test('PATCH: is_pickup RPC 未適用(error)→従来の clear-others にフォールバックして 200', async () => {
+  mockAdminRpc.mockResolvedValue({ error: { message: 'function does not exist' } });
+  // 主更新チェーン + フォールバック clear-others(.eq.eq.neq) を満たす
   const tail = { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: REVIEW_UUID, is_pickup: true }, error: null })) }), neq: jest.fn(() => Promise.resolve({ error: null })) };
   const pickupChain = { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue(tail) }) }) };
   setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, pickupChain);
   expect((await PATCH(makeReq({ is_pickup: true }), makeProps())).status).toBe(200);
-  expect(tail.neq).toHaveBeenCalledWith('id', REVIEW_UUID); // 他の Pick Up 解除が自分を除外して実行された
+  expect(tail.neq).toHaveBeenCalledWith('id', REVIEW_UUID); // フォールバックの clear-others が自分を除外して実行された
+});
+
+test('PATCH: is_pickup=false → RPC を呼ばず 200（解除は競合対象外）', async () => {
+  setup({ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID }, updateChain({ id: REVIEW_UUID, is_pickup: false }));
+  expect((await PATCH(makeReq({ is_pickup: false }), makeProps())).status).toBe(200);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
 // ─── 拡張カラム不在フォールバック（#23） ──────────────────────────────────────

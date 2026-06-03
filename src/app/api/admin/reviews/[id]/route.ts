@@ -63,10 +63,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '口コミが見つかりません' }, { status: 404 });
 
-  // Pick Up を立てた場合は、同一施設の他の Pick Up をサーバ側で一括解除（#12: クライアント2回PATCHの
-  // 競合=Pick Up が0件/2件になる問題を排除。サーバ単一リクエストで「この1件のみ true」を保証）。
+  // Pick Up を立てた場合は「この1件のみ true」を施設単位で厳密保証する（#12/#I）。
+  // clear-others と set-self を施設 advisory lock 下の単一トランザクション(RPC)で原子実行し、
+  // 並行 PATCH で最終 0件/瞬間2件になる競合を排除する。主更新で self は既に true。
   if (parsed.data.is_pickup === true) {
-    await admin.from('facility_reviews').update({ is_pickup: false }).eq('facility_id', facilityId).eq('is_pickup', true).neq('id', params.id);
+    const { error: pickupError } = await admin.rpc('set_review_pickup_atomic', { p_review_id: params.id, p_facility_id: facilityId });
+    if (pickupError) {
+      // RPC 未適用環境向けフォールバック: 従来の clear-others（self は主更新で true 済み）
+      await admin.from('facility_reviews').update({ is_pickup: false }).eq('facility_id', facilityId).eq('is_pickup', true).neq('id', params.id);
+    }
   }
 
   void writeAuditLog({ userId: user.id, facilityId, action: 'update', tableName: 'facility_reviews', recordId: params.id, newValues: { reply: parsed.data.reply ?? null }, ipAddress: ip });
