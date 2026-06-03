@@ -64,6 +64,43 @@ function updateChain(error: unknown = null) {
   };
 }
 
+// status='published' 公開ゲート用 dispatch mock。
+// facility_profiles: select→eq→single（住所チェック＋revalidateのslug解決）と update→eq の両方を提供。
+// facility_menus: select(count,head)→eq でメニュー件数を返す。
+function publishMock({
+  prof = { prefecture: '東京都', city: '渋谷区', address: '1-1-1' },
+  menuCount = 1,
+  updateError = null,
+  profError = null,
+  menuError = null,
+}: {
+  prof?: { prefecture: string | null; city: string | null; address: string | null } | null;
+  menuCount?: number | null;
+  updateError?: unknown;
+  profError?: unknown;
+  menuError?: unknown;
+} = {}) {
+  return jest.fn((table: string) => {
+    if (table === 'facility_menus') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ count: menuCount, error: menuError })),
+        }),
+      };
+    }
+    return {
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          single: jest.fn(() => Promise.resolve({ data: profError ? null : prof, error: profError })),
+        })),
+      })),
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn(() => Promise.resolve({ error: updateError })),
+      }),
+    };
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
@@ -122,13 +159,59 @@ test('PATCH: booking_buffer_minutes > 120 → 400', async () => {
 
 // ─── Status action ────────────────────────────────────────────────────────────
 
-test('PATCH: ?action=status published → 200', async () => {
+test('PATCH: ?action=status published（住所あり・メニュー1件）→ 200', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateChain());
+  mockAdminFrom.mockImplementation(publishMock());
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+test('PATCH: 公開ゲート 住所欠落 → 400（missing に住所系）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '', city: null, address: '   ' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toEqual(expect.arrayContaining(['都道府県', '市区町村', '住所']));
+});
+
+test('PATCH: 公開ゲート メニュー0件 → 400（missing にメニュー）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ menuCount: 0 }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toEqual(expect.arrayContaining(['メニュー（1件以上）']));
+});
+
+test('PATCH: 公開ゲート メニュー件数 null → 400（メニュー扱い）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ menuCount: null }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 公開ゲート プロフィール取得失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ profError: { message: 'db' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: 公開ゲート メニュー件数取得失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ menuError: { message: 'db' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: 公開ゲート通過後の update 失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ updateError: { message: 'db' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(500);
 });
 
 test('PATCH: ?action=status 無効なステータス → 400', async () => {

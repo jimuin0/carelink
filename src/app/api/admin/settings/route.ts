@@ -109,6 +109,38 @@ export async function PATCH(request: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
     const admin = createServiceRoleClient();
+
+    // 公開ゲート: published にする時のみ、検索に出る最低条件（住所）と予約できる最低条件（メニュー1件）を必須化。
+    // draft 作成時は location NULL 許容に緩和済みのため、公開段階でここを唯一の必須チェックとする
+    // （空施設・住所なし施設の公開を構造的に封鎖。検索未ヒット公開も防ぐ）。
+    if (parsed.data.status === 'published') {
+      const { data: prof, error: profErr } = await admin
+        .from('facility_profiles')
+        .select('prefecture, city, address')
+        .eq('id', auth.facilityId)
+        .single();
+      if (profErr || !prof) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+      const missing: string[] = [];
+      if (!prof.prefecture || !prof.prefecture.trim()) missing.push('都道府県');
+      if (!prof.city || !prof.city.trim()) missing.push('市区町村');
+      if (!prof.address || !prof.address.trim()) missing.push('住所');
+
+      const { count: menuCount, error: menuErr } = await admin
+        .from('facility_menus')
+        .select('id', { count: 'exact', head: true })
+        .eq('facility_id', auth.facilityId);
+      if (menuErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      if (!menuCount || menuCount < 1) missing.push('メニュー（1件以上）');
+
+      if (missing.length > 0) {
+        return NextResponse.json(
+          { error: `公開には次の項目が必要です: ${missing.join('、')}`, missing },
+          { status: 400 },
+        );
+      }
+    }
+
     const { error } = await admin
       .from('facility_profiles')
       .update({ status: parsed.data.status, updated_at: new Date().toISOString() })

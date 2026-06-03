@@ -223,7 +223,8 @@ export default function AdminSettingsPage() {
                   setFacilityStatus(newStatus);
                   setToast({ type: 'success', message: '施設を公開しました！' });
                 } else {
-                  setToast({ type: 'error', message: '公開に失敗しました' });
+                  const e = await res.json().catch(() => ({}));
+                  setToast({ type: 'error', message: e.error || '公開に失敗しました' });
                 }
                 setPublishToggling(false);
               }}
