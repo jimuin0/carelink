@@ -89,7 +89,7 @@ npm run lint  # ESLint
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0（2026-06-03 確認、HPB同等化＋8観点監査の根本対策反映後） |
-| L2 | Jest ユニットテスト | ✅ | 4840 テスト全通過、201 スイート（2026-06-03、round4 監査でクーポン適用条件/PickUp原子化のテスト追加） |
+| L2 | Jest ユニットテスト | ✅ | 4899 テスト全通過、205 スイート（2026-06-03、round5＋PAY.JP移行＋残バグ修正のテスト追加） |
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/lib(blog,suspensions)）。2026-06-03 |
 | L4 | Stryker ミューテーション | ✅ | 全12ファイル survived=0（2026-06-03、lib/suspensions.ts を追加し mutation score 100%）。lib/blog.ts は supabase IO ありで L4基準「外部副作用なし」非該当のため対象外。 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
