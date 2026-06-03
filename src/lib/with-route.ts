@@ -17,12 +17,33 @@
  */
 
 import { NextResponse } from 'next/server';
+import type { SupabaseClient, User } from '@supabase/supabase-js';
 import { checkCsrf } from './csrf';
 import { checkRateLimit, type RateLimitConfig } from './rate-limit';
 import { getClientIp } from './client-ip';
+import { createServerSupabaseAuthClient } from './supabase-server-auth';
 import { safeCaptureException } from './safe';
 
-type Handler = (request: Request) => Promise<NextResponse>;
+/**
+ * ハンドラに渡される実行コンテキスト。
+ * - requireAuth: true のとき user は必ず非 null（未認証は withRoute が 401 で遮断済み）、
+ *   supabase は認証済み anon SSR クライアント（ハンドラ内で再生成不要）。
+ * - requireAuth 省略時は user / supabase ともに null（後方互換: 既存ハンドラは第2引数を無視）。
+ */
+export interface RouteContext {
+  user: User | null;
+  supabase: SupabaseClient | null;
+}
+
+/** ハンドラ本体（ユーザー定義）。第2引数で認証コンテキストを受け取る。 */
+type Handler = (request: Request, ctx: RouteContext) => Promise<NextResponse>;
+
+/**
+ * withRoute が返すラッパー関数の型。
+ * Next.js の Route Handler シグネチャ（request のみ／非動的ルート）と互換にするため、
+ * 公開される戻り値は 1 引数に固定する（RouteContext は内部でのみ生成・注入する）。
+ */
+type WrappedHandler = (request: Request) => Promise<NextResponse>;
 
 interface WithRouteOptions {
   /** CSRF 検証を行う（既定: true、GET は通常 false） */
@@ -34,6 +55,13 @@ interface WithRouteOptions {
     windowMs: number;
     prefix: string;
   };
+  /**
+   * ログイン必須化（既定: false）。
+   * true のとき withRoute が auth.getUser() を実行し、未認証なら 401 を返して
+   * ハンドラを呼ばない。認証済みなら ctx.user / ctx.supabase をハンドラへ渡す。
+   * 各ルートでの getUser 書き忘れ・401 漏れを物理的に防ぐ（発症前予防）。
+   */
+  requireAuth?: boolean;
   /** Sentry tag（既定: 'route'） */
   sentryTag?: string;
 }
@@ -42,8 +70,8 @@ interface WithRouteOptions {
  * Route handler を CSRF / RateLimit / catch で包むファクトリー。
  * 内部例外は必ず 500 に変換し本体応答が undefined にならないよう保証する。
  */
-export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Handler {
-  const { csrf = true, rateLimit, sentryTag = 'route' } = opts;
+export function withRoute(handler: Handler, opts: WithRouteOptions = {}): WrappedHandler {
+  const { csrf = true, rateLimit, requireAuth = false, sentryTag = 'route' } = opts;
 
   return async function wrapped(request: Request): Promise<NextResponse> {
     try {
@@ -72,7 +100,19 @@ export function withRoute(handler: Handler, opts: WithRouteOptions = {}): Handle
         }
       }
 
-      return await handler(request);
+      // 認証必須ルートはここで一元的に検証する（各ルートでの書き忘れを防止）。
+      // CSRF / RateLimit 通過後に評価し、未認証は 401 でハンドラを呼ばずに遮断する。
+      let ctx: RouteContext = { user: null, supabase: null };
+      if (requireAuth) {
+        const supabase = await createServerSupabaseAuthClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+        }
+        ctx = { user, supabase };
+      }
+
+      return await handler(request, ctx);
     } catch (e) {
       safeCaptureException(e, sentryTag);
       return NextResponse.json(
