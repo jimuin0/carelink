@@ -89,7 +89,7 @@ npm run lint  # ESLint
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0（2026-06-03 確認、HPB同等化＋8観点監査の根本対策反映後） |
-| L2 | Jest ユニットテスト | ✅ | 4919 テスト全通過、207 スイート（2026-06-03、round6 修正のテスト追加） |
+| L2 | Jest ユニットテスト | ✅ | 4920 テスト全通過、207 スイート（2026-06-03、スケール監査 bulk-publish/cron ページング化のテスト追加） |
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/lib(blog,suspensions)）。2026-06-03 |
 | L4 | Stryker ミューテーション | ✅ | 全12ファイル survived=0（2026-06-03、lib/suspensions.ts を追加し mutation score 100%）。lib/blog.ts は supabase IO ありで L4基準「外部副作用なし」非該当のため対象外。 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
@@ -202,3 +202,31 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
 
 **🔴 GO LIVE 前ゲート（神原さん）:** ①PAYJP_SECRET_KEY・公開鍵を本番/テスト環境変数に設定（会話に貼らない）
 ②クライアント payjp.js 連携（決済UI）③テストモードで実機決済1本を確証（→確証後に Phase3〜5 を複製）
+
+### 多店舗スケール受け入れ監査（2026-06-03・神原さん「一気に10〜20社増えたときの受け入れ体制」）
+
+8体エージェント＋統合で「同時に10〜20施設を受け入れる」観点（schemaドリフト / 一括操作 / 行上限
+スケール / ISR反映 / テナント分離 / オンボーディング動線 / インデックス / 権限モデル）を監査。
+テナント分離（IDOR/RLS/authz）は健全確認。確定バグを根本修正・push済み。
+
+**修正済み（発症前の恒久対策・push済み 2994611）:**
+- 🔴 chain/bulk-publish が `is_published` のみ更新する no-op（read経路は `status='published'`）→
+  `status` を権威カラムとして更新＋slug取得＋施設別ISR再検証。一括公開が実際に効くように。
+- 🔴 profiles.role / is_platform_admin が code/RLS で37回参照されるのにマイグレーション未追加（schema
+  ドリフト）→ 冪等・非破壊 `20260604_profiles_admin_columns.sql`（ADD COLUMN IF NOT EXISTS）。
+- 🟡 daily-summary / customer-segment(.limit200) / sitemap の施設取得が PostgREST 1000行上限で欠落
+  → 全件 fetchAllPaged 化（施設1000超でも集計・SEO漏れなし）。
+- 🟡 admin/settings の公開状態・基本情報更新が公開ページ(ISR)へ即時反映されない → revalidateFacilityById
+  を status分岐・本体更新の両方に追加。
+全変更ファイル branch 100%・tsc/eslint 0・全4920テスト通過。
+
+**🔴 適用待ちマイグレーション（神原さん・Supabase SQL Editor）:** `20260604_profiles_admin_columns.sql`
+（未適用だと platform-admin 機能・該当RLSが参照先カラム不在でエラーになり得る）。
+
+**🟡 要件依存・神原さん判断待ち（仕様決定が必要なため未実装）:**
+- 施設ごとの機能フラグ / プラン・課金枠（quota）/ スタッフ権限ロールの多段化
+- salons 新規登録の承認ゲート（現状は登録即時 published の動線か要確認）
+- 空施設（メニュー0件等）の公開ガード
+- facility/初期セットアップの TOCTOU（同時オンボーディングの重複作成）
+
+**🟢 推奨インデックス（性能・別タスク）:** facility_menus/photos の sort_order、reviews の created_at。
