@@ -76,7 +76,8 @@ jobs:
     name: E2E Tests (Playwright)
     runs-on: ubuntu-latest
     needs: [lint-typecheck, unit-test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # PR でも e2e を必須化する（push-main 限定だと e2e 退行のまま PR マージ可能になる盲点）。
+    # workflow は push-main と PR-to-main でのみ起動するため、if を外せば両方で走る。
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -117,8 +118,9 @@ jobs:
           cache: 'npm'
       - run: npm ci
       - name: npm audit（high以上の脆弱性チェック）
+        # L6 基準「high=0」を CI で物理ゲート化する。high 脆弱性で CI を落とす
+        # （continue-on-error で握り潰すと high 混入のまま merge できる盲点になる）。
         run: npm audit --audit-level=high
-        continue-on-error: true
       - name: Critical 脆弱性は失敗させる
         run: |
           CRITICAL=$(npm audit --json 2>/dev/null | python3 -c "
