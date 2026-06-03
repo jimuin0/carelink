@@ -4,6 +4,7 @@
  * Tests for POST /api/payment/payjp/charge（PAY.JP 同期課金・Phase 1）
  */
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/alert', () => ({ alertError: jest.fn(), alertWarning: jest.fn() }));
 jest.mock('@/lib/rate-limit', () => ({ mutationRateLimit: null, checkRateLimit: jest.fn(() => Promise.resolve(false)) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
@@ -14,7 +15,8 @@ jest.mock('@supabase/ssr', () => ({ createServerClient: () => ({ auth: { getUser
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: () => ({ from: mockAdminFrom }) }));
 
 const mockChargeCreate = jest.fn();
-jest.mock('@/lib/payjp', () => ({ getPayjp: jest.fn(() => ({ charges: { create: mockChargeCreate } })) }));
+const mockChargeRefund = jest.fn();
+jest.mock('@/lib/payjp', () => ({ getPayjp: jest.fn(() => ({ charges: { create: mockChargeCreate, refund: mockChargeRefund } })) }));
 
 import { POST } from '../route';
 import { checkCsrf } from '@/lib/csrf';
@@ -47,11 +49,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate, refund: mockChargeRefund } });
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   mockAnonFrom.mockReturnValue(bookingChain(BOOKING));
   mockAdminFrom.mockReturnValue(adminUpdateChain(null));
   mockChargeCreate.mockResolvedValue({ id: 'ch_1', paid: true, captured: true, amount: 5000 });
+  mockChargeRefund.mockResolvedValue({ id: 'rf_1', refunded: true });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://t.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'anon';
 });
@@ -148,12 +151,56 @@ test('charge.paid=false → 402', async () => {
   expect((await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }))).status).toBe(402);
 });
 
-test('課金成立後の予約更新失敗 → 500（chargeId 返却）', async () => {
+test('課金成立後の予約更新が全リトライ失敗 → 自動返金して 500（返金成功・chargeId返さない）', async () => {
   mockAdminFrom.mockReturnValue(adminUpdateChain({ message: 'db error' }));
   const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
   const json = await res.json();
   expect(res.status).toBe(500);
+  expect(mockChargeRefund).toHaveBeenCalledWith('ch_1');
+  expect(json.chargeId).toBeUndefined();
+});
+
+test('予約更新失敗かつ返金も失敗 → 500（chargeId 返却・手動 reconcile）', async () => {
+  mockAdminFrom.mockReturnValue(adminUpdateChain({ message: 'db error' }));
+  mockChargeRefund.mockRejectedValue(new Error('refund api down'));
+  const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
+  const json = await res.json();
+  expect(res.status).toBe(500);
   expect(json.chargeId).toBe('ch_1');
+});
+
+test('予約更新失敗かつ返金が非Errorをthrow → String フォールバックで 500', async () => {
+  mockAdminFrom.mockReturnValue(adminUpdateChain({ message: 'db error' }));
+  mockChargeRefund.mockRejectedValue('refund-string-err');
+  const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.chargeId).toBe('ch_1');
+});
+
+test('予約更新は1回目失敗・2回目成功 → 200（リトライで整合確定）', async () => {
+  let call = 0;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn(() => {
+          call++;
+          return Promise.resolve({ error: call === 1 ? { message: 'transient' } : null });
+        }),
+      }),
+    }),
+  });
+  const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
+  expect(res.status).toBe(200);
+  expect(mockChargeRefund).not.toHaveBeenCalled();
+});
+
+test('予期せぬ例外（getUser が reject）→ 外側catchで 500', async () => {
+  mockGetUser.mockRejectedValue(new Error('auth boom'));
+  const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.error).toBe('決済処理に失敗しました');
 });
 
 test('token が長すぎる(>100) → 400', async () => {

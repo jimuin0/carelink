@@ -14,6 +14,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { getPayjp } from '@/lib/payjp';
+import { alertError, alertWarning } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -103,15 +104,36 @@ export async function POST(request: NextRequest) {
     }
 
     // 課金成立 → payment_status='paid' を同期確定（金額・charge id を保存）。
-    const { error: updateErr } = await admin
-      .from('bookings')
-      .update({ payment_status: 'paid', paid_amount: charge.amount, payjp_charge_id: charge.id })
-      .eq('id', bookingId)
-      .eq('user_id', user.id);
+    // この書き込みは冪等（同値 set）なので transient 失敗は数回リトライして整合確定を最優先する。
+    let updateErr: { message: string } | null = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const { error } = await admin
+        .from('bookings')
+        .update({ payment_status: 'paid', paid_amount: charge.amount, payjp_charge_id: charge.id })
+        .eq('id', bookingId)
+        .eq('user_id', user.id);
+      updateErr = error;
+      if (!error) break;
+    }
+
     if (updateErr) {
-      // 課金は成立済み。返金は運用対応とし、ここでは 500 を返してログに残す（二重課金はしない）。
-      console.error('[payment/payjp/charge] charge succeeded but booking update failed — needs manual reconcile', { bookingId, chargeId: charge.id, err: updateErr.message });
-      return NextResponse.json({ error: '決済は完了しましたが予約の更新に失敗しました。サポートにお問い合わせください。', chargeId: charge.id }, { status: 500 });
+      // 全リトライ失敗＝課金済みなのに予約を paid 化できない（金銭不整合）。
+      // 顧客が確認できない予約に課金を保持しないため自動返金し整合を回復する（症状放置でなく真の予防）。
+      try {
+        await payjp.charges.refund(charge.id);
+        alertWarning('payjp charge auto-refunded after booking update failure', {
+          route: '/api/payment/payjp/charge',
+          extra: { bookingId, chargeId: charge.id, updateErr: updateErr.message },
+        });
+        return NextResponse.json({ error: '決済処理中に問題が発生したため返金しました。お手数ですが再度お試しください。' }, { status: 500 });
+      } catch (refundErr) {
+        // 返金も失敗＝資金保持・要手動対応。ログ放置にせず 🔴 能動通知する。
+        alertError('payjp charge succeeded but booking update AND refund failed — manual reconcile required', {
+          route: '/api/payment/payjp/charge',
+          extra: { bookingId, chargeId: charge.id, updateErr: updateErr.message, refundErr: refundErr instanceof Error ? refundErr.message : String(refundErr) },
+        });
+        return NextResponse.json({ error: '決済は完了しましたが予約の更新に失敗しました。サポートにお問い合わせください。', chargeId: charge.id }, { status: 500 });
+      }
     }
 
     return NextResponse.json({ success: true, chargeId: charge.id, amount: charge.amount });
