@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { revalidateFacilityById } from '@/lib/revalidate';
 
 // 20260531/20260601 マイグレーションで facility_profiles に追加された拡張カラム。
 // 部分適用環境でも保存全失敗にしないため、カラム不在時はこれらを除外して再試行する。
@@ -126,6 +127,8 @@ export async function PATCH(request: NextRequest) {
       ipAddress: ip,
       userAgent: ua,
     });
+    // 公開/非公開トグルを公開ページ(ISR)へ即時反映（facility-status 経路と同様・反映漏れ防止・scale監査）
+    await revalidateFacilityById(auth.facilityId);
     return NextResponse.json({ ok: true });
   }
 
@@ -166,5 +169,7 @@ export async function PATCH(request: NextRequest) {
     ipAddress: ip,
     userAgent: ua,
   });
+  // 施設基本情報・営業時間等は公開ページ表示に反映されるため即時再検証（scale監査）
+  await revalidateFacilityById(auth.facilityId);
   return NextResponse.json({ ok: true });
 }

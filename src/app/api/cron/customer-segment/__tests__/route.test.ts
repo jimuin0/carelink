@@ -46,7 +46,7 @@ function setupDefaultMocks(
 
   mockFacilitiesSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({
+      range: jest.fn().mockResolvedValue({
         data: facilitiesData,
       }),
     }),
@@ -206,8 +206,10 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
 
+    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.processed).toBe(0);
+    // 施設が空配列の場合は早期リターンで {status:'ok', count:0}
+    expect(json.count).toBe(0);
   });
 
   test('upserts to customer_segments table', async () => {
@@ -324,7 +326,7 @@ describe('GET /api/cron/customer-segment', () => {
   test('facilities query returns null → early return with count 0', async () => {
     mockFacilitiesSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue({
+        range: jest.fn().mockResolvedValue({
           data: null, // explicitly null, not []
         }),
       }),
@@ -632,7 +634,7 @@ describe('GET /api/cron/customer-segment', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockFacilitiesSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        limit: jest.fn().mockRejectedValue(new Error('Supabase connection refused')),
+        range: jest.fn().mockRejectedValue(new Error('Supabase connection refused')),
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {

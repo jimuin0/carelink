@@ -8,6 +8,7 @@
 
 # testing
 /coverage
+/.jesttmp
 
 # next.js
 /.next/

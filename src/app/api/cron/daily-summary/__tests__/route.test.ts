@@ -54,8 +54,7 @@ function setupDefaultMocks(
       eq: jest.fn((col: string, val: any) => {
         if (col === 'status' && val === 'published') {
           return {
-            data: facilitiesData,
-            error: null,
+            range: jest.fn().mockResolvedValue({ data: facilitiesData, error: null }),
           };
         }
         return {
@@ -148,8 +147,8 @@ describe('GET /api/cron/daily-summary', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    // facilities が空配列の場合は通常パスで {processed: 0, skipped: 0, date: ...}
-    expect(json.processed).toBe(0);
+    // facilities が空配列の場合は早期リターンで {status:'ok', count:0}
+    expect(json.count).toBe(0);
   });
 
   test('facilities with no bookings → skipped', async () => {
@@ -353,7 +352,7 @@ describe('GET /api/cron/daily-summary', () => {
     createServiceRoleClient.mockReturnValue({
       from: jest.fn(() => ({
         select: jest.fn(() => ({
-          eq: jest.fn(() => ({ data: null, error: null })),
+          eq: jest.fn(() => ({ range: jest.fn().mockResolvedValue({ data: null, error: null }) })),
         })),
       })),
     });
@@ -380,7 +379,7 @@ describe('GET /api/cron/daily-summary', () => {
         if (table === 'facility_profiles') {
           return {
             select: jest.fn(() => ({
-              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+              eq: jest.fn(() => ({ range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-1' }], error: null }) })),
             })),
           };
         }
@@ -418,7 +417,7 @@ describe('GET /api/cron/daily-summary', () => {
         if (table === 'facility_profiles') {
           return {
             select: jest.fn(() => ({
-              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+              eq: jest.fn(() => ({ range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-1' }], error: null }) })),
             })),
           };
         }
@@ -466,7 +465,7 @@ describe('GET /api/cron/daily-summary', () => {
         if (table === 'facility_profiles') {
           return {
             select: jest.fn(() => ({
-              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+              eq: jest.fn(() => ({ range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-1' }], error: null }) })),
             })),
           };
         }
@@ -521,7 +520,7 @@ describe('GET /api/cron/daily-summary', () => {
             // First call returns facility list
             return {
               select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({ data: [{ id: 'fac-1' }, { id: 'fac-2' }], error: null }),
+                eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-1' }, { id: 'fac-2' }], error: null }) }),
               }),
             };
           }

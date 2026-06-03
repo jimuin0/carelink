@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject } from '@/lib/email';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,13 +33,19 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id, name, slug')
-      .eq('status', 'published')
-      .limit(200);
+    // 全公開施設を全件ページング取得（旧 .limit(200) は201施設目以降がRFM分析対象外だった・scale監査）
+    const { rows: facilities } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_profiles')
+          .select('id, name, slug')
+          .eq('status', 'published')
+          .range(offset, offset + limit - 1);
+        return { data: data as { id: string; name: string; slug: string }[] | null, error };
+      },
+    );
 
-    if (!facilities) {
+    if (facilities.length === 0) {
       await logCronRun('customer-segment', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ status: 'ok', count: 0 });
     }
