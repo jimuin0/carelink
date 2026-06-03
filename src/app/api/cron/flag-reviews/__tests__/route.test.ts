@@ -61,10 +61,12 @@ function setupDefaultMocks(
         eq: jest.fn().mockResolvedValue({ data: reviewsData }),
       }),
     }),
-    // self-dealing chain: .select().not().eq('is_flagged',false).eq('status','published')
+    // self-dealing chain: .select().not().eq('is_flagged',false).eq('status','published').range()
     not: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ data: [] }),
+        eq: jest.fn().mockReturnValue({
+          range: jest.fn().mockResolvedValue({ data: [] }),
+        }),
       }),
     }),
   });
@@ -150,7 +152,7 @@ describe('GET /api/cron/flag-reviews', () => {
       }),
       not: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: selfDealingData }),
+          eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: selfDealingData }) }),
         }),
       }),
     });
@@ -183,7 +185,7 @@ describe('GET /api/cron/flag-reviews', () => {
       }),
       not: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
+          eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [] }) }),
         }),
       }),
     });
@@ -292,7 +294,7 @@ describe('GET /api/cron/flag-reviews', () => {
       }),
       not: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: null }),
+          eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: null }) }),
         }),
       }),
     });
@@ -319,12 +321,12 @@ describe('GET /api/cron/flag-reviews', () => {
       }),
       not: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
+          eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({
             data: [
               { id: 'r1', reviewer_ip: '1.1.1.1', facility_id: 'fac-a' },
               { id: 'r2', reviewer_ip: '1.1.1.1', facility_id: 'fac-b' },
             ],
-          }),
+          }) }),
         }),
       }),
     });
@@ -354,12 +356,12 @@ describe('GET /api/cron/flag-reviews', () => {
       }),
       not: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
+          eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({
             data: [
               { id: 'r1', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
               { id: 'r2', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
             ],
-          }),
+          }) }),
         }),
       }),
     });

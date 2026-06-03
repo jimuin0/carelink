@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { createServerSupabaseClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
+import { fetchAllPaged } from './paginate';
 
 const PER_PAGE = 20;
 
@@ -346,16 +347,23 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
     ? `${year + 1}-01-01`
     : `${year}-${String(now.getMonth() + 2).padStart(2, '0')}-01`;
 
-  const { data } = await supabase
-    .from('bookings')
-    .select('facility_id')
-    .in('facility_id', facilityIds)
-    .in('status', ['pending', 'confirmed', 'completed'])
-    .gte('booking_date', monthStart)
-    .lt('booking_date', nextMonth);
+  // 当月の予約を全件ページングで取得（PostgREST db-max-rows(1000) による過少カウントを防ぐ・round6）。
+  const { rows: data } = await fetchAllPaged<{ facility_id: string }>(
+    async (offset, limit) => {
+      const { data: page, error } = await supabase
+        .from('bookings')
+        .select('facility_id')
+        .in('facility_id', facilityIds)
+        .in('status', ['pending', 'confirmed', 'completed'])
+        .gte('booking_date', monthStart)
+        .lt('booking_date', nextMonth)
+        .range(offset, offset + limit - 1);
+      return { data: page as { facility_id: string }[] | null, error };
+    },
+  );
 
   const counts: Record<string, number> = {};
-  for (const row of data || []) {
+  for (const row of data) {
     counts[row.facility_id] = (counts[row.facility_id] || 0) + 1;
   }
   return counts;
