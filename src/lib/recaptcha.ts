@@ -35,6 +35,10 @@ export async function verifyRecaptcha(
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ secret: secretKey, response: token }),
+      // Google siteverify が応答しない場合に予約フォームが無限待機するのを防ぐ。
+      // タイムアウト時は AbortError が throw され下の catch で fail-closed（verify_error）に倒れる。
+      // AbortSignal.timeout は Node で unref 済みのためタイマーリークも起こさない。
+      signal: AbortSignal.timeout(10_000),
     });
     const data = await res.json() as {
       success: boolean;

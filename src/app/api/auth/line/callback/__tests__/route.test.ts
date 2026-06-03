@@ -192,6 +192,27 @@ describe('GET /api/auth/line/callback', () => {
     expect(res.headers.get('location')).toContain('error=line_invalid_state');
   });
 
+  test('state cookie 欠落（savedState undefined）→ line_invalid_state', async () => {
+    // state パラメータは存在するが line_oauth_state cookie が無いケース。
+    // 定数時間比較ヘルパー導入で savedState undefined を呼び出し側 !savedState で
+    // 早期 false にする分岐の検証（タイミング攻撃対策のブランチ網羅）。
+    const { cookies } = require('next/headers');
+    cookies.mockResolvedValue({
+      get: jest.fn((name: string) => {
+        if (name === 'line_oauth_redirect') return { value: '/mypage' };
+        return undefined; // line_oauth_state cookie 無し
+      }),
+      delete: jest.fn(),
+      getAll: jest.fn(() => []),
+      set: jest.fn(),
+    });
+
+    const res = await GET(makeRequest('?code=test-code&state=some-state') as any);
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('error=line_invalid_state');
+  });
+
   test('valid state → deletes OAuth cookies', async () => {
     await GET(makeRequest('?code=test-code&state=saved-state') as any);
 

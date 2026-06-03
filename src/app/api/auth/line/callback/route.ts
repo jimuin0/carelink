@@ -1,12 +1,29 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { safeCaptureException } from '@/lib/safe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * 定数時間文字列比較。早期 return での文字単位リーク（タイミング攻撃）を防ぐ。
+ * - CSRF state nonce と HMAC 署名の検証に使用する。特に HMAC 署名比較
+ *   （サーバ計算値 vs 攻撃者制御値）は平文 !== だと署名をバイト単位で
+ *   復元され得る古典的タイミング攻撃面のため constant-time が必須。
+ * - 両引数とも非空文字列であることは呼び出し側で保証する（undefined 判定を
+ *   ここに持ち込むと到達不能ブランチが生まれるため）。長さ不一致は即 false
+ *   （state nonce/HMAC とも固定長で長さは秘匿対象でないため許容）。
+ */
+function timingSafeStrEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
 
 export async function GET(request: NextRequest) {
   const ip = getClientIp(request);
@@ -32,7 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/auth/login?error=line_denied`);
   }
 
-  if (!code || !state || state !== savedState) {
+  if (!code || !state || !savedState || !timingSafeStrEqual(state, savedState)) {
     return NextResponse.redirect(`${origin}/auth/login?error=line_invalid_state`);
   }
 
@@ -98,7 +115,7 @@ export async function GET(request: NextRequest) {
           );
           const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
           const expected = Buffer.from(sig).toString('base64url');
-          if (expected !== parts[2]) {
+          if (!timingSafeStrEqual(expected, parts[2])) {
             // Signature mismatch — reject the id_token entirely
             return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
           }
