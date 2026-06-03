@@ -79,7 +79,9 @@ export async function POST(request: NextRequest) {
     joined_at: new Date().toISOString(),
   });
   if (organizerErr) {
-    console.error('[group-booking] organizer member insert failed', { groupId: groupBooking.id, err: organizerErr });
+    // 主催者メンバー登録失敗 → 作成済み group_bookings を補償削除（メンバー0の孤児行・share_code 浪費を残さない）。
+    await admin.from('group_bookings').delete().eq('id', groupBooking.id);
+    console.error('[group-booking] organizer member insert failed — rolled back group_bookings', { groupId: groupBooking.id, err: organizerErr });
     return NextResponse.json({ error: 'グループ予約の作成に失敗しました' }, { status: 500 });
   }
 
@@ -96,7 +98,11 @@ export async function POST(request: NextRequest) {
       }))
     );
     if (guestErr) {
-      console.error('[group-booking] guest members insert failed', { groupId: groupBooking.id, err: guestErr });
+      // ゲスト登録失敗 → メンバーと group_bookings を巻き戻す（招待欠落のまま「成功」を返さない）。
+      await admin.from('group_booking_members').delete().eq('group_booking_id', groupBooking.id);
+      await admin.from('group_bookings').delete().eq('id', groupBooking.id);
+      console.error('[group-booking] guest members insert failed — rolled back', { groupId: groupBooking.id, err: guestErr });
+      return NextResponse.json({ error: 'グループ予約の作成に失敗しました' }, { status: 500 });
     }
   }
 

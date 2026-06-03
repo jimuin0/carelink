@@ -219,6 +219,17 @@ describe('GET /api/cron/waitlist-notify', () => {
     }
   });
 
+  test('メール送信失敗 → claim を waiting に戻す（通知喪失防止）', async () => {
+    process.env.RESEND_API_KEY = 'test-key';
+    mockSendEmail.mockRejectedValue(new Error('send failed'));
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // revert: status='waiting' への update が呼ばれる（notified のまま放置しない）
+    const revertCall = mockUpdateWaitlist.mock.calls.find((c: unknown[]) => c[0] && (c[0] as { status?: string }).status === 'waiting');
+    expect(revertCall).toBeDefined();
+  });
+
   test('email includes facility name', async () => {
     const res = await GET(makeRequest() as any);
 

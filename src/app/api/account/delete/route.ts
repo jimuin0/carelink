@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       .map((r, i) => ({ i, r }))
       .filter(({ r }) => r.status === 'rejected' || (r.status === 'fulfilled' && (r.value as { error?: unknown }).error));
     if (failedOps.length > 0) {
-      console.error('[account/delete] PII deletion partial failure — manual GDPR cleanup required', {
+      console.error('[account/delete] PII deletion partial failure — auth.users を残して中断', {
         userId: user.id,
         failures: failedOps.map(({ i, r }) => ({
           opIndex: i,
@@ -79,6 +79,10 @@ export async function POST(request: NextRequest) {
           reason: r.status === 'rejected' ? r.reason : (r.value as { error?: unknown }).error,
         })),
       });
+      // 部分失敗のまま auth.users を削除すると user.id 参照を失い、削除し残した PII を回収できなくなる
+      // （個人情報保護法の趣旨に反する孤児PII）。auth.users は残して 500 を返し、再実行で完遂させる。
+      // 各削除/更新は user_id 指定で冪等なため、再実行による二重削除の害はない。
+      return NextResponse.json({ error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
     }
 
     // 施設オーナーの場合、施設も削除
@@ -107,7 +111,10 @@ export async function POST(request: NextRequest) {
 
     const { error: memberDeleteErr } = await adminSupabase.from('facility_members').delete().eq('user_id', user.id);
     if (memberDeleteErr) {
-      console.error('[account/delete] facility_members deletion failed — manual cleanup required', { userId: user.id, err: memberDeleteErr });
+      // facility_members は user_id をキーに持つため、残したまま auth.users を消すと孤児行になる。
+      // auth.users を残して 500 を返し、再実行で完遂させる（delete は冪等）。
+      console.error('[account/delete] facility_members deletion failed — auth.users を残して中断', { userId: user.id, err: memberDeleteErr });
+      return NextResponse.json({ error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
     }
 
     // auth.usersから削除

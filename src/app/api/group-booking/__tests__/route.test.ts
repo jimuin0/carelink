@@ -290,6 +290,8 @@ describe('POST /api/group-booking - success flow', () => {
   let mockGroupSingle: jest.Mock;
   let mockMemberInsert: jest.Mock;
   let mockFromFn: jest.Mock;
+  let mockGroupDelete: jest.Mock;
+  let mockMemberDelete: jest.Mock;
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -319,11 +321,13 @@ describe('POST /api/group-booking - success flow', () => {
     const mockGroupInsert = jest.fn().mockReturnValue({ select: mockGroupSelectInsert });
 
     mockMemberInsert = jest.fn().mockResolvedValue({ error: null });
+    mockGroupDelete = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+    mockMemberDelete = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
 
     mockFromFn = jest.fn((table: string) => {
       if (table === 'facility_profiles') return { select: mockFacilitySelect };
-      if (table === 'group_bookings') return { insert: mockGroupInsert };
-      if (table === 'group_booking_members') return { insert: mockMemberInsert };
+      if (table === 'group_bookings') return { insert: mockGroupInsert, delete: mockGroupDelete };
+      if (table === 'group_booking_members') return { insert: mockMemberInsert, delete: mockMemberDelete };
     });
 
     const { createServiceRoleClient } = require('@/lib/supabase-server');
@@ -365,7 +369,7 @@ describe('POST /api/group-booking - success flow', () => {
     expect(json.error).toContain('グループ予約の作成に失敗しました');
   });
 
-  test('organizer member insert fails → 500', async () => {
+  test('organizer member insert fails → 500・group_bookings をロールバック削除', async () => {
     // First call to group_booking_members (organizer) fails
     mockMemberInsert.mockResolvedValueOnce({ error: { message: 'organizer insert failed' } });
 
@@ -374,6 +378,20 @@ describe('POST /api/group-booking - success flow', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toContain('グループ予約の作成に失敗しました');
+    expect(mockGroupDelete).toHaveBeenCalled(); // 孤児 group_bookings を補償削除
+  });
+
+  test('guest members insert fails → 500・メンバーと group_bookings をロールバック', async () => {
+    // organizer 成功 → guest 失敗
+    mockMemberInsert
+      .mockResolvedValueOnce({ error: null })
+      .mockResolvedValueOnce({ error: { message: 'guest insert failed' } });
+
+    const res = await POST(makeRequest({ ...validGroupBookingForSuccess, guest_members: [{ name: 'ゲストA' }] }) as any);
+
+    expect(res.status).toBe(500);
+    expect(mockMemberDelete).toHaveBeenCalled(); // メンバー巻き戻し
+    expect(mockGroupDelete).toHaveBeenCalled();  // group_bookings 巻き戻し
   });
 
   test('successful creation → 201 with id, share_code, share_url', async () => {
@@ -423,7 +441,7 @@ describe('POST /api/group-booking - success flow', () => {
     expect(mockMemberInsert).toHaveBeenCalledTimes(2);
   });
 
-  test('guest insert error is logged but not fatal → 201', async () => {
+  test('guest insert error → 500・ロールバック（招待欠落のまま成功にしない）', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     // organizer insert succeeds, guest insert fails
     mockMemberInsert
@@ -437,7 +455,9 @@ describe('POST /api/group-booking - success flow', () => {
 
     const res = await POST(makeRequest(bodyWithGuests) as any);
 
-    expect(res.status).toBe(201);
+    expect(res.status).toBe(500);
+    expect(mockMemberDelete).toHaveBeenCalled();
+    expect(mockGroupDelete).toHaveBeenCalled();
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('guest members insert failed'),
       expect.any(Object)

@@ -70,9 +70,11 @@ export async function GET(request: NextRequest) {
 
   const admin = createServiceRoleClient();
 
+  // 実カラムに合わせる: 金額は total_price、メニュー名は facility_menus 結合、顧客名/メールは bookings の実列。
+  // （旧実装は存在しない total_amount/menu_name 列を参照しており本番で 42703 → 500 になっていた）
   let query = admin
     .from('bookings')
-    .select('id, created_at, menu_name, total_amount, status, profiles(display_name, email)')
+    .select('id, created_at, customer_name, email, total_price, status, menu:facility_menus(name)')
     .eq('facility_id', facilityId)
     .in('status', ['confirmed', 'completed'])
     .order('created_at');
@@ -92,20 +94,20 @@ export async function GET(request: NextRequest) {
     const header = ['取引日', '収支区分', '管理番号', '取引先', '勘定科目', '税区分', '金額', '税計算区分', '消費税額', '備考'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of bookings ?? []) {
-      const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
-      const amount = b.total_amount ?? 0;
+      const menuName = ((Array.isArray(b.menu) ? b.menu[0] : b.menu) as { name?: string } | null)?.name ?? '';
+      const amount = b.total_price ?? 0;
       const tax = Math.round(amount * 10 / 110);
       csv += toCsvRow([
         toJST(b.created_at),
         '収入',
         b.id.slice(0, 8),
-        customer?.display_name ?? '',
+        b.customer_name ?? '',
         '売上高',
         '課税売上10%',
         amount - tax,
         '内税',
         tax,
-        b.menu_name ?? '',
+        menuName,
       ]) + '\n';
     }
   } else if (format === 'mf') {
@@ -114,8 +116,8 @@ export async function GET(request: NextRequest) {
     const header = ['日付', '借方勘定科目', '借方補助科目', '借方税区分', '借方金額', '貸方勘定科目', '貸方補助科目', '貸方税区分', '貸方金額', '摘要'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of bookings ?? []) {
-      const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
-      const amount = b.total_amount ?? 0;
+      const menuName = ((Array.isArray(b.menu) ? b.menu[0] : b.menu) as { name?: string } | null)?.name ?? '施術';
+      const amount = b.total_price ?? 0;
       csv += toCsvRow([
         toJST(b.created_at),
         '現金',
@@ -126,7 +128,7 @@ export async function GET(request: NextRequest) {
         '',
         '課税売上10%',
         amount,
-        `${b.menu_name ?? '施術'} ${customer?.display_name ?? ''}`,
+        `${menuName} ${b.customer_name ?? ''}`,
       ]) + '\n';
     }
   } else {
@@ -135,14 +137,14 @@ export async function GET(request: NextRequest) {
     const header = ['予約ID', '日付', '顧客名', 'メール', 'メニュー', '金額', 'ステータス'];
     csv = '\uFEFF' + header.join(',') + '\n';
     for (const b of bookings ?? []) {
-      const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string; email?: string } | null;
+      const menuName = ((Array.isArray(b.menu) ? b.menu[0] : b.menu) as { name?: string } | null)?.name ?? '';
       csv += toCsvRow([
         b.id,
         toJST(b.created_at),
-        customer?.display_name ?? '',
-        customer?.email ?? '',
-        b.menu_name ?? '',
-        b.total_amount ?? 0,
+        b.customer_name ?? '',
+        b.email ?? '',
+        menuName,
+        b.total_price ?? 0,
         b.status,
       ]) + '\n';
     }

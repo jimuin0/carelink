@@ -196,11 +196,12 @@ test('PII削除部分失敗 → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  // Should still succeed (partial PII failure is logged, not fatal)
-  expect(res.status).toBe(200);
+  // 部分失敗時は auth.users を消さず 500（孤児PII防止）。再実行で完遂させる。
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
-test('PII削除でerrorあり → ログ記録して続行', async () => {
+test('PII削除でerrorあり → auth.users を消さず 500（孤児PII防止）', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'favorites') {
       return {
@@ -224,7 +225,8 @@ test('PII削除でerrorあり → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
 test('施設オーナー(他オーナーなし) → 施設を停止', async () => {
@@ -320,7 +322,7 @@ test('施設停止失敗 → ログ記録して続行', async () => {
   expect(res.status).toBe(200);
 });
 
-test('facility_members削除失敗 → ログ記録して続行', async () => {
+test('facility_members削除失敗 → auth.users を消さず 500（孤児行防止）', async () => {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'facility_members') {
       return {
@@ -339,7 +341,8 @@ test('facility_members削除失敗 → ログ記録して続行', async () => {
   });
 
   const res = await POST(makeRequest());
-  expect(res.status).toBe(200);
+  expect(res.status).toBe(500);
+  expect(mockDeleteUser).not.toHaveBeenCalled();
 });
 
 test('未処理例外 → 500', async () => {
