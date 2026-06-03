@@ -84,8 +84,8 @@ function setupDefaultMocks(alreadySent: boolean = false) {
       } else if (table === 'facility_members') {
         return {
           select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockResolvedValue({
-              data: [{ profiles: { email: 'owner@example.com' } }],
+            eq: jest.fn().mockReturnValue({
+              range: jest.fn().mockResolvedValue({ data: [{ profiles: { email: 'owner@example.com' } }] }),
             }),
           }),
         };
@@ -429,13 +429,15 @@ describe('GET /api/cron/newsletter-digest', () => {
         } else if (table === 'facility_members') {
           return {
             select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({
-                // profiles as array (covers Array.isArray true branch) + null entry (filter)
-                data: [
-                  { profiles: [{ email: 'arr@example.com' }] },
-                  { profiles: null },
-                  { profiles: [] },
-                ],
+              eq: jest.fn().mockReturnValue({
+                range: jest.fn().mockResolvedValue({
+                  // profiles as array (covers Array.isArray true branch) + null entry (filter)
+                  data: [
+                    { profiles: [{ email: 'arr@example.com' }] },
+                    { profiles: null },
+                    { profiles: [] },
+                  ],
+                }),
               }),
             }),
           };
@@ -506,12 +508,14 @@ describe('GET /api/cron/newsletter-digest', () => {
         } else if (table === 'facility_members') {
           return {
             select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockImplementation(() => {
-                // Delete the secret AFTER the Line 26 guard passes, so makeUnsubToken throws
-                delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-                return Promise.resolve({
-                  data: [{ profiles: { email: 'owner@example.com' } }],
-                });
+              eq: jest.fn().mockReturnValue({
+                range: jest.fn().mockImplementation(() => {
+                  // Delete the secret AFTER the Line 26 guard passes, so makeUnsubToken throws
+                  delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+                  return Promise.resolve({
+                    data: [{ profiles: { email: 'owner@example.com' } }],
+                  });
+                }),
               }),
             }),
           };
@@ -572,8 +576,8 @@ describe('GET /api/cron/newsletter-digest', () => {
         } else if (table === 'facility_members') {
           return {
             select: jest.fn().mockReturnValue({
-              // owners data = null → triggers `(owners || [])` fallback
-              eq: jest.fn().mockResolvedValue({ data: null }),
+              // owners page = null → ループ break、emails=[]
+              eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: null }) }),
             }),
           };
         } else if (table === 'cron_logs') {
@@ -653,8 +657,8 @@ describe('GET /api/cron/newsletter-digest', () => {
         } else if (table === 'facility_members') {
           return {
             select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({
-                data: [{ profiles: { email: 'owner@example.com' } }],
+              eq: jest.fn().mockReturnValue({
+                range: jest.fn().mockResolvedValue({ data: [{ profiles: { email: 'owner@example.com' } }] }),
               }),
             }),
           };

@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
+import { fetchAllPaged } from '@/lib/paginate';
 import { createHmac } from 'crypto';
 
 function makeUnsubToken(email: string): string {
@@ -159,13 +160,22 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Get all owner emails
-    const { data: owners } = await admin
-      .from('facility_members')
-      .select('profiles(email)')
-      .eq('role', 'owner');
+    // Get all owner emails. PostgREST の db-max-rows(1000) を全件ページング（共有ヘルパ）で越える
+    // （旧 limit なしだとオーナー1000人超で1000人目以降に配信漏れ・round6）。安全上限5万人。
+    type OwnerRow = { profiles: { email: string } | { email: string }[] | null };
+    const { rows: owners } = await fetchAllPaged<OwnerRow>(
+      async (offset, limit) => {
+        const { data, error } = await admin
+          .from('facility_members')
+          .select('profiles(email)')
+          .eq('role', 'owner')
+          .range(offset, offset + limit - 1);
+        return { data: data as OwnerRow[] | null, error };
+      },
+      { maxRows: 50000 },
+    );
 
-    const emails: string[] = (owners || [])
+    const emails: string[] = owners
       .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
         const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
         return p?.email;

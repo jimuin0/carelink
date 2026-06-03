@@ -52,8 +52,11 @@ function setupDefaultMocks(
       ]
     : [];
 
+  // 残高は get_user_points_balance RPC（全件SUM）由来。ログ合計(700)と一致させる。
+  const balanceTotal = hasLogs ? 700 : 0;
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
+    rpc: jest.fn((fn: string) => (fn === 'get_user_points_balance' ? Promise.resolve({ data: balanceTotal, error: null }) : Promise.resolve({ data: null, error: null }))),
     from: jest.fn((table: string) => {
       if (table === 'profiles') {
         return {
@@ -177,6 +180,27 @@ describe('GET /api/liff/points', () => {
     expect(json.total).toBe(0);
   });
 
+  test('残高RPCが null を返す → total 0（?? フォールバック）', async () => {
+    global.fetch = jest.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ userId: 'line-user-456' }), { status: 200 }))
+    ) as jest.Mock;
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      rpc: jest.fn(() => Promise.resolve({ data: null, error: null })),
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+            order: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }),
+          }),
+        }),
+      })),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).total).toBe(0);
+  });
+
   test('calls LINE profile API with access token', async () => {
     await GET(makeRequest('my-access-token') as any);
 
@@ -284,6 +308,7 @@ describe('GET /api/liff/points', () => {
     ) as jest.Mock;
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+      rpc: jest.fn(() => Promise.resolve({ data: 0, error: null })),
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
           return {
@@ -312,12 +337,13 @@ describe('GET /api/liff/points', () => {
     expect(json.total).toBe(0);
   });
 
-  test('log.points null (?? 0) → skipped in total', async () => {
+  test('total は RPC(全件SUM)由来でログ合計に依存しない', async () => {
     global.fetch = jest.fn(() =>
       Promise.resolve(new Response(JSON.stringify({ userId: 'line-user-456' }), { status: 200 }))
     ) as jest.Mock;
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
+      rpc: jest.fn(() => Promise.resolve({ data: 100, error: null })),
       from: jest.fn((table: string) => {
         if (table === 'profiles') {
           return {

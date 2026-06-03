@@ -43,6 +43,8 @@ export async function GET(req: NextRequest) {
   }
   const userId = profile.id;
 
+  // 履歴表示は直近50件。ただし残高は「直近50件の合計」ではなく全件 SUM（RPC）で算出する。
+  // （取引が50件を超えるリピート顧客で残高が過少表示されるのを防ぐ・round6）
   const { data: logs } = await admin
     .from('user_points')
     .select('id, points, reason, created_at')
@@ -50,7 +52,8 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(50);
 
-  const total = (logs ?? []).reduce((sum, log) => sum + (log.points ?? 0), 0);
+  const { data: balance } = await admin.rpc('get_user_points_balance', { p_user_id: userId });
+  const total = balance ?? 0;
 
   return NextResponse.json({ logs: logs ?? [], total });
   } catch (e) {

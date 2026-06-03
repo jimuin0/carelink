@@ -52,13 +52,16 @@ export async function GET(request: Request) {
     let skipped = 0;
 
     for (const facility of facilities) {
-      // 完了済み予約からメール別に集計（直近2年分、最大2000件）
+      // 完了済み予約からメール別に集計（直近2年分、最大2000件）。
+      // order を付けて「直近2000件」を決定的に取得する（order 無しだと非決定的に取りこぼし→RFM誤判定・クーポン誤発行）。
+      // 注: 2年で2000件超の繁忙施設では集計が頭打ちになる。完全解は email 別集計RPC（別途・[[carelink-rowlimit-aggregate-pending]]）。
       const { data: bookings } = await supabase
         .from('bookings')
         .select('email, customer_name, booking_date, total_price, status')
         .eq('facility_id', facility.id)
         .in('status', ['completed', 'confirmed'])
         .gte('booking_date', twoYearsAgo)
+        .order('booking_date', { ascending: false })
         .limit(2000);
 
       if (!bookings || bookings.length === 0) { skipped++; continue; }
@@ -167,7 +170,7 @@ export async function GET(request: Request) {
                 valid_until: validUntil,
               });
               if (couponErr) {
-                console.error('[customer-segment] coupon insert failed, skipping email', { email, error: couponErr });
+                console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
                 continue;
               }
 
@@ -189,7 +192,7 @@ export async function GET(request: Request) {
                   </p>
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
-              }).catch((err) => console.error('[customer-segment] email send failed', { email, err }));
+              }).catch((err) => console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err }));
             }
           }
         }

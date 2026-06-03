@@ -7,12 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 import { storagePathsFromUrls, UPLOAD_BUCKET } from '@/lib/storage-cleanup';
-
-// 画像URLは https もしくは data:image(svg除く) のみ許可（公開<img>直挿しへの多層防御・round3 #16）
-const IMAGE_URL = z.string().max(200000).refine(
-  (s) => /^https:\/\//i.test(s) || /^data:image\/(png|jpe?g|gif|webp);/i.test(s),
-  '画像URLは https または data:image のみ許可されます',
-);
+import { IMAGE_URL } from '@/lib/image-url-schema';
 
 const blogUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),

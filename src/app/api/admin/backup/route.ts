@@ -88,18 +88,26 @@ export async function POST(request: NextRequest) {
 
   const serviceSupabase = createServiceRoleClient();
 
-  // 最大10,000件のCSVエクスポート
-  const { data, error } = await serviceSupabase
-    .from(table)
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(10000);
-
-  if (error) {
-    console.error('[backup] export query failed', { table, err: error });
-    return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+  // バックアップは取りこぼし不可。PostgREST の db-max-rows(1000) を .range() で全件ページングする
+  // （旧 .limit(10000) は10000件超で黙って欠落しており「不完全バックアップ」になっていた・round6）。安全上限20万行。
+  const PAGE = 1000;
+  const MAX_ROWS = 200000;
+  const data: Record<string, unknown>[] = [];
+  for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
+    const { data: page, error } = await serviceSupabase
+      .from(table)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE - 1);
+    if (error) {
+      console.error('[backup] export query failed', { table, err: error });
+      return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+    }
+    if (!page || page.length === 0) break;
+    data.push(...(page as Record<string, unknown>[]));
+    if (page.length < PAGE) break;
   }
-  if (!data || data.length === 0) {
+  if (data.length === 0) {
     return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
   }
 

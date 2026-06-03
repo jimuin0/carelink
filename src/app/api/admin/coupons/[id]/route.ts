@@ -8,6 +8,7 @@ import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 import { storagePathFromPublicUrl, UPLOAD_BUCKET } from '@/lib/storage-cleanup';
+import { IMAGE_URL } from '@/lib/image-url-schema';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -36,7 +37,7 @@ const updateSchema = z.object({
   search_category1: z.string().max(50).optional().nullable(),
   search_category2: z.string().max(50).optional().nullable(),
   duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
-  image_url: z.string().max(200000).optional().nullable(),
+  image_url: IMAGE_URL.optional().nullable(),
   image_submission: z.boolean().optional(),
   sort_order: z.number().int().min(0).optional(),
 }).refine(
