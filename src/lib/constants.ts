@@ -38,6 +38,15 @@ export const regionGroups = [
 
 export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
+/** キャンセル系ステータス（枠を占有しない＝空き）。
+ * 占有/容量/空き/来店履歴の判定から除外する単一の真実源（round5 #状態機械-2）。
+ * cancel_fee_paid はキャンセル済み＋料金支払済で来店しない＝枠は空き。
+ * SQL 側は booking_status_occupies() 関数に同一定義を一元化している。 */
+export const NON_OCCUPYING_BOOKING_STATUSES = ['cancelled', 'no_show', 'cancel_fee_paid'] as const;
+/** PostgREST `.not('status','in', ...)` 用フィルタ文字列。配列から派生し定義の二重化を防ぐ。
+ * 例: ("cancelled","no_show","cancel_fee_paid") */
+export const NON_OCCUPYING_STATUS_FILTER = `(${NON_OCCUPYING_BOOKING_STATUSES.map((s) => `"${s}"`).join(',')})`;
+
 export const dayLabels: Record<string, string> = {
   mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日',
 };

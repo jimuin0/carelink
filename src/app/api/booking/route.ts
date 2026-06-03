@@ -10,6 +10,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
+import { NON_OCCUPYING_STATUS_FILTER } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
       .select('id')
       .eq('facility_id', parsed.data.facility_id)
       .eq('booking_date', parsed.data.booking_date)
-      .not('status', 'in', '("cancelled","no_show")')
+      .not('status', 'in', NON_OCCUPYING_STATUS_FILTER)
       .lt('start_time', parsed.data.end_time)
       .gt('end_time', parsed.data.start_time);
 
@@ -148,7 +149,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'このクーポンは選択されたメニューには利用できません' }, { status: 400 });
           }
           // #B 種別限定: new_customer=ご来店履歴なし限定 / repeat=履歴あり限定。
-          // 履歴は施設単位の有効予約(cancelled/no_show除く)有無で判定。ログイン時は user_id、
+          // 履歴は施設単位の有効予約(キャンセル系=cancelled/no_show/cancel_fee_paid を除く)有無で判定。ログイン時は user_id、
           // 未ログイン時は email（bookingSchema で email は必須のため guest でも常に突合可能）。
           // RLS(顧客は他予約を読めない)に依存せず確実に読むためサービスロールを使用。
           if (coupon.coupon_type === 'new_customer' || coupon.coupon_type === 'repeat') {
@@ -157,7 +158,7 @@ export async function POST(request: Request) {
               .from('bookings')
               .select('id')
               .eq('facility_id', parsed.data.facility_id)
-              .not('status', 'in', '("cancelled","no_show")')
+              .not('status', 'in', NON_OCCUPYING_STATUS_FILTER)
               .eq(user ? 'user_id' : 'email', user ? user.id : parsed.data.email)
               .limit(1);
             const { data: histRows, error: histErr } = await histQuery;

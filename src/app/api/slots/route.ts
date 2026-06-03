@@ -1,7 +1,7 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
-import { UUID_REGEX as uuidRegex } from '@/lib/constants';
+import { UUID_REGEX as uuidRegex, NON_OCCUPYING_STATUS_FILTER } from '@/lib/constants';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { safeCaptureException } from '@/lib/safe';
 import { isRangeSuspended, type SuspensionRange } from '@/lib/suspensions';
@@ -67,7 +67,7 @@ export async function GET(request: Request) {
     if (typeof maxBookings === 'number') {
       const { count } = await supabase
         .from('bookings').select('id', { count: 'exact', head: true })
-        .eq('facility_id', facilityId).eq('booking_date', date).not('status', 'in', '("cancelled","no_show")');
+        .eq('facility_id', facilityId).eq('booking_date', date).not('status', 'in', NON_OCCUPYING_STATUS_FILTER);
       if ((count ?? 0) >= maxBookings) slots = [];
     }
   }
