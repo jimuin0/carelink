@@ -142,7 +142,7 @@ npm run lint  # ESLint
 - 施設検索 .or() フィルタ注入を無害化（getFeaturedFacilities type/area・searchFacilities keyword）
 - L4衛生: storage-cleanup.test の jest env を Stryker mixin に統一（ドライラン破壊の取りこぼし是正）
 
-**🔴 神原さん 適用待ちマイグレーション:** `20260604_cancel_fee_paid_slot_release.sql`（占有判定一元化）
+**✅ マイグレーション適用済み（round5分・2026-06-03 "Success. No rows returned" 確認）:** `20260604_cancel_fee_paid_slot_release.sql`（占有判定一元化）
 
 **追加修正済み（2026-06-03・神原さん「残りの確定バグを全部修正」指示）:**
 - 🔴 account削除の部分失敗で孤児PII → 部分失敗時は auth.users を消さず500（冪等再実行で完遂）
@@ -172,9 +172,10 @@ npm run lint  # ESLint
 - 🟡 クーポン image_url スキーム検証欠落 → blog の IMAGE_URL を lib/image-url-schema.ts に共通化し横展開。
 - 🟢 アバターMIME検証/アップロード拡張子のfile.name依存排除/customer-segment のPIIログマスク/middlewareコメント是正。
 
-**🔴 神原さん 適用待ちマイグレーション（round5/6・ファイル名順）:**
-`20260604_cancel_fee_paid_slot_release.sql`（round5）/ `20260604_payjp_charge_column.sql` /
+**✅ マイグレーション適用済み（round5/6・2026-06-03 "Success. No rows returned" 確認）:**
+`20260604_cancel_fee_paid_slot_release.sql` / `20260604_payjp_charge_column.sql` /
 `20260604_normalize_booking_email.sql` / `20260604_user_points_balance_rpc.sql`
+→ round3〜6 の全マイグレーション適用完了。cancel_fee_paid 占有解放・email正規化・残高SUM RPC・payjp列が本番で有効。
 
 **残課題（根本解決の方向性は確定・別タスク）:**
 - customer-segment の RFM集計が2年2000件超の繁忙施設で頭打ち → email別集計RPC化（行数非依存）。
