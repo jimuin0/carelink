@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 // Vercel Cron: runs daily at 9:00 JST (0:00 UTC)
 export const dynamic = 'force-dynamic';
@@ -23,15 +24,22 @@ export async function GET(request: Request) {
     const tomorrow = new Date(jstNow.getTime() + 24 * 60 * 60 * 1000);
     const tomorrowStr = tomorrow.toISOString().split('T')[0];
 
-    // Find confirmed bookings for tomorrow
-    const { data: bookings } = await supabase
-      .from('bookings')
-      .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price')
-      .eq('booking_date', tomorrowStr)
-      .eq('status', 'confirmed')
-      .limit(200);
+    // 翌日の confirmed 予約を全件ページング取得（旧 .limit(200) は多店舗で201件目以降に
+    // リマインダーが届かず無断キャンセルを招いていた・本番監査）。
+    type ReminderBooking = { id: string; customer_name: string; email: string | null; booking_date: string; start_time: string; end_time: string; facility_id: string; total_price: number | null; menu_id: string | null; menu_ids: string[] | null; staff_id: string | null };
+    const { rows: bookings } = await fetchAllPaged<ReminderBooking>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('bookings')
+          .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, menu_id, menu_ids, staff_id')
+          .eq('booking_date', tomorrowStr)
+          .eq('status', 'confirmed')
+          .range(offset, offset + limit - 1);
+        return { data: data as ReminderBooking[] | null, error };
+      },
+    );
 
-    if (!bookings || bookings.length === 0) {
+    if (bookings.length === 0) {
       await logCronRun('booking-reminder', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ sent: 0 });
     }
@@ -43,6 +51,29 @@ export async function GET(request: Request) {
       .select('id, name')
       .in('id', facilityIds);
     const facilityMap = new Map((facilities ?? []).map((f) => [f.id, f.name]));
+
+    // メニュー名・担当名を一括取得（N+1回避）。リマインダーに施術内容・担当を載せ、複数予約の判別を可能にする。
+    const allMenuIdSet = new Set<string>();
+    const staffIdSet = new Set<string>();
+    for (const b of bookings) {
+      const ids = b.menu_ids && b.menu_ids.length > 0 ? b.menu_ids : (b.menu_id ? [b.menu_id] : []);
+      ids.forEach((id) => allMenuIdSet.add(id));
+      if (b.staff_id) staffIdSet.add(b.staff_id);
+    }
+    const menuNameMap = new Map<string, string>();
+    if (allMenuIdSet.size > 0) {
+      const { data: menus } = await supabase.from('facility_menus').select('id, name').in('id', Array.from(allMenuIdSet));
+      (menus ?? []).forEach((m: { id: string; name: string }) => menuNameMap.set(m.id, m.name));
+    }
+    const staffNameMap = new Map<string, string>();
+    if (staffIdSet.size > 0) {
+      const { data: staff } = await supabase.from('staff_profiles').select('id, name').in('id', Array.from(staffIdSet));
+      (staff ?? []).forEach((s: { id: string; name: string }) => staffNameMap.set(s.id, s.name));
+    }
+    const menuNamesOf = (b: ReminderBooking): string => {
+      const ids = b.menu_ids && b.menu_ids.length > 0 ? b.menu_ids : (b.menu_id ? [b.menu_id] : []);
+      return ids.map((id) => menuNameMap.get(id)).filter(Boolean).join('、');
+    };
 
     // Dynamic import to avoid loading Resend unnecessarily
     const { sendBookingReminder } = await import('@/lib/email');
@@ -91,6 +122,8 @@ export async function GET(request: Request) {
           bookingDate: booking.booking_date,
           startTime: booking.start_time,
           endTime: booking.end_time,
+          menuName: menuNamesOf(booking) || undefined,
+          staffName: booking.staff_id ? (staffNameMap.get(booking.staff_id) || undefined) : undefined,
           totalPrice: booking.total_price ?? undefined,
           bookingId: booking.id,
         });
