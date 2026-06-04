@@ -321,7 +321,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       supabase.from('staff_profiles').select('id, name, position').eq('facility_id', facilityId).eq('is_active', true).order('sort_order').order('created_at', { ascending: true }),
       supabase.from('facility_menus').select('id, name, duration_minutes, price').eq('facility_id', facilityId).order('sort_order').order('created_at', { ascending: true }),
       supabase.from('bookings')
-        .select('id, staff_id, menu_id, customer_name, email, phone, note, start_time, end_time, status, source, total_price')
+        .select('id, staff_id, menu_id, menu_ids, customer_name, email, phone, note, start_time, end_time, status, source, total_price')
         .eq('facility_id', facilityId).eq('booking_date', date).neq('status', 'cancelled'),
       // 当日より前の来店履歴（新規=初回来店 判定用）
       supabase.from('bookings').select('email, customer_name')
@@ -362,7 +362,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   }, [facilityId, loadData]);
 
   // 週/月ビュー用に期間内の予約をまとめて取得（日ビューでは未取得）
-  const [rangeBookings, setRangeBookings] = useState<{ id: string; booking_date: string; start_time: string; end_time: string; status: string; customer_name: string; staff_id: string | null; menu_id: string | null }[]>([]);
+  const [rangeBookings, setRangeBookings] = useState<{ id: string; booking_date: string; start_time: string; end_time: string; status: string; customer_name: string; staff_id: string | null; menu_id: string | null; menu_ids?: string[] | null }[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
   useEffect(() => {
     // 週/月の範囲予約は予約セクション専用。他セクション表示中や日ビューでは取得不要（round4 hooks #K）。
@@ -374,7 +374,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       const dates = view === 'week' ? weekDatesOf(date) : (monthGridOf(date).filter(Boolean) as string[]);
       const from = dates[0]; const to = dates[dates.length - 1];
       const res = await sb.from('bookings')
-        .select('id, booking_date, start_time, end_time, status, customer_name, staff_id, menu_id')
+        .select('id, booking_date, start_time, end_time, status, customer_name, staff_id, menu_id, menu_ids')
         .eq('facility_id', facilityId).gte('booking_date', from).lte('booking_date', to).neq('status', 'cancelled')
         .order('booking_date', { ascending: true }).order('start_time', { ascending: true });
       if (cancelled) return;
@@ -491,7 +491,11 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
     return () => { document.body.style.overflow = prevBody; html.style.overflow = prevHtml; };
   }, []);
 
-  const menuName = (menuId: string | null) => menuList.find((m) => m.id === menuId)?.name ?? '';
+  // 複数メニュー予約は全メニュー名を結合表示する（menu_ids 優先・無ければ menu_id にフォールバック・#1）
+  const menuNamesFor = (b: { menu_id: string | null; menu_ids?: string[] | null }): string => {
+    const ids = b.menu_ids && b.menu_ids.length > 0 ? b.menu_ids : (b.menu_id ? [b.menu_id] : []);
+    return ids.map((id) => menuList.find((m) => m.id === id)?.name).filter(Boolean).join('、');
+  };
   const staffName = (staffId: string | null) => staffList.find((s) => s.id === staffId)?.name ?? '';
   const handleSaved = (message: string) => { setModal(null); setToast({ type: 'success', message }); loadData().catch(() => {}); };
   const handleCellClick = (staffId: string | null, e: React.MouseEvent<HTMLDivElement>) => {
@@ -712,7 +716,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                           onClick={(e) => { e.stopPropagation(); setModal({ mode: 'edit', booking: item }); }}
                           className={`absolute rounded-sm border text-left overflow-hidden hover:brightness-95 z-10 flex ${ss.block}`}
                           style={{ left: `${blkLeft}%`, width: `calc(${laneW}% - 1px)`, top: '1px', bottom: '1px' }}
-                          title={`${item.customer_name} 様 ${item.start_time.slice(0, 5)}〜${item.end_time.slice(0, 5)} ${menuName(item.menu_id)} ${staffName(item.staff_id)}`}>
+                          title={`${item.customer_name} 様 ${item.start_time.slice(0, 5)}〜${item.end_time.slice(0, 5)} ${menuNamesFor(item)} ${staffName(item.staff_id)}`}>
                           <span className={`w-1 shrink-0 ${ss.bar}`} />
                           <span className="px-1 py-0.5 overflow-hidden leading-tight">
                             <span className="flex items-center gap-0.5">
@@ -721,7 +725,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                               <span className="font-bold truncate text-[10px]">{item.customer_name} 様</span>
                             </span>
                             <span className="block text-[9px] opacity-75 truncate">{item.start_time.slice(0, 5)}〜{item.end_time.slice(0, 5)}</span>
-                            {menuName(item.menu_id) && <span className="block text-[9px] opacity-70 truncate">{menuName(item.menu_id)}</span>}
+                            {menuNamesFor(item) && <span className="block text-[9px] opacity-70 truncate">{menuNamesFor(item)}</span>}
                             {item.staff_id && <span className="block text-[9px] opacity-60 truncate">◆{staffName(item.staff_id)}</span>}
                           </span>
                         </button>
@@ -831,7 +835,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                 <tr key={bk.id} className="hover:bg-sky-50 cursor-pointer border-b border-gray-100" onClick={() => setModal({ mode: 'edit', booking: bk })}>
                   <td className="px-3 py-2 whitespace-nowrap">{bk.start_time.slice(0, 5)}〜{bk.end_time.slice(0, 5)}</td>
                   <td className="px-3 py-2 font-bold whitespace-nowrap">{bk.customer_name} 様</td>
-                  <td className="px-3 py-2">{menuName(bk.menu_id) || '—'}</td>
+                  <td className="px-3 py-2">{menuNamesFor(bk) || '—'}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{staffName(bk.staff_id) || 'フリー'}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{bk.source === 'walk_in' ? '店頭' : bk.source === 'phone' ? '電話' : 'ネット'}</td>
                   <td className="px-3 py-2"><span className={`px-2 py-0.5 rounded-full text-white text-[10px] font-bold ${statusStyle(bk.status).bar}`}>{STATUS_LABEL[bk.status] || bk.status}</span></td>
@@ -1144,7 +1148,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
                       <tr key={r.id} className="border-t border-gray-100">
                         <td className="py-1.5">{r.booking_date}</td>
                         <td className="py-1.5">{r.start_time.slice(0, 5)}</td>
-                        <td className="py-1.5">{menuName(r.menu_id) || '—'}</td>
+                        <td className="py-1.5">{menuNamesFor(r) || '—'}</td>
                         <td className="py-1.5">{staffName(r.staff_id) || 'フリー'}</td>
                         <td className="py-1.5 text-right">{r.total_price != null ? `¥${r.total_price.toLocaleString()}` : '—'}</td>
                         <td className="py-1.5 pl-2">{STATUS_LABEL[r.status] || r.status}</td>

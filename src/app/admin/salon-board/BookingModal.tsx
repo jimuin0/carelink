@@ -20,6 +20,7 @@ export interface BoardBooking {
   id: string;
   staff_id: string | null;
   menu_id: string | null;
+  menu_ids?: string[] | null;
   customer_name: string;
   email: string | null;
   phone: string | null;

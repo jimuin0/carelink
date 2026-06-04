@@ -276,6 +276,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
 
+  // 複数メニュー予約の全メニューIDを構築（#1 根本対策・保存は成功確定後に末尾で実施）。
+  const allMenuIds: string[] = Array.isArray(parsed.data.menu_ids) && parsed.data.menu_ids.length > 0
+    ? parsed.data.menu_ids
+    : (parsed.data.menu_id ? [parsed.data.menu_id] : []);
+
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:
   // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
   // then verify the running balance is still non-negative.
@@ -335,14 +340,19 @@ export async function POST(request: Request) {
   try {
     const [facilityResult, menuResult, staffResult, ownerResult] = await Promise.all([
       supabase.from('facility_profiles').select('name, phone').eq('id', parsed.data.facility_id).single(),
-      parsed.data.menu_id
-        ? supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).eq('facility_id', parsed.data.facility_id).single()
+      // 複数メニューは全件取得して名前を結合表示する（先頭1件のみ表示の欠落を解消・#1）
+      allMenuIds.length > 0
+        ? supabase.from('facility_menus').select('name').in('id', allMenuIds).eq('facility_id', parsed.data.facility_id)
         : Promise.resolve({ data: null }),
       parsed.data.staff_id
         ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
         : Promise.resolve({ data: null }),
       supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner').single(),
     ]);
+
+    const menuNames = Array.isArray(menuResult.data)
+      ? (menuResult.data as { name: string }[]).map((m) => m.name).filter(Boolean)
+      : (menuResult.data ? [(menuResult.data as { name: string }).name] : []);
 
     const emailData = {
       customerName: parsed.data.customer_name,
@@ -351,7 +361,7 @@ export async function POST(request: Request) {
       bookingDate: parsed.data.booking_date,
       startTime: parsed.data.start_time,
       endTime: parsed.data.end_time,
-      menuName: menuResult.data?.name,
+      menuName: menuNames.length > 0 ? menuNames.join('、') : undefined,
       staffName: staffResult.data?.name,
       totalPrice: finalPrice ?? undefined,
       bookingId: newBookingId,
@@ -469,6 +479,17 @@ export async function POST(request: Request) {
       }
     } catch (e) {
       safeCaptureException(e, 'booking-lineworks-setup');
+    }
+  }
+
+  // 複数メニューの全IDを保存（成功確定後の付随更新・best-effort。失敗しても primary menu_id は残る＝劣化なし）。
+  if (allMenuIds.length > 0) {
+    try {
+      const menuIdsAdmin = createServiceRoleClient();
+      const { error: menuIdsErr } = await menuIdsAdmin.from('bookings').update({ menu_ids: allMenuIds }).eq('id', newBookingId);
+      if (menuIdsErr) console.error('[booking] menu_ids update failed (non-fatal, primary menu_id retained)', { bookingId: newBookingId, err: menuIdsErr.message });
+    } catch (menuIdsEx) {
+      console.error('[booking] menu_ids update threw (non-fatal)', { bookingId: newBookingId, err: menuIdsEx instanceof Error ? menuIdsEx.message : String(menuIdsEx) });
     }
   }
 

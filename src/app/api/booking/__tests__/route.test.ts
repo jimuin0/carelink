@@ -957,6 +957,67 @@ describe('POST /api/booking', () => {
     );
   });
 
+  test('複数メニュー → menu_ids 保存＋確認メールに全メニュー名（#1）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const m1 = '323e4567-e89b-12d3-a456-426614174011';
+    const m2 = '323e4567-e89b-12d3-a456-426614174012';
+    const priceResult = { data: [{ id: m1, price: 3000 }, { id: m2, price: 2000 }], error: null };
+    const nameResult = { data: [{ name: 'カット' }, { name: 'カラー' }], error: null };
+    const menuIdsUpdate = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    const bookingsConflict = () => {
+      const c: Record<string, unknown> = {};
+      const h = jest.fn(() => c);
+      Object.assign(c, { select: h, eq: h, not: h, lt: h, gte: h, lte: h, gt: jest.fn(() => Promise.resolve({ data: [] })), then: Promise.resolve({ data: [] }).then.bind(Promise.resolve({ data: [] })), update: menuIdsUpdate });
+      return c;
+    };
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') {
+        return {
+          select: jest.fn((cols: string) => {
+            const result = cols === 'name' ? nameResult : priceResult;
+            return {
+              in: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve(result)), then: Promise.resolve(result).then.bind(Promise.resolve(result)) })),
+              eq: jest.fn(() => Promise.resolve(result)),
+            };
+          }),
+        };
+      }
+      if (table === 'bookings') return bookingsConflict();
+      return fluent({ data: null });
+    });
+    mockRpc.mockResolvedValue({ data: 'bk-multi', error: null });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_ids: [m1, m2], menu_id: m1 }));
+    expect((await res.json()).success).toBe(true);
+    // 全メニューIDが保存される
+    expect(menuIdsUpdate).toHaveBeenCalledWith({ menu_ids: [m1, m2] });
+    // 確認メールに全メニュー名が結合表示される
+    const { sendBookingConfirmation } = jest.requireMock('@/lib/email') as { sendBookingConfirmation: jest.Mock };
+    expect(sendBookingConfirmation).toHaveBeenCalledWith(expect.objectContaining({ menuName: 'カット、カラー' }));
+  });
+
+  test('menu_ids 保存が throw → 非致命で 200（#1 best-effort）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const m1 = '323e4567-e89b-12d3-a456-426614174021';
+    const priceResult = { data: [{ id: m1, price: 3000 }], error: null };
+    const bookingsThrow = () => {
+      const c: Record<string, unknown> = {};
+      const h = jest.fn(() => c);
+      Object.assign(c, { select: h, eq: h, not: h, lt: h, gte: h, lte: h, gt: jest.fn(() => Promise.resolve({ data: [] })), then: Promise.resolve({ data: [] }).then.bind(Promise.resolve({ data: [] })), update: jest.fn(() => { throw new Error('menu_ids boom'); }) });
+      return c;
+    };
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') {
+        return { select: jest.fn(() => ({ in: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve(priceResult)), then: Promise.resolve(priceResult).then.bind(Promise.resolve(priceResult)) })), eq: jest.fn(() => Promise.resolve(priceResult)) })) };
+      }
+      if (table === 'bookings') return bookingsThrow();
+      return fluent({ data: null });
+    });
+    mockRpc.mockResolvedValue({ data: 'bk-throw', error: null });
+    const res = await POST(makeRequest({ ...validBooking, menu_ids: [m1], menu_id: m1 }));
+    expect((await res.json()).success).toBe(true);
+  });
+
   test('ポイント成功（CAS通過）→200', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-2' } } });
 
