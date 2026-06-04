@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { canonicalizeEmail } from './email-canonical';
 
 const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
 
@@ -45,10 +46,12 @@ export const bookingSchema = z.object({
   end_time: timeString,
   // 保存時に名前は前後空白を除去（突合の表記ゆれ・顧客分裂を防ぐ）
   customer_name: z.string().min(1, 'お名前は必須です').max(100).transform((v) => v.trim()),
-  // email は保存・突合で正規化を一致させる（小文字化）。これが無いと保存=生/突合=lower の非対称で
-  // クーポン new_customer/repeat 突合漏れ（二重取得・誤拒否）・顧客分裂・属性突合漏れが起きる（round6 真の予防）。
-  // （前後空白は .email() 検証が先に弾くため trim は不要＝入れると no-op で等価変異になる）
-  email: z.string().email('正しいメールアドレスを入力してください').max(254).transform((v) => v.toLowerCase()),
+  // email は保存・突合で正規化を一致させる。小文字化に加え Gmail/googlemail のドット・"+tag"・
+  // ドメイン別名を canonical 化する（canonicalizeEmail）。Gmail は f.o.o@/foo+x@/googlemail を同一受信箱に
+  // 届けるため、生 email を識別キーにすると同一人物が別客に分裂し new_customer クーポンの複数取得（金銭）・
+  // repeat 誤拒否・RFM 分裂を招く。保存値を canonical に統一して全突合（履歴照合・集計）を正す（真の予防）。
+  // 非 Gmail はドット/"+"の意味がプロバイダ依存のため小文字化のみ（別人の誤併合を防ぐ）。
+  email: z.string().email('正しいメールアドレスを入力してください').max(254).transform((v) => canonicalizeEmail(v)),
   phone: z.string().regex(phoneRegex, '正しい電話番号を入力してください').or(z.literal('')).optional().nullable(),
   note: z.string().max(500, '備考は500文字以内で入力してください').optional(),
   total_price: z.number().min(0).max(9999999).nullable(),

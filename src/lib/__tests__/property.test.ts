@@ -17,6 +17,7 @@ import { normalizeSiteUrl } from '../constants';
 import { getTransformUrl } from '../image-utils';
 import { safeJsonLd } from '../json-ld';
 import { truncateText } from '../seo-snippets';
+import { canonicalizeEmail } from '../email-canonical';
 import {
   getPrefectureSlug,
   getPrefectureName,
@@ -543,6 +544,54 @@ describe('truncateText — property tests', () => {
       fc.property(fc.string(), (t) => {
         expect(truncateText(t, t.length)).toBe(t);
         expect(truncateText(t, t.length + 5)).toBe(t);
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canonicalizeEmail — 同一人物突合用の正規化（Gmail 別名統合）
+// ---------------------------------------------------------------------------
+describe('canonicalizeEmail — property tests', () => {
+  test('冪等: canonicalize(canonicalize(x)) === canonicalize(x)（任意文字列）', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const once = canonicalizeEmail(s);
+        expect(canonicalizeEmail(once)).toBe(once);
+      }),
+    );
+  });
+
+  test('常に小文字: result === result.toLowerCase()（任意文字列）', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const r = canonicalizeEmail(s);
+        expect(r).toBe(r.toLowerCase());
+      }),
+    );
+  });
+
+  test('gmail: 妥当なローカル部なら結果のローカル部にドット・"+" を含まない', () => {
+    // ローカル部はドット/プラス以外の英数字に限定（除去後に空にならない＝先頭が英数字）
+    const localArb = fc
+      .stringMatching(/^[a-z0-9][a-z0-9.+]*$/)
+      .filter((l) => l.replace(/\./g, '').split('+')[0].length > 0);
+    fc.assert(
+      fc.property(localArb, (local) => {
+        const r = canonicalizeEmail(`${local}@gmail.com`);
+        const resultLocal = r.slice(0, r.lastIndexOf('@'));
+        expect(resultLocal).not.toContain('.');
+        expect(resultLocal).not.toContain('+');
+        expect(r.endsWith('@gmail.com')).toBe(true);
+      }),
+    );
+  });
+
+  test('非Gmail: ローカル部のドットは保持される', () => {
+    fc.assert(
+      fc.property(fc.stringMatching(/^[a-z0-9]+$/), (base) => {
+        const r = canonicalizeEmail(`${base}.x@example.com`);
+        expect(r).toBe(`${base}.x@example.com`);
       }),
     );
   });
