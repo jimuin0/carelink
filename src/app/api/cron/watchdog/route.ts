@@ -34,6 +34,7 @@ const CRON_MAX_STALENESS_MS: Record<string, number> = {
   'favorites-digest': 8 * DAY,      // weekly
   'waitlist-notify': 2 * HOUR,      // hourly
   'webhook-retry': 1 * HOUR,        // every 15 min
+  'publish-scheduled-blog': 1 * HOUR, // every 15 min
   'newsletter-digest': 33 * DAY,    // monthly
 };
 

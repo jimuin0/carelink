@@ -11,7 +11,7 @@ jest.mock('@/lib/supabase-server', () => ({
   }),
 }));
 
-import { revalidateFacilityPublicPages, revalidateFacilityById } from '../revalidate';
+import { revalidateFacilityPublicPages, revalidateFacilityById, revalidateFacilityBlog } from '../revalidate';
 import { revalidatePath } from 'next/cache';
 
 describe('revalidateFacilityPublicPages', () => {
@@ -52,6 +52,22 @@ describe('revalidateFacilityById', () => {
   test('クエリが throw → 握って無視（本処理に影響させない）', async () => {
     mockSingle.mockRejectedValue(new Error('db down'));
     await expect(revalidateFacilityById('fac-1')).resolves.toBeUndefined();
+    expect(revalidatePath).not.toHaveBeenCalled();
+  });
+});
+
+describe('revalidateFacilityBlog', () => {
+  afterEach(() => jest.clearAllMocks());
+
+  test('slug あり → /facility/[slug]/blog を layout 単位で再検証', () => {
+    revalidateFacilityBlog('test-salon');
+    expect(revalidatePath).toHaveBeenCalledWith('/facility/test-salon/blog', 'layout');
+  });
+
+  test('slug が null/undefined/空文字 → 何もしない', () => {
+    revalidateFacilityBlog(null);
+    revalidateFacilityBlog(undefined);
+    revalidateFacilityBlog('');
     expect(revalidatePath).not.toHaveBeenCalled();
   });
 });

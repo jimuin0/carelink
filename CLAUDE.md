@@ -181,7 +181,10 @@ npm run lint  # ESLint
 - ~~customer-segment の RFM集計が2年2000件超の繁忙施設で頭打ち~~ → ✅ 解消済み（`.limit(2000)` を
   fetchAllPaged 全件ページングに置換。切り捨てなくRFM算出。全ロジックはテスト済みJSのまま・branch100%維持）。
   さらなる性能最適化(email別集計RPC)は correctness 解消後の任意事項。
-- Nextブログ予約投稿(scheduled_at)の時刻到来公開が ISR ラグを受ける → 予約時刻での revalidateTag 発火 or 短縮revalidate。
+- ~~Nextブログ予約投稿(scheduled_at)の時刻到来公開が ISR ラグ(最大1時間)を受ける~~ → ✅ 解消済み
+  （cron `publish-scheduled-blog` を15分周期で新設。直近に scheduled_at が到来した施設ブログを
+  revalidateFacilityBlog で on-demand 再検証し遅延を cron 間隔に短縮。全ブログ流入の revalidate は
+  3600s 維持＝性能退行なし。watchdog 監視対象にも登録。cron/revalidate とも branch100%）。
 
 ### 決済プロバイダ移行 Stripe → PAY.JP（2026-06-03 着手・神原さん方針）
 

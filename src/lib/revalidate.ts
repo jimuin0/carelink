@@ -28,3 +28,13 @@ export async function revalidateFacilityById(facilityId: string): Promise<void> 
     // 再検証失敗は本処理に影響させない
   }
 }
+
+/**
+ * 施設ブログの一覧/記事ページ（/facility/[slug]/blog 配下）を再検証する。
+ * 予約投稿(scheduled_at)はクエリ時フィルタで時刻到来時に可視化されるが、書込イベントが無いため
+ * publish-scheduled-blog cron が時刻到来付近でこれを呼び ISR ラグ(最大1時間)を cron 間隔に縮める。
+ */
+export function revalidateFacilityBlog(slug: string | null | undefined): void {
+  if (!slug) return;
+  revalidatePath(`/facility/${slug}/blog`, 'layout');
+}
