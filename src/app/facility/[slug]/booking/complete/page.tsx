@@ -1,5 +1,7 @@
 import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+import { UUID_REGEX } from '@/lib/constants';
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -70,6 +72,23 @@ export default async function BookingCompletePage(props: Props) {
   const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
   const icsDataUri = icsContent ? `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}` : null;
 
+  // 確定金額は DB の権威値を表示する（クライアント計算値・URL を信頼しない＝改竄/stale 乖離を解消）。
+  // total_price=ポイント控除後の支払額, points_used=実控除ポイント。控除前小計は両者の和で復元する。
+  let confirmedTotal: number | null = null;
+  let confirmedPoints = 0;
+  if (bookingId && UUID_REGEX.test(bookingId)) {
+    const { data: bookingRow } = await createServiceRoleClient()
+      .from('bookings')
+      .select('total_price, points_used')
+      .eq('id', bookingId)
+      .maybeSingle();
+    if (bookingRow && bookingRow.total_price != null) {
+      confirmedTotal = bookingRow.total_price as number;
+      confirmedPoints = (bookingRow.points_used as number | null) ?? 0;
+    }
+  }
+  const confirmedSubtotal = confirmedTotal != null ? confirmedTotal + confirmedPoints : null;
+
   return (
     <div className="bg-gray-50 min-h-screen flex items-center justify-center px-4">
       <div className="w-full max-w-md text-center">
@@ -87,6 +106,26 @@ export default async function BookingCompletePage(props: Props) {
             ご登録のメールアドレスに確認メールをお送りしました。
             施設からの確認をお待ちください。
           </p>
+          {confirmedTotal != null && (
+            <div className="bg-gray-50 rounded-xl p-4 mb-6 text-sm">
+              {confirmedPoints > 0 && (
+                <>
+                  <div className="flex justify-between text-gray-500">
+                    <span>小計</span>
+                    <span>¥{confirmedSubtotal!.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-500">
+                    <span>ポイント利用</span>
+                    <span>-¥{confirmedPoints.toLocaleString()}</span>
+                  </div>
+                </>
+              )}
+              <div className="flex justify-between items-center border-t border-gray-200 mt-2 pt-2">
+                <span className="font-bold">お支払い金額</span>
+                <span className="font-bold text-lg text-red-500">¥{confirmedTotal.toLocaleString()}</span>
+              </div>
+            </div>
+          )}
           <div className="space-y-3">
             {/* 問診票バナー */}
             {hasIntakeForm && (

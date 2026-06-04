@@ -145,6 +145,10 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.bookingId).toBe('new-booking-id');
+    // 確定額をクライアントに返す契約（完了画面/呼び出し側の乖離解消・予約e2e#3）
+    expect(json).toHaveProperty('totalPrice');
+    expect(json).toHaveProperty('subtotal');
+    expect(json).toHaveProperty('pointsApplied');
   });
 
   test('バリデーション失敗→400', async () => {

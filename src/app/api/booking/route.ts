@@ -493,7 +493,15 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ success: true, bookingId: newBookingId });
+  // サーバ再計算した確定額を応答に返す（クライアント計算値との乖離を完了画面/呼び出し側で解消するため）。
+  // finalPrice=ポイント控除後の支払額, subtotal=控除前(クーポン/指名料込み), pointsApplied=実控除ポイント。
+  return NextResponse.json({
+    success: true,
+    bookingId: newBookingId,
+    totalPrice: finalPrice ?? null,
+    subtotal: serverTotalPrice ?? null,
+    pointsApplied,
+  });
   } catch (e) {
     safeCaptureException(e, 'booking');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
