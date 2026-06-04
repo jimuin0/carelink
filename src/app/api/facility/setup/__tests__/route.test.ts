@@ -53,8 +53,10 @@ function setupDefaultMocks(
 
   mockFacilityMemberSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn().mockResolvedValue({
-        data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+      limit: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+        }),
       }),
     }),
   });
@@ -126,8 +128,10 @@ function setupDefaultMocks(
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+              limit: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({
+                  data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+                }),
               }),
             }),
           }),
@@ -322,10 +326,10 @@ describe('POST /api/facility/setup', () => {
     expect(mockFacilityDelete).toHaveBeenCalled();
   });
 
-  test('owner UNIQUE違反(23505・並行setup) → 自施設破棄して既存施設を返す(200)', async () => {
+  // 1オーナーが複数施設を持つ正当な運用（HALグループ等）。.eq('user_id') が2行以上返っても
+  // .limit(1).maybeSingle() で error にならず「既存あり」と判定し、重複作成せず既存施設を返す。
+  test('複数施設オーナー（owner行が複数） → error にならず既存施設を返す(200)', async () => {
     setupDefaultMocks(true, false, false);
-    mockMemberInsert = jest.fn().mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
-    let mcall = 0;
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
@@ -333,7 +337,10 @@ describe('POST /api/facility/setup', () => {
           return {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
-                maybeSingle: jest.fn(() => { mcall++; return Promise.resolve({ data: mcall === 1 ? null : { facility_id: 'winner-fac' } }); }),
+                // .limit(1) があるため、PostgREST は複数行でも1行に絞り maybeSingle が成功する
+                limit: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn().mockResolvedValue({ data: { facility_id: 'fac-first-of-many' } }),
+                }),
               }),
             }),
             insert: mockMemberInsert,
@@ -348,32 +355,9 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.facilityId).toBe('winner-fac');
-    expect(mockFacilityDelete).toHaveBeenCalled();
-  });
-
-  test('owner UNIQUE違反だが winner 取得不可 → 500', async () => {
-    setupDefaultMocks(true, false, false);
-    mockMemberInsert = jest.fn().mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'facility_members') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
-            }),
-            insert: mockMemberInsert,
-          };
-        }
-        if (table === 'facility_profiles') return { insert: mockFacilityInsert, delete: mockFacilityDelete, update: mockFacilityUpdate };
-        if (table === 'facility_photos') return { insert: mockPhotoInsert };
-        if (table === 'salons') return { select: mockSalonSelect };
-        return {};
-      }),
-    });
-    const res = await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
-    expect(res.status).toBe(500);
+    expect(json.facilityId).toBe('fac-first-of-many');
+    // 既存ありと判定されるので新規 insert はしない
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
   });
 
   test('successful setup → 200 with facilityId and slug', async () => {

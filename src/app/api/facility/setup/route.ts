@@ -38,11 +38,14 @@ export async function POST(request: NextRequest) {
 
     const adminSupabase = createServiceRoleClient();
 
-    // 既に施設を持っているか確認
+    // 既に施設を持っているか確認。1オーナーが複数施設を持つ正当な運用（HALグループ等）があるため、
+    // .maybeSingle() だと2行以上で error になり existingMember が取れず重複作成してしまう。
+    // .limit(1).maybeSingle() で「いずれかの所属があれば既存扱い」とし、オンボーディングからの重複作成を防ぐ。
     const { data: existingMember } = await adminSupabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
+      .limit(1)
       .maybeSingle();
 
     if (existingMember) {
@@ -132,21 +135,9 @@ export async function POST(request: NextRequest) {
       });
 
     if (memberError) {
-      // owner の部分ユニーク違反(23505) = 並行 setup（二重タブ/リロード）が先に施設を作成済み（TOCTOU）。
-      // この施設は破棄し、既存施設を返して重複作成・締め出しを防ぐ。
-      const isOwnerConflict = (memberError as { code?: string }).code === '23505';
+      // owner 登録に失敗したら、作成済みの facility_profiles を破棄して孤児行を残さない（補償ロールバック）。
       const { error: rollbackErr } = await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
       if (rollbackErr) console.error('[facility/setup] rollback failed — orphaned facility_profile', { facilityId: facility.id, err: rollbackErr });
-      if (isOwnerConflict) {
-        const { data: winner } = await adminSupabase
-          .from('facility_members')
-          .select('facility_id')
-          .eq('user_id', user.id)
-          .maybeSingle();
-        if (winner) {
-          return NextResponse.json({ success: true, facilityId: winner.facility_id, message: '既に施設が登録されています' });
-        }
-      }
       console.error('[facility/setup] Member error:', memberError);
       return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
     }
