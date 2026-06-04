@@ -12,6 +12,7 @@ import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,24 +63,21 @@ export async function POST(request: NextRequest) {
       address,
     } = body;
 
-    // salonsテーブルから登録済みデータを自動取得（registerフォームで入力済みの場合）
-    if (!facility_name || facility_name === '未設定の施設') {
-      const { data: salonData } = await adminSupabase
-        .from('salons')
-        .select('*')
-        .eq('email', user.email)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // register フォームのリード(salons)を email で1回取得し、必須項目の補完と詳細項目の引き継ぎに使う。
+    // 旧実装は facility_name 空時のみ・4項目のみで、写真/PR/営業時間/席数等が消失し二重入力だった（受け入れ体制）。
+    const { data: salonData } = await adminSupabase
+      .from('salons')
+      .select('*')
+      .eq('email', user.email)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-      if (salonData) {
-        facility_name = facility_name || salonData.facility_name;
-        business_type = business_type || salonData.business_type;
-        phone = phone || salonData.phone;
-        prefecture = prefecture || null;
-        city = city || null;
-        address = address || salonData.address;
-      }
+    if (salonData) {
+      if (!facility_name || facility_name === '未設定の施設') facility_name = salonData.facility_name;
+      business_type = business_type || salonData.business_type;
+      phone = phone || salonData.phone;
+      address = address || salonData.address;
     }
 
     if (!facility_name || !business_type) {
@@ -137,6 +135,56 @@ export async function POST(request: NextRequest) {
       const { error: rollbackErr } = await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
       if (rollbackErr) console.error('[facility/setup] rollback failed — orphaned facility_profile', { facilityId: facility.id, err: rollbackErr });
       return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
+    }
+
+    // リード(salons)の詳細項目・写真を施設プロフィールへ引き継ぐ（best-effort。施設作成は既に成立済みのため
+    // 失敗しても 500 にせず、オーナーが管理画面で補完できる状態を維持する。受け入れ時の二重入力を解消）。
+    if (salonData) {
+      try {
+        const clip = (v: unknown, n: number): string | null => (v == null || v === '' ? null : String(v).slice(0, n));
+        const enrich: Record<string, unknown> = {
+          postal_code: clip(salonData.postal_code, 8),
+          building: clip(salonData.building_name, 100),
+          access_info: clip(salonData.nearest_station, 200),
+          regular_holiday: clip(salonData.regular_holiday, 100),
+          seat_count: typeof salonData.seat_count === 'number' ? salonData.seat_count : null,
+          staff_count: typeof salonData.staff_count === 'number' ? salonData.staff_count : null,
+          parking: !!salonData.has_parking,
+          features: Array.isArray(salonData.features) ? salonData.features.slice(0, 50) : [],
+          description: clip(salonData.pr_text, 2000),
+          website_url: clip(salonData.website, 200),
+          main_photo_url: clip(salonData.photo_url, 200000),
+          business_hours_text: clip(salonData.business_hours, 200), // 拡張カラム（未適用環境ではフォールバック除外）
+        };
+        let { error: enrichErr } = await adminSupabase.from('facility_profiles').update(enrich).eq('id', facility.id);
+        if (isMissingColumnError(enrichErr)) {
+          warnMissingColumnFallback('facility_profiles.setup-enrich');
+          ({ error: enrichErr } = await adminSupabase.from('facility_profiles').update(omitKeys(enrich, ['business_hours_text'])).eq('id', facility.id));
+        }
+        if (enrichErr) console.error('[facility/setup] lead enrichment update failed (non-fatal)', { facilityId: facility.id, err: enrichErr.message });
+
+        // 写真の引き継ぎ（register のカテゴリ順に photo_type を割当）
+        if (Array.isArray(salonData.photo_urls) && salonData.photo_urls.length > 0) {
+          const cats = ['exterior', 'interior_1', 'interior_2', 'interior_3', 'menu_1', 'menu_2', 'menu_3'];
+          const typeOf = (i: number): string => {
+            const c = cats[i] || '';
+            if (c.startsWith('exterior')) return 'exterior';
+            if (c.startsWith('interior')) return 'interior';
+            if (c.startsWith('menu')) return 'menu';
+            return 'other';
+          };
+          const photoRows = (salonData.photo_urls as unknown[])
+            .filter((u): u is string => typeof u === 'string' && u.length > 0)
+            .slice(0, 20)
+            .map((u, i) => ({ facility_id: facility.id, photo_url: u, photo_type: typeOf(i), sort_order: i }));
+          if (photoRows.length > 0) {
+            const { error: photoErr } = await adminSupabase.from('facility_photos').insert(photoRows);
+            if (photoErr) console.error('[facility/setup] photo carry-over failed (non-fatal)', { facilityId: facility.id, err: photoErr.message });
+          }
+        }
+      } catch (enrichEx) {
+        console.error('[facility/setup] lead enrichment threw (non-fatal)', { facilityId: facility.id, err: enrichEx instanceof Error ? enrichEx.message : String(enrichEx) });
+      }
     }
 
     // ウェルカムメール（fire-and-forget）
