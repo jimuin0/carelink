@@ -110,13 +110,14 @@ export async function PATCH(request: NextRequest) {
 
     const admin = createServiceRoleClient();
 
-    // 公開ゲート: published にする時のみ、検索に出る最低条件（住所）と予約できる最低条件（メニュー1件）を必須化。
-    // draft 作成時は location NULL 許容に緩和済みのため、公開段階でここを唯一の必須チェックとする
-    // （空施設・住所なし施設の公開を構造的に封鎖。検索未ヒット公開も防ぐ）。
+    // 公開ゲート: published にする時のみ「最低限まともな公開リスティング」を必須化する（自己公開運用のため
+    // 公開基準を内容面で担保する・神原さん指示）。draft 作成時は緩和済みのため、ここを唯一の必須チェックとする。
+    // 必須: 住所(検索ヒット) / 電話(連絡先) / 施設紹介文(description か catch_copy) / メニュー1件(予約) / 写真1枚(視覚)。
+    // register でリッチ登録したオーナーは引き継ぎ済みデータで自動的に満たす。素登録のみ内容補完が要る。
     if (parsed.data.status === 'published') {
       const { data: prof, error: profErr } = await admin
         .from('facility_profiles')
-        .select('prefecture, city, address')
+        .select('prefecture, city, address, phone, description, catch_copy, main_photo_url')
         .eq('id', auth.facilityId)
         .single();
       if (profErr || !prof) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
@@ -125,6 +126,9 @@ export async function PATCH(request: NextRequest) {
       if (!prof.prefecture || !prof.prefecture.trim()) missing.push('都道府県');
       if (!prof.city || !prof.city.trim()) missing.push('市区町村');
       if (!prof.address || !prof.address.trim()) missing.push('住所');
+      if (!prof.phone || !prof.phone.trim()) missing.push('電話番号');
+      const hasIntro = (!!prof.description && prof.description.trim().length > 0) || (!!prof.catch_copy && prof.catch_copy.trim().length > 0);
+      if (!hasIntro) missing.push('施設紹介文');
 
       const { count: menuCount, error: menuErr } = await admin
         .from('facility_menus')
@@ -132,6 +136,18 @@ export async function PATCH(request: NextRequest) {
         .eq('facility_id', auth.facilityId);
       if (menuErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
       if (!menuCount || menuCount < 1) missing.push('メニュー（1件以上）');
+
+      // 写真: main_photo_url か facility_photos が1件以上
+      let hasPhoto = !!prof.main_photo_url && prof.main_photo_url.trim().length > 0;
+      if (!hasPhoto) {
+        const { count: photoCount, error: photoErr } = await admin
+          .from('facility_photos')
+          .select('id', { count: 'exact', head: true })
+          .eq('facility_id', auth.facilityId);
+        if (photoErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        hasPhoto = !!photoCount && photoCount >= 1;
+      }
+      if (!hasPhoto) missing.push('写真（1枚以上）');
 
       if (missing.length > 0) {
         return NextResponse.json(

@@ -65,26 +65,37 @@ function updateChain(error: unknown = null) {
 }
 
 // status='published' 公開ゲート用 dispatch mock。
-// facility_profiles: select→eq→single（住所チェック＋revalidateのslug解決）と update→eq の両方を提供。
-// facility_menus: select(count,head)→eq でメニュー件数を返す。
+// facility_profiles: select→eq→single（内容チェック＋revalidateのslug解決）と update→eq の両方を提供。
+// facility_menus / facility_photos: select(count,head)→eq で件数を返す。
 function publishMock({
-  prof = { prefecture: '東京都', city: '渋谷区', address: '1-1-1' },
+  prof = { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '03-1234-5678', description: '施設紹介文', catch_copy: null, main_photo_url: 'https://x/p.jpg' },
   menuCount = 1,
+  photoCount = 1,
   updateError = null,
   profError = null,
   menuError = null,
+  photoError = null,
 }: {
-  prof?: { prefecture: string | null; city: string | null; address: string | null } | null;
+  prof?: Record<string, unknown> | null;
   menuCount?: number | null;
+  photoCount?: number | null;
   updateError?: unknown;
   profError?: unknown;
   menuError?: unknown;
+  photoError?: unknown;
 } = {}) {
   return jest.fn((table: string) => {
     if (table === 'facility_menus') {
       return {
         select: jest.fn().mockReturnValue({
           eq: jest.fn(() => Promise.resolve({ count: menuCount, error: menuError })),
+        }),
+      };
+    }
+    if (table === 'facility_photos') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ count: photoCount, error: photoError })),
         }),
       };
     }
@@ -210,6 +221,54 @@ test('PATCH: 公開ゲート メニュー件数取得失敗 → 500', async () =
 test('PATCH: 公開ゲート通過後の update 失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockImplementation(publishMock({ updateError: { message: 'db' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: 公開ゲート 電話番号欠落 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '  ', description: '紹介', catch_copy: null, main_photo_url: 'https://x/p.jpg' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toEqual(expect.arrayContaining(['電話番号']));
+});
+
+test('PATCH: 公開ゲート 施設紹介文欠落（description/catch_copy 共に空）→ 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '03-1', description: '', catch_copy: '   ', main_photo_url: 'https://x/p.jpg' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toEqual(expect.arrayContaining(['施設紹介文']));
+});
+
+test('PATCH: 公開ゲート 施設紹介文を catch_copy で満たす → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '03-1', description: null, catch_copy: 'キャッチコピー', main_photo_url: 'https://x/p.jpg' } }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 公開ゲート 写真欠落（main無・facility_photos 0件）→ 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '03-1', description: '紹介', catch_copy: null, main_photo_url: null }, photoCount: 0 }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toEqual(expect.arrayContaining(['写真（1枚以上）']));
+});
+
+test('PATCH: 公開ゲート 写真を facility_photos で満たす（main無・1件）→ 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '03-1', description: '紹介', catch_copy: null, main_photo_url: null }, photoCount: 1 }));
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 公開ゲート 写真件数取得失敗（main無）→ 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(publishMock({ prof: { prefecture: '東京都', city: '渋谷区', address: '1-1-1', phone: '03-1', description: '紹介', catch_copy: null, main_photo_url: null }, photoError: { message: 'db' } }));
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   expect(res.status).toBe(500);
 });
