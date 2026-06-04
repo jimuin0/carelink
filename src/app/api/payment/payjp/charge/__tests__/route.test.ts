@@ -39,8 +39,19 @@ function makeReq(body: unknown) {
 function bookingChain(data: unknown, error: unknown = null) {
   return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), single: jest.fn(() => Promise.resolve({ data, error })) };
 }
-function adminUpdateChain(error: unknown = null) {
-  return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error })) }) }) };
+// claim(update→eq→eq→not→select) と post-charge update(update→eq→eq) の両方に対応。
+// error は post-charge update の失敗に効く。claim は既定で成功（claimRows非空・claimError無し）。
+function adminUpdateChain(error: unknown = null, opts: { claimRows?: unknown[]; claimError?: unknown } = {}) {
+  const claimRows = opts.claimRows ?? [{ id: BOOKING_UUID }];
+  const claimError = opts.claimError ?? null;
+  const c: Record<string, unknown> = {};
+  Object.assign(c, {
+    eq: jest.fn(() => c),
+    not: jest.fn(() => c),
+    select: jest.fn(() => Promise.resolve({ data: claimError ? null : claimRows, error: claimError })),
+    then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve({ error }).then(res, rej),
+  });
+  return { update: jest.fn(() => c) };
 }
 
 const BOOKING = { id: BOOKING_UUID, user_id: USER_ID, total_price: 5000, facility_id: FACILITY_UUID, payment_status: 'unpaid', menu: { name: 'カット', price: 4000 } };
@@ -180,19 +191,36 @@ test('予約更新失敗かつ返金が非Errorをthrow → String フォール�
 
 test('予約更新は1回目失敗・2回目成功 → 200（リトライで整合確定）', async () => {
   let call = 0;
-  mockAdminFrom.mockReturnValue({
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => {
-          call++;
-          return Promise.resolve({ error: call === 1 ? { message: 'transient' } : null });
-        }),
-      }),
-    }),
+  const c: Record<string, unknown> = {};
+  Object.assign(c, {
+    eq: jest.fn(() => c),
+    not: jest.fn(() => c),
+    // claim(processing) は select で成功
+    select: jest.fn(() => Promise.resolve({ data: [{ id: BOOKING_UUID }], error: null })),
+    // post-charge の paid update（eq終端 await）: 1回目 transient 失敗・2回目成功
+    then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => {
+      call++;
+      return Promise.resolve({ error: call === 1 ? { message: 'transient' } : null }).then(res, rej);
+    },
   });
+  mockAdminFrom.mockReturnValue({ update: jest.fn(() => c) });
   const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
   expect(res.status).toBe(200);
   expect(mockChargeRefund).not.toHaveBeenCalled();
+});
+
+test('既に processing/paid → claim 取得0件で 409', async () => {
+  mockAdminFrom.mockReturnValue(adminUpdateChain(null, { claimRows: [] }));
+  const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
+  expect(res.status).toBe(409);
+  expect(mockChargeCreate).not.toHaveBeenCalled();
+});
+
+test('claim クエリ自体が error → 500', async () => {
+  mockAdminFrom.mockReturnValue(adminUpdateChain(null, { claimError: { message: 'db' } }));
+  const res = await POST(makeReq({ bookingId: BOOKING_UUID, token: TOKEN }));
+  expect(res.status).toBe(500);
+  expect(mockChargeCreate).not.toHaveBeenCalled();
 });
 
 test('予期せぬ例外（getUser が reject）→ 外側catchで 500', async () => {

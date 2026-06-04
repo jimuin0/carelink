@@ -80,6 +80,24 @@ export async function POST(request: NextRequest) {
 
     const admin = createServiceRoleClient();
 
+    // 二重課金防止: 課金前に payment_status を原子的に claim する（本番監査）。
+    // 並行リクエスト（別トークン×同一予約）が paid 読取→charge の間をすり抜けて2回課金し、
+    // 後勝ち update で charge_id が上書き喪失する窓があった。paid/processing 以外のときだけ
+    // processing へ遷移できた1リクエストのみが課金へ進む。
+    const { data: claimedRows, error: claimErr } = await admin
+      .from('bookings')
+      .update({ payment_status: 'processing' })
+      .eq('id', bookingId)
+      .eq('user_id', user.id)
+      .not('payment_status', 'in', '("paid","processing")')
+      .select('id');
+    if (claimErr) {
+      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
+    if (!claimedRows || claimedRows.length === 0) {
+      return NextResponse.json({ error: 'この予約は既に決済処理中または支払い済みです' }, { status: 409 });
+    }
+
     // 同期課金。トークンは単回使用のため二重課金は PAY.JP 側でも防がれる。
     let charge;
     try {
