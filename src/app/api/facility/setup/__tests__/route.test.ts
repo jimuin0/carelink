@@ -320,6 +320,60 @@ describe('POST /api/facility/setup', () => {
     expect(mockFacilityDelete).toHaveBeenCalled();
   });
 
+  test('owner UNIQUE違反(23505・並行setup) → 自施設破棄して既存施設を返す(200)', async () => {
+    setupDefaultMocks(true, false, false);
+    mockMemberInsert = jest.fn().mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+    let mcall = 0;
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn(() => { mcall++; return Promise.resolve({ data: mcall === 1 ? null : { facility_id: 'winner-fac' } }); }),
+              }),
+            }),
+            insert: mockMemberInsert,
+          };
+        }
+        if (table === 'facility_profiles') return { insert: mockFacilityInsert, delete: mockFacilityDelete, update: mockFacilityUpdate };
+        if (table === 'facility_photos') return { insert: mockPhotoInsert };
+        if (table === 'salons') return { select: mockSalonSelect };
+        return {};
+      }),
+    });
+    const res = await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilityId).toBe('winner-fac');
+    expect(mockFacilityDelete).toHaveBeenCalled();
+  });
+
+  test('owner UNIQUE違反だが winner 取得不可 → 500', async () => {
+    setupDefaultMocks(true, false, false);
+    mockMemberInsert = jest.fn().mockResolvedValue({ error: { code: '23505', message: 'duplicate key' } });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
+            }),
+            insert: mockMemberInsert,
+          };
+        }
+        if (table === 'facility_profiles') return { insert: mockFacilityInsert, delete: mockFacilityDelete, update: mockFacilityUpdate };
+        if (table === 'facility_photos') return { insert: mockPhotoInsert };
+        if (table === 'salons') return { select: mockSalonSelect };
+        return {};
+      }),
+    });
+    const res = await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
+    expect(res.status).toBe(500);
+  });
+
   test('successful setup → 200 with facilityId and slug', async () => {
     const res = await POST(
       makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any

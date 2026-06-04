@@ -130,10 +130,22 @@ export async function POST(request: NextRequest) {
       });
 
     if (memberError) {
-      console.error('[facility/setup] Member error:', memberError);
-      // ロールバック
+      // owner の部分ユニーク違反(23505) = 並行 setup（二重タブ/リロード）が先に施設を作成済み（TOCTOU）。
+      // この施設は破棄し、既存施設を返して重複作成・締め出しを防ぐ。
+      const isOwnerConflict = (memberError as { code?: string }).code === '23505';
       const { error: rollbackErr } = await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
       if (rollbackErr) console.error('[facility/setup] rollback failed — orphaned facility_profile', { facilityId: facility.id, err: rollbackErr });
+      if (isOwnerConflict) {
+        const { data: winner } = await adminSupabase
+          .from('facility_members')
+          .select('facility_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (winner) {
+          return NextResponse.json({ success: true, facilityId: winner.facility_id, message: '既に施設が登録されています' });
+        }
+      }
+      console.error('[facility/setup] Member error:', memberError);
       return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
     }
 
