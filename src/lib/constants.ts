@@ -72,3 +72,11 @@ export function normalizeSiteUrl(raw: string | undefined): string {
   return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
 export const SITE_URL = normalizeSiteUrl(process.env.NEXT_PUBLIC_BASE_URL);
+
+// 事業者情報の単一の正（Footer・特商法ページ・広告メールの送信者表記で共用）。
+// 以前 Footer(堺市) と特商法ページ(豊中市) で所在地が食い違っていた再発防止として一元化する。
+export const OPERATOR = {
+  name: '神原良祐',
+  // 特定電子メール法4条・特商法表記で用いる所在地。番地等の詳細は請求に応じ開示の運用。
+  address: '大阪府豊中市',
+} as const;

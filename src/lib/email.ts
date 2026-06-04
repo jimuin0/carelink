@@ -10,7 +10,7 @@ function getResend(): Resend | null {
 }
 
 const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
-import { SITE_URL } from '@/lib/constants';
+import { SITE_URL, OPERATOR } from '@/lib/constants';
 
 /** HTML特殊文字エスケープ（XSS防止） */
 function esc(str: string): string {
@@ -70,15 +70,18 @@ export function generateUnsubscribeToken(): string {
 }
 
 function wrapHtml(body: string, unsubscribeToken?: string): string {
-  const unsubLink = unsubscribeToken
-    ? `<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px;"><a href="${SITE_URL}/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}" style="color:#94a3b8;">メールの受信を停止する</a></p>`
+  // unsubscribeToken を持つメール＝広告宣伝メール。特定電子メール法4条が求める
+  // 送信者の氏名・住所・受信拒否の通知先（配信停止リンク）を明記する。
+  const advertiserBlock = unsubscribeToken
+    ? `<p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:8px;">送信者: ${esc(OPERATOR.name)}（${esc(OPERATOR.address)}）｜詳細な住所は請求に応じて遅滞なく開示します</p>
+       <p style="font-size:11px;color:#94a3b8;text-align:center;margin-top:4px;"><a href="${SITE_URL}/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}" style="color:#94a3b8;">メールの受信を停止する</a></p>`
     : '';
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:20px;">
     <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0ea5e9;font-size:20px;">CareLink</strong></div>
     ${body}
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;" />
     <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
-    ${unsubLink}
+    ${advertiserBlock}
   </body></html>`;
 }
 

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { regionGroups, businessTypes } from '@/lib/constants';
+import { regionGroups, businessTypes, OPERATOR } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 
 const MAIN_PREFS = ['東京都', '大阪府', '愛知県', '福岡県', '北海道', '神奈川県'];
@@ -154,9 +154,9 @@ export default function Footer() {
             <h3 className="text-white font-bold text-sm mb-3">運営会社</h3>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm text-gray-400">
               <dt>運営</dt>
-              <dd>神原良祐（HALグループ）</dd>
+              <dd>{OPERATOR.name}（HALグループ）</dd>
               <dt>所在地</dt>
-              <dd>大阪府堺市</dd>
+              <dd>{OPERATOR.address}</dd>
               <dt>事業内容</dt>
               <dd>美容・医療・福祉施設の検索・予約サービス</dd>
               <dt>お問い合わせ</dt>

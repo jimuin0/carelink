@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { OPERATOR } from '@/lib/constants';
 
 export const metadata: Metadata = {
   title: '特定商取引法に基づく表記',
@@ -15,9 +16,9 @@ export default function LegalPage() {
 
         <table className="w-full text-sm border-collapse">
           <tbody>
-            <Row label="事業者名" value="神原良祐" />
-            <Row label="代表者" value="神原良祐" />
-            <Row label="所在地" value="大阪府豊中市（詳細はお問い合わせください）" />
+            <Row label="事業者名" value={OPERATOR.name} />
+            <Row label="代表者" value={OPERATOR.name} />
+            <Row label="所在地" value={`${OPERATOR.address}（詳細はお問い合わせください）`} />
             <Row label="電話番号" value={<>請求があった場合には遅滞なく開示いたします。<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりご連絡ください。</>} />
             <Row label="メールアドレス" value={<>請求があった場合には遅滞なく開示いたします。<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりご連絡ください。</>} />
             <Row label="サービスURL" value="https://carelink-jp.com" />
