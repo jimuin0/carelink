@@ -7,6 +7,11 @@ import { getTodayString } from '@/lib/validations-booking';
 
 export const dynamic = 'force-dynamic';
 
+// 空きスロット合計から月カレンダー表示ステータスを導出する（単一の閾値ロジック・両経路で共用）。
+function statusOf(totalSlots: number): 'available' | 'few' | 'full' {
+  return totalSlots >= 3 ? 'available' : totalSlots >= 1 ? 'few' : 'full';
+}
+
 export async function GET(request: Request) {
   try {
     const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
@@ -70,32 +75,60 @@ export async function GET(request: Request) {
       }
     }
 
-    // Process dates in batches to limit concurrent DB calls
     // 注: 日別受付上限/時間帯停止の表示反映は slots(時間選択画面)で行い、最終的な可否は確定層RPC(20260603_booking_gates.sql)が
     //     DBレベルで強制する。月カレンダー(本API)は粗いヒントのため当該反映は意図的に行わない。
-    const BATCH_SIZE = 5;
-    for (let i = 0; i < futureDates.length; i += BATCH_SIZE) {
-      const batch = futureDates.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch.map(async (dateStr) => {
-        let totalSlots = 0;
+    //
+    // 集約RPC get_month_availability で日数×スタッフの空き集計を「1往復」で取得する（#G・最悪310往復の解消）。
+    // 同RPCは内部で get_available_slots に委譲＝空き判定は単一ソースのまま。未適用/失敗時は従来の
+    // per-date ループへ自動フォールバックし無退行（correctness を常に担保）。status 導出は JS 側で共用する。
+    let aggregated: { d: string; slots: number | null }[] | null = null;
+    try {
+      const { data, error } = await supabase.rpc('get_month_availability', {
+        p_facility_id: facilityId,
+        p_staff_ids: staffIds,
+        p_dates: futureDates,
+        p_duration_minutes: 60,
+      });
+      if (!error && Array.isArray(data)) {
+        aggregated = data as { d: string; slots: number | null }[];
+      }
+    } catch {
+      // 集約RPCが使えない環境はフォールバックする（本処理は下の per-date ループで継続）
+    }
 
-        // Check slots for each staff member sequentially per date
-        for (const sid of staffIds) {
-          const { data } = await supabase.rpc('get_available_slots', {
-            p_facility_id: facilityId,
-            p_staff_id: sid,
-            p_date: dateStr,
-            p_duration_minutes: 60,
-          });
-          totalSlots += (data || []).length;
-          // Early exit: once we know enough slots exist, skip remaining staff
-          if (totalSlots >= 3) break;
-        }
+    if (aggregated) {
+      for (const row of aggregated) {
+        const totalSlots = row.slots ?? 0;
+        dates[row.d] = { slots: totalSlots, status: statusOf(totalSlots) };
+      }
+      // RPC が返さなかった将来日は full 扱い（防御・取りこぼし無し）
+      for (const dateStr of futureDates) {
+        if (!dates[dateStr]) dates[dateStr] = { slots: 0, status: 'full' };
+      }
+    } else {
+      // フォールバック: 日付ごとに get_available_slots を呼ぶ従来実装（5日並列＋早期終了）。
+      const BATCH_SIZE = 5;
+      for (let i = 0; i < futureDates.length; i += BATCH_SIZE) {
+        const batch = futureDates.slice(i, i + BATCH_SIZE);
+        await Promise.all(batch.map(async (dateStr) => {
+          let totalSlots = 0;
 
-        const status: 'available' | 'few' | 'full' =
-          totalSlots >= 3 ? 'available' : totalSlots >= 1 ? 'few' : 'full';
-        dates[dateStr] = { slots: totalSlots, status };
-      }));
+          // Check slots for each staff member sequentially per date
+          for (const sid of staffIds) {
+            const { data } = await supabase.rpc('get_available_slots', {
+              p_facility_id: facilityId,
+              p_staff_id: sid,
+              p_date: dateStr,
+              p_duration_minutes: 60,
+            });
+            totalSlots += (data || []).length;
+            // Early exit: once we know enough slots exist, skip remaining staff
+            if (totalSlots >= 3) break;
+          }
+
+          dates[dateStr] = { slots: totalSlots, status: statusOf(totalSlots) };
+        }));
+      }
     }
 
     return NextResponse.json({ dates });

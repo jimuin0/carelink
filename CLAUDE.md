@@ -114,11 +114,12 @@ npm run lint  # ESLint
 - #K rangeBookings の section ガード / 顧客フィルタ空状態 / hpbLen 半角カナ0.5換算
 
 **判断保留（神原さん確認待ち・事実として未修正）:**
-- #G availability の per-date×per-staff RPC（最悪310往復）。集約RPC化が理想だが status導出ロジックが
-  jestテスト済みJSから未テストのplpgsqlへ移りL3カバレッジが実質低下するトレードオフがあるため保留。
-  既存は early-exit＋5日並列で典型ケースは緩和済み。
-- 予約e2e #3 サーバ再計算した確定額がAPI応答/完了画面に返らず確認画面表示と乖離し得る（価格の保存・
-  メール送信は正常＝データ不整合なし、UX改善事項）。
+- ~~#G availability の per-date×per-staff RPC（最悪310往復）~~ → ✅ 解消済み（集約RPC `get_month_availability`
+  を新設。日数×スタッフの集計を1往復に。同RPCは内部で既存 `get_available_slots` に委譲＝空き判定は
+  単一ソースのまま分裂なし。status導出は JS に残しテスト維持。未適用/失敗時は従来 per-date ループに
+  自動フォールバック（無退行）。route branch100%・両経路テスト済み。migration `20260607_get_month_availability.sql`）。
+- ~~予約e2e #3 サーバ再計算した確定額がAPI応答/完了画面に返らず確認画面表示と乖離し得る~~ → ✅ 解消済み
+  （API応答に totalPrice/subtotal/pointsApplied を返し、完了画面は DB の権威確定額を表示。`4e7d1d9`）。
 
 **✅ マイグレーション適用済み（2026-06-03・Supabase SQL Editor で "Success. No rows returned" 確認）:**
 1. `20260604_facility_status_gate.sql` / `20260604_booking_status_cancel_fee.sql` / `20260604_daily_capacity_dedup_index.sql`（round3）

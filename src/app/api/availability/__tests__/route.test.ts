@@ -40,11 +40,17 @@ function setupDefaultMocks(
     }),
   });
 
-  mockRpc = jest.fn().mockResolvedValue({
-    data: Array.from({ length: slotsPerStaff }, (_, i) => ({
-      start_time: `${9 + i}:00`,
-      available: true,
-    })),
+  // 既定では集約RPC(get_month_availability)を「未適用」扱いにして従来の per-date ループ経路を検証する。
+  // get_available_slots はスタッフ毎のスロット配列を返す（フォールバック経路）。
+  const slotArray = Array.from({ length: slotsPerStaff }, (_, i) => ({
+    start_time: `${9 + i}:00`,
+    available: true,
+  }));
+  mockRpc = jest.fn().mockImplementation((fn: string) => {
+    if (fn === 'get_month_availability') {
+      return Promise.resolve({ data: null, error: { code: 'PGRST202', message: 'function not found' } });
+    }
+    return Promise.resolve({ data: slotArray });
   });
 
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
@@ -203,16 +209,14 @@ describe('GET /api/availability', () => {
     });
   });
 
-  test('uses RPC get_available_slots for slot counting', async () => {
-    await GET(makeRequest() as any);
+  test('uses RPC get_available_slots for slot counting (集約RPC未適用のフォールバック経路)', async () => {
+    // 既定モックは get_month_availability を未適用(エラー)にするためフォールバック経路で
+    // get_available_slots が使われる。将来月にして futureDates を確実に非空にする。
+    const futureYear = new Date().getFullYear() + 1;
+    await GET(makeRequest(VALID_UUID, undefined, futureYear, 6) as any);
 
-    // RPC should be called for future dates
-    if (mockRpc.mock.calls.length > 0) {
-      expect(mockRpc).toHaveBeenCalledWith(
-        'get_available_slots',
-        expect.anything()
-      );
-    }
+    expect(mockRpc).toHaveBeenCalledWith('get_month_availability', expect.anything());
+    expect(mockRpc).toHaveBeenCalledWith('get_available_slots', expect.anything());
   });
 
   test('batch processes dates (max 5 concurrent)', async () => {
@@ -350,7 +354,6 @@ describe('GET /api/availability', () => {
 
   test('totalSlots between 1 and 2 → status=few', async () => {
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    let rpcCall = 0;
     createServerSupabaseClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
@@ -361,9 +364,11 @@ describe('GET /api/availability', () => {
           }),
         }),
       }),
-      rpc: jest.fn().mockImplementation(() => {
-        rpcCall++;
-        // Return 1 slot per call
+      rpc: jest.fn().mockImplementation((fn: string) => {
+        if (fn === 'get_month_availability') {
+          return Promise.resolve({ data: null, error: { code: 'PGRST202' } });
+        }
+        // get_available_slots: 1 slot per call → totalSlots=1 → few
         return Promise.resolve({ data: [{ start_time: '09:00' }] });
       }),
     });
@@ -432,5 +437,101 @@ describe('GET /api/availability スロット集計の分岐網羅', () => {
     const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
     const json = await res.json();
     expect(Object.values(json.dates).every((d: { status: string }) => d.status === 'full')).toBe(true);
+  });
+});
+
+describe('GET /api/availability 集約RPC(get_month_availability)経路', () => {
+  const fy = new Date().getFullYear() + 1;
+  const staffOnly = () => ({
+    from: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [{ id: 'staff-1' }] }) }),
+        }),
+      }),
+    }),
+  });
+
+  test('集約RPC成功 → 1往復で status 算出し per-staff RPC(get_available_slots)は呼ばない', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const slotsSpy = jest.fn().mockResolvedValue({ data: [] });
+    createServerSupabaseClient.mockReturnValue({
+      ...staffOnly(),
+      rpc: jest.fn().mockImplementation((fn: string, params: { p_dates: string[] }) => {
+        if (fn === 'get_month_availability') {
+          return Promise.resolve({ data: params.p_dates.map((d) => ({ d, slots: 5 })), error: null });
+        }
+        return slotsSpy();
+      }),
+    });
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(Object.values(json.dates).every((d: any) => d.status === 'available')).toBe(true);
+    expect(slotsSpy).not.toHaveBeenCalled();
+  });
+
+  test('集約RPC: slots=2 → few', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      ...staffOnly(),
+      rpc: jest.fn().mockImplementation((fn: string, params: { p_dates: string[] }) => {
+        if (fn === 'get_month_availability') {
+          return Promise.resolve({ data: params.p_dates.map((d) => ({ d, slots: 2 })), error: null });
+        }
+        return Promise.resolve({ data: [] });
+      }),
+    });
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    const json = await res.json();
+    expect(Object.values(json.dates).every((d: any) => d.status === 'few')).toBe(true);
+  });
+
+  test('集約RPC: slots=null は0扱い＋返却漏れの将来日は full（防御）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      ...staffOnly(),
+      // 先頭日だけ slots=null を返し、残りの将来日は返さない（漏れ）
+      rpc: jest.fn().mockImplementation((fn: string, params: { p_dates: string[] }) => {
+        if (fn === 'get_month_availability') {
+          const ds = params.p_dates;
+          return Promise.resolve({ data: ds.length ? [{ d: ds[0], slots: null }] : [], error: null });
+        }
+        return Promise.resolve({ data: [] });
+      }),
+    });
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    const json = await res.json();
+    expect(Object.values(json.dates).every((d: any) => d.status === 'full' && d.slots === 0)).toBe(true);
+  });
+
+  test('集約RPCが非配列(no error) → フォールバックで per-staff RPC を使用', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const slotsSpy = jest.fn().mockResolvedValue({ data: [{ start_time: '09:00' }] });
+    createServerSupabaseClient.mockReturnValue({
+      ...staffOnly(),
+      rpc: jest.fn().mockImplementation((fn: string) => {
+        if (fn === 'get_month_availability') return Promise.resolve({ data: {}, error: null });
+        return slotsSpy();
+      }),
+    });
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    expect(res.status).toBe(200);
+    expect(slotsSpy).toHaveBeenCalled();
+  });
+
+  test('集約RPCが throw → catch してフォールバック', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const slotsSpy = jest.fn().mockResolvedValue({ data: [] });
+    createServerSupabaseClient.mockReturnValue({
+      ...staffOnly(),
+      rpc: jest.fn().mockImplementation((fn: string) => {
+        if (fn === 'get_month_availability') return Promise.reject(new Error('rpc boom'));
+        return slotsSpy();
+      }),
+    });
+    const res = await GET(makeRequest(VALID_UUID, undefined, fy, 6) as any);
+    expect(res.status).toBe(200);
+    expect(slotsSpy).toHaveBeenCalled();
   });
 });
