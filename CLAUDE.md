@@ -290,3 +290,22 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
   coupon/medical/access)は常時HTML描画(SEO化)、クライアント取得タブ(QA/口コミ)のみ lazy で性能退行ゼロ。`1ee20c7`
 
 health/backup branch 100%・tsc/eslint 0・全4947テスト通過(leak 0)・本番ビルド 891/891。
+
+### 受け入れ体制 整備ラウンド（2026-06-04・神原さん「先に受け入れられる体制を整えて」）
+
+新規オーナーが詰まらず・締め出されない動線を恒久対策（全 push 済み）:
+- 🟡 リード引き継ぎ: register の salons リッチデータ（写真/PR/営業時間/席数/特徴/住所等）を facility/setup で
+  全項目引き継ぎ。必須項目補完＋会員作成後に best-effort enrichment（拡張カラムは db-fallback）＋写真を
+  facility_photos へ。プレースホルダ"未設定の施設"もリード名で置換。`55aab85`
+- 🟡 setup TOCTOU: facility_members の insert は setup 1箇所で owner を1件作る運用＝実不変条件は「1ユーザー
+  1施設」。並行 setup（二重タブ/リロード）で重複施設→user_id .single() 破綻→管理画面締め出しが起き得た。
+  → migration `20260604_facility_members_owner_unique.sql`（role='owner' 部分ユニーク索引）で DB 保証し、
+  競合(23505)時は自施設を破棄して既存施設を返す。将来のスタッフ複数所属は owner 限定のため非阻害。`53ae2a5`
+
+**🔴 適用待ちマイグレーション（神原さん・Supabase SQL Editor・冪等/非破壊）:**
+`20260604_facility_members_owner_unique.sql`（owner 部分ユニーク索引。未適用だと TOCTOU 防御が無効）。
+
+**🟡 仕様判断待ち（神原さん）:** salons 承認ゲートの分断。現状 register→salons(pending)→admin/registrations
+の approve/reject は salons.status を変えるだけで、実際の施設作成(setup)・公開(publish)は salons.status を
+参照しない＝審査が公開を止めない。オーナーを承認してから公開させる運用にするか、現状の自己公開のまま運用
+するかは仕様判断が必要（決まれば公開ゲートに承認チェックを追加可能）。
