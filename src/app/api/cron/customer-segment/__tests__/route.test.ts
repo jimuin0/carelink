@@ -341,7 +341,7 @@ describe('GET /api/cron/customer-segment', () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({ status: 'ok', count: 0 });
+    expect(json).toEqual({ processed: 0, skipped: 0, status: 'ok', count: 0 });
   });
 
   // -----------------------------------------------------------------------

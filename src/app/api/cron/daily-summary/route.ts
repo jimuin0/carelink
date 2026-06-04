@@ -40,7 +40,7 @@ export async function GET(request: Request) {
 
     if (facilities.length === 0) {
       await logCronRun('daily-summary', 'skipped', startedAt, { processed: 0, skipped: 0 });
-      return NextResponse.json({ status: 'ok', count: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }
 
     let count = 0;

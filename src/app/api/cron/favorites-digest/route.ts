@@ -13,11 +13,6 @@ import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 /** Returns the ISO week string "YYYY-WNN" for a given date. */
 function isoWeek(date: Date): string {
   const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
@@ -31,6 +26,14 @@ function isoWeek(date: Date): string {
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
+
+  // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+  // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+  // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   let sent = 0;
   let skipped = 0;
@@ -51,9 +54,11 @@ export async function GET(request: Request) {
       },
     );
 
+    // favUsers は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!favUsers は到達不能=branch穴）。
+    // ログ・返却は main 側のリッチ版（superset）に統一。
     if (favUsers.length === 0) {
-      await logCronRun('favorites-digest', 'skipped', startedAt, { processed: 0 });
-      return NextResponse.json({ success: true, sent: 0 });
+      await logCronRun('favorites-digest', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, success: true, sent: 0 });
     }
 
     // ユーザーごとにお気に入り施設をグループ化

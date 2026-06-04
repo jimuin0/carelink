@@ -14,11 +14,6 @@ import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
 const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
 const BIRTHDAY_POINTS = 100;
@@ -26,6 +21,14 @@ const BIRTHDAY_POINTS = 100;
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
   if (cronAuthError) return cronAuthError;
+
+  // 遅延初期化: モジュールスコープで createClient を呼ぶとビルド時の
+  // page data 収集フェーズで env 未設定環境（Vercel preview 等）が
+  // "supabaseUrl is required" で落ちるため、リクエスト時に生成する。
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
 
   const startedAt = new Date();
   try {
@@ -52,9 +55,11 @@ export async function GET(request: Request) {
       },
     );
 
+    // profiles は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!profiles は到達不能=branch穴になる）。
+    // ログ・返却は main 側のリッチ版（processed/skipped/status/sent を全て返す superset）に統一。
     if (profiles.length === 0) {
-      await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0 });
-      return NextResponse.json({ status: 'ok', sent: 0 });
+      await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
 
     let sent = 0;

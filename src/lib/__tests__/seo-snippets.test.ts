@@ -9,8 +9,11 @@ import {
   generatePrefTypeContent,
   generateCityContent,
   generateCityTypeContent,
+  truncateText,
+  stripPromoSentences,
+  INTRO_MAX_LENGTH,
 } from '../seo-snippets';
-import { getPrefectureSeo } from '@/data/prefecture-seo';
+import { getPrefectureSeo, prefectureSeo } from '@/data/prefecture-seo';
 
 describe('getBusinessTypeContext', () => {
   test('returns context for a valid type slug', () => {
@@ -388,6 +391,53 @@ describe('generatePrefTypeContent / generateCityContent — prefSeo null branch'
 });
 
 // ============================================================
+// ミューテーション kill 専用検証
+// seo-snippets.ts の prefIntroShort 正規表現 / regionContext split・concat /
+// searchPoints.slice(0,2) を厳密に固定し、Survived 変異体を全て kill する。
+// ============================================================
+describe('seo-snippets — mutation kill', () => {
+  // --- L130: prefIntroShort = prefSeo.intro.replace(/CareLink[^。]*。/g, '').slice(0, 180) ---
+  // saitama.intro は「…密集します。CareLinkではさいたま市10区＋県内全域の施設を口コミ・写真で比較可能。通勤…」。
+  // 正規表現は "CareLink" を含む 1 文（次の 。 まで）を丸ごと削除する。
+  // 正しく動けば prefIntroShort から「さいたま市10区」は消える。
+  describe('generatePrefTypeContent: prefIntroShort の CareLink 文除去', () => {
+    test('CareLink を含む文（さいたま市10区…）が intro から除去される', () => {
+      const result = generatePrefTypeContent('saitama', 'hair-salon')!;
+      // 変異体 /CareLink[^。]。/g・/CareLink[。]*。/g・.replace 削除 では
+      // 「さいたま市10区」が prefIntroShort に残ってしまう → これを検出して kill。
+      expect(result.intro).not.toContain('さいたま市10区');
+    });
+
+    test('replace の置換後文字列は空文字（Stryker 文字列が混入しない）', () => {
+      const result = generatePrefTypeContent('saitama', 'hair-salon')!;
+      // 変異体 replace(/.../, "Stryker was here!") を検出して kill。
+      expect(result.intro).not.toContain('Stryker');
+    });
+  });
+
+  // --- L169: regionContext = prefSeo.intro.split('。')[0] + '。' ---
+  // osaka.intro の第1文は「大阪府は大阪市24区＋堺市7区＋豊中・吹田・東大阪・枚方など人口880万人超の関西最大都市圏」。
+  describe('generateCityContent: regionContext の split・concat', () => {
+    test('intro に「関西最大都市圏。豊中市には」が連続して含まれる', () => {
+      const result = generateCityContent('osaka', '豊中市')!;
+      // 変異体 split('') では regionContext='大。'、
+      // concat '。'→'' では「…関西最大都市圏豊中市には」になり 。 が欠落 → どちらも kill。
+      expect(result.intro).toContain('関西最大都市圏。豊中市には');
+    });
+  });
+
+  // --- L229: faqs[0].answer = typeCtx.searchPoints.slice(0, 2).join('、') + ... ---
+  describe('generateCityTypeContent: searchPoints は先頭2件のみ', () => {
+    test('faqs[0].answer に searchPoints[2]「カラー・縮毛矯正の技術力」が含まれない', () => {
+      const result = generateCityTypeContent('osaka', '豊中市', 'hair-salon')!;
+      // slice(0,2) 削除の変異体では searchPoints 全件が join され searchPoints[2] が混入する → kill。
+      expect(result.faqs[0].answer).not.toContain('カラー・縮毛矯正の技術力');
+      expect(result.faqs[0].answer).not.toContain('クーポン・初回割引の有無');
+    });
+  });
+});
+
+// ============================================================
 // businessTypeContext 全データ精密検証
 // 各フィールドの文字列値を toBe / toStrictEqual で固定し、
 // StringLiteral / ArrayDeclaration 変異体を全て kill する
@@ -670,4 +720,96 @@ describe('businessTypeContext — exact data verification', () => {
       '実際の利用者による口コミのみ掲載しています。来店確認バッジ付きの口コミは予約履歴と紐付いています。',
     );
   });
+});
+
+describe('truncateText / INTRO_MAX_LENGTH（180字上限の防御を到達可能化）', () => {
+  test('INTRO_MAX_LENGTH は 180', () => {
+    // 上限値を契約として固定（マジックナンバー変異の検出）
+    expect(INTRO_MAX_LENGTH).toBe(180);
+  });
+
+  test('max 以下の文字列はそのまま返す', () => {
+    expect(truncateText('あいうえお', 180)).toBe('あいうえお');
+    expect(truncateText('', 180)).toBe('');
+  });
+
+  test('長さがちょうど max の文字列はそのまま返す（境界）', () => {
+    const exact = 'a'.repeat(180);
+    const result = truncateText(exact, 180);
+    expect(result).toBe(exact);
+    expect(result.length).toBe(180);
+  });
+
+  test('max を超える文字列は先頭から max 文字に切り詰める（slice 発動）', () => {
+    // 200字入力 → 180字に切られることを保証。
+    // .slice(0, max) を削除する変異はここで KILL される（200 !== 180）。
+    const longText = 'あ'.repeat(200);
+    const result = truncateText(longText, INTRO_MAX_LENGTH);
+    expect(result.length).toBe(180);
+    expect(result).toBe('あ'.repeat(180));
+    expect(result.length).toBeLessThan(longText.length);
+  });
+
+  test('max+1 字の入力は max 字に切られる（オフバイワン境界）', () => {
+    // slice の第2引数（上限）を ±1 する変異を検出する境界ケース。
+    const overByOne = 'b'.repeat(INTRO_MAX_LENGTH + 1);
+    const result = truncateText(overByOne, INTRO_MAX_LENGTH);
+    expect(result.length).toBe(INTRO_MAX_LENGTH);
+    expect(result).toBe('b'.repeat(INTRO_MAX_LENGTH));
+    // 第1引数が 0 以外に変異すると先頭文字が落ちるため、先頭一致も固定
+    expect(result.startsWith('b')).toBe(true);
+    expect(result[0]).toBe('b');
+  });
+
+  test('任意の max でも先頭 max 文字に一致する（slice 第1引数=0 を固定）', () => {
+    const text = 'abcdefghij';
+    expect(truncateText(text, 3)).toBe('abc');
+    expect(truncateText(text, 0)).toBe('');
+    expect(truncateText(text, 1)).toBe('a');
+  });
+});
+
+describe('stripPromoSentences（CareLink 宣伝文除去・単一ソース）', () => {
+  test('CareLink で始まり「。」までの一文を除去する', () => {
+    expect(stripPromoSentences('東京は医療が充実。CareLinkで探そう。便利です。')).toBe(
+      '東京は医療が充実。便利です。',
+    );
+  });
+
+  test('CareLink 文が複数あれば全て除去する（global フラグ）', () => {
+    expect(
+      stripPromoSentences('CareLink紹介1。本文。CareLink紹介2。'),
+    ).toBe('本文。');
+  });
+
+  test('CareLink を含まない文字列はそのまま返す', () => {
+    const plain = '東京は医療・美容・福祉施設が広く点在するエリアです。';
+    expect(stripPromoSentences(plain)).toBe(plain);
+  });
+});
+
+describe('prefectureSeo データ不変条件（発症前検知ガード）', () => {
+  // 除去ロジックは production の stripPromoSentences を単一ソースとして参照する。
+  // 正規表現をここにコピーすると片方だけ変更されてガードが実態とズレるため、import で同期する。
+  const entries = Object.entries(prefectureSeo);
+
+  test('prefectureSeo は1件以上存在する（空配列でテストが空振りしない保証）', () => {
+    expect(entries.length).toBeGreaterThan(0);
+  });
+
+  // 真の予防の本体:
+  // 誰かが prefecture-seo.ts に長い intro を追加し、CareLink 文除去後でも
+  // INTRO_MAX_LENGTH を超えると、generatePrefTypeContent の prefIntroShort が
+  // truncateText によって「。」の途中で黙って切られ、SEO 本文が日本語として
+  // 不自然なブツ切れになる（fail-silent）。それを「本番に出る前」にこのテストで
+  // 赤くして検知する。
+  test.each(entries)(
+    'prefectureSeo[%s].intro は CareLink 文除去後 INTRO_MAX_LENGTH 以下（truncateText が発動しない）',
+    (slug, data) => {
+      const stripped = stripPromoSentences(data.intro);
+      expect(stripped.length).toBeLessThanOrEqual(INTRO_MAX_LENGTH);
+      // truncateText が no-op であること（＝データが上限内である正常状態）を明示的に固定
+      expect(truncateText(stripped, INTRO_MAX_LENGTH)).toBe(stripped);
+    },
+  );
 });

@@ -8,8 +8,8 @@
  */
 // middleware は Web Crypto API (TextEncoder / crypto.subtle) を使うため node 環境を指定。
 // jsdom ではこれらがグローバルに存在しない。
-// Stryker の perTest カバレッジ報告のため plain "node" ではなく jest-runner mixin を使用
-// （他の lib node テストと統一。素の node 環境だと Stryker ドライランがエラーになる）。
+// Stryker と両立させるため素の 'node' ではなく Stryker mixin 版 node 環境を指定する
+// （jest.stryker-lib.config.js の規約。素の node だと Stryker のカバレッジ収集が壊れる）。
 
 jest.mock('next/server', () => ({
   NextResponse: {

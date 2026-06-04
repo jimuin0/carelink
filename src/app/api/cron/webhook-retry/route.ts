@@ -61,8 +61,8 @@ export async function GET(request: Request) {
       .limit(50);
 
     if (!jobs || jobs.length === 0) {
-      await logCronRun('webhook-retry', 'skipped', startedAt);
-      return NextResponse.json({ processed: 0 });
+      await logCronRun('webhook-retry', 'skipped', startedAt, { processed: 0, skipped: 0 });
+      return NextResponse.json({ processed: 0, skipped: 0 });
     }
 
     // ── アトミック claim: status='pending' ガード付き UPDATE ... RETURNING で「実際に掴めた行」だけ処理する。

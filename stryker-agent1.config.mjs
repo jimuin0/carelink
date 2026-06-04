@@ -9,6 +9,7 @@ const config = {
     'src/lib/i18n.ts',
     'src/lib/seo-constants.ts',
     'src/lib/seo-snippets.ts',
+    'src/lib/json-ld.ts',
   ],
   jsonReporter: { fileName: 'reports/mutation/agent1.json' },
 };

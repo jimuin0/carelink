@@ -7,12 +7,16 @@
  *   - getTransformUrl     (image-utils.ts)
  *   - getPrefectureSlug / getPrefectureName   (seo-constants.ts)
  *   - getBusinessTypeSlug / getBusinessTypeName (seo-constants.ts)
+ *   - safeJsonLd          (json-ld.ts)
+ *   - truncateText        (seo-snippets.ts)
  */
 
 import * as fc from 'fast-check';
 import { formatPhone } from '../validations';
 import { normalizeSiteUrl } from '../constants';
 import { getTransformUrl } from '../image-utils';
+import { safeJsonLd } from '../json-ld';
+import { truncateText } from '../seo-snippets';
 import {
   getPrefectureSlug,
   getPrefectureName,
@@ -395,6 +399,150 @@ describe('db-fallback プロパティ', () => {
         const snapshot = JSON.stringify(obj);
         omitKeys(obj, keys);
         expect(JSON.stringify(obj)).toBe(snapshot);
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// safeJsonLd (json-ld.ts) — XSS防止シリアライザ
+// ---------------------------------------------------------------------------
+
+// JSON 化可能な任意の値（文字列・数値・真偽・null・配列・オブジェクトの再帰構造）
+// maxDepth で再帰の深さを制限する。理由:
+//   無制限だと巨大なネスト構造が生成され、Stryker の perTest ミューテーション
+//   （json-ld.ts の各変異体ごとに本テストを再実行）で1変異体あたりが極端に重くなり
+//   timeout を量産してランがハングする。深さ3でも < > & を含む文字列・全プリミティブ・
+//   ネストした配列/オブジェクトを十分カバーでき、不変条件の検証強度は保たれる。
+const jsonValue = fc.jsonValue({ maxDepth: 3 });
+
+describe('safeJsonLd — property tests', () => {
+  test('出力に生の < > & を一切含まない（任意のJSON値）', () => {
+    // <script> ブレイクアウトXSSを防ぐため、3文字は必ずエスケープされる
+    fc.assert(
+      fc.property(jsonValue, (v) => {
+        const result = safeJsonLd(v);
+        expect(result).not.toMatch(/[<>&]/);
+      }),
+    );
+  });
+
+  test('ラウンドトリップ: safeJsonLd のパース結果はバニラ JSON.stringify と等価', () => {
+    // safeJsonLd の不変条件は「エスケープがデータを変えない」こと。
+    // 元の値 v と直接比較すると JSON 自体の正規化（例: -0 → 0）に巻き込まれて
+    // フレーキーになるため、バニラ JSON.stringify のパース結果と比較して
+    // 「エスケープ以外の差異がない」ことだけを検証する。
+    fc.assert(
+      fc.property(jsonValue, (v) => {
+        const viaSafe = JSON.parse(safeJsonLd(v));
+        const viaVanilla = JSON.parse(JSON.stringify(v));
+        expect(viaSafe).toEqual(viaVanilla);
+      }),
+    );
+  });
+
+  test('出力は常に有効なJSON（JSON.parseが投げない）', () => {
+    fc.assert(
+      fc.property(jsonValue, (v) => {
+        expect(() => JSON.parse(safeJsonLd(v))).not.toThrow();
+      }),
+    );
+  });
+
+  test('< を含む文字列: 出力に \\u003c が含まれ生の < は消える', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const result = safeJsonLd(`${s}<${s}`);
+        expect(result).toContain('\\u003c');
+        expect(result).not.toContain('<');
+      }),
+    );
+  });
+
+  test('> を含む文字列: 出力に \\u003e が含まれ生の > は消える', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const result = safeJsonLd(`${s}>${s}`);
+        expect(result).toContain('\\u003e');
+        expect(result).not.toContain('>');
+      }),
+    );
+  });
+
+  test('& を含む文字列: 出力に \\u0026 が含まれ生の & は消える', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const result = safeJsonLd(`${s}&${s}`);
+        expect(result).toContain('\\u0026');
+        expect(result).not.toContain('&');
+      }),
+    );
+  });
+
+  test('冪等性なし検証: </script> ブレイクアウト文字列は必ず無害化される', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const payload = `${s}</script><img src=x onerror=alert(1)>`;
+        const result = safeJsonLd({ x: payload });
+        expect(result).not.toContain('</script>');
+        expect(result).not.toMatch(/[<>&]/);
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// truncateText
+// ---------------------------------------------------------------------------
+
+describe('truncateText — property tests', () => {
+  test('定義一致: truncateText(t, m) === t.slice(0, m)（任意 t / 任意 m）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.integer(), (t, m) => {
+        expect(truncateText(t, m)).toBe(t.slice(0, m));
+      }),
+    );
+  });
+
+  test('長さ不変条件: result.length === min(t.length, m)（m >= 0）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.nat({ max: 500 }), (t, m) => {
+        // slice も length も UTF-16 code unit 基準のため、サロゲートペアでも成立
+        expect(truncateText(t, m).length).toBe(Math.min(t.length, m));
+      }),
+    );
+  });
+
+  test('プレフィックス性: t は常に truncateText(t, m) で始まる（m >= 0）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.nat({ max: 500 }), (t, m) => {
+        expect(t.startsWith(truncateText(t, m))).toBe(true);
+      }),
+    );
+  });
+
+  test('冪等性: 同じ m での二重適用は不変（m >= 0）', () => {
+    fc.assert(
+      fc.property(fc.string(), fc.nat({ max: 500 }), (t, m) => {
+        const once = truncateText(t, m);
+        expect(truncateText(once, m)).toBe(once);
+      }),
+    );
+  });
+
+  test('m = 0 のとき常に空文字（任意 t）', () => {
+    fc.assert(
+      fc.property(fc.string(), (t) => {
+        expect(truncateText(t, 0)).toBe('');
+      }),
+    );
+  });
+
+  test('上限 m 以下の長さの入力は変化しない（m >= t.length）', () => {
+    fc.assert(
+      fc.property(fc.string(), (t) => {
+        expect(truncateText(t, t.length)).toBe(t);
+        expect(truncateText(t, t.length + 5)).toBe(t);
       }),
     );
   });

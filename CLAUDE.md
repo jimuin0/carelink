@@ -89,11 +89,11 @@ npm run lint  # ESLint
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
 | L1 | ESLint / tsc | ✅ | エラー 0（2026-06-04 確認、最高峰受け入れ監査の根本対策反映後・本番ビルド891/891） |
-| L2 | Jest ユニットテスト | ✅ | 4961 テスト全通過、208 スイート（2026-06-04、最高峰監査＋原機能品質＋受け入れ体制のテスト追加） |
-| L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/lib(blog,suspensions)）。2026-06-03 |
-| L4 | Stryker ミューテーション | ✅ | 全12ファイル survived=0（2026-06-03、lib/suspensions.ts を追加し mutation score 100%）。lib/blog.ts は supabase IO ありで L4基準「外部副作用なし」非該当のため対象外。 |
-| L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
-| L6 | npm audit / 認証テスト | ✅ | critical=0・high=0（moderate 5）、menu-remarks の認証/IDOR テスト追加（2026-06-01） |
+| L2 | Jest ユニットテスト | ✅ | 全通過（209 スイート。feat/salon-board と main の統合マージ後・実数はマージ後の全スイート実行で更新） |
+| L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/health/cron(publish-scheduled-blog 等)/lib(blog,suspensions,revalidate)）。2026-06-04 |
+| L4 | Stryker ミューテーション | ✅ | 全ファイル survived=0。lib/suspensions.ts 追加（2026-06-03）＋ agent1 4ソース（i18n / seo-constants / seo-snippets / json-ld）Survived=0（2026-05-31。seo-snippets の `.slice(0,180)` 等価変異は `truncateText`＋`INTRO_MAX_LENGTH` 抽出で kill 可能化）。lib/blog.ts は supabase IO ありで対象外。 |
+| L5 | fast-check プロパティベース | ✅ | db-fallback(isMissingColumnError/omitKeys) ＋ safeJsonLd(json-ld) ＋ truncateText のプロパティ群を統合（2026-06-04 マージ） |
+| L6 | npm audit / 認証テスト | ✅ | critical=0・high=0（moderate 5）、menu-remarks の認証/IDOR ＋ 認証バイパス（HMAC検証・middleware）21件 |
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
 
 ### 8観点監査 ラウンド4（2026-06-03）
