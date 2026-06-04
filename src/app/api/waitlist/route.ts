@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -43,13 +44,17 @@ export async function POST(request: Request) {
   }
 
   const cookieStore = await cookies();
-  const supabase = createServerClient(
+  // 認証判定のみ anon SSR クライアント（cookie からセッション解決）。
+  const authClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
+  // DB 書き込み・参照は service_role に集約（anon INSERT ポリシー削除後も継続動作）。
+  // anon キー直書き込み（guest 偽装スパム）を物理的に不能化するための恒久対策。
+  const supabase = createServiceRoleClient();
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await authClient.auth.getUser();
   const data = parsed.data;
 
   // 同じ施設・日時・ユーザーの重複登録を防止

@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
@@ -55,11 +56,15 @@ export async function POST(request: Request) {
   }
 
   const cookieStore = await cookies();
-  const supabase = createServerClient(
+  // 認証判定のみ anon SSR クライアント（cookie からセッション解決）。
+  const authClient = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
+  // DB 書き込み・参照は service_role に集約（anon INSERT ポリシー削除後も継続動作）。
+  // anon キー直書き込み（guest 偽装スパム・医療系 PII 注入）を物理的に不能化する恒久対策。
+  const supabase = createServiceRoleClient();
 
   const body = await request.json().catch(() => null);
   if (!body?.template_id || !body?.customer_name || !body?.facility_id) {
@@ -73,7 +78,7 @@ export async function POST(request: Request) {
   const responsesStr = JSON.stringify(responsesJson);
   if (responsesStr.length > 50_000) return NextResponse.json({ error: 'responses too large' }, { status: 400 });
 
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { user } } = await authClient.auth.getUser();
 
   // booking_id が指定された場合、その予約が認証ユーザー本人のものであることを確認（IDOR防止）
   if (body.booking_id) {

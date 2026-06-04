@@ -14,6 +14,11 @@ jest.mock('@/lib/rate-limit', () => ({
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
+// POST の DB 書き込み・参照は service_role に集約されたため、その経路を
+// 既存の createServerClient モックに委譲する（auth 判定は anon クライアント）。
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -61,6 +66,14 @@ function setupMocks(hasUser: boolean = false, hasDuplicate: boolean = false, has
   cookies.mockResolvedValue({
     getAll: jest.fn(() => []),
   });
+
+  // service_role クライアントは現行の createServerClient モックへ委譲する
+  // （cookies は無関係なのでダミーを渡す）。POST の重複確認・施設確認・insert は
+  // 各テストが createServerClient に組んだ from チェーンを共有する。
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockImplementation(() =>
+    require('@supabase/ssr').createServerClient('url', 'key', { cookies: { getAll: () => [] } })
+  );
 }
 
 beforeEach(() => {
@@ -72,6 +85,7 @@ beforeEach(() => {
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
 });
 
 function makePostRequest(body: object, ip = '192.168.1.1') {
