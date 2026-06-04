@@ -236,7 +236,10 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
 - ~~空施設（メニュー0件等）の公開ガード~~ → ✅ 解消済み（公開ゲートが住所+電話+紹介文+メニュー1件+写真1枚を必須化。line 308-312）
 - ~~facility/初期セットアップの TOCTOU~~ → ✅ 解消済み（本番が多対多モデルと確定。setup を .limit(1).maybeSingle() に是正し重複作成防止。`3f40de6`）
 
-**🟢 推奨インデックス（性能・別タスク）:** facility_menus/photos の sort_order、reviews の created_at。
+**🟢 推奨インデックス（性能）:** → ✅ 追加済み（migration `20260607_recommended_indexes.sql`）。
+facility_menus/photos に `(facility_id, sort_order, created_at)` 複合索引、facility_reviews に
+`(facility_id, created_at DESC)` フル索引（既存 published 部分索引は管理一覧の全ステータス並びに効かないため）。
+冪等・非破壊。staff_profiles も同一並びパターンだが #5 文書スコープ外のため未追加（要承認で追加可）。
 
 ### 最高峰受け入れ監査（2026-06-04・神原さん「提供サービスとして最高峰か」）
 
