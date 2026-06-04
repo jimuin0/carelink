@@ -260,9 +260,10 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
 各修正は branch 100%（API/lib）・tsc/eslint 0・全4942テスト通過。SSR/法令/UI 変更は本番ビルド
 891/891 でも検証。watchdog/公開ゲート/webhook/payjp に branch100% テスト追加。
 
-**🔴 適用待ちマイグレーション 2件（神原さん・Supabase SQL Editor・冪等/非破壊）:**
+**✅ マイグレーション適用済み（2026-06-04・Supabase SQL Editor "Success. No rows returned" 確認）:**
 1. `20260604_facility_location_nullable.sql`（#1・prefecture/city/address を DROP NOT NULL）
 2. `20260604_webhook_retry_claim.sql`（#5a・claimed_at/delivered_at 追加＋processing バックログ解放＋index）
+→ draft施設の住所NULL作成・webhook のアトミックclaim/孤児reaper が本番で有効。
 
 **🧩 機能追加（要仕様判断・神原さん判断待ち・別タスク）:**
 - #3 運用: 台帳グリッドに staff_schedules（出勤/休み/勤務時間）を反映しグレーアウト表示。
