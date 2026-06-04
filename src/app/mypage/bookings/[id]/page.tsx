@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
@@ -26,19 +26,25 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [gcalConnected, setGcalConnected] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // 取得失敗（通信/サーバ障害）を「予約が見つかりません」と誤表示せず、再試行導線を出すための状態（本番監査）
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
+    setLoading(true);
+    setLoadError(false);
+    try {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-      const { data } = await supabase
+      // maybeSingle: 0件は data=null(=見つからない)、通信/サーバ障害のみ error。両者を区別する。
+      const { data, error } = await supabase
         .from('bookings')
         .select('*')
         .eq('id', params.id)
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
+      if (error) { setLoadError(true); setLoading(false); return; }
       setBooking(data as Booking | null);
       setLoading(false);
       // Check Google Calendar connection
@@ -46,9 +52,13 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((d) => setGcalConnected(d.connected && !d.isExpired))
         .catch(() => {});
-    };
-    load().catch(() => setLoading(false));
+    } catch {
+      setLoadError(true);
+      setLoading(false);
+    }
   }, [params.id]);
+
+  useEffect(() => { load(); }, [load]);
 
   const handleCancel = async () => {
     if (cancelling) return;
@@ -77,6 +87,17 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => <div key={i} className="h-4 bg-gray-200 rounded" />)}
         </div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
+        <p className="text-gray-600 mb-3">予約情報の読み込みに失敗しました。</p>
+        <button type="button" onClick={() => load()} className="text-sm text-primary hover:underline font-bold">
+          もう一度試す
+        </button>
       </div>
     );
   }

@@ -88,7 +88,9 @@ export async function POST(request: NextRequest) {
     if (phone) phone = String(phone).slice(0, 20);
     if (prefecture) prefecture = String(prefecture).slice(0, 20);
     if (city) city = String(city).slice(0, 50);
-    if (address) address = String(address).slice(0, 200);
+    // settings の zod は address max(100)。ここで 200 まで保存すると、後でオーナーが管理画面で
+    // 保存する際に address:max(100) 違反で原因不明の 400 になり詰まる。設定画面と同じ上限に揃える（本番監査#7）。
+    if (address) address = String(address).slice(0, 100);
 
     // slug生成（施設名からローマ字変換は複雑なのでランダム）
     const slug = facility_name

@@ -16,11 +16,15 @@ export default async function BookingsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('bookings')
     .select('id, booking_date, start_time, end_time, status, total_price, facility_id, menu_id, staff_id')
     .eq('user_id', user.id)
     .order('booking_date', { ascending: false });
+
+  // 取得失敗を「予約履歴なし」と誤表示しない（client が予約消失と誤認するのを防ぐ・本番監査）。
+  // throw すると error.tsx 境界の「もう一度試す」で復旧導線が出る。
+  if (error) throw new Error('予約履歴の取得に失敗しました');
 
   const bookings = data ?? [];
 

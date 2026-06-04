@@ -286,7 +286,7 @@ describe('POST /api/facility/setup', () => {
     expect(res.status).toBe(200);
   });
 
-  test('address > 200 chars → truncated', async () => {
+  test('address > 100 chars → 100 に切り詰め（settings zod と整合・#7）', async () => {
     const longAddr = 'x'.repeat(250);
     const res = await POST(
       makeRequest({
@@ -297,6 +297,8 @@ describe('POST /api/facility/setup', () => {
     );
 
     expect(res.status).toBe(200);
+    // 設定画面の address max(100) と同じ上限で保存される（後の保存失敗を防ぐ）
+    expect((mockFacilityInsert.mock.calls[0][0].address as string).length).toBe(100);
   });
 
   test('facility_profiles insert fails → 500', async () => {
