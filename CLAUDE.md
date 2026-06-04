@@ -178,7 +178,9 @@ npm run lint  # ESLint
 → round3〜6 の全マイグレーション適用完了。cancel_fee_paid 占有解放・email正規化・残高SUM RPC・payjp列が本番で有効。
 
 **残課題（根本解決の方向性は確定・別タスク）:**
-- customer-segment の RFM集計が2年2000件超の繁忙施設で頭打ち → email別集計RPC化（行数非依存）。
+- ~~customer-segment の RFM集計が2年2000件超の繁忙施設で頭打ち~~ → ✅ 解消済み（`.limit(2000)` を
+  fetchAllPaged 全件ページングに置換。切り捨てなくRFM算出。全ロジックはテスト済みJSのまま・branch100%維持）。
+  さらなる性能最適化(email別集計RPC)は correctness 解消後の任意事項。
 - Nextブログ予約投稿(scheduled_at)の時刻到来公開が ISR ラグを受ける → 予約時刻での revalidateTag 発火 or 短縮revalidate。
 
 ### 決済プロバイダ移行 Stripe → PAY.JP（2026-06-03 着手・神原さん方針）

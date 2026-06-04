@@ -59,18 +59,24 @@ export async function GET(request: Request) {
     let skipped = 0;
 
     for (const facility of facilities) {
-      // 完了済み予約からメール別に集計（直近2年分、最大2000件）。
-      // 注: 2年で2000件超の繁忙施設では集計が頭打ちになり得る。完全な根本解決は email 別の集計RPC化
-      // （count/sum/min/max を施設×期間で返す）。本セッションでは未実装で別タスクとして記録（CLAUDE.md round6）。
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select('email, customer_name, booking_date, total_price, status')
-        .eq('facility_id', facility.id)
-        .in('status', ['completed', 'confirmed'])
-        .gte('booking_date', twoYearsAgo)
-        .limit(2000);
+      // 完了済み予約からメール別に集計（直近2年分・全件）。
+      // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
+      // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
+      type BookingRow = { email: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      const { rows: bookings } = await fetchAllPaged<BookingRow>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('bookings')
+            .select('email, customer_name, booking_date, total_price, status')
+            .eq('facility_id', facility.id)
+            .in('status', ['completed', 'confirmed'])
+            .gte('booking_date', twoYearsAgo)
+            .range(offset, offset + limit - 1);
+          return { data: data as BookingRow[] | null, error };
+        },
+      );
 
-      if (!bookings || bookings.length === 0) { skipped++; continue; }
+      if (bookings.length === 0) { skipped++; continue; }
 
       // メール別に集計
       const customerMap = new Map<string, {
