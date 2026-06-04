@@ -140,6 +140,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: [unit-test]
     if: github.event_name == 'pull_request'
+    # PR にカバレッジコメントを投稿するため pull-requests: write を付与する。
+    # これが無いと既定トークンは read-only で issues.createComment が 403
+    # （Resource not accessible by integration）になり、テスト・カバレッジは合格なのに
+    # 当ジョブだけ毎PR で fail し PR が UNSTABLE になる（症状）。権限付与が根本解決。
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -166,7 +173,7 @@ jobs:
             } catch (e) {
               body += '⚠️ カバレッジデータが取得できませんでした';
             }
-            github.rest.issues.createComment({
+            await github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
