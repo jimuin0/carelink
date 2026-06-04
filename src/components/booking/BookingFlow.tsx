@@ -33,7 +33,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   // a11y: 検証エラー時に対象フィールドへフォーカス移動＋aria-invalid を立てる（scale監査 #7）
-  const [fieldError, setFieldError] = useState<{ field: 'name' | 'email'; message: string } | null>(null);
+  const [fieldError, setFieldError] = useState<{ field: 'name' | 'email' | 'phone'; message: string } | null>(null);
 
   const focusField = (id: string) => {
     if (typeof document === 'undefined') return;
@@ -145,6 +145,15 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
       setFieldError({ field: 'email', message });
       setToast({ type: 'error', message });
       focusField('booking-email');
+      return;
+    }
+    // 電話番号は任意だが、入力時はサーバ(validations-booking)と同じ形式で先に検証し、
+    // 確認画面での汎用400(「リクエストが不正です」)による離脱を防ぐ。
+    if (phone && !/^0\d{1,4}-?\d{1,4}-?\d{3,4}$/.test(phone)) {
+      const message = '正しい電話番号を入力してください（例: 090-1234-5678）';
+      setFieldError({ field: 'phone', message });
+      setToast({ type: 'error', message });
+      focusField('booking-phone');
       return;
     }
     setFieldError(null);
@@ -578,12 +587,17 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
               <input
                 id="booking-phone"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => { setPhone(e.target.value); if (fieldError?.field === 'phone') setFieldError(null); }}
                 type="tel"
                 className="form-input"
                 placeholder="090-1234-5678"
+                aria-invalid={fieldError?.field === 'phone' || undefined}
+                aria-describedby={fieldError?.field === 'phone' ? 'booking-phone-error' : undefined}
                 maxLength={20}
               />
+              {fieldError?.field === 'phone' && (
+                <p id="booking-phone-error" role="alert" className="text-sm text-red-600 mt-1">{fieldError.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="booking-note" className="form-label">備考</label>
