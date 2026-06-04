@@ -1,0 +1,138 @@
+name: anon write RLS policy Lint
+
+# 発症前予防（L6）: 無認証（anon / public 到達）かつ permissive な「書き込み」RLS ポリシーを
+# 新規 migration で追加するのを PR 段階で物理的に弾く。
+#
+# 【背景・対象とする脆弱性クラス】
+#   anon キーは公開JS（クライアントバンドル）に含まれ誰でも入手できる。anon が到達でき
+#   かつ WITH CHECK / USING が permissive（auth.* を参照しない ≒ true 相当）な
+#   INSERT/UPDATE/DELETE/ALL ポリシーは、reCAPTCHA / rate-limit / サーバ検証を一切経由
+#   しない無制限・無検証の書き込みを許す。salons / facility_reviews / facility_inquiries /
+#   booking_waitlist が実際にこの形だった（公開フォーム⇄anon 直書き込み）。本ゲートは
+#   サーバ API（service_role）集約後に同型ポリシーが再混入するのを防ぐチョークポイント。
+#
+# 【スコープ設計: ファイル名日付カットオフ方式（merge-base 非依存）】
+#   git diff スコープは feature ブランチが main から大きく分岐し migration 履歴全体を
+#   抱える場合に歴史的ファイルを取り込み誤検出する。これを避け、migration ファイル名の
+#   8 桁日付が CUTOFF 以降のものだけを強制対象とする決定的方式を採る。歴史的ファイル
+#   （既存の anon 書き込みポリシーは別途 API 集約＋DROP で是正）は常にグランドファザリング
+#   し、CUTOFF 以降の新規混入だけを確実に弾く。
+#
+# 【判定ルール（高シグナル・低誤検出）】
+#   新規 CREATE POLICY を以下を全て満たすとき NG とする:
+#     1. 書き込み: FOR INSERT|UPDATE|DELETE|ALL（FOR 省略時は ALL 既定）
+#     2. anon 到達: TO 句に anon / public を含む、または TO 句が無い（既定 PUBLIC=anon 含む）
+#     3. permissive: USING / WITH CHECK 本文が auth.（auth.uid()/auth.role()/auth.jwt()）を参照しない
+#   AS RESTRICTIVE（拒否系・例: USING(false)）と FOR SELECT（読み取り）は対象外。
+#   auth.* を参照する認証ゲート付きポリシー（例: WITH CHECK (auth.uid() = user_id)）は安全として通す。
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+      - '.github/workflows/anon-write-policy-lint.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Reject newly-added anon-reachable permissive write policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint enforced migrations (filename date >= CUTOFF)
+        run: |
+          python3 - <<'PY'
+          import os, re, sys, glob
+
+          # この lint 導入日。これ以降の日付を持つ migration のみ強制する。
+          CUTOFF = 20260604
+          # 既知の歴史的非日付ファイル（グランドファザリング）。
+          GRANDFATHER = {'combined_phase2_to_6.sql'}
+
+          def is_enforced(path: str) -> bool:
+              base = os.path.basename(path)
+              if base in GRANDFATHER:
+                  return False
+              m = re.match(r'(\d{8})', base)
+              if not m:
+                  return True   # 非日付の新規ファイルは強制（バイパス防止）
+              return int(m.group(1)) >= CUTOFF
+
+          all_files = sorted(glob.glob('supabase/migrations/*.sql'))
+          files = [f for f in all_files if is_enforced(f)]
+          if not files:
+              print(f"✅ CUTOFF({CUTOFF}) 以降の強制対象 migration なし")
+              sys.exit(0)
+
+          def strip_sql_comments(sql: str) -> str:
+              sql = re.sub(r'/\*.*?\*/', ' ', sql, flags=re.DOTALL)
+              sql = re.sub(r'--[^\n]*', ' ', sql)
+              return sql
+
+          # CREATE POLICY "name" ON table ... ; を 1 件ずつ抽出（本文に ; を含まない前提）。
+          policy_re = re.compile(
+              r'CREATE\s+POLICY\s+"?(?P<name>[^"\n]+?)"?\s+ON\s+(?P<table>[\w."]+)(?P<body>[^;]*);',
+              re.IGNORECASE | re.DOTALL,
+          )
+
+          errors = []
+          for path in files:
+              if not os.path.exists(path):
+                  continue
+              with open(path, encoding='utf-8') as fh:
+                  sql = strip_sql_comments(fh.read())
+
+              for m in policy_re.finditer(sql):
+                  stmt = m.group(0)
+
+                  # AS RESTRICTIVE（拒否/制限系）は安全 → 対象外
+                  if re.search(r'\bAS\s+RESTRICTIVE\b', stmt, re.IGNORECASE):
+                      continue
+
+                  # コマンド種別（FOR 省略時は ALL 既定）
+                  mfor = re.search(r'\bFOR\s+(SELECT|INSERT|UPDATE|DELETE|ALL)\b', stmt, re.IGNORECASE)
+                  cmd = mfor.group(1).upper() if mfor else 'ALL'
+                  if cmd == 'SELECT':   # 読み取り専用は対象外
+                      continue
+
+                  # anon 到達性: TO 句に anon/public、または TO 句が無い（既定 PUBLIC）
+                  mto = re.search(r'\bTO\s+([A-Za-z0-9_,\s]+?)(?=\bUSING\b|\bWITH\b|$)', stmt, re.IGNORECASE)
+                  if mto:
+                      roles = mto.group(1).lower()
+                      anon_reachable = ('anon' in roles) or ('public' in roles)
+                  else:
+                      anon_reachable = True   # TO 省略 = PUBLIC（anon 含む）
+                  if not anon_reachable:
+                      continue
+
+                  # permissive 判定: USING / WITH CHECK が auth.* を参照しない ≒ true 相当
+                  if re.search(r'auth\.', stmt, re.IGNORECASE):
+                      continue
+
+                  errors.append(
+                      f"{path}: policy `{m.group('name')}` on {m.group('table')} は "
+                      f"anon 到達かつ permissive な {cmd} 書き込みポリシーです"
+                  )
+
+          if errors:
+              print("🔴 新規 migration に anon 到達の permissive 書き込みポリシーがあります:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("")
+              print("【なぜ危険か】anon キーは公開JSに含まれ誰でも入手できるため、")
+              print("  reCAPTCHA / rate-limit / サーバ検証を経由しない無制限・無検証の書き込みを許します。")
+              print("【対応】公開フォームの書き込みはサーバ API（service_role + withRoute）に集約し、")
+              print("  RLS は anon 書き込みを与えないでください。認証ユーザの自分行更新が必要な場合は")
+              print("  WITH CHECK / USING に auth.uid() 等の認証述語を付与してください。")
+              sys.exit(1)
+
+          print(f"✅ CUTOFF({CUTOFF}) 以降の migration に anon 到達の permissive 書き込みポリシーはありません")
+          PY
