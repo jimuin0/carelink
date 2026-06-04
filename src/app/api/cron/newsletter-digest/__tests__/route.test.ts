@@ -93,6 +93,15 @@ function setupDefaultMocks(alreadySent: boolean = false) {
         return {
           insert: jest.fn().mockResolvedValue({ error: null }),
         };
+      } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
+        // 配信停止リスト（既定は誰も停止していない）
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              range: jest.fn().mockResolvedValue({ data: [], error: null }),
+            }),
+          }),
+        };
       }
       // bookings, reviews, facility_profiles (count queries)
       return { select: (...args: any[]) => mockSelect(...args) };
@@ -151,6 +160,38 @@ describe('GET /api/cron/newsletter-digest', () => {
 
     expect(res.status).toBe(200);
     expect(mockBatchSend).toHaveBeenCalled();
+  });
+
+  test('配信停止オーナーは送信対象から除外される（特電法）', async () => {
+    setupDefaultMocks(false);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    let campCalls = 0;
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockImplementation((table: string) => {
+        if (table === 'newsletter_campaigns') {
+          campCalls++;
+          if (campCalls === 1) return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }) }) }) }) };
+          if (campCalls === 2) return { insert: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'camp-x' }, error: null }) }) }) };
+          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+        } else if (table === 'facility_members') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [{ profiles: { email: 'unsub@example.com' } }] }) }) }) };
+        } else if (table === 'cron_logs') {
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        } else if (table === 'profiles') {
+          // このオーナーは配信停止済み
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [{ email: 'unsub@example.com' }], error: null }) }) }) };
+        } else if (table === 'newsletter_subscriptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
+        }
+        // bookings/reviews/facility_profiles の count クエリ
+        return { select: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockResolvedValue({ count: 0 }) }) }) };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // 唯一のオーナーが配信停止済みのため送信されない
+    expect(mockBatchSend).not.toHaveBeenCalled();
   });
 
   test('missing NEWSLETTER_UNSUBSCRIBE_SECRET → 503', async () => {
@@ -443,6 +484,8 @@ describe('GET /api/cron/newsletter-digest', () => {
           };
         } else if (table === 'cron_logs') {
           return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
         }
         return {
           select: jest.fn().mockReturnValue({
@@ -521,6 +564,8 @@ describe('GET /api/cron/newsletter-digest', () => {
           };
         } else if (table === 'cron_logs') {
           return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
         }
         return {
           select: jest.fn().mockReturnValue({
@@ -582,6 +627,8 @@ describe('GET /api/cron/newsletter-digest', () => {
           };
         } else if (table === 'cron_logs') {
           return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
         }
         return {
           select: jest.fn().mockReturnValue({
@@ -664,6 +711,8 @@ describe('GET /api/cron/newsletter-digest', () => {
           };
         } else if (table === 'cron_logs') {
           return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
         }
         return {
           select: jest.fn().mockReturnValue({

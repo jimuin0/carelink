@@ -207,9 +207,15 @@ export async function POST(request: Request) {
     }
   }
 
+  // 実際に控除するポイントは確定額(serverTotalPrice)を上限にクランプする（金銭バグ修正）。
+  // 確認画面でポイント設定後にクーポンを割引大へ変更すると、client が points_used を再クランプせず生値を
+  // 送るため、控除額が確定額を超えポイントが過剰消失していた。残高/認証チェックは要求値(pointsUsed)で行い、
+  // 控除・値引き・保存は確定額上限の pointsApplied を使う。
+  const pointsApplied = serverTotalPrice != null ? Math.min(pointsUsed, serverTotalPrice) : pointsUsed;
+
   // ポイント値引き反映
-  const finalPrice = serverTotalPrice != null && pointsUsed > 0
-    ? Math.max(0, serverTotalPrice - pointsUsed)
+  const finalPrice = serverTotalPrice != null && pointsApplied > 0
+    ? Math.max(0, serverTotalPrice - pointsApplied)
     : serverTotalPrice;
 
   // 施設の即時確定モード取得
@@ -240,7 +246,7 @@ export async function POST(request: Request) {
     p_phone: parsed.data.phone ?? null,
     p_note: parsed.data.note ?? null,
     p_total_price: finalPrice ?? null,
-    p_points_used: pointsUsed,
+    p_points_used: pointsApplied,
     p_status: bookingStatus,
   });
   void bookingData;
@@ -275,13 +281,13 @@ export async function POST(request: Request) {
   // then verify the running balance is still non-negative.
   // If another concurrent request already deducted points (balance changed since snapshot),
   // roll back and cancel the booking.
-  if (pointsUsed > 0 && user && newBookingId) {
+  if (pointsApplied > 0 && user && newBookingId) {
     const serviceSupabase = createServiceRoleClient();
     const { data: deductionRow, error: deductionErr } = await serviceSupabase
       .from('user_points')
       .insert({
         user_id: user.id,
-        points: -pointsUsed,
+        points: -pointsApplied,
         reason: `予約利用 (${newBookingId.slice(0, 8)})`,
       })
       .select('id')

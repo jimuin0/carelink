@@ -177,7 +177,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
           phone: phone || null,
           note: note || null,
           total_price: calculatePrice(),
-          points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
+          // 確定額にクランプして送信（クーポン変更後の過剰ポイント送信を防ぐ。サーバ側でも再クランプ）
+          points_used: usePoints && pointsToUse > 0 ? Math.min(pointsToUse, calculatePrice() ?? 0) : undefined,
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -638,7 +639,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
                   </div>
                 )}
                 {usePoints && pointsToUse > 0 && (
-                  <p className="text-sm font-bold">お支払い金額: ¥{(currentPrice - pointsToUse).toLocaleString()}</p>
+                  <p className="text-sm font-bold">お支払い金額: ¥{Math.max(0, currentPrice - Math.min(pointsToUse, currentPrice)).toLocaleString()}</p>
                 )}
               </div>
             );

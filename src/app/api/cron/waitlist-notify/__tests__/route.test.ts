@@ -15,6 +15,7 @@ jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn() }));
 jest.mock('@/lib/supabase-server');
 jest.mock('resend');
+jest.mock('@/lib/line', () => ({ sendLineText: jest.fn().mockResolvedValue(undefined) }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { GET } from '../route';
@@ -227,6 +228,82 @@ describe('GET /api/cron/waitlist-notify', () => {
     expect(res.status).toBe(200);
     // revert: status='waiting' への update が呼ばれる（notified のまま放置しない）
     const revertCall = mockUpdateWaitlist.mock.calls.find((c: unknown[]) => c[0] && (c[0] as { status?: string }).status === 'waiting');
+    expect(revertCall).toBeDefined();
+  });
+
+  // ── 通知喪失バグ修正: 通知手段で claim を分岐 ──
+  function overrideWaiters(waiters: unknown[]) {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const updateChain: Record<string, jest.Mock> = {};
+    Object.assign(updateChain, {
+      eq: jest.fn().mockReturnValue(updateChain),
+      lt: jest.fn().mockReturnValue(updateChain),
+      select: jest.fn().mockResolvedValue({ data: [{ id: 'claimed' }], error: null }),
+    });
+    const updateSpy = jest.fn().mockReturnValue(updateChain);
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockSelectCancels };
+        if (table === 'booking_waitlist') return {
+          select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: waiters }) }) }) }) }) }) }),
+          update: updateSpy,
+        };
+        if (table === 'facility_profiles') return { select: mockSelectFacility };
+      }),
+    });
+    return updateSpy;
+  }
+  const baseWaiter = { id: 'w0', customer_name: 'W', date: '2026-05-15', start_time: '10:00' };
+
+  test('通知手段なし(email/LINE 共に無し) → claim せず処理0', async () => {
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+    overrideWaiters([{ ...baseWaiter, email: null, line_user_id: null }]);
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(0);
+    const { sendLineText } = require('@/lib/line');
+    expect(sendLineText).not.toHaveBeenCalled();
+  });
+
+  test('LINE登録のみの待機者 → LINE で通知', async () => {
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
+    const { sendLineText } = require('@/lib/line');
+    (sendLineText as jest.Mock).mockResolvedValue(undefined);
+    overrideWaiters([{ ...baseWaiter, email: null, line_user_id: 'L1' }]);
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(1);
+    expect(sendLineText).toHaveBeenCalledWith('L1', expect.stringContaining('空きが出ました'));
+  });
+
+  test('email失敗 → LINE フォールバックで通知', async () => {
+    process.env.RESEND_API_KEY = 'test-key';
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
+    mockSendEmail.mockRejectedValue(new Error('email down'));
+    const { sendLineText } = require('@/lib/line');
+    (sendLineText as jest.Mock).mockResolvedValue(undefined);
+    overrideWaiters([{ ...baseWaiter, email: 'e@x.com', line_user_id: 'L1' }]);
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(1);
+    expect(sendLineText).toHaveBeenCalled();
+  });
+
+  test('全チャネル失敗(email/LINE 共に失敗) → revert・処理0', async () => {
+    process.env.RESEND_API_KEY = 'test-key';
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
+    mockSendEmail.mockRejectedValue(new Error('email down'));
+    const { sendLineText } = require('@/lib/line');
+    (sendLineText as jest.Mock).mockRejectedValue(new Error('line down'));
+    const updateSpy = overrideWaiters([{ ...baseWaiter, email: 'e@x.com', line_user_id: 'L1' }]);
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(0);
+    const revertCall = updateSpy.mock.calls.find((c: unknown[]) => c[0] && (c[0] as { status?: string }).status === 'waiting');
     expect(revertCall).toBeDefined();
   });
 

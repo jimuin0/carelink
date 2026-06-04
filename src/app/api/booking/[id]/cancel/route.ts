@@ -52,7 +52,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   const { data: booking } = await supabase
     .from('bookings')
-    .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id')
+    .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, points_used')
     .eq('id', params.id)
     .single();
 
@@ -72,6 +72,26 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   if (error) {
     return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
+  }
+
+  // 予約時に使用したポイントを返却する（サービス未提供のため。ポイント=1円が永久消失していた金銭バグ）。
+  // 二重返却は user_points.booking_id の部分ユニーク索引(23505)で防ぐ＝冪等。失敗は非ブロッキング
+  // （キャンセル自体は成立済み。返却失敗はログのみとし、ユーザーには成功を返して再キャンセルを誘発しない）。
+  if (booking.points_used && booking.points_used > 0) {
+    try {
+      const refundAdmin = createServiceRoleClient();
+      const { error: refundErr } = await refundAdmin.from('user_points').insert({
+        user_id: user.id,
+        points: booking.points_used,
+        reason: `予約キャンセル返却 (${booking.id.slice(0, 8)})`,
+        booking_id: booking.id,
+      });
+      if (refundErr && (refundErr as { code?: string }).code !== '23505') {
+        console.error('[cancel] points refund failed', { bookingId: booking.id, err: refundErr.message });
+      }
+    } catch (refundEx) {
+      console.error('[cancel] points refund threw', { bookingId: booking.id, err: refundEx instanceof Error ? refundEx.message : String(refundEx) });
+    }
   }
 
   // 監査ログ（非ブロッキング）
