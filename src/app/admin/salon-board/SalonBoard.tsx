@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ListingBoard from './ListingBoard';
@@ -68,6 +69,7 @@ type Row =
   | { kind: 'free'; name: string; sub: string };
 
 export default function SalonBoard({ facilityId }: { facilityId: string }) {
+  const router = useRouter();
   const [date, setDate] = useState(() => getTodayString());
   const [staffList, setStaffList] = useState<StaffOption[]>([]);
   const [menuList, setMenuList] = useState<MenuOption[]>([]);
@@ -343,6 +345,22 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
   useEffect(() => { loadData().catch(() => setLoading(false)); }, [loadData]);
   useEffect(() => { if (tab === 'suspend') { fetchAcceptStatus().catch(() => {}); loadSuspensions().catch(() => {}); } }, [tab, fetchAcceptStatus, loadSuspensions]);
 
+  // 台帳のリアルタイム自動反映（scale監査 #3・手動「最新を表示」依存の解消）。
+  // 当該施設の bookings 変更を購読し、新規ネット予約や他端末での変更を即座に台帳へ反映する。
+  // 週/月ビューの rangeBookings も nonce 経由で再取得させる。
+  const [realtimeNonce, setRealtimeNonce] = useState(0);
+  useEffect(() => {
+    const sb = createBrowserSupabaseClient();
+    const channel = sb
+      .channel(`board-bookings-${facilityId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings', filter: `facility_id=eq.${facilityId}` }, () => {
+        loadData().catch(() => {});
+        setRealtimeNonce((n) => n + 1);
+      })
+      .subscribe();
+    return () => { sb.removeChannel(channel); };
+  }, [facilityId, loadData]);
+
   // 週/月ビュー用に期間内の予約をまとめて取得（日ビューでは未取得）
   const [rangeBookings, setRangeBookings] = useState<{ id: string; booking_date: string; start_time: string; end_time: string; status: string; customer_name: string; staff_id: string | null; menu_id: string | null }[]>([]);
   const [rangeLoading, setRangeLoading] = useState(false);
@@ -366,7 +384,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
       setRangeLoading(false);
     })().catch(() => { if (!cancelled) setRangeLoading(false); });
     return () => { cancelled = true; };
-  }, [section, view, date, facilityId]);
+  }, [section, view, date, facilityId, realtimeNonce]);
 
   useEffect(() => {
     const update = () => {
@@ -840,7 +858,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
               {months.map((m, i) => (
                 <div key={m} className={`border-b border-gray-200 px-2 py-2 text-center ${i < 3 ? 'border-r' : ''}`}>
                   <div className="text-gray-500 mb-1">{m}</div>
-                  <button type="button" onClick={() => kind === 'capacity' ? openCapModal(ymOf(i)) : setToast({ type: 'success', message: `${m}のシフト設定は準備中です` })} className="px-3 py-1 text-[11px] border border-sky-400 text-sky-600 rounded hover:bg-sky-50">設定</button>
+                  <button type="button" onClick={() => kind === 'capacity' ? openCapModal(ymOf(i)) : router.push('/admin/staff')} className="px-3 py-1 text-[11px] border border-sky-400 text-sky-600 rounded hover:bg-sky-50">設定</button>
                 </div>
               ))}
             </div>
@@ -926,7 +944,7 @@ export default function SalonBoard({ facilityId }: { facilityId: string }) {
         <button type="button" onClick={() => setDate((d) => shiftDate(d, 1))} className="px-2 py-1 text-[11px] bg-white border border-gray-300 rounded hover:bg-gray-50 shrink-0">次の日</button>
         <span className="px-2 text-[11px] text-gray-500 shrink-0">全 {bookings.length} 件</span>
         <div className="flex-1" />
-        <button type="button" onClick={() => setToast({ type: 'success', message: 'シフト設定は準備中です' })}
+        <button type="button" onClick={() => router.push('/admin/staff')}
           className="px-4 py-1.5 text-xs font-bold border border-sky-500 text-sky-600 rounded hover:bg-sky-50 bg-white shrink-0">シフト設定</button>
         <button type="button" onClick={() => setModal({ mode: 'create', staffId: visibleStaff[0]?.id ?? null, startTime: `${String(SHOP_OPEN_MIN / 60).padStart(2, '0')}:00` })}
           className="px-4 py-1.5 text-xs font-bold text-white bg-sky-500 rounded hover:bg-sky-600 shrink-0">予約登録</button>

@@ -13,9 +13,10 @@ interface Props {
   staff: StaffProfile[];
   menus: FacilityMenu[];
   coupons: Coupon[];
+  hasIntake?: boolean;
 }
 
-export default function BookingFlow({ facility, staff, menus, coupons }: Props) {
+export default function BookingFlow({ facility, staff, menus, coupons, hasIntake = false }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
   const [selectedMenus, setSelectedMenus] = useState<FacilityMenu[]>([]);
@@ -181,6 +182,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           end_time: selectedSlot?.slot_end || '',
           facility: facility.name || '',
         });
+        // 問診票テンプレがある施設では完了画面に問診票導線を出す（has_intake 配線漏れ修正・scale監査 #6）
+        if (hasIntake) completeParams.set('has_intake', '1');
         router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
       } else {
         const body = await res.json().catch(() => null);
