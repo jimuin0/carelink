@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendFavoritesDigest, generateUnsubscribeToken } from '@/lib/email';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,13 +39,19 @@ export async function GET(request: Request) {
   const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
 
   try {
-    // お気に入りを持つユーザー一覧取得
-    const { data: favUsers } = await supabase
-      .from('favorites')
-      .select('user_id, facility_id')
-      .limit(500);
+    // お気に入りを持つユーザー一覧を全件ページング取得（旧 .limit(500) は500行超で一部ユーザーの
+    // ダイジェストが恒常的に欠落していた・本番監査）。
+    const { rows: favUsers } = await fetchAllPaged<{ user_id: string; facility_id: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('favorites')
+          .select('user_id, facility_id')
+          .range(offset, offset + limit - 1);
+        return { data: data as { user_id: string; facility_id: string }[] | null, error };
+      },
+    );
 
-    if (!favUsers || favUsers.length === 0) {
+    if (favUsers.length === 0) {
       await logCronRun('favorites-digest', 'skipped', startedAt, { processed: 0 });
       return NextResponse.json({ success: true, sent: 0 });
     }
