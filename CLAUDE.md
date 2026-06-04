@@ -270,5 +270,23 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
 - #6 予約UX: 日付カレンダーの空き ○△× 表示 / 満枠時のキャンセル待ち動線 / メニュー・スタッフからの選択持ち越し。
 - 機能パリティ: 店舗内POS・レジ締め(対面会計) / スタイル写真ギャラリー(作品カタログ)。
 - オンボ: リード(salons)入力の施設への引き継ぎ / facility/setup の TOCTOU（1ユーザー=1施設か多対多かの仕様確定が前提）。
-- SEO 2次: 施設詳細の全タブ HTML 描画 / ランキングページの ItemList・URL romaji 統一 / 空施設 noindex。
-- a11y 2次: モバイル下部ナビ 44px・aria-current / gray-400 コントラスト / 極小フォント。
+- SEO 2次: ランキングページの ItemList・URL romaji 統一 / 空施設 noindex。
+- a11y 2次: gray-400 コントラスト / 極小フォント（広域CSSのため実機QA推奨）。
+
+### 原機能品質向上ラウンド（2026-06-04・神原さん「新機能もいいが原機能の品質も上げて」）
+
+監査で挙がった 🟡 既存機能の品質バグを恒久対策（全 push 済み）:
+- 🟡 予約UX: 確認画面サマリーの「合計金額」がポイント控除前で下部「お支払い金額」と齟齬 → サマリーに
+  控除行＋確定額を集約し1か所統一。`873ca7e`
+- 🟡 信頼性(health): 現用 PAY.JP・写真/PII保存先 Storage を未probe（旧Stripeのみ）→ probePayjp/
+  probeStorage 追加・未設定の決済プロバイダは skipped で degraded 扱いにしない。`873ca7e`
+- 🟡 信頼性(backup): 20万行サイレント切り捨てを完全BK誤認 → truncated 検知＋ヘッダ＋alertWarning。`873ca7e`
+- 🟢 テスト衛生: jest.setup の偽SLACKトークンで webhook テストが実Slackへfetch試行 → alert モック化。`873ca7e`
+- 🟡 予約UX: 電話番号クライアント未検証(汎用400で離脱) → サーバ同一regexで事前検証＋フォーカス/aria連動。`2247fcd`
+- 🟡 a11y: モバイル下部ナビ 44px化・aria-current・svg aria-hidden・極小フォント緩和。`2247fcd`
+- 🔴 確定データ不整合: Footer「堺市」 vs 特商法ページ「豊中市」（神原さん確認: 堺市が誤り）→ constants.OPERATOR
+  に単一定数化し統一。広告メールに送信者氏名・所在地・受信拒否導線を明記（特定電子メール法4条）。`63f9a98`
+- 🟡 SEO: 施設詳細がアクティブタブ1枚のみHTML描画 → lazy フラグ導入。サーバ描画タブ(menu/staff/catalog/
+  coupon/medical/access)は常時HTML描画(SEO化)、クライアント取得タブ(QA/口コミ)のみ lazy で性能退行ゼロ。`1ee20c7`
+
+health/backup branch 100%・tsc/eslint 0・全4947テスト通過(leak 0)・本番ビルド 891/891。
