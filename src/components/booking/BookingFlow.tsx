@@ -503,6 +503,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
               if (finalPrice === null) return null;
               const menuTotal = selectedMenus.reduce((s, m) => s + (m.price || 0), 0);
               const hasCouponDiscount = selectedCoupon && menuTotal > finalPrice;
+              // ポイント控除を確定額に織り込む（サマリーの「合計」と下部「お支払い金額」の齟齬を解消・確定額を1か所に集約）
+              const appliedPoints = usePoints && pointsToUse > 0 ? Math.min(pointsToUse, finalPrice) : 0;
+              const payable = finalPrice - appliedPoints;
               return (
                 <div className="border-t border-sky-200 pt-2 mt-2 space-y-1">
                   {hasCouponDiscount && (
@@ -512,9 +515,21 @@ export default function BookingFlow({ facility, staff, menus, coupons, hasIntake
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="font-bold">{hasCouponDiscount ? 'クーポン適用後' : '合計金額'}</span>
-                    <span className="font-bold text-lg text-red-500">¥{finalPrice.toLocaleString()}</span>
+                    <span className={appliedPoints > 0 ? 'text-gray-500' : 'font-bold'}>{hasCouponDiscount ? 'クーポン適用後' : '小計'}</span>
+                    <span className={appliedPoints > 0 ? 'text-gray-500' : 'font-bold text-lg text-red-500'}>¥{finalPrice.toLocaleString()}</span>
                   </div>
+                  {appliedPoints > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">ポイント利用</span>
+                      <span className="text-red-500">-¥{appliedPoints.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {appliedPoints > 0 && (
+                    <div className="flex justify-between border-t border-sky-200 pt-1.5 mt-1">
+                      <span className="font-bold">お支払い金額</span>
+                      <span className="font-bold text-lg text-red-500">¥{payable.toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
               );
             })()}

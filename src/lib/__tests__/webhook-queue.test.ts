@@ -13,6 +13,7 @@ const mockFrom = jest.fn();
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({ from: mockFrom }),
 }));
+jest.mock('@/lib/alert', () => ({ alertError: jest.fn(), alertWarning: jest.fn() }));
 
 import { enqueueWebhook, scheduleRetry } from '../webhook-queue';
 

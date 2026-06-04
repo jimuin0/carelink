@@ -16,6 +16,7 @@ jest.mock('@/lib/audit-logger', () => ({
   getRequestContext: jest.fn(() => ({ ua: 'test', ip: '127.0.0.1' })),
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
+jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn(), alertError: jest.fn() }));
 
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 
@@ -228,7 +229,26 @@ test('POST: 1000件超は .range() で全ページ取得（10000打ち切り解�
   const res = await POST(makePostRequest({ table: 'facility_profiles' }));
   expect(res.status).toBe(200);
   expect(rangeCall).toBeGreaterThanOrEqual(2); // 継続して2ページ目を取得
+  expect(res.headers.get('X-Backup-Truncated')).toBe('false');
 });
+
+test('POST: MAX_ROWS 到達でサイレント切り捨てを検知（X-Backup-Truncated:true＋警告）', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  const fullPage = Array.from({ length: 1000 }, (_, i) => ({ id: `${i}`, created_at: '2026-01-01' }));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      order: jest.fn().mockReturnValue({
+        range: jest.fn(() => Promise.resolve({ data: fullPage, error: null })), // 常に満杯＝上限まで継続
+      }),
+    }),
+  });
+  const { alertWarning } = require('@/lib/alert');
+  const res = await POST(makePostRequest({ table: 'bookings' }));
+  expect(res.status).toBe(200);
+  expect(res.headers.get('X-Backup-Truncated')).toBe('true');
+  expect(res.headers.get('X-Backup-Row-Count')).toBe('200000');
+  expect(alertWarning).toHaveBeenCalled();
+}, 30000);
 
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
 

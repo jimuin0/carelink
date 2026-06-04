@@ -13,6 +13,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { alertWarning } from '@/lib/alert';
 
 async function requirePlatformAdmin() {
   const supabase = await createServerSupabaseAuthClient();
@@ -93,6 +94,7 @@ export async function POST(request: NextRequest) {
   const PAGE = 1000;
   const MAX_ROWS = 200000;
   const data: Record<string, unknown>[] = [];
+  let truncated = false;
   for (let offset = 0; offset < MAX_ROWS; offset += PAGE) {
     const { data: page, error } = await serviceSupabase
       .from(table)
@@ -105,7 +107,15 @@ export async function POST(request: NextRequest) {
     }
     if (!page || page.length === 0) break;
     data.push(...(page as Record<string, unknown>[]));
-    if (page.length < PAGE) break;
+    if (page.length < PAGE) break;            // 最終ページ＝全件取得完了
+    if (offset + PAGE >= MAX_ROWS) { truncated = true; break; }  // 上限到達でまだ満杯＝切り捨て発生
+  }
+  if (truncated) {
+    // サイレント切り捨ては「完全バックアップ」と誤認させる。能動警告＋応答ヘッダで明示する。
+    alertWarning('backup export truncated at row cap', {
+      route: '/api/admin/backup',
+      extra: { table, maxRows: MAX_ROWS, exported: data.length },
+    });
   }
   if (data.length === 0) {
     return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
@@ -142,6 +152,8 @@ export async function POST(request: NextRequest) {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="${table}_${new Date().toISOString().split('T')[0]}.csv"`,
+      'X-Backup-Row-Count': String(data.length),
+      'X-Backup-Truncated': truncated ? 'true' : 'false',
     },
   });
 }

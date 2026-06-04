@@ -16,6 +16,7 @@
 jest.mock('@/lib/cron-auth', () => ({
   checkCronAuth: jest.fn(() => null),
 }));
+jest.mock('@/lib/alert', () => ({ alertError: jest.fn(), alertWarning: jest.fn() }));
 jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/webhook-queue');
 jest.mock('@/lib/line');
