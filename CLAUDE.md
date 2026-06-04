@@ -88,8 +88,8 @@ npm run lint  # ESLint
 
 | レベル | 内容 | 状態 | 備考 |
 |--------|------|------|------|
-| L1 | ESLint / tsc | ✅ | エラー 0（2026-06-03 確認、HPB同等化＋8観点監査の根本対策反映後） |
-| L2 | Jest ユニットテスト | ✅ | 4920 テスト全通過、207 スイート（2026-06-03、スケール監査 bulk-publish/cron ページング化のテスト追加） |
+| L1 | ESLint / tsc | ✅ | エラー 0（2026-06-04 確認、最高峰受け入れ監査の根本対策反映後・本番ビルド891/891） |
+| L2 | Jest ユニットテスト | ✅ | 4942 テスト全通過、208 スイート（2026-06-04、最高峰監査 watchdog/公開ゲート/webhook/payjp のテスト追加） |
 | L3 | Jest ブランチカバレッジ 100% | ✅ | 変更・新規の全API/lib で branch 100% 維持（booking/availability/slots/menus/coupons/blog/reviews/customer-note/booking-suspension/daily-capacity/reorder/lib(blog,suspensions)）。2026-06-03 |
 | L4 | Stryker ミューテーション | ✅ | 全12ファイル survived=0（2026-06-03、lib/suspensions.ts を追加し mutation score 100%）。lib/blog.ts は supabase IO ありで L4基準「外部副作用なし」非該当のため対象外。 |
 | L5 | fast-check プロパティベース | ✅ | 31テスト全通過（db-fallback の isMissingColumnError/omitKeys プロパティ5件追加、2026-06-01） |
@@ -231,3 +231,43 @@ Stripe を温存したまま PAY.JP 経路を併設して段階移行する。
 - facility/初期セットアップの TOCTOU（同時オンボーディングの重複作成）
 
 **🟢 推奨インデックス（性能・別タスク）:** facility_menus/photos の sort_order、reviews の created_at。
+
+### 最高峰受け入れ監査（2026-06-04・神原さん「提供サービスとして最高峰か」）
+
+8体エージェント＋統合で被らない8観点（予約UX / 店舗運用 / 集客SEO / 機能パリティ / 信頼性 /
+オンボーディング / a11y / セキュリティ法令）を監査。全観点「土台は最高峰級だが未達」と判定。
+神原さん指示「🔴を全て根本修正」→確定バグを発症前の恒久対策で全修正。さらに「🔧バグだけ先に全修正」
+指示で #3/#6 の明確な配線バグを修正、🧩機能追加（要仕様判断）は別タスクとして記録。
+
+**🔴 修正済み（発症前の恒久対策・全push済み）:**
+- 🔴#1 新規施設が作成できない確定バグ: facility_profiles.prefecture/city/address の NOT NULL を
+  draft 作成時 NULL 許容に緩和し、住所必須化を「公開ゲート」に一元化（住所+メニュー1件を公開条件に。
+  空施設公開ガード・検索未ヒット公開も同時解消）。`ad0e555`
+- 🔴#5a webhook 二重配信・永久喪失: アトミック claim（status='pending' ガード＋RETURNING）＋
+  delivered_at を冪等性境界にした孤児 reaper＋dead-letter/cron 致命例外の能動 Slack 通知。`9274abf`
+- 🔴#5b PAY.JP 課金後の金銭不整合: DB更新リトライ→全失敗で自動返金→返金も失敗時のみ 🔴 能動通知。`e208543`
+- 🔴#5c cron 未発火/失敗の能動監視: GET /api/cron/watchdog 新設（全cronの最終成功を cron_logs から
+  監視し許容経過超過で Slack 通知。L7-C を月次1本→全cron化）。cron.yml に毎時実行追加。`7fd4bf8`
+- 🔴#2 集客の内部リンクが配信HTMLに無い: HomeBelowFold の ssr:false 解除＋Footer の全リンク常時
+  HTML出力（CSS開閉）。数百〜数千の地域×業種ページにリンク資産が伝わるように。`905e830`
+- 🔴#4 法令: ConsentedAnalytics 新設で GA4/Clarity を同意ゲート化（consent-washing 解消・Clarity は
+  marketing 同意必須で医療PII無断録画を防止）＋問診票に要配慮個人情報の取得同意UI（個情法20条2項）。`664358c`
+- 🔴#7 a11y: 予約/登録フォームの検証エラーにフォーカス移動＋aria-invalid/aria-describedby 連動
+  （高齢者・障害者の予約完遂不能を解消・WCAG 3.3.1/2.4.3）。`2a0a1ab`
+- 🔧#3/#6 配線バグ: 問診票バナー(has_intake)配線・台帳のシフト設定ボタンを既存編集画面
+  /admin/staff へ接続・台帳の bookings リアルタイム自動反映。`06fdae1`
+
+各修正は branch 100%（API/lib）・tsc/eslint 0・全4942テスト通過。SSR/法令/UI 変更は本番ビルド
+891/891 でも検証。watchdog/公開ゲート/webhook/payjp に branch100% テスト追加。
+
+**🔴 適用待ちマイグレーション 2件（神原さん・Supabase SQL Editor・冪等/非破壊）:**
+1. `20260604_facility_location_nullable.sql`（#1・prefecture/city/address を DROP NOT NULL）
+2. `20260604_webhook_retry_claim.sql`（#5a・claimed_at/delivered_at 追加＋processing バックログ解放＋index）
+
+**🧩 機能追加（要仕様判断・神原さん判断待ち・別タスク）:**
+- #3 運用: 台帳グリッドに staff_schedules（出勤/休み/勤務時間）を反映しグレーアウト表示。
+- #6 予約UX: 日付カレンダーの空き ○△× 表示 / 満枠時のキャンセル待ち動線 / メニュー・スタッフからの選択持ち越し。
+- 機能パリティ: 店舗内POS・レジ締め(対面会計) / スタイル写真ギャラリー(作品カタログ)。
+- オンボ: リード(salons)入力の施設への引き継ぎ / facility/setup の TOCTOU（1ユーザー=1施設か多対多かの仕様確定が前提）。
+- SEO 2次: 施設詳細の全タブ HTML 描画 / ランキングページの ItemList・URL romaji 統一 / 空施設 noindex。
+- a11y 2次: モバイル下部ナビ 44px・aria-current / gray-400 コントラスト / 極小フォント。
