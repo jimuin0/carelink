@@ -12,7 +12,8 @@ export const revalidate = 0;
  *   - Supabase RPC check_rate_limit（必須、rate-limit が依存）
  *
  * Degraded 依存（NG でも 200 を維持、deps に状態のみ報告）:
- *   - Stripe / Resend / Slack（決済・通知系、即時致命ではないがダッシュボード可視化）
+ *   - PAY.JP / Stripe / Resend / Storage（決済・通知・保存系、即時致命ではないがダッシュボード可視化）
+ *   未設定の決済プロバイダは skipped=true（degraded 扱いにしない。PAY.JP 移行中の Stripe 不在等を正常扱い）
  *
  * UptimeRobot等の外形監視はこのエンドポイントを 60s 間隔で監視し、
  * ステータス + JSON body の deps を見て障害種別を切り分ける。
@@ -20,13 +21,24 @@ export const revalidate = 0;
 
 const DEP_TIMEOUT_MS = 1500;
 
-type DepResult = { ok: boolean; elapsed_ms: number; error?: string };
+type DepResult = { ok: boolean; elapsed_ms: number; error?: string; skipped?: boolean; retried?: boolean };
+
+// 未設定の依存は「skipped」（degraded 扱いにしない）
+const SKIPPED: DepResult = { ok: true, elapsed_ms: 0, skipped: true };
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, rej) => setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms)),
-  ]);
+  // タイマーは決着後に必ず clear する（成功時にタイマーがリークし「open handle」「Cannot log after tests」や
+  // 本番での無駄な保留タイマーを残さないため）。
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, rej) => {
+    timer = setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms);
+  });
+  try {
+    return await Promise.race([p, timeout]);
+  } finally {
+    // timer は executor 内で同期代入され常に定義済み。clearTimeout は undefined も安全に無視する。
+    clearTimeout(timer);
+  }
 }
 
 async function probe(label: string, fn: () => Promise<void>): Promise<DepResult> {
@@ -43,8 +55,19 @@ async function probe(label: string, fn: () => Promise<void>): Promise<DepResult>
   }
 }
 
+// Critical 依存は「単発の一過性レイテンシ・スパイク（cold start / 瞬間的な高負荷 / 一時的なネットワーク遅延）」を
+// 依存の"停止"と誤判定しないよう、失敗時に1回だけ即再試行する（真の予防：発症前）。
+// 2回目の結果を採用＝一過性スパイクなら成功して吸収、持続的な実停止なら2回とも失敗して ok:false → 503。
+// これにより「実際には稼働しているのに単発の遅延で 503 ページ通知」を構造的に無くす。
+async function criticalProbe(label: string, fn: () => Promise<void>): Promise<DepResult> {
+  const first = await probe(label, fn);
+  if (first.ok) return first;
+  const retry = await probe(label, fn);
+  return { ...retry, retried: true };
+}
+
 async function probeSupabase(): Promise<DepResult> {
-  return probe('supabase', async () => {
+  return criticalProbe('supabase', async () => {
     const supabase = createServerSupabaseClient();
     const { error } = await supabase
       .from('facility_profiles')
@@ -55,7 +78,7 @@ async function probeSupabase(): Promise<DepResult> {
 }
 
 async function probeRateLimit(): Promise<DepResult> {
-  return probe('rate_limit', async () => {
+  return criticalProbe('rate_limit', async () => {
     // Supabase RPC check_rate_limit を実呼びして実装の生存確認
     // 大きな limit で 1 回呼んでも実害なし（バケットに 1 行作るだけ、1h で自動削除）
     const supabase = createServiceRoleClient();
@@ -69,14 +92,37 @@ async function probeRateLimit(): Promise<DepResult> {
 }
 
 async function probeStripe(): Promise<DepResult> {
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return SKIPPED; // PAY.JP 移行で Stripe 未設定の環境を degraded にしない
   return probe('stripe', async () => {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('not configured');
     const res = await fetch('https://api.stripe.com/v1/balance', {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(DEP_TIMEOUT_MS),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  });
+}
+
+async function probePayjp(): Promise<DepResult> {
+  const key = process.env.PAYJP_SECRET_KEY;
+  if (!key) return SKIPPED; // 未導入環境を degraded にしない
+  return probe('payjp', async () => {
+    const auth = Buffer.from(`${key}:`).toString('base64');
+    const res = await fetch('https://api.pay.jp/v1/accounts', {
+      headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(DEP_TIMEOUT_MS),
+    });
+    if (res.status === 401) throw new Error('unauthorized');
+    if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
+  });
+}
+
+async function probeStorage(): Promise<DepResult> {
+  return probe('storage', async () => {
+    // 写真・PII の保存先 Supabase Storage の生存確認
+    const supabase = createServiceRoleClient();
+    const { error } = await supabase.storage.listBuckets();
+    if (error) throw new Error(error.message);
   });
 }
 
@@ -98,19 +144,21 @@ async function probeResend(): Promise<DepResult> {
 export async function GET() {
   const start = Date.now();
 
-  const [supabase, rate_limit, stripe, resend] = await Promise.all([
+  const [supabase, rate_limit, stripe, resend, payjp, storage] = await Promise.all([
     probeSupabase(),
     probeRateLimit(),
     probeStripe(),
     probeResend(),
+    probePayjp(),
+    probeStorage(),
   ]);
 
-  const deps = { supabase, rate_limit, stripe, resend };
+  const deps = { supabase, rate_limit, stripe, resend, payjp, storage };
 
   // Critical: Supabase DB と rate_limit RPC が落ちたら 503
   const criticalOk = supabase.ok && rate_limit.ok;
-  // Degraded: Stripe/Resend は warn のみ
-  const degraded = !stripe.ok || !resend.ok;
+  // Degraded: 決済(PAY.JP/Stripe)・通知(Resend)・保存(Storage) は warn のみ。skipped は ok:true で除外される。
+  const degraded = !stripe.ok || !resend.ok || !payjp.ok || !storage.ok;
 
   const status = criticalOk ? (degraded ? 'degraded' : 'healthy') : 'unhealthy';
   const httpStatus = criticalOk ? 200 : 503;

@@ -10,6 +10,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
@@ -186,6 +187,26 @@ test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
   expect(innerEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
 });
 
+test('PATCH: sort_order のみ → 200（並び替え保存・重複チェックなし）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateSingleChain({ id: MENU_UUID, sort_order: 3 }));
+  const res = await PATCH(makeRequest('PATCH', { sort_order: 3 }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 拡張列未適用(PGRST204) → 除外して再試行し 200（#35 部分適用耐性）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return maybeSingleChain(null); // no duplicate
+    if (callNum === 2) return updateSingleChain(null, { code: 'PGRST204', message: 'column does not exist' });
+    return updateSingleChain({ id: MENU_UUID });
+  });
+  const res = await PATCH(makeRequest('PATCH', { name: 'x', reservable: false }), makeProps());
+  expect(res.status).toBe(200);
+});
+
 test('PATCH: DB更新失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
@@ -314,4 +335,17 @@ test('PATCH: facility_members が null → verifyMenuAdmin null → 401（line 3
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(401);
+});
+
+// ─── 一意制約(23505)→409（#20・改名重複） ────────────────────────────────────
+test('PATCH: 改名で一意制約違反(23505) → 409', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return maybeSingleChain(null); // アプリ層チェックすり抜け
+    return updateSingleChain(null, { code: '23505', message: 'duplicate key' });
+  });
+  const res = await PATCH(makeRequest('PATCH', { name: '別メニュー' }), makeProps());
+  expect(res.status).toBe(409);
 });

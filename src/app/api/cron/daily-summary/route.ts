@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,13 +26,19 @@ export async function GET(request: Request) {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split('T')[0];
 
-    // 全施設取得
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id')
-      .eq('status', 'published');
+    // 全施設取得（PostgREST db-max-rows(1000) を全件ページングで越える。施設1000超の集計欠落を防ぐ・scale監査）
+    const { rows: facilities } = await fetchAllPaged<{ id: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_profiles')
+          .select('id')
+          .eq('status', 'published')
+          .range(offset, offset + limit - 1);
+        return { data: data as { id: string }[] | null, error };
+      },
+    );
 
-    if (!facilities) {
+    if (facilities.length === 0) {
       await logCronRun('daily-summary', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }

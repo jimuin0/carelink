@@ -53,9 +53,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
 
       if (data) {
         setBooking(data as Booking);
-        if (data.menu_id) {
-          const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', data.menu_id).single();
-          if (menu) setMenuName(menu.name);
+        // 複数メニュー予約は全メニュー名を結合表示（menu_ids 優先・無ければ menu_id にフォールバック・#1）
+        const menuIds = (data as { menu_ids?: string[] | null }).menu_ids?.length ? (data as { menu_ids: string[] }).menu_ids : (data.menu_id ? [data.menu_id] : []);
+        if (menuIds.length > 0) {
+          const { data: menus } = await supabase.from('facility_menus').select('name').in('id', menuIds);
+          if (menus) setMenuName((menus as { name: string }[]).map((m) => m.name).filter(Boolean).join('、'));
         }
         if (data.staff_id) {
           const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', data.staff_id).single();

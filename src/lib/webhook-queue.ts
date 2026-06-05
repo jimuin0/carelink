@@ -10,6 +10,7 @@
  */
 
 import { createServiceRoleClient } from './supabase-server';
+import { alertError } from './alert';
 
 export type WebhookType = 'line_push' | 'line_multicast' | 'email';
 
@@ -67,6 +68,12 @@ export async function scheduleRetry(
       processed_at: new Date().toISOString(),
     }).eq('id', jobId);
     if (failErr) console.error('[webhook-queue] failed to mark job as failed — job stuck in processing', { jobId, err: failErr });
+    // dead-letter 到達＝顧客への通知(リマインダー/キャンセル等)が全リトライ消化しても届かなかった事実。
+    // 受動ダッシュボード待ちにせず能動通知する（scale監査 #5・顧客影響あり）。
+    alertError('webhook delivery permanently failed (dead-letter)', {
+      route: '/api/cron/webhook-retry',
+      extra: { jobId, attempt, lastError: errorMsg },
+    });
     return;
   }
 

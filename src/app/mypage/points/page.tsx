@@ -7,11 +7,14 @@ export default async function PointsPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('user_points')
     .select('id, points, reason, created_at')
     .eq('user_id', user.id)
     .order('created_at', { ascending: false });
+
+  // 取得失敗を「履歴なし」と誤表示しない（ポイント消失の誤認防止・本番監査）
+  if (error) throw new Error('ポイント履歴の取得に失敗しました');
 
   const points = (data ?? []) as UserPoint[];
   const totalPoints = points.reduce((sum, p) => sum + p.points, 0);

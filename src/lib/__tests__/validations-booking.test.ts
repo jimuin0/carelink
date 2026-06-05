@@ -115,6 +115,26 @@ describe('bookingSchema — deep tests', () => {
     expect(bookingSchema.safeParse({ ...validBooking, email }).success).toBe(true);
   });
 
+  // round6+Gmail正規化: email の保存時 canonical 化（突合の非対称・顧客分裂・new_customer クーポン
+  // 複数取得=金銭バグを防ぐ）。Gmail はドット・"+tag" 除去＋小文字化、非Gmail は小文字化のみ。
+  test('email は canonical 化される（Gmail はドット/+tag 除去・小文字化）', () => {
+    const r = bookingSchema.safeParse({ ...validBooking, email: 'Taro.Yamada+shopA@Gmail.COM' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.email).toBe('taroyamada@gmail.com');
+  });
+
+  test('email 非Gmail は小文字化のみ（ドット・+tag は保持）', () => {
+    const r = bookingSchema.safeParse({ ...validBooking, email: 'Taro.Yamada+x@Example.COM' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.email).toBe('taro.yamada+x@example.com');
+  });
+
+  test('customer_name は前後空白が除去される', () => {
+    const r = bookingSchema.safeParse({ ...validBooking, customer_name: '  山田 太郎  ' });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.customer_name).toBe('山田 太郎');
+  });
+
   test('end_time が不正 (24:00) → エラー', () => {
     expect(bookingSchema.safeParse({ ...validBooking, end_time: '24:00' }).success).toBe(false);
   });

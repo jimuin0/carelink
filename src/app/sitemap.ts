@@ -4,6 +4,7 @@ import { allPrefectureSlugs, allBusinessTypeSlugs, getPrefectureSlug, getBusines
 import { getAllCitySlugs } from '@/data/city-slugs';
 import { articles } from '@/data/articles';
 import { SITE_URL } from '@/lib/constants';
+import { fetchAllPaged } from '@/lib/paginate';
 
 // 完全動的: 環境変数変更/施設追加を即時反映、CDN静的化を完全回避
 export const dynamic = 'force-dynamic';
@@ -49,16 +50,25 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const supabase = createServerSupabaseClient();
 
   // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
-  const { data: facilities } = await supabase
-    .from('facility_profiles')
-    .select('slug, updated_at, prefecture, business_type, city')
-    .eq('status', 'published');
+  // 公開施設を全件ページング取得（PostgREST 1000行上限による sitemap 欠落＝SEO漏れを防ぐ・scale監査）
+  type FacilityRow = { slug: string; updated_at: string | null; prefecture: string | null; business_type: string | null; city: string | null };
+  const { rows: facilities } = await fetchAllPaged<FacilityRow>(
+    async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('facility_profiles')
+        .select('slug, updated_at, prefecture, business_type, city')
+        .eq('status', 'published')
+        .range(offset, offset + limit - 1);
+      return { data: data as FacilityRow[] | null, error };
+    },
+  );
 
   // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
   // 注: crossPages 生成より前に宣言する（TDZ 回避 — Cannot access before initialization 防止）
   const occupiedPrefType = new Set<string>();
   const occupiedCityType = new Set<string>();
   for (const f of facilities || []) {
+    if (!f.prefecture || !f.business_type) continue;
     const ps = getPrefectureSlug(f.prefecture);
     const ts = getBusinessTypeSlug(f.business_type);
     if (ps && ts) {
@@ -140,11 +150,18 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
-  // Jobs (公開施設に紐づくもののみ)
-  const { data: jobs } = await supabase
-    .from('facility_jobs')
-    .select('id, updated_at, facility_profiles!inner(slug, status)')
-    .eq('facility_profiles.status', 'published');
+  // Jobs (公開施設に紐づくもののみ)。全件ページングで 1000行上限の欠落を防ぐ（scale監査）。
+  type JobRow = { id: string; updated_at: string | null; facility_profiles: unknown };
+  const { rows: jobs } = await fetchAllPaged<JobRow>(
+    async (offset, limit) => {
+      const { data, error } = await supabase
+        .from('facility_jobs')
+        .select('id, updated_at, facility_profiles!inner(slug, status)')
+        .eq('facility_profiles.status', 'published')
+        .range(offset, offset + limit - 1);
+      return { data: data as JobRow[] | null, error };
+    },
+  );
   const jobPages: MetadataRoute.Sitemap = [
     { url: `${SITE_URL}/jobs`, lastModified: updated, changeFrequency: 'daily' as const, priority: 0.7 },
     ...((jobs || []) as Array<{ id: string; updated_at: string | null }>).map((j) => ({

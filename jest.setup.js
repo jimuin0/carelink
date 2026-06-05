@@ -36,3 +36,8 @@ for (const [key, value] of Object.entries(DEFAULTS)) {
     process.env[key] = value;
   }
 }
+
+// SITE_URL（constants.ts）はテスト環境を問わず https の apex ドメインで確定させる。
+// 開発者の .env.local（NEXT_PUBLIC_BASE_URL=http://localhost:3000）や Stryker サンドボックスの
+// 環境差で SITE_URL の https/apex アサーションが揺れるのを防ぐため、強制的に上書きする。
+process.env.NEXT_PUBLIC_BASE_URL = 'https://carelink-jp.com';

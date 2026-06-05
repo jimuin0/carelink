@@ -17,6 +17,7 @@ jest.mock('@/lib/audit-logger', () => ({
   getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
 }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityPublicPages: jest.fn() }));
 
 const USER_ID    = '33333333-3333-3333-3333-333333333333';
 const FACILITY_A = '11111111-1111-1111-1111-111111111111';
@@ -65,7 +66,9 @@ function membershipChain(data: unknown[]) {
 function updateChain(error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
-      in: jest.fn(() => Promise.resolve({ error })),
+      in: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.resolve({ data: error ? null : [{ slug: 'fac-a' }, { slug: 'fac-b' }], error })),
+      }),
     }),
   };
 }
@@ -159,6 +162,27 @@ test('POST: 非公開に一括変更 → 200', async () => {
   setupSuccess();
   const res = await POST(makeRequest(validBody({ is_published: false })));
   expect(res.status).toBe(200);
+});
+
+test('POST: update が data:null を返しても 200（updated ?? [] フォールバック）', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);
+    }
+    return {
+      update: jest.fn().mockReturnValue({
+        in: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        }),
+      }),
+    };
+  });
+  const { revalidateFacilityPublicPages } = require('@/lib/revalidate');
+  (revalidateFacilityPublicPages as jest.Mock).mockClear();
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(200);
+  // data:null → updated ?? [] で空ループ → revalidate は呼ばれない
+  expect(revalidateFacilityPublicPages).not.toHaveBeenCalled();
 });
 
 test('POST: CSRF エラー → 403', async () => {

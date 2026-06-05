@@ -42,8 +42,17 @@ export async function POST(req: NextRequest) {
   if (discount_value !== undefined && discount_value !== null && (typeof discount_value !== 'number' || discount_value < 0)) {
     return NextResponse.json({ error: 'discount_value must be a non-negative number' }, { status: 400 });
   }
-  if (special_price !== undefined && special_price !== null && (typeof special_price !== 'number' || special_price < 0)) {
-    return NextResponse.json({ error: 'special_price must be a non-negative number' }, { status: 400 });
+  // percent（=DB percentage）は 0-100 の割引率に限定。単一クーポンAPIと同等の不変条件を担保し、
+  // 100超で公開予約フローの合計金額が負になるのを防ぐ。
+  if (discount_type === 'percent' && (typeof discount_value !== 'number' || discount_value < 0 || discount_value > 100)) {
+    return NextResponse.json({ error: 'percentage discount_value must be 0-100' }, { status: 400 });
+  }
+  // 固定額割引の上限（単一APIの max(100000) に合わせる）
+  if (discount_type === 'fixed' && typeof discount_value === 'number' && discount_value > 100000) {
+    return NextResponse.json({ error: 'discount_value must be <= 100000' }, { status: 400 });
+  }
+  if (special_price !== undefined && special_price !== null && (typeof special_price !== 'number' || special_price < 0 || special_price > 9999999)) {
+    return NextResponse.json({ error: 'special_price must be a non-negative number within range' }, { status: 400 });
   }
 
   // 権限確認: 全施設に対してowner/adminであること
@@ -60,11 +69,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden: some facilities not authorized' }, { status: 403 });
   }
 
+  // API契約の値を coupons テーブルの CHECK 制約語彙へマッピング（不一致は CHECK 違反で500の原因）
+  // discount_type CHECK: ('fixed','percentage','special_price')
+  const DISCOUNT_MAP: Record<string, string> = { percent: 'percentage', fixed: 'fixed', special: 'special_price' };
+  // coupon_type CHECK: ('new_customer','repeat','limited_time','all')。first_visit→new_customer、birthday は対応値が無いため all。
+  const COUPON_TYPE_MAP: Record<string, string> = { first_visit: 'new_customer', birthday: 'all', all: 'all' };
+  // discount_type は VALID_DISCOUNT_TYPES で検証済み＝必ず DISCOUNT_MAP のキー
+  const dbDiscountType = DISCOUNT_MAP[discount_type];
+  const dbCouponType = COUPON_TYPE_MAP[coupon_type] ?? 'all';
+
   const rows = facility_ids.map((fid: string) => ({
     facility_id: fid,
     name: name.trim(),
-    coupon_type: ['all', 'first_visit', 'birthday'].includes(coupon_type) ? coupon_type : 'all',
-    discount_type,
+    coupon_type: dbCouponType,
+    discount_type: dbDiscountType,
     discount_value: discount_value ?? null,
     special_price: special_price ?? null,
     valid_from: valid_from || null,

@@ -1,16 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { revalidateFacilityById } from '@/lib/revalidate';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
+import { IMAGE_URL } from '@/lib/image-url-schema';
 
 const blogPostSchema = z.object({
   title: z.string().min(1).max(200),
   content: z.string().min(1).max(50000),
   is_published: z.boolean().optional(),
+  coupon_id: z.string().uuid().optional().nullable(),
+  author_id: z.string().uuid().optional().nullable(),
+  author_name_id: z.string().uuid().optional().nullable(), // 外部投稿者(blog_authors)
+  thumbnail_url: IMAGE_URL.optional().nullable(),
+  category: z.string().max(50).optional().nullable(),
+  scheduled_at: z.string().datetime({ offset: true }).optional().nullable(), // 予約掲載時刻(ISO)
+  image_urls: z.array(IMAGE_URL).max(4).optional(), // 本文画像（最大4枚 #33）
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
@@ -48,15 +58,52 @@ export async function POST(request: NextRequest) {
   const parsed = blogPostSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
-  const isPublished = parsed.data.is_published ?? false;
+  // 予約掲載(#34): scheduled_at 指定時は is_published=true・published_at=予約時刻（公開ページは時刻到来まで非表示）
+  const scheduledAt = parsed.data.scheduled_at ?? null;
+  const isPublished = scheduledAt ? true : (parsed.data.is_published ?? false);
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('blog_posts').insert({
+
+  // クロス施設参照防止: coupon_id / author_id が自施設のものか検証（booking-create と同パターン）
+  if (parsed.data.coupon_id) {
+    const { data: c } = await admin.from('coupons').select('id').eq('id', parsed.data.coupon_id).eq('facility_id', auth.facilityId).maybeSingle();
+    if (!c) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 400 });
+  }
+  if (parsed.data.author_id) {
+    const { data: s } = await admin.from('staff_profiles').select('id').eq('id', parsed.data.author_id).eq('facility_id', auth.facilityId).maybeSingle();
+    if (!s) return NextResponse.json({ error: 'スタッフが見つかりません' }, { status: 400 });
+  }
+  if (parsed.data.author_name_id) {
+    const { data: a } = await admin.from('blog_authors').select('id').eq('id', parsed.data.author_name_id).eq('facility_id', auth.facilityId).maybeSingle();
+    if (!a) return NextResponse.json({ error: '投稿者が見つかりません' }, { status: 400 });
+  }
+
+  // slug は NOT NULL・UNIQUE(facility_id, slug)。タイトルは日本語のため一意な ASCII slug を自動生成。
+  const slug = `post-${globalThis.crypto.randomUUID()}`;
+  const insertRow = {
     facility_id: auth.facilityId,
     title: parsed.data.title,
     content: parsed.data.content,
+    slug,
+    coupon_id: parsed.data.coupon_id ?? null,
+    author_id: parsed.data.author_id ?? null,
+    author_name_id: parsed.data.author_name_id ?? null,
+    thumbnail_url: parsed.data.thumbnail_url ?? null,
+    category: parsed.data.category ?? null,
     is_published: isPublished,
-    published_at: isPublished ? new Date().toISOString() : null,
-  }).select().single();
+    // 予約掲載なら published_at=予約時刻、通常公開なら現在時刻、下書きなら null
+    published_at: scheduledAt ? scheduledAt : (isPublished ? new Date().toISOString() : null),
+    scheduled_at: scheduledAt,
+    image_urls: parsed.data.image_urls ?? [],
+  };
+  // category / coupon_id / author_name_id / scheduled_at / image_urls は後続マイグレーションで追加された列。部分適用環境でも500にしないため除外候補にする
+  let { data, error } = await admin.from('blog_posts').insert(insertRow).select().single();
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('blog_posts.insert');
+    // scheduled_at 列が無い環境では予約掲載を強制できない。未来予約が即時公開されるのを防ぐため、
+    // 予約掲載指定時は is_published=false / published_at=null の下書きとして保存する（round2監査 #10）。
+    const fallbackRow = scheduledAt ? { ...insertRow, is_published: false, published_at: null } : insertRow;
+    ({ data, error } = await admin.from('blog_posts').insert(omitKeys(fallbackRow, ['category', 'coupon_id', 'author_name_id', 'scheduled_at', 'image_urls'])).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
@@ -72,5 +119,6 @@ export async function POST(request: NextRequest) {
     userAgent: ua,
   });
 
+  await revalidateFacilityById(auth.facilityId); // ISR再検証(round6)
   return NextResponse.json({ post: data }, { status: 201 });
 }

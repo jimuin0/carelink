@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { revalidateFacilityById } from '@/lib/revalidate';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { isMissingColumnError, omitKeys, warnMissingColumnFallback } from '@/lib/db-fallback';
 
 const staffSchema = z.object({
   name: z.string().min(1).max(50),
@@ -55,8 +57,11 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('staff_profiles').insert({
+  // slug は NOT NULL・UNIQUE(facility_id, slug)。氏名は日本語のため一意な ASCII slug を自動生成。
+  const slug = `staff-${globalThis.crypto.randomUUID()}`;
+  const insertRow = {
     facility_id: auth.facilityId,
+    slug,
     name: parsed.data.name,
     position: parsed.data.position ?? null,
     bio: parsed.data.bio ?? null,
@@ -67,7 +72,13 @@ export async function POST(request: NextRequest) {
     line_works_channel_id: parsed.data.line_works_channel_id ?? null,
     line_works_notify_all: parsed.data.line_works_notify_all ?? false,
     is_active: true,
-  }).select().single();
+  };
+  // line_works_* カラム未適用(20260417マイグレーション未実行)環境でも500にしないフォールバック
+  let { data, error } = await admin.from('staff_profiles').insert(insertRow).select().single();
+  if (isMissingColumnError(error)) {
+    warnMissingColumnFallback('staff_profiles.insert');
+    ({ data, error } = await admin.from('staff_profiles').insert(omitKeys(insertRow, ['line_works_channel_id', 'line_works_notify_all'])).select().single());
+  }
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
@@ -82,5 +93,6 @@ export async function POST(request: NextRequest) {
     ipAddress: ip,
     userAgent: ua,
   });
+  await revalidateFacilityById(auth.facilityId); // ISR再検証(round6)
   return NextResponse.json({ staff: data }, { status: 201 });
 }

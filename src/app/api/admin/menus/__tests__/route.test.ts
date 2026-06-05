@@ -10,6 +10,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -61,10 +62,12 @@ function memberSingle(data: unknown) {
 }
 
 function listChain(data: unknown[], error: unknown = null) {
+  // 多段 .order() に対応するため order はチェーン可能にし、await は then で解決する
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    order: jest.fn(() => Promise.resolve({ data, error })),
+    order: jest.fn().mockReturnThis(),
+    then: (resolve: (v: unknown) => unknown) => Promise.resolve({ data, error }).then(resolve),
   };
 }
 
@@ -198,6 +201,19 @@ test('POST: photo_url が空文字 → 201', async () => {
   });
   const res = await POST(makePostRequest(validBody({ photo_url: '' })));
   expect(res.status).toBe(201);
+});
+
+test('POST: 拡張列未適用(PGRST204) → 除外して再試行し 201（#35 部分適用耐性）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null);
+    if (callNum === 2) return countChain(0);
+    if (callNum === 3) return insertSingle(null, { code: 'PGRST204', message: 'column facility_menus.reservable does not exist' });
+    return insertSingle({ id: 'menu-1' });
+  });
+  expect((await POST(makePostRequest(validBody()))).status).toBe(201);
 });
 
 // ─── Additional coverage ──────────────────────────────────────────────────────
@@ -341,4 +357,18 @@ test('POST: count が null → sort_order=0 で挿入 → 201', async () => {
   });
   const res = await POST(makePostRequest(validBody()));
   expect(res.status).toBe(201);
+});
+
+// ─── 一意制約(23505)→409（#20） ──────────────────────────────────────────────
+test('POST: 一意制約違反(23505) → 409', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return dupCheckChain(null); // アプリ層チェックはすり抜け（競合想定）
+    if (callNum === 2) return countChain(3);
+    return insertSingle(null, { code: '23505', message: 'duplicate key' });
+  });
+  const res = await POST(makePostRequest(validBody()));
+  expect(res.status).toBe(409);
 });

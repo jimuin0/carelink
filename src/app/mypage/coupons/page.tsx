@@ -14,10 +14,13 @@ export default async function CouponNotebookPage() {
   if (!user) notFound();
 
   // Get favorite facility IDs
-  const { data: favorites } = await supabase
+  const { data: favorites, error: favError } = await supabase
     .from('favorites')
     .select('facility_id')
     .eq('user_id', user.id);
+
+  // 取得失敗を「クーポンなし」と誤表示しない（本番監査）
+  if (favError) throw new Error('クーポン情報の取得に失敗しました');
 
   const facilityIds = (favorites || []).map((f) => f.facility_id);
 

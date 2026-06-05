@@ -10,6 +10,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getTodayString } from '@/lib/validations-booking';
 
 export async function GET(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
@@ -25,7 +26,9 @@ export async function GET(req: NextRequest) {
   const userId = user.id;
 
   const admin = createServiceRoleClient();
-  const now = new Date().toISOString();
+  // valid_from/valid_until は DATE 列。UTCタイムスタンプ比較は当日が期限切れ判定＋JST午前ズレを起こすため
+  // 日付粒度・JST の getTodayString() に統一（booking/route.ts のクーポン判定と同一基準・round2監査 #01/#06）。
+  const today = getTodayString();
 
   // ユーザーが予約したことのある施設IDを取得
   const { data: pastBookings } = await admin
@@ -54,8 +57,8 @@ export async function GET(req: NextRequest) {
     .select('id, name, description, discount_type, discount_value, special_price, valid_until, coupon_type, facility_profiles(name)')
     .eq('is_active', true)
     .in('facility_id', allFacilityIds)
-    .or(`valid_from.is.null,valid_from.lte.${now}`)
-    .or(`valid_until.is.null,valid_until.gte.${now}`)
+    .or(`valid_from.is.null,valid_from.lte.${today}`)
+    .or(`valid_until.is.null,valid_until.gte.${today}`)
     .order('valid_until', { ascending: true, nullsFirst: false })
     .limit(30);
 

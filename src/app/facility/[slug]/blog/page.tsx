@@ -61,11 +61,15 @@ export default async function FacilityBlogPage(props: Props) {
                   className="block bg-white rounded-xl border border-gray-100 overflow-hidden hover:shadow-md transition-shadow"
                 >
                   <div className="flex">
-                    {post.thumbnail_url && (
-                      <div className="relative w-28 h-28 sm:w-36 sm:h-36 shrink-0 bg-gray-100">
-                        <Image src={post.thumbnail_url} alt={post.title} fill sizes="144px" className="object-cover" />
-                      </div>
-                    )}
+                    {(() => {
+                      // サムネ未設定でも本文画像があれば1枚目を表示（admin一覧のフォールバックと整合・round2監査 #13）
+                      const img = post.thumbnail_url || (Array.isArray(post.image_urls) ? post.image_urls[0] : null);
+                      return img ? (
+                        <div className="relative w-28 h-28 sm:w-36 sm:h-36 shrink-0 bg-gray-100">
+                          <Image src={img} alt={post.title} fill sizes="144px" className="object-cover" />
+                        </div>
+                      ) : null;
+                    })()}
                     <div className="p-4 flex-1">
                       <p className="font-bold text-sm line-clamp-2">{post.title}</p>
                       <p className="text-xs text-gray-400 mt-2">

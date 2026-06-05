@@ -111,11 +111,15 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
         if (bookingErr) throw new Error(`bookings deposit confirm failed: ${bookingErr.message}`);
       }
 
-      // Mark cancel fee as paid on the booking
+      // Mark cancel fee as paid on the booking.
+      // 状態遷移マシン上 cancel_fee_paid は cancelled からのみ許可（completed/no_show 等への不正上書きを防ぐ）。
+      // deposit 分岐と同様 .eq('status','cancelled') でガード。状態不一致は 0件更新(error=null)で no-op となり、
+      // throw しない＝Stripe 無限リトライも誘発しない（決済自体は記録済み）。
       if (meta.booking_id && meta.payment_type === 'cancel_fee') {
         const { error: cancelErr } = await admin.from('bookings')
           .update({ status: 'cancel_fee_paid', updated_at: new Date().toISOString() })
-          .eq('id', meta.booking_id);
+          .eq('id', meta.booking_id)
+          .eq('status', 'cancelled');
         if (cancelErr) throw new Error(`bookings cancel_fee update failed: ${cancelErr.message}`);
       }
 

@@ -53,6 +53,7 @@ function setupDefaultMocks(
           id: `user-${i}`,
           email: `user${i}@example.com`,
           display_name: `Birthday User ${i}`,
+          email_unsubscribed: false,
         }))
       : [];
   const lineLinkData = lineLinkFound ? { line_user_id: 'line-user-123' } : null;
@@ -60,7 +61,7 @@ function setupDefaultMocks(
   mockProfilesSelect = jest.fn().mockReturnValue({
     not: jest.fn().mockReturnValue({
       filter: jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue({ data: profileData }),
+        range: jest.fn().mockResolvedValue({ data: profileData }),
       }),
     }),
   });
@@ -257,7 +258,7 @@ describe('GET /api/cron/birthday-coupon', () => {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
               filter: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({
+                range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: null }],
                 }),
               }),
@@ -273,6 +274,34 @@ describe('GET /api/cron/birthday-coupon', () => {
     await GET(makeRequest() as any);
 
     expect(sendLineText).toHaveBeenCalled();
+  });
+
+  test('配信停止者にはメール送らないがポイントは付与する', async () => {
+    const pointsInsert = jest.fn().mockResolvedValue({ error: null });
+    const emailSend = jest.fn().mockResolvedValue({ success: true });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') {
+        return {
+          select: jest.fn().mockReturnValue({
+            not: jest.fn().mockReturnValue({
+              filter: jest.fn().mockReturnValue({
+                range: jest.fn().mockResolvedValue({ data: [{ id: 'user-unsub', email: 'u@e.com', display_name: 'U', email_unsubscribed: true }] }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'user_points') return { insert: pointsInsert };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(pointsInsert).toHaveBeenCalled();      // ポイントは付与
+    expect(emailSend).not.toHaveBeenCalled();     // メールは送らない
   });
 
   test('limits profile query to 500', async () => {
@@ -359,7 +388,7 @@ describe('GET /api/cron/birthday-coupon', () => {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
               filter: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({
+                range: jest.fn().mockResolvedValue({
                   data: [{ id: 'u1', email: null, display_name: 'No Email' }],
                 }),
               }),

@@ -17,6 +17,7 @@ import { normalizeSiteUrl } from '../constants';
 import { getTransformUrl } from '../image-utils';
 import { safeJsonLd } from '../json-ld';
 import { truncateText } from '../seo-snippets';
+import { canonicalizeEmail } from '../email-canonical';
 import {
   getPrefectureSlug,
   getPrefectureName,
@@ -343,6 +344,67 @@ describe('isValidPrefectureSlug / isValidBusinessTypeSlug — property tests', (
   });
 });
 
+// ─── db-fallback（L5 プロパティ） ─────────────────────────────────────────────
+import { isMissingColumnError, omitKeys } from '../db-fallback';
+
+describe('db-fallback プロパティ', () => {
+  test('isMissingColumnError: PGRST204/42703 は常に true', () => {
+    fc.assert(
+      fc.property(fc.constantFrom('PGRST204', '42703'), (code) => {
+        expect(isMissingColumnError({ code })).toBe(true);
+      }),
+    );
+  });
+
+  test('isMissingColumnError: コード不一致かつ message に "does not exist" を含まなければ false', () => {
+    const benignMsg = fc.string().filter((s) => !/column .* does not exist/i.test(s));
+    fc.assert(
+      fc.property(
+        fc.string().filter((c) => c !== 'PGRST204' && c !== '42703'),
+        benignMsg,
+        (code, message) => {
+          expect(isMissingColumnError({ code, message })).toBe(false);
+        },
+      ),
+    );
+  });
+
+  test('isMissingColumnError: null/undefined は常に false', () => {
+    fc.assert(
+      fc.property(fc.constantFrom(null, undefined), (e) => {
+        expect(isMissingColumnError(e)).toBe(false);
+      }),
+    );
+  });
+
+  test('omitKeys: 指定キーは結果の自身のプロパティに存在せず、それ以外は保持される', () => {
+    const objArb = fc.dictionary(fc.string(), fc.integer());
+    const own = (o: object, k: string) => Object.prototype.hasOwnProperty.call(o, k);
+    fc.assert(
+      fc.property(objArb, fc.array(fc.string()), (obj, keys) => {
+        const result = omitKeys(obj, keys);
+        // 指定キーは「自身の」プロパティとして存在しない（継承プロパティ toString 等は対象外）
+        for (const k of keys) expect(own(result, k)).toBe(false);
+        // 除外対象でない自身のキーは値を保持
+        for (const k of Object.keys(obj)) {
+          if (!keys.includes(k)) expect(result[k]).toBe(obj[k]);
+        }
+      }),
+    );
+  });
+
+  test('omitKeys: 元オブジェクトを変更しない', () => {
+    const objArb = fc.dictionary(fc.string(), fc.integer());
+    fc.assert(
+      fc.property(objArb, fc.array(fc.string()), (obj, keys) => {
+        const snapshot = JSON.stringify(obj);
+        omitKeys(obj, keys);
+        expect(JSON.stringify(obj)).toBe(snapshot);
+      }),
+    );
+  });
+});
+
 // ---------------------------------------------------------------------------
 // safeJsonLd (json-ld.ts) — XSS防止シリアライザ
 // ---------------------------------------------------------------------------
@@ -482,6 +544,54 @@ describe('truncateText — property tests', () => {
       fc.property(fc.string(), (t) => {
         expect(truncateText(t, t.length)).toBe(t);
         expect(truncateText(t, t.length + 5)).toBe(t);
+      }),
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// canonicalizeEmail — 同一人物突合用の正規化（Gmail 別名統合）
+// ---------------------------------------------------------------------------
+describe('canonicalizeEmail — property tests', () => {
+  test('冪等: canonicalize(canonicalize(x)) === canonicalize(x)（任意文字列）', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const once = canonicalizeEmail(s);
+        expect(canonicalizeEmail(once)).toBe(once);
+      }),
+    );
+  });
+
+  test('常に小文字: result === result.toLowerCase()（任意文字列）', () => {
+    fc.assert(
+      fc.property(fc.string(), (s) => {
+        const r = canonicalizeEmail(s);
+        expect(r).toBe(r.toLowerCase());
+      }),
+    );
+  });
+
+  test('gmail: 妥当なローカル部なら結果のローカル部にドット・"+" を含まない', () => {
+    // ローカル部はドット/プラス以外の英数字に限定（除去後に空にならない＝先頭が英数字）
+    const localArb = fc
+      .stringMatching(/^[a-z0-9][a-z0-9.+]*$/)
+      .filter((l) => l.replace(/\./g, '').split('+')[0].length > 0);
+    fc.assert(
+      fc.property(localArb, (local) => {
+        const r = canonicalizeEmail(`${local}@gmail.com`);
+        const resultLocal = r.slice(0, r.lastIndexOf('@'));
+        expect(resultLocal).not.toContain('.');
+        expect(resultLocal).not.toContain('+');
+        expect(r.endsWith('@gmail.com')).toBe(true);
+      }),
+    );
+  });
+
+  test('非Gmail: ローカル部のドットは保持される', () => {
+    fc.assert(
+      fc.property(fc.stringMatching(/^[a-z0-9]+$/), (base) => {
+        const r = canonicalizeEmail(`${base}.x@example.com`);
+        expect(r).toBe(`${base}.x@example.com`);
       }),
     );
   });

@@ -13,7 +13,7 @@ import {
   stripPromoSentences,
   INTRO_MAX_LENGTH,
 } from '../seo-snippets';
-import { prefectureSeo } from '@/data/prefecture-seo';
+import { getPrefectureSeo, prefectureSeo } from '@/data/prefecture-seo';
 
 describe('getBusinessTypeContext', () => {
   test('returns context for a valid type slug', () => {
@@ -70,6 +70,16 @@ describe('generatePrefTypeContent', () => {
     const result = generatePrefTypeContent('kanagawa', 'relaxation');
     expect(result!.highlights[0]).toContain('神奈川県');
   });
+
+  test('intro は prefSeo intro の「CareLink〜。」文を除去する（replace/正規表現検証）', () => {
+    // 北海道 intro の "CareLinkでは札幌・旭川・函館…比較できます。" は
+    // slice(0,180) の範囲内にあり、replace で除去される。
+    // → 除去文に固有の「旭川」が intro に残っていれば replace/正規表現の変異（除去失敗）。
+    const result = generatePrefTypeContent('hokkaido', 'esthetic');
+    expect(result).not.toBeNull();
+    expect(result!.intro).not.toContain('旭川'); // 除去文固有の地名（除去成功の証跡）
+    expect(result!.intro).not.toContain('Stryker'); // replace 第2引数の文字列変異を撃破
+  });
 });
 
 describe('generateCityContent', () => {
@@ -97,6 +107,15 @@ describe('generateCityContent', () => {
     const result = generateCityContent('tokyo', '渋谷区');
     result!.highlights.forEach((h) => expect(h).toContain('渋谷区'));
   });
+
+  test('intro は prefSeo intro の先頭1文＋「。」を地域コンテキストとして含む（split/結合検証）', () => {
+    // regionContext = prefSeo.intro.split('。')[0] + '。'
+    // split('') 変異なら先頭1文字、+'' 変異なら末尾「。」欠落 → どちらも先頭文全体を含まなくなる。
+    const expected = getPrefectureSeo('hokkaido')!.intro.split('。')[0] + '。';
+    const result = generateCityContent('hokkaido', '札幌市');
+    expect(result).not.toBeNull();
+    expect(result!.intro).toContain(expected);
+  });
 });
 
 describe('generateCityTypeContent', () => {
@@ -122,6 +141,24 @@ describe('generateCityTypeContent', () => {
   test('first FAQ answer includes searchPoints', () => {
     const result = generateCityTypeContent('tokyo', '渋谷区', 'esthetic');
     expect(result!.faqs[0].answer).toBeTruthy();
+  });
+
+  test('faqs[0].answer は searchPoints の先頭2件を「、」結合で含む（slice/join検証）', () => {
+    const ctx = getBusinessTypeContext('esthetic')!;
+    const expected = ctx.searchPoints.slice(0, 2).join('、');
+    const result = generateCityTypeContent('tokyo', '渋谷区', 'esthetic');
+    // `${searchPoints.slice(0,2).join('、')}など...` の正確な整形を検証
+    // （MethodExpression を `searchPoints` に置換する変異＝配列のカンマ連結では一致しない）
+    expect(result!.faqs[0].answer).toContain(`${expected}など`);
+    expect(result!.faqs[0].answer).not.toContain(ctx.searchPoints.join(','));
+  });
+
+  test('highlights は searchPoints の先頭3件を含む（slice検証）', () => {
+    const ctx = getBusinessTypeContext('esthetic')!;
+    const result = generateCityTypeContent('tokyo', '渋谷区', 'esthetic');
+    for (const sp of ctx.searchPoints.slice(0, 3)) {
+      expect(result!.highlights).toContain(sp);
+    }
   });
 });
 
@@ -346,8 +383,10 @@ describe('generatePrefTypeContent / generateCityContent — prefSeo null branch'
     });
     expect(result).not.toBeNull();
     expect(result!.intro).toContain('豊中市');
-    // L170 else 分岐: regionContext = '' （Stryker 文字列ではない）を検出して kill。
+    // regionContext = '' （prefSeo null 時）。`: ''` を別文字列に変える変異を撃破。
     expect(result!.intro).not.toContain('Stryker');
+    // 空文字なので "CareLink。" の直後に都市名が続く（地域コンテキスト文が挟まらない）
+    expect(result!.intro).toContain('CareLink。豊中市');
   });
 });
 

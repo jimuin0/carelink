@@ -10,6 +10,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
@@ -33,8 +34,9 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { NextRequest } from 'next/server';
-import { PATCH } from '../route';
+import { PATCH, DELETE } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkCsrf } from '@/lib/csrf';
 
 const VALID_BODY = { name: 'テストスタッフ' };
 
@@ -230,4 +232,45 @@ test('レスポンスが { staff: ... } 形式', async () => {
   const res = await PATCH(makeRequest({ name: 'テスト' }), makeProps());
   const json = await res.json();
   expect(json.staff.id).toBe(STAFF_UUID);
+});
+
+// ─── DELETE ───────────────────────────────────────────────────────────────────
+function makeDelete(facilityId: string | null = FACILITY_UUID) {
+  const url = new URL(`http://localhost/api/admin/staff/${STAFF_UUID}`);
+  if (facilityId) url.searchParams.set('facility_id', facilityId);
+  return new NextRequest(url.toString(), { method: 'DELETE' });
+}
+function deleteChain(error: unknown = null) {
+  return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error })) }) }) };
+}
+
+test('DELETE: CSRF → 403', async () => {
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response('{}', { status: 403 }));
+  expect((await DELETE(makeDelete(), makeProps())).status).toBe(403);
+});
+test('DELETE: レートリミット → 429', async () => {
+  (inMemoryRateLimit as jest.Mock).mockReturnValueOnce(true);
+  expect((await DELETE(makeDelete(), makeProps())).status).toBe(429);
+});
+test('DELETE: 不正UUID → 400', async () => {
+  expect((await DELETE(makeDelete(), makeProps('not-uuid'))).status).toBe(400);
+});
+test('DELETE: facility_id なし → 401', async () => {
+  expect((await DELETE(makeDelete(null), makeProps())).status).toBe(401);
+});
+test('DELETE: 非メンバー → 401', async () => {
+  mockAnonFrom.mockReturnValue(memberChain(null));
+  expect((await DELETE(makeDelete(), makeProps())).status).toBe(401);
+});
+test('DELETE: DB削除失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(deleteChain({ message: 'DB error' }));
+  expect((await DELETE(makeDelete(), makeProps())).status).toBe(500);
+});
+test('DELETE: 正常 → 200 deleted', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(deleteChain(null));
+  const res = await DELETE(makeDelete(), makeProps());
+  expect(res.status).toBe(200);
+  expect((await res.json()).message).toBe('deleted');
 });

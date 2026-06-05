@@ -11,6 +11,7 @@ import { logCronRun } from '@/lib/cron-logger';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject, esc } from '@/lib/email';
+import { sendLineText } from '@/lib/line';
 
 export const dynamic = 'force-dynamic';
 
@@ -70,11 +71,16 @@ export async function GET(request: Request) {
 
         if (!facility) continue;
 
+        const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
         for (const waiter of waiters) {
+          // 通知手段が無い待機者は claim しない（旧実装は email/LINE 無しでも notified に claim し、
+          // 送信せず notified++ していたため、客は未受信のまま 48h で expired し順番を失っていた）。
+          // email（resend設定時）または LINE（line_user_id＋トークン設定時）のいずれかで通知できる場合のみ claim する。
+          const canEmail = !!(waiter.email && resend);
+          const canLine = !!(waiter.line_user_id && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK);
+          if (!canEmail && !canLine) continue;
+
           // Atomic claim: only send if we win the status transition (CAS guard).
-          // Two concurrent invocations seeing the same cancellation window will
-          // each try to claim; only the first UPDATE matching .eq('status','waiting')
-          // will return a row — the second finds status already 'notified' and skips.
           const { data: claimed } = await supabase
             .from('booking_waitlist')
             .update({
@@ -88,18 +94,43 @@ export async function GET(request: Request) {
 
           if (!claimed || claimed.length === 0) continue;
 
-          // メール通知
-          if (waiter.email && resend) {
-            const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
-            await resend.emails.send({
-              from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
-              to: waiter.email,
-              subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
-              html: `<p>${esc(waiter.customer_name)}様</p>
+          // メール優先、失敗/不可なら LINE。いずれかで配信できたら notified++。
+          // 全チャネル失敗時は claim を 'waiting' に戻し次回 cron で再通知する（順番喪失を防ぐ）。
+          let delivered = false;
+          if (canEmail) {
+            try {
+              await resend!.emails.send({
+                from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+                to: waiter.email,
+                subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
+                html: `<p>${esc(waiter.customer_name)}様</p>
 <p>キャンセル待ちしていた<strong>${esc(facility.name)}</strong>の<strong>${esc(waiter.date)} ${esc(waiter.start_time)}〜</strong>に空きが出ました！</p>
 <p>お早めにご予約ください。（この通知から48時間以内に予約されない場合、次の方へ順番が移ります）</p>
 <p><a href="${bookingUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">今すぐ予約する</a></p>`,
-            }).catch((err) => console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err }));
+              });
+              delivered = true;
+            } catch (err) {
+              console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err });
+            }
+          }
+          if (!delivered && canLine) {
+            try {
+              await sendLineText(waiter.line_user_id as string,
+                `【空きが出ました】${facility.name}\n${waiter.date} ${waiter.start_time}〜 に空きが出ました。\n48時間以内にご予約ください。\n${bookingUrl}`);
+              delivered = true;
+            } catch (err) {
+              console.error('[waitlist-notify] LINE send failed', { waiterId: waiter.id, err });
+            }
+          }
+
+          if (!delivered) {
+            // 全チャネル失敗 → claim を巻き戻し（waiting）。次回 cron で再通知。
+            console.error('[waitlist-notify] all channels failed — reverting claim to waiting', { waiterId: waiter.id });
+            await supabase
+              .from('booking_waitlist')
+              .update({ status: 'waiting', notified_at: null, expires_at: null })
+              .eq('id', waiter.id);
+            continue; // notified++ しない
           }
 
           notified++;

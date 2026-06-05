@@ -115,6 +115,75 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(res.status).toBe(401);
   });
 
+  // ── ポイント返却（金銭バグ修正） ──
+  function happyBookingFrom(bookingOverrides: Record<string, unknown> = {}) {
+    let callNum = 0;
+    return () => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending', facility_id: 'f-1',
+            customer_name: 'テスト', email: 't@e.com', booking_date: '2026-04-01',
+            start_time: '10:00', end_time: '11:00', total_price: 5000, menu_id: null, staff_id: null,
+            ...bookingOverrides,
+          },
+        });
+      }
+      const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+      const eqFirst = jest.fn(() => ({ eq: eqTerminal, then: (fn: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(fn) }));
+      return {
+        update: jest.fn(() => ({ eq: eqFirst })),
+        select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
+      };
+    };
+  }
+  function adminWithRefund(refundInsert: jest.Mock) {
+    return (table: string) => {
+      if (table === 'user_points') return { insert: refundInsert };
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }), not: jest.fn().mockResolvedValue({ data: [] }) }),
+          not: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [] }) }),
+        }),
+      };
+    };
+  }
+
+  test('ポイント利用予約のキャンセル → ポイント返却 insert', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockFrom.mockImplementation(happyBookingFrom({ points_used: 1000 }));
+    const refundInsert = jest.fn().mockResolvedValue({ error: null });
+    mockAdminFrom.mockImplementation(adminWithRefund(refundInsert));
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    expect(refundInsert).toHaveBeenCalledWith(expect.objectContaining({ points: 1000, booking_id: validId, user_id: 'user-1' }));
+  });
+
+  test('ポイント返却が23505(二重返却) → 冪等で成功', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockFrom.mockImplementation(happyBookingFrom({ points_used: 500 }));
+    mockAdminFrom.mockImplementation(adminWithRefund(jest.fn().mockResolvedValue({ error: { code: '23505', message: 'dup' } })));
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+  });
+
+  test('ポイント返却失敗(非23505) → 非ブロッキングで成功', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockFrom.mockImplementation(happyBookingFrom({ points_used: 500 }));
+    mockAdminFrom.mockImplementation(adminWithRefund(jest.fn().mockResolvedValue({ error: { code: 'XXX', message: 'db' } })));
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+  });
+
+  test('ポイント返却が throw → 非ブロッキングで成功', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    mockFrom.mockImplementation(happyBookingFrom({ points_used: 500 }));
+    mockAdminFrom.mockImplementation(adminWithRefund(jest.fn().mockRejectedValue(new Error('boom'))));
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+  });
+
   test('予約が存在しない→404', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     mockFrom.mockReturnValue(fluent({ data: null }));

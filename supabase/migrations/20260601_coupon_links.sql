@@ -1,0 +1,5 @@
+-- 写真・ブログにクーポンを紐付け（クーポン選択）。NULL許容・ON DELETE SET NULL・IF NOT EXISTS。
+ALTER TABLE facility_photos
+  ADD COLUMN IF NOT EXISTS coupon_id UUID REFERENCES coupons(id) ON DELETE SET NULL;
+ALTER TABLE blog_posts
+  ADD COLUMN IF NOT EXISTS coupon_id UUID REFERENCES coupons(id) ON DELETE SET NULL;

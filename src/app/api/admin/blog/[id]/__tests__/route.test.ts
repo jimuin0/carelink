@@ -10,6 +10,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -20,12 +21,13 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+const mockStorageRemove = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, storage: { from: () => ({ remove: mockStorageRemove }) } }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -69,8 +71,10 @@ function updateFacilityChain(data: unknown, error: unknown = null) {
   };
 }
 
-function deleteFacilityChain(error: unknown = null) {
+function deleteFacilityChain(error: unknown = null, row: { thumbnail_url: string | null; image_urls: string[] | null } = { thumbnail_url: null, image_urls: null }) {
   return {
+    // DELETE は pre-delete の select(thumbnail_url,image_urls).maybeSingle() と delete() の双方を呼ぶ
+    select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: row })) }) }) }),
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         eq: jest.fn(() => Promise.resolve({ error })),
@@ -172,13 +176,25 @@ test('DELETE: DB削除失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-test('DELETE: 正常削除 → 200 ok:true', async () => {
+test('DELETE: 正常削除 → 200 ok:true（画像なし→Storage削除なし）', async () => {
+  mockStorageRemove.mockClear();
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(deleteFacilityChain(null));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+  expect(mockStorageRemove).not.toHaveBeenCalled();
+});
+
+test('DELETE: thumbnail/image_urls の carelink-uploads 実体も削除(#06)', async () => {
+  mockStorageRemove.mockClear();
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const base = 'https://x.supabase.co/storage/v1/object/public/carelink-uploads/';
+  mockAdminFrom.mockReturnValue(deleteFacilityChain(null, { thumbnail_url: base + 'blog/t.jpg', image_urls: [base + 'blog/1.jpg', 'data:image/png;base64,AAAA'] }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
+  expect(mockStorageRemove).toHaveBeenCalledWith(['blog/t.jpg', 'blog/1.jpg']); // data URI は除外
 });
 
 test('PATCH: CSRF エラー → 403', async () => {
@@ -269,4 +285,81 @@ test('PATCH: 不正JSON → 400', async () => {
 test('DELETE: facility_id なし → 401', async () => {
   const res = await DELETE(makeRequest('DELETE', undefined, null), makeProps());
   expect(res.status).toBe(401);
+});
+
+// ─── category カラム不在フォールバック（PATCH） ───────────────────────────────
+test('PATCH: category カラム不在(42703)なら除外して再試行し 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(updateFacilityChain(null, { code: '42703', message: 'column does not exist' }))
+    .mockReturnValueOnce(updateFacilityChain({ id: POST_UUID, title: 'New' }));
+  const res = await PATCH(makeRequest('PATCH', { category: 'ネイル' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(mockAdminFrom).toHaveBeenCalledTimes(2);
+});
+
+// ─── coupon_id / author_id 施設所有検証（#3/#12・PATCH） ──────────────────────
+function scopeRow(data: unknown) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data })) };
+}
+const VALID_COUPON = '88888888-8888-4888-8888-888888888888';
+const VALID_AUTHOR = '77777777-7777-4777-8777-777777777777';
+
+test('PATCH: coupon_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  const res = await PATCH(makeRequest('PATCH', { coupon_id: VALID_COUPON }), makeProps());
+  expect(res.status).toBe(400);
+});
+test('PATCH: coupon_id が自施設 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_COUPON })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { coupon_id: VALID_COUPON }), makeProps());
+  expect(res.status).toBe(200);
+});
+test('PATCH: author_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  const res = await PATCH(makeRequest('PATCH', { author_id: VALID_AUTHOR }), makeProps());
+  expect(res.status).toBe(400);
+});
+test('PATCH: author_id が自施設 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_AUTHOR })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { author_id: VALID_AUTHOR }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+const VALID_EXT_AUTHOR = '66666666-6666-4666-8666-666666666666';
+test('PATCH: author_name_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  expect((await PATCH(makeRequest('PATCH', { author_name_id: VALID_EXT_AUTHOR }), makeProps())).status).toBe(400);
+});
+test('PATCH: author_name_id が自施設 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_EXT_AUTHOR })).mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { author_name_id: VALID_EXT_AUTHOR }), makeProps())).status).toBe(200);
+});
+
+test('PATCH: scheduled_at 指定 → 200（予約掲載・published_at=予約時刻で上書き）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { scheduled_at: '2026-07-01T00:00:00.000Z' }), makeProps())).status).toBe(200);
+});
+
+test('PATCH: image_urls 指定 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { image_urls: ['https://x/a.jpg'] }), makeProps())).status).toBe(200);
+});
+
+test('PATCH: image_urls に data:image → 200（IMAGE_URL refine data経路・#16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(updateFacilityChain({ id: POST_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { image_urls: ['data:image/webp;base64,AAAA'] }), makeProps())).status).toBe(200);
+});
+test('PATCH: thumbnail_url が data:text/html → 400（危険スキーム拒否・#16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  expect((await PATCH(makeRequest('PATCH', { thumbnail_url: 'data:text/html,<script>x</script>' }), makeProps())).status).toBe(400);
 });

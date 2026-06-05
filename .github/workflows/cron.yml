@@ -18,7 +18,9 @@ on:
     - cron: '0 15 * * 1'   # favorites-digest       JST 00:00 Monday
     - cron: '30 * * * *'   # waitlist-notify        hourly (offset to avoid collision)
     - cron: '*/15 * * * *' # webhook-retry          every 15 min
+    - cron: '5,20,35,50 * * * *' # publish-scheduled-blog  every 15 min (offset to avoid collision)
     - cron: '0 16 1 * *'   # newsletter-digest      JST 01:00 1st of month
+    - cron: '45 * * * *'   # watchdog               hourly (全 cron の未発火/失敗継続を能動監視)
   workflow_dispatch:
     inputs:
       job:
@@ -52,7 +54,9 @@ jobs:
             "0 15 * * 1")    P="/api/cron/favorites-digest" ;;
             "30 * * * *")    P="/api/cron/waitlist-notify" ;;
             "*/15 * * * *")  P="/api/cron/webhook-retry" ;;
+            "5,20,35,50 * * * *") P="/api/cron/publish-scheduled-blog" ;;
             "0 16 1 * *")    P="/api/cron/newsletter-digest" ;;
+            "45 * * * *")    P="/api/cron/watchdog" ;;
             *) echo "Unknown schedule: $TRIGGER_CRON"; exit 1 ;;
           esac
           echo "path=$P" >> $GITHUB_OUTPUT

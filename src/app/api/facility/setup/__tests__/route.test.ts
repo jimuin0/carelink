@@ -35,6 +35,9 @@ let mockMemberInsert: jest.Mock;
 let mockSalonSelect: jest.Mock;
 let mockFacilityDelete: jest.Mock;
 let mockFacilityMemberSelect: jest.Mock;
+let mockFacilityUpdate: jest.Mock;
+let mockPhotoInsert: jest.Mock;
+let salonRow: Record<string, unknown> | null;
 
 function setupDefaultMocks(
   userExists: boolean = true,
@@ -50,26 +53,27 @@ function setupDefaultMocks(
 
   mockFacilityMemberSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn().mockResolvedValue({
-        data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+      limit: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({
+          data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+        }),
       }),
     }),
   });
 
+  salonRow = salonFound
+    ? {
+        facility_name: 'Salon from DB',
+        business_type: 'nail',
+        phone: '03-1234-5678',
+        address: '東京都渋谷区',
+      }
+    : null;
   mockSalonSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       order: jest.fn().mockReturnValue({
         limit: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: salonFound
-              ? {
-                  facility_name: 'Salon from DB',
-                  business_type: 'nail',
-                  phone: '03-1234-5678',
-                  address: '東京都渋谷区',
-                }
-              : null,
-          }),
+          maybeSingle: jest.fn(() => Promise.resolve({ data: salonRow })),
         }),
       }),
     }),
@@ -98,6 +102,12 @@ function setupDefaultMocks(
     }),
   });
 
+  // リード引き継ぎ enrichment（best-effort）用のモック。既定は成功。
+  mockFacilityUpdate = jest.fn().mockReturnValue({
+    eq: jest.fn().mockResolvedValue({ error: null }),
+  });
+  mockPhotoInsert = jest.fn().mockResolvedValue({ error: null });
+
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: {
@@ -118,8 +128,10 @@ function setupDefaultMocks(
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+              limit: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({
+                  data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+                }),
               }),
             }),
           }),
@@ -129,6 +141,11 @@ function setupDefaultMocks(
         return {
           insert: mockFacilityInsert,
           delete: mockFacilityDelete,
+          update: mockFacilityUpdate,
+        };
+      } else if (table === 'facility_photos') {
+        return {
+          insert: mockPhotoInsert,
         };
       } else if (table === 'salons') {
         return {
@@ -273,7 +290,7 @@ describe('POST /api/facility/setup', () => {
     expect(res.status).toBe(200);
   });
 
-  test('address > 200 chars → truncated', async () => {
+  test('address > 100 chars → 100 に切り詰め（settings zod と整合・#7）', async () => {
     const longAddr = 'x'.repeat(250);
     const res = await POST(
       makeRequest({
@@ -284,6 +301,8 @@ describe('POST /api/facility/setup', () => {
     );
 
     expect(res.status).toBe(200);
+    // 設定画面の address max(100) と同じ上限で保存される（後の保存失敗を防ぐ）
+    expect((mockFacilityInsert.mock.calls[0][0].address as string).length).toBe(100);
   });
 
   test('facility_profiles insert fails → 500', async () => {
@@ -305,6 +324,40 @@ describe('POST /api/facility/setup', () => {
 
     expect(res.status).toBe(500);
     expect(mockFacilityDelete).toHaveBeenCalled();
+  });
+
+  // 1オーナーが複数施設を持つ正当な運用（HALグループ等）。.eq('user_id') が2行以上返っても
+  // .limit(1).maybeSingle() で error にならず「既存あり」と判定し、重複作成せず既存施設を返す。
+  test('複数施設オーナー（owner行が複数） → error にならず既存施設を返す(200)', async () => {
+    setupDefaultMocks(true, false, false);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                // .limit(1) があるため、PostgREST は複数行でも1行に絞り maybeSingle が成功する
+                limit: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn().mockResolvedValue({ data: { facility_id: 'fac-first-of-many' } }),
+                }),
+              }),
+            }),
+            insert: mockMemberInsert,
+          };
+        }
+        if (table === 'facility_profiles') return { insert: mockFacilityInsert, delete: mockFacilityDelete, update: mockFacilityUpdate };
+        if (table === 'facility_photos') return { insert: mockPhotoInsert };
+        if (table === 'salons') return { select: mockSalonSelect };
+        return {};
+      }),
+    });
+    const res = await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilityId).toBe('fac-first-of-many');
+    // 既存ありと判定されるので新規 insert はしない
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
   });
 
   test('successful setup → 200 with facilityId and slug', async () => {
@@ -535,11 +588,11 @@ describe('POST /api/facility/setup', () => {
     expect(res.status).toBe(200);
   });
 
-  test('salonData found but body has facility_name set → keeps body value (||)', async () => {
+  test('body の facility_name が プレースホルダ"未設定の施設" → リード名で置換（auto-fill是正）', async () => {
     setupDefaultMocks(true, false, true);
     const res = await POST(
       makeRequest({
-        facility_name: '未設定の施設', // triggers salon lookup
+        facility_name: '未設定の施設', // プレースホルダはリード名で置換される
         business_type: 'eyelash',
         phone: '090-1111-2222',
         address: 'orig address',
@@ -547,12 +600,84 @@ describe('POST /api/facility/setup', () => {
     );
     expect(res.status).toBe(200);
     const call = mockFacilityInsert.mock.calls[0];
-    // salonData provides facility_name; body value '未設定の施設' falls back via `facility_name = facility_name || salonData.facility_name`
-    // But '未設定の施設' is truthy so the OR keeps the body value
-    expect(call[0].name).toBe('未設定の施設');
-    // phone/address: provided in body, so should be kept as body value
+    // '未設定の施設' はプレースホルダ扱いで salonData.facility_name に置換（旧 || 実装の取りこぼし是正）
+    expect(call[0].name).toBe('Salon from DB');
+    // phone/address: body 指定があるので body 値を保持
     expect(call[0].phone).toBe('090-1111-2222');
     expect(call[0].address).toBe('orig address');
+  });
+
+  test('リード詳細＋写真を施設へ引き継ぐ（enrichment）', async () => {
+    setupDefaultMocks(true, false, true);
+    salonRow = {
+      facility_name: 'S', business_type: 'nail', phone: '03-1', address: 'addr',
+      postal_code: '5600001', building_name: 'ビル3F', nearest_station: '堺東駅 徒歩5分',
+      regular_holiday: '月曜', seat_count: 5, staff_count: 3, has_parking: true,
+      features: ['駐車場', '個室'], pr_text: 'PR文', website: 'https://x.com',
+      photo_url: 'https://x/p0.jpg', business_hours: '10:00-20:00',
+      // index0=exterior,1..3=interior,4..6=menu,7=other(cats範囲外)。null/空はフィルタで除外。
+      photo_urls: ['https://x/0.jpg', 'https://x/1.jpg', 'https://x/2.jpg', 'https://x/3.jpg', 'https://x/4.jpg', 'https://x/5.jpg', 'https://x/6.jpg', 'https://x/7.jpg', null, ''],
+    };
+    const res = await POST(makeRequest({ facility_name: '未設定の施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    const upArg = mockFacilityUpdate.mock.calls[0][0];
+    expect(upArg.postal_code).toBe('5600001');
+    expect(upArg.building).toBe('ビル3F');
+    expect(upArg.access_info).toBe('堺東駅 徒歩5分');
+    expect(upArg.seat_count).toBe(5);
+    expect(upArg.parking).toBe(true);
+    expect(upArg.features).toEqual(['駐車場', '個室']);
+    expect(upArg.business_hours_text).toBe('10:00-20:00');
+    const photoArg = mockPhotoInsert.mock.calls[0][0];
+    expect(photoArg.length).toBe(8); // null/空は除外
+    expect(photoArg[0].photo_type).toBe('exterior');
+    expect(photoArg[1].photo_type).toBe('interior');
+    expect(photoArg[4].photo_type).toBe('menu');
+    expect(photoArg[7].photo_type).toBe('other');
+  });
+
+  test('enrichment: 拡張カラム不在 → フォールバックで再試行（200）', async () => {
+    setupDefaultMocks(true, false, true);
+    salonRow = { facility_name: 'S', business_type: 'nail', business_hours: '10-20' };
+    mockFacilityUpdate = jest.fn()
+      .mockReturnValueOnce({ eq: jest.fn().mockResolvedValue({ error: { code: 'PGRST204', message: 'col missing' } }) })
+      .mockReturnValueOnce({ eq: jest.fn().mockResolvedValue({ error: null }) });
+    const res = await POST(makeRequest({ facility_name: '未設定の施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockFacilityUpdate).toHaveBeenCalledTimes(2);
+  });
+
+  test('enrichment: update が {error} 返却 → 非致命(200)', async () => {
+    setupDefaultMocks(true, false, true);
+    salonRow = { facility_name: 'S', business_type: 'nail' };
+    mockFacilityUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'up fail' } }) });
+    const res = await POST(makeRequest({ facility_name: '未設定の施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('enrichment: 写真 insert 失敗 → 非致命(200)', async () => {
+    setupDefaultMocks(true, false, true);
+    salonRow = { facility_name: 'S', business_type: 'nail', photo_urls: ['https://x/a.jpg'] };
+    mockPhotoInsert = jest.fn().mockResolvedValue({ error: { message: 'photo fail' } });
+    const res = await POST(makeRequest({ facility_name: '未設定の施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockPhotoInsert).toHaveBeenCalled();
+  });
+
+  test('enrichment: 写真が全て非文字列/空 → insert 呼ばれない(200)', async () => {
+    setupDefaultMocks(true, false, true);
+    salonRow = { facility_name: 'S', business_type: 'nail', photo_urls: [null, '', 123] };
+    const res = await POST(makeRequest({ facility_name: '未設定の施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockPhotoInsert).not.toHaveBeenCalled();
+  });
+
+  test('enrichment: update が throw → 非致命(200)', async () => {
+    setupDefaultMocks(true, false, true);
+    salonRow = { facility_name: 'S', business_type: 'nail' };
+    mockFacilityUpdate = jest.fn(() => { throw new Error('boom'); });
+    const res = await POST(makeRequest({ facility_name: '未設定の施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
   });
 
   test('auto-fill uses most recent salon record', async () => {

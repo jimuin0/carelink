@@ -16,6 +16,7 @@
 jest.mock('@/lib/cron-auth', () => ({
   checkCronAuth: jest.fn(() => null),
 }));
+jest.mock('@/lib/alert', () => ({ alertError: jest.fn(), alertWarning: jest.fn() }));
 jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/webhook-queue');
 jest.mock('@/lib/line');
@@ -28,10 +29,54 @@ import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { GET } from '../route';
 
-let mockJobsSelect: jest.Mock;
-let mockClaimUpdate: jest.Mock;
-let mockSuccessUpdate: jest.Mock;
+let mockJobsSelect: jest.Mock;   // 読み取り（pending 取得）の .limit
+let mockClaimUpdate: jest.Mock;  // claim: update(status=processing).eq().in().select()
+let mockSuccessUpdate: jest.Mock; // mark: update(status=success,attempt_count).eq()
+let mockReapDelivered: jest.Mock; // reaper(a): update(status=success,no attempt_count).eq().not()
+let mockReapStale: jest.Mock;    // reaper(b): update(status=pending).eq().is().lt()
+let mockDeliverStamp: jest.Mock; // stamp: update(delivered_at).eq()
 let mockSendLineText: jest.Mock;
+let currentJobs: any[];
+
+// claim の select() が返す「実際に掴めた行」。既定では pending と同一（全件 claim 成功）。
+function buildClaimUpdate(claimFails: boolean) {
+  return jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        select: jest.fn().mockResolvedValue({
+          data: claimFails ? null : currentJobs,
+          error: claimFails ? new Error('Claim failed') : null,
+        }),
+      }),
+    }),
+  });
+}
+
+function installFromMock() {
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockReturnValue({
+    from: jest.fn((table: string) => {
+      if (table !== 'webhook_retry_queue') return {};
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            lte: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
+            }),
+          }),
+        }),
+        update: (data: any) => {
+          if (data.status === 'processing') return mockClaimUpdate(data);
+          if (data.status === 'success' && 'attempt_count' in data) return mockSuccessUpdate(data);
+          if (data.status === 'success') return mockReapDelivered(data);   // reaper(a)
+          if (data.status === 'pending') return mockReapStale(data);       // reaper(b)
+          if ('delivered_at' in data) return mockDeliverStamp(data);       // stamp
+          return { eq: jest.fn().mockResolvedValue({ error: null }) };
+        },
+      };
+    }),
+  });
+}
 
 function setupDefaultMocks(
   jobsFound: number = 1,
@@ -48,73 +93,36 @@ function setupDefaultMocks(
     mockSendLineText.mockRejectedValue(new Error('Send failed'));
   }
 
-  mockJobsSelect = jest.fn().mockResolvedValue({
-    data:
-      jobsFound > 0
-        ? [
-            {
-              id: 'job-1',
-              webhook_type: 'line_push',
-              target_id: 'line-user-123',
-              payload: { message: 'Test message' },
-              status: 'pending',
-              attempt_count: 0,
-              scheduled_at: new Date(Date.now() - 1000).toISOString(),
-            },
-            {
-              id: 'job-2',
-              webhook_type: 'email',
-              payload: {
-                to: 'user@example.com',
-                subject: 'Test',
-                html: '<p>Test</p>',
-              },
-              status: 'pending',
-              attempt_count: 1,
-              scheduled_at: new Date(Date.now() - 2000).toISOString(),
-            },
-          ]
-        : [],
-  });
+  currentJobs = jobsFound > 0
+    ? [
+        {
+          id: 'job-1',
+          webhook_type: 'line_push',
+          target_id: 'line-user-123',
+          payload: { message: 'Test message' },
+          status: 'pending',
+          attempt_count: 0,
+          scheduled_at: new Date(Date.now() - 1000).toISOString(),
+        },
+        {
+          id: 'job-2',
+          webhook_type: 'email',
+          payload: { to: 'user@example.com', subject: 'Test', html: '<p>Test</p>' },
+          status: 'pending',
+          attempt_count: 1,
+          scheduled_at: new Date(Date.now() - 2000).toISOString(),
+        },
+      ]
+    : [];
 
-  mockClaimUpdate = jest.fn().mockReturnValue({
-    in: jest.fn().mockResolvedValue({
-      error: claimFails ? new Error('Claim failed') : null,
-    }),
-  });
+  mockJobsSelect = jest.fn().mockResolvedValue({ data: currentJobs });
+  mockClaimUpdate = buildClaimUpdate(claimFails);
+  mockSuccessUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+  mockReapDelivered = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ not: jest.fn().mockResolvedValue({ error: null }) }) });
+  mockReapStale = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ lt: jest.fn().mockResolvedValue({ error: null }) }) }) });
+  mockDeliverStamp = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
 
-  mockSuccessUpdate = jest.fn().mockReturnValue({
-    eq: jest.fn().mockResolvedValue({
-      error: null,
-    }),
-  });
-
-  const { createServiceRoleClient } = require('@/lib/supabase-server');
-  createServiceRoleClient.mockReturnValue({
-    from: jest.fn((table: string) => {
-      if (table === 'webhook_retry_queue') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest
-              .fn()
-              .mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    limit: mockJobsSelect,
-                  }),
-                }),
-          }),
-          }),
-          update: (data: any) => {
-            if (data.status === 'processing') return mockClaimUpdate(data);
-            if (data.status === 'success') return mockSuccessUpdate(data);
-            return { eq: jest.fn().mockResolvedValue({ error: null }) };
-          },
-        };
-      }
-      return {};
-    }),
-  });
+  installFromMock();
 
   const { Resend } = require('resend');
   Resend.mockImplementation(() => ({
@@ -226,6 +234,40 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).toHaveBeenCalled();
   });
 
+  // round5 #通知-1: 配信成功後に success 更新が失敗しても再送しない（顧客への重複配信防止）
+  test('配信後に success更新が{error}返却 → 再送せず処理成功扱い', async () => {
+    setupDefaultMocks(1);
+    mockSuccessUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'db write failed' } }) });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(scheduleRetry).not.toHaveBeenCalled(); // 配信済みのため再送しない
+    expect(json.processed).toBe(2);
+  });
+
+  test('配信後に success更新がthrow → 再送せず処理成功扱い（delivered ガード）', async () => {
+    setupDefaultMocks(1);
+    mockSuccessUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockRejectedValue(new Error('db throw')) });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(scheduleRetry).not.toHaveBeenCalled(); // delivered 後の例外は再送対象外
+    expect(json.processed).toBe(2);
+  });
+
+  test('配信後DB書き込みが非Errorをthrow → String フォールバックで握り潰し再送なし', async () => {
+    setupDefaultMocks(1);
+    mockSuccessUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockRejectedValue('string-db-throw') });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(scheduleRetry).not.toHaveBeenCalled();
+    expect(json.processed).toBe(2);
+  });
+
   test('failure includes error message and attempt_count++', async () => {
     setupDefaultMocks(1, false, true);
 
@@ -333,38 +375,13 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('unknown webhook_type → success without sending', async () => {
-    mockJobsSelect = jest.fn().mockResolvedValue({
-      data: [{
-        id: 'jx',
-        webhook_type: 'unknown_type',
-        payload: {},
-        status: 'pending',
-        attempt_count: 0,
-        scheduled_at: new Date().toISOString(),
-      }],
-    });
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'webhook_retry_queue') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
-                }),
-              }),
-            }),
-            update: (data: any) => {
-              if (data.status === 'processing') return mockClaimUpdate(data);
-              if (data.status === 'success') return mockSuccessUpdate(data);
-              return { eq: jest.fn().mockResolvedValue({ error: null }) };
-            },
-          };
-        }
-        return {};
-      }),
-    });
+    currentJobs = [{
+      id: 'jx', webhook_type: 'unknown_type', payload: {},
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }];
+    mockJobsSelect = jest.fn().mockResolvedValue({ data: currentJobs });
+    mockClaimUpdate = buildClaimUpdate(false);
+    installFromMock();
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
@@ -373,38 +390,13 @@ describe('GET /api/cron/webhook-retry', () => {
 
   test('email webhook with resend null → success update without send', async () => {
     delete process.env.RESEND_API_KEY;
-    mockJobsSelect = jest.fn().mockResolvedValue({
-      data: [{
-        id: 'je',
-        webhook_type: 'email',
-        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>' },
-        status: 'pending',
-        attempt_count: 0,
-        scheduled_at: new Date().toISOString(),
-      }],
-    });
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'webhook_retry_queue') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
-                }),
-              }),
-            }),
-            update: (data: any) => {
-              if (data.status === 'processing') return mockClaimUpdate(data);
-              if (data.status === 'success') return mockSuccessUpdate(data);
-              return { eq: jest.fn().mockResolvedValue({ error: null }) };
-            },
-          };
-        }
-        return {};
-      }),
-    });
+    currentJobs = [{
+      id: 'je', webhook_type: 'email', payload: { to: 't@x.com', subject: 's', html: '<p>x</p>' },
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }];
+    mockJobsSelect = jest.fn().mockResolvedValue({ data: currentJobs });
+    mockClaimUpdate = buildClaimUpdate(false);
+    installFromMock();
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
@@ -413,44 +405,64 @@ describe('GET /api/cron/webhook-retry', () => {
   });
 
   test('email payload with explicit from → uses payload.from', async () => {
-    mockJobsSelect = jest.fn().mockResolvedValue({
-      data: [{
-        id: 'jf',
-        webhook_type: 'email',
-        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>', from: 'Custom <c@x.com>' },
-        status: 'pending',
-        attempt_count: 0,
-        scheduled_at: new Date().toISOString(),
-      }],
-    });
+    currentJobs = [{
+      id: 'jf', webhook_type: 'email',
+      payload: { to: 't@x.com', subject: 's', html: '<p>x</p>', from: 'Custom <c@x.com>' },
+      status: 'pending', attempt_count: 0, scheduled_at: new Date().toISOString(),
+    }];
+    mockJobsSelect = jest.fn().mockResolvedValue({ data: currentJobs });
+    mockClaimUpdate = buildClaimUpdate(false);
     const sendSpy = jest.fn().mockResolvedValue({ success: true });
     const { Resend } = require('resend');
     Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'webhook_retry_queue') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
-                }),
-              }),
-            }),
-            update: (data: any) => {
-              if (data.status === 'processing') return mockClaimUpdate(data);
-              if (data.status === 'success') return mockSuccessUpdate(data);
-              return { eq: jest.fn().mockResolvedValue({ error: null }) };
-            },
-          };
-        }
-        return {};
-      }),
-    });
+    installFromMock();
 
     await GET(makeRequest() as any);
     expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ from: 'Custom <c@x.com>' }));
+  });
+
+  // ── scale監査 #5: 新規ブランチのテスト ──
+  test('claim が data:[] → 並行実行が先取り → processed=0 で skipped', async () => {
+    setupDefaultMocks(1);
+    // claim の select() が空配列（別実行が全件 claim 済み）
+    mockClaimUpdate = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockReturnValue({ select: jest.fn().mockResolvedValue({ data: [], error: null }) }),
+      }),
+    });
+    installFromMock();
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+  });
+
+  test('reaper(delivered) が error 返却 → ログのみで継続（200）', async () => {
+    setupDefaultMocks(1);
+    mockReapDelivered = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ not: jest.fn().mockResolvedValue({ error: { message: 'reap a fail' } }) }) });
+    installFromMock();
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('reaper(stale) が error 返却 → ログのみで継続（200）', async () => {
+    setupDefaultMocks(1);
+    mockReapStale = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ lt: jest.fn().mockResolvedValue({ error: { message: 'reap b fail' } }) }) }) });
+    installFromMock();
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+  });
+
+  test('配信後 delivered_at stamp が error 返却 → ログのみ・再送なし・success', async () => {
+    setupDefaultMocks(1);
+    mockDeliverStamp = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'stamp fail' } }) });
+    installFromMock();
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(2);
+    expect(scheduleRetry).not.toHaveBeenCalled();
   });
 
   test('non-Error throw inside per-job → scheduleRetry with String fallback', async () => {

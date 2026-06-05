@@ -11,6 +11,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -200,4 +201,105 @@ test('POST: レートリミット params (20/60s)', async () => {
   const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
   expect(call[1]).toBe(20);
   expect(call[2]).toBe(60_000);
+});
+
+// ─── カラム不在フォールバック（category 未適用環境） ──────────────────────────
+test('POST: category カラム不在(PGRST204)なら除外して再試行し 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom
+    .mockReturnValueOnce(insertSingle(null, { code: 'PGRST204', message: 'column blog_posts.category does not exist' }))
+    .mockReturnValueOnce(insertSingle({ id: 'p2' }));
+  // status 201 = カラム不在エラー後、category を除外して再試行が成功した証跡（再試行なしなら 500）
+  const res = await POST(makeRequest(validBody({ category: 'ヘア' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: scheduled_at 列不在＋予約掲載指定 → 即時公開せず下書きで保存(201, is_published=false)（round2 #10）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let captured: { is_published?: boolean; published_at?: unknown } | null = null;
+  const retry = { insert: jest.fn((row: { is_published?: boolean; published_at?: unknown }) => { captured = row; return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: 'p-sch-fb' }, error: null })) }) }; }) };
+  mockAdminFrom
+    .mockReturnValueOnce(insertSingle(null, { code: 'PGRST204', message: 'column blog_posts.scheduled_at does not exist' }))
+    .mockReturnValueOnce(retry);
+  const res = await POST(makeRequest(validBody({ scheduled_at: '2026-07-01T00:00:00.000Z' })));
+  expect(res.status).toBe(201);
+  expect(captured!.is_published).toBe(false); // 予約掲載が強制できないため即時公開させない
+  expect(captured!.published_at).toBeNull();
+});
+
+test('POST: 非カラム不在エラーは再試行せず 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(insertSingle(null, { code: 'XX999', message: 'other error' }));
+  const res = await POST(makeRequest(validBody({ category: 'ヘア' })));
+  expect(res.status).toBe(500);
+});
+
+// ─── coupon_id / author_id 施設所有検証（#3/#12） ──────────────────────────────
+function scopeRow(data: unknown) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn(() => Promise.resolve({ data })) };
+}
+const VALID_COUPON = '88888888-8888-4888-8888-888888888888';
+const VALID_AUTHOR = '77777777-7777-4777-8777-777777777777';
+
+test('POST: coupon_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null)); // coupons 検証 → 見つからない
+  const res = await POST(makeRequest(validBody({ coupon_id: VALID_COUPON })));
+  expect(res.status).toBe(400);
+});
+test('POST: coupon_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_COUPON })).mockReturnValueOnce(insertSingle({ id: 'p-c' }));
+  const res = await POST(makeRequest(validBody({ coupon_id: VALID_COUPON })));
+  expect(res.status).toBe(201);
+});
+test('POST: author_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null)); // staff_profiles 検証 → 見つからない
+  const res = await POST(makeRequest(validBody({ author_id: VALID_AUTHOR })));
+  expect(res.status).toBe(400);
+});
+test('POST: author_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_AUTHOR })).mockReturnValueOnce(insertSingle({ id: 'p-a' }));
+  const res = await POST(makeRequest(validBody({ author_id: VALID_AUTHOR })));
+  expect(res.status).toBe(201);
+});
+
+const VALID_EXT_AUTHOR = '66666666-6666-4666-8666-666666666666';
+test('POST: author_name_id が他施設 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow(null));
+  expect((await POST(makeRequest(validBody({ author_name_id: VALID_EXT_AUTHOR })))).status).toBe(400);
+});
+test('POST: author_name_id が自施設 → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(scopeRow({ id: VALID_EXT_AUTHOR })).mockReturnValueOnce(insertSingle({ id: 'p-ext' }));
+  expect((await POST(makeRequest(validBody({ author_name_id: VALID_EXT_AUTHOR })))).status).toBe(201);
+});
+
+test('POST: scheduled_at 指定 → 201（予約掲載・is_published=true/published_at=予約時刻）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-sch' }));
+  expect((await POST(makeRequest(validBody({ scheduled_at: '2026-07-01T00:00:00.000Z' })))).status).toBe(201);
+});
+
+test('POST: image_urls 指定 → 201（本文画像最大4枚）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-img' }));
+  expect((await POST(makeRequest(validBody({ image_urls: ['https://x/a.jpg', 'https://x/b.jpg'] })))).status).toBe(201);
+});
+test('POST: image_urls 5枚 → 400（上限4枚）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  expect((await POST(makeRequest(validBody({ image_urls: ['a', 'b', 'c', 'd', 'e'] })))).status).toBe(400);
+});
+
+test('POST: thumbnail_url が data:image → 201（IMAGE_URL refine data経路・round3 #16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValueOnce(insertSingle({ id: 'p-img' }));
+  expect((await POST(makeRequest(validBody({ thumbnail_url: 'data:image/png;base64,AAAA' })))).status).toBe(201);
+});
+test('POST: thumbnail_url が javascript: → 400（危険スキーム拒否・#16）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  expect((await POST(makeRequest(validBody({ thumbnail_url: 'javascript:alert(1)' })))).status).toBe(400);
 });

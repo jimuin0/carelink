@@ -12,6 +12,7 @@ import { logCronRun } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -65,16 +66,25 @@ export async function GET(request: Request) {
       }
     }
 
-    // 2. 同一IPから同一施設に複数投稿 → 自作自演疑い
-    const { data: dupFacility } = await supabase
-      .from('facility_reviews')
-      .select('id, reviewer_ip, facility_id')
-      .not('reviewer_ip', 'is', null)
-      .eq('is_flagged', false)
-      .eq('status', 'published');
+    // 2. 同一IPから同一施設に複数投稿 → 自作自演疑い。
+    // 公開・未フラグの全レビューを対象にするため PostgREST の db-max-rows(1000) を全件ページングで越える
+    // （旧 limit なしだと1000件超で1000行目以降の不正レビューが永久に検知漏れ・round6）。
+    type DupRow = { id: string; reviewer_ip: string | null; facility_id: string };
+    const { rows: dupFacility } = await fetchAllPaged<DupRow>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_reviews')
+          .select('id, reviewer_ip, facility_id')
+          .not('reviewer_ip', 'is', null)
+          .eq('is_flagged', false)
+          .eq('status', 'published')
+          .range(offset, offset + limit - 1);
+        return { data: data as DupRow[] | null, error };
+      },
+    );
 
-    if (dupFacility) {
-      // IPとfacility_idの組み合わせでグループ化
+    {
+      // IPとfacility_idの組み合わせでグループ化（dupFacility は常に配列）
       const ipFacilityMap = new Map<string, string[]>();
       for (const r of dupFacility) {
         const key = `${r.reviewer_ip}:${r.facility_id}`;

@@ -46,12 +46,15 @@ function setupDefaultMocks(
     end_time: `${10 + i}:00`,
     facility_id: `fac-${i % 2}`,
     total_price: 5000 + i * 1000,
+    menu_id: `menu-${i}`,
+    menu_ids: null,
+    staff_id: `staff-${i}`,
   }));
 
   const bookingsMockEq = jest.fn();
   bookingsMockEq.mockReturnValue({
     eq: bookingsMockEq,
-    limit: jest.fn().mockResolvedValue({ data: bookingsData, error: null }),
+    range: jest.fn().mockResolvedValue({ data: bookingsData, error: null }),
   });
   mockBookingsSelect = jest.fn().mockReturnValue({ eq: bookingsMockEq });
 
@@ -90,6 +93,10 @@ function setupDefaultMocks(
         return { select: mockBookingsSelect };
       } else if (table === 'facility_profiles') {
         return { select: mockFacilitiesSelect };
+      } else if (table === 'facility_menus') {
+        return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [{ id: 'menu-0', name: 'カット' }, { id: 'menu-1', name: 'カラー' }], error: null }) }) };
+      } else if (table === 'staff_profiles') {
+        return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [{ id: 'staff-0', name: '田中' }, { id: 'staff-1', name: '佐藤' }], error: null }) }) };
       } else if (table === 'sent_reminders') {
         return {
           upsert: mockRemindersUpsert,
@@ -172,7 +179,7 @@ describe('GET /api/cron/booking-reminder', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 eq: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({
+                  range: jest.fn().mockResolvedValue({
                     data: [
                       {
                         id: 'booking-no-email',
@@ -265,6 +272,7 @@ describe('GET /api/cron/booking-reminder', () => {
       from: jest.fn((table: string) => {
         if (table === 'bookings') return { select: mockBookingsSelect };
         if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'facility_menus' || table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
         if (table === 'sent_reminders') {
           return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
         }
@@ -275,6 +283,32 @@ describe('GET /api/cron/booking-reminder', () => {
 
     const json = await res.json();
     expect(json.skipped).toBeGreaterThan(0);
+  });
+
+  test('menu_ids配列＋メニュー/担当取得が null → メニュー名空で送信（分岐網羅）', async () => {
+    setupDefaultMocks(1);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  range: jest.fn().mockResolvedValue({ data: [{ id: 'bk-m', customer_name: 'M', email: 'm@e.com', booking_date: '2026-05-16', start_time: '09:00', end_time: '10:00', facility_id: 'fac-0', total_price: 5000, menu_id: null, menu_ids: ['m1', 'm2'], staff_id: 's1' }], error: null }),
+                }),
+              }),
+            }),
+          };
+        }
+        if (table === 'facility_profiles') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'Salon A' }], error: null }) }) };
+        if (table === 'facility_menus' || table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: null, error: null }) }) };
+        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSendBookingReminder).toHaveBeenCalled();
   });
 
   test('facility name lookup by facility_id', async () => {
@@ -345,7 +379,7 @@ describe('GET /api/cron/booking-reminder', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 eq: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+                  range: jest.fn().mockResolvedValue({ data: null, error: null }),
                 }),
               }),
             }),
@@ -369,6 +403,7 @@ describe('GET /api/cron/booking-reminder', () => {
       from: jest.fn((table: string) => {
         if (table === 'bookings') return { select: mockBookingsSelect };
         if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'facility_menus' || table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
         if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
       }),
     });
@@ -388,7 +423,7 @@ describe('GET /api/cron/booking-reminder', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 eq: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({
+                  range: jest.fn().mockResolvedValue({
                     data: [{
                       id: 'b-1',
                       customer_name: 'C',
@@ -406,6 +441,7 @@ describe('GET /api/cron/booking-reminder', () => {
           };
         }
         if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'facility_menus' || table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
         if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
       }),
     });
@@ -430,6 +466,7 @@ describe('GET /api/cron/booking-reminder', () => {
       from: jest.fn((table: string) => {
         if (table === 'bookings') return { select: mockBookingsSelect };
         if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+        if (table === 'facility_menus' || table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
         if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
       }),
     });

@@ -625,4 +625,23 @@ describe('POST /api/admin/booking-status - notifications', () => {
       })
     );
   });
+
+  test('email が null の予約（店頭/電話）→ 200・メール送信はスキップ', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: { ...bookingBase, email: null, user_id: null, status: 'pending' } });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(200);
+    await Promise.resolve();
+    // 宛先が無いため確定メールは送られない
+    expect(sendBookingConfirmed).not.toHaveBeenCalled();
+  });
 });

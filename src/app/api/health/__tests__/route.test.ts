@@ -24,6 +24,8 @@ function setupDefaultMocks(opts: {
   rateLimitOk?: boolean;
   stripeOk?: boolean;
   resendOk?: boolean;
+  payjpOk?: boolean;
+  storageOk?: boolean;
   supabaseThrows?: boolean;
 } = {}) {
   const {
@@ -31,6 +33,8 @@ function setupDefaultMocks(opts: {
     rateLimitOk = true,
     stripeOk = true,
     resendOk = true,
+    payjpOk = true,
+    storageOk = true,
     supabaseThrows = false,
   } = opts;
 
@@ -56,13 +60,17 @@ function setupDefaultMocks(opts: {
   }
   createServiceRoleClient.mockReturnValue({
     rpc: mockRpc,
+    storage: { listBuckets: jest.fn().mockResolvedValue({ data: storageOk ? [] : null, error: storageOk ? null : { message: 'storage down' } }) },
   });
 
-  // Fetch mock for Stripe + Resend
+  // Fetch mock for Stripe + Resend + PAY.JP
   global.fetch = jest.fn(async (url: string | URL | Request) => {
     const u = url.toString();
     if (u.includes('stripe.com')) {
       return new Response(JSON.stringify({}), { status: stripeOk ? 200 : 500 });
+    }
+    if (u.includes('pay.jp')) {
+      return new Response(JSON.stringify({}), { status: payjpOk ? 200 : 500 });
     }
     if (u.includes('resend.com')) {
       return new Response(null, { status: resendOk ? 200 : 401 });
@@ -73,6 +81,7 @@ function setupDefaultMocks(opts: {
   // env defaults
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
   process.env.RESEND_API_KEY = 're_test_dummy';
+  process.env.PAYJP_SECRET_KEY = 'sk_test_payjp_dummy';
 }
 
 beforeEach(() => {
@@ -114,6 +123,37 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     const json = await res.json();
     expect(json.status).toBe('unhealthy');
     expect(json.deps.rate_limit.ok).toBe(false);
+  });
+
+  test('Supabase 初回失敗→即再試行成功 → 200（一過性スパイク吸収・retried フラグ・真の予防）', async () => {
+    // critical probe は失敗時に1回だけ再試行する。初回失敗・2回目成功なら 503 にならない。
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const limitMock = jest.fn()
+      .mockResolvedValueOnce({ error: { message: 'transient timeout' } }) // 1回目: 一過性失敗
+      .mockResolvedValueOnce({ error: null });                            // 2回目: 回復
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: limitMock }) }),
+    });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.deps.supabase.ok).toBe(true);
+    expect(json.deps.supabase.retried).toBe(true);
+    expect(limitMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('Supabase 2回とも失敗 → 503（持続的な実停止のみ unhealthy）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const limitMock = jest.fn().mockResolvedValue({ error: { message: 'sustained outage' } });
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: limitMock }) }),
+    });
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.deps.supabase.ok).toBe(false);
+    expect(json.deps.supabase.retried).toBe(true);
+    expect(limitMock).toHaveBeenCalledTimes(2);
   });
 
   test('Stripe NG のみ → 200 degraded (critical 維持)', async () => {
@@ -168,7 +208,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('each dep includes ok and elapsed_ms', async () => {
     const res = await GET();
     const json = await res.json();
-    for (const k of ['supabase', 'rate_limit', 'stripe', 'resend']) {
+    for (const k of ['supabase', 'rate_limit', 'stripe', 'resend', 'payjp', 'storage']) {
       expect(typeof json.deps[k].ok).toBe('boolean');
       expect(typeof json.deps[k].elapsed_ms).toBe('number');
     }
@@ -182,14 +222,60 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(typeof json.deps.rate_limit.error).toBe('string');
   });
 
-  test('Stripe 未設定 → stripe NG (not configured), degraded', async () => {
+  test('Stripe 未設定 → skipped（degraded にしない）', async () => {
     setupDefaultMocks();
     delete process.env.STRIPE_SECRET_KEY;
     const res = await GET();
     expect(res.status).toBe(200);
     const json = await res.json();
+    expect(json.status).toBe('healthy');
+    expect(json.deps.stripe.ok).toBe(true);
+    expect(json.deps.stripe.skipped).toBe(true);
+  });
+
+  test('PAY.JP NG のみ → 200 degraded', async () => {
+    setupDefaultMocks({ payjpOk: false });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
     expect(json.status).toBe('degraded');
-    expect(json.deps.stripe.ok).toBe(false);
+    expect(json.deps.payjp.ok).toBe(false);
+  });
+
+  test('PAY.JP 未設定 → skipped（degraded にしない）', async () => {
+    setupDefaultMocks();
+    delete process.env.PAYJP_SECRET_KEY;
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('healthy');
+    expect(json.deps.payjp.ok).toBe(true);
+    expect(json.deps.payjp.skipped).toBe(true);
+  });
+
+  test('PAY.JP 401 → payjp NG (unauthorized)', async () => {
+    setupDefaultMocks();
+    global.fetch = jest.fn(async (url: string | URL | Request) => {
+      const u = url.toString();
+      if (u.includes('pay.jp')) return new Response(null, { status: 401 });
+      if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('resend.com')) return new Response(null, { status: 200 });
+      return new Response(null, { status: 200 });
+    }) as unknown as typeof fetch;
+    const res = await GET();
+    const json = await res.json();
+    expect(json.deps.payjp.ok).toBe(false);
+    expect(json.deps.payjp.error).toContain('unauthorized');
+  });
+
+  test('Storage NG → 200 degraded', async () => {
+    setupDefaultMocks({ storageOk: false });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('degraded');
+    expect(json.deps.storage.ok).toBe(false);
+    expect(json.deps.storage.error).toBeDefined();
   });
 
   test('Resend 401 → resend NG', async () => {
@@ -235,6 +321,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('Resend 500+ → resend NG (HTTP error branch)', async () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
     process.env.RESEND_API_KEY = 're_test_dummy';
+    process.env.PAYJP_SECRET_KEY = 'sk_test_payjp_dummy';
     const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
@@ -243,10 +330,12 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     });
     createServiceRoleClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
+      storage: { listBuckets: jest.fn().mockResolvedValue({ data: [], error: null }) },
     });
     global.fetch = jest.fn(async (url: string | URL | Request) => {
       const u = url.toString();
       if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('pay.jp')) return new Response('{}', { status: 200 });
       if (u.includes('resend.com')) return new Response(null, { status: 503 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
@@ -259,6 +348,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('Resend 404 → resend OK (key valid even if 404)', async () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
     process.env.RESEND_API_KEY = 're_test_dummy';
+    process.env.PAYJP_SECRET_KEY = 'sk_test_payjp_dummy';
     const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
@@ -267,10 +357,12 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     });
     createServiceRoleClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
+      storage: { listBuckets: jest.fn().mockResolvedValue({ data: [], error: null }) },
     });
     global.fetch = jest.fn(async (url: string | URL | Request) => {
       const u = url.toString();
       if (u.includes('stripe.com')) return new Response('{}', { status: 200 });
+      if (u.includes('pay.jp')) return new Response('{}', { status: 200 });
       if (u.includes('resend.com')) return new Response(null, { status: 404 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
@@ -297,6 +389,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     });
     createServiceRoleClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
+      storage: { listBuckets: jest.fn().mockResolvedValue({ data: [], error: null }) },
     });
     const res = await GET();
     const json = await res.json();

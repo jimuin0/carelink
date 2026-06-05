@@ -156,11 +156,15 @@ export default async function FacilityPage(props: Props) {
     {
       key: 'qa',
       label: 'Q&A',
+      // クライアントで Q&A を取得するため、開いた時のみ描画（マウント時の無駄な取得を抑止）
+      lazy: true,
       content: <QASection facilityId={facility.id} />,
     },
     {
       key: 'review',
       label: `口コミ(${reviews.length})`,
+      // クライアントで Google 口コミを取得するため lazy。DB 口コミは JSON-LD(Review) で構造化送信済み
+      lazy: true,
       content: <ReviewTab facilityId={facility.id} facilitySlug={facility.slug} facilityName={facility.name} initialReviews={reviews} googlePlaceId={facility.gbp_place_id} />,
     },
     ...((facilitySymptoms.length > 0 || certifications.length > 0) ? [{

@@ -179,13 +179,17 @@ describe('getFacilityMenus', () => {
 describe('getFacilityPhotos', () => {
   test('写真一覧を返す', async () => {
     const photos = [{ id: 'p-1', url: 'https://example.com/1.jpg' }];
+    // getFacilityPhotos は .order('sort_order').order('created_at') の2段 → order は chainable、await で解決
     const chain = fluent(null);
-    chain.order = jest.fn(() => Promise.resolve({ data: photos, error: null }));
+    chain.order = jest.fn().mockReturnThis();
+    (chain as Record<string, unknown>).then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: photos, error: null }).then(resolve);
     mockFrom.mockReturnValue(chain);
 
     const result = await getFacilityPhotos('fac-1');
     expect(result.photos).toEqual(photos);
     expect(mockFrom).toHaveBeenCalledWith('facility_photos');
+    expect(chain.order).toHaveBeenCalledWith('sort_order', { ascending: true });
+    expect(chain.order).toHaveBeenCalledWith('created_at', { ascending: true });
   });
 });
 
@@ -235,7 +239,7 @@ describe('getMonthlyBookingCounts', () => {
       { facility_id: 'f-2' },
     ];
     const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: bookings }));
+    chain.range = jest.fn(() => Promise.resolve({ data: bookings }));
     mockFrom.mockReturnValue(chain);
 
     const result = await getMonthlyBookingCounts(['f-1', 'f-2']);
@@ -608,7 +612,8 @@ describe('null data fallbacks', () => {
 
   test('getFacilityPhotos: dataがnullのとき空配列', async () => {
     const chain = fluent(null);
-    chain.order = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    chain.order = jest.fn().mockReturnThis();
+    (chain as Record<string, unknown>).then = (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null, error: null }).then(resolve);
     mockFrom.mockReturnValue(chain);
     const result = await getFacilityPhotos('fac-1');
     expect(result.photos).toEqual([]);
@@ -631,7 +636,7 @@ describe('null data fallbacks', () => {
 
   test('getMonthlyBookingCounts: dataがnullのとき空オブジェクト', async () => {
     const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: null }));
+    chain.range = jest.fn(() => Promise.resolve({ data: null }));
     mockFrom.mockReturnValue(chain);
     const result = await getMonthlyBookingCounts(['f-1']);
     expect(result).toEqual({});
@@ -720,7 +725,8 @@ describe('null data fallbacks', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-12-15T00:00:00Z'));
     const chain = fluent(null);
-    chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
+    chain.lt = jest.fn(() => chain); // .lt 呼び出しを個別追跡（共有handlerだと .in 等と混ざるため）
+    chain.range = jest.fn(() => Promise.resolve({ data: [] }));
     mockFrom.mockReturnValue(chain);
     await getMonthlyBookingCounts(['f-1']);
     const ltCall = (chain.lt as jest.Mock).mock.calls[0];

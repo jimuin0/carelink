@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject } from '@/lib/email';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -35,13 +36,19 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id, name, slug')
-      .eq('status', 'published')
-      .limit(200);
+    // 全公開施設を全件ページング取得（旧 .limit(200) は201施設目以降がRFM分析対象外だった・scale監査）
+    const { rows: facilities } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_profiles')
+          .select('id, name, slug')
+          .eq('status', 'published')
+          .range(offset, offset + limit - 1);
+        return { data: data as { id: string; name: string; slug: string }[] | null, error };
+      },
+    );
 
-    if (!facilities) {
+    if (facilities.length === 0) {
       await logCronRun('customer-segment', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }
@@ -55,16 +62,24 @@ export async function GET(request: Request) {
     let skipped = 0;
 
     for (const facility of facilities) {
-      // 完了済み予約からメール別に集計（直近2年分、最大2000件）
-      const { data: bookings } = await supabase
-        .from('bookings')
-        .select('email, customer_name, booking_date, total_price, status')
-        .eq('facility_id', facility.id)
-        .in('status', ['completed', 'confirmed'])
-        .gte('booking_date', twoYearsAgo)
-        .limit(2000);
+      // 完了済み予約からメール別に集計（直近2年分・全件）。
+      // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
+      // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
+      type BookingRow = { email: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      const { rows: bookings } = await fetchAllPaged<BookingRow>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('bookings')
+            .select('email, customer_name, booking_date, total_price, status')
+            .eq('facility_id', facility.id)
+            .in('status', ['completed', 'confirmed'])
+            .gte('booking_date', twoYearsAgo)
+            .range(offset, offset + limit - 1);
+          return { data: data as BookingRow[] | null, error };
+        },
+      );
 
-      if (!bookings || bookings.length === 0) { skipped++; continue; }
+      if (bookings.length === 0) { skipped++; continue; }
 
       // メール別に集計
       const customerMap = new Map<string, {
@@ -170,7 +185,7 @@ export async function GET(request: Request) {
                 valid_until: validUntil,
               });
               if (couponErr) {
-                console.error('[customer-segment] coupon insert failed, skipping email', { email, error: couponErr });
+                console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
                 continue;
               }
 
@@ -192,7 +207,7 @@ export async function GET(request: Request) {
                   </p>
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
-              }).catch((err) => console.error('[customer-segment] email send failed', { email, err }));
+              }).catch((err) => console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err }));
             }
           }
         }

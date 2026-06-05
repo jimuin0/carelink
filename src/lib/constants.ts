@@ -1,4 +1,4 @@
-/* Stryker disable StringLiteral, ArrayDeclaration */
+/* Stryker disable StringLiteral, ArrayDeclaration, ObjectLiteral -- module-level const は perTest 被覆を特定テストに帰属できず生存扱いになる（値は constants.test の dayLabels 検証で実証済み）。Regex(下記)と同一クラスの被覆帰属アーティファクトのため除外 */
 export const prefectures = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
   '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
@@ -38,10 +38,19 @@ export const regionGroups = [
 
 export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 
+/** キャンセル系ステータス（枠を占有しない＝空き）。
+ * 占有/容量/空き/来店履歴の判定から除外する単一の真実源（round5 #状態機械-2）。
+ * cancel_fee_paid はキャンセル済み＋料金支払済で来店しない＝枠は空き。
+ * SQL 側は booking_status_occupies() 関数に同一定義を一元化している。 */
+export const NON_OCCUPYING_BOOKING_STATUSES = ['cancelled', 'no_show', 'cancel_fee_paid'] as const;
+/** PostgREST `.not('status','in', ...)` 用フィルタ文字列。配列から派生し定義の二重化を防ぐ。
+ * 例: ("cancelled","no_show","cancel_fee_paid") */
+export const NON_OCCUPYING_STATUS_FILTER = `(${NON_OCCUPYING_BOOKING_STATUSES.map((s) => `"${s}"`).join(',')})`;
+
 export const dayLabels: Record<string, string> = {
   mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日',
 };
-/* Stryker restore StringLiteral, ArrayDeclaration */
+/* Stryker restore StringLiteral, ArrayDeclaration, ObjectLiteral */
 
 /** UUID v4 validation pattern */
 /* Stryker disable Regex -- module-level const evaluated at init; perTest coverage can't attribute to specific tests; logic verified by UUID_REGEX.test() tests */
@@ -56,8 +65,18 @@ export function normalizeSiteUrl(raw: string | undefined): string {
   // 1. 先にtrim → 空白のみ文字列も falsy 扱いでデフォルトにフォールバック
   // 2. 末尾スラッシュ除去 → その後 trim（スラッシュ直前の空白を除去）
   // 3. 空文字になった場合（"/"のみ等）も再度デフォルトにフォールバック
-  const stripped = (raw?.trim() || 'https://carelink-jp.com').replace(/\/+$/, '').trim();
+  // 第1段は空文字フォールバックに留め、最終デフォルトは base（line below）に一本化する。
+  // （第1段を 'https://carelink-jp.com' にすると base 側のデフォルトと冗長になり等価変異を生む）
+  const stripped = (raw?.trim() || '').replace(/\/+$/, '').trim();
   const base = stripped || 'https://carelink-jp.com';
   return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
 export const SITE_URL = normalizeSiteUrl(process.env.NEXT_PUBLIC_BASE_URL);
+
+// 事業者情報の単一の正（Footer・特商法ページ・広告メールの送信者表記で共用）。
+// 以前 Footer(堺市) と特商法ページ(豊中市) で所在地が食い違っていた再発防止として一元化する。
+export const OPERATOR = {
+  name: '神原良祐',
+  // 特定電子メール法4条・特商法表記で用いる所在地。番地等の詳細は請求に応じ開示の運用。
+  address: '大阪府豊中市',
+} as const;

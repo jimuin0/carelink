@@ -172,7 +172,8 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
       const photo_urls: string[] = [];
       if (photos.length > 0) {
         for (const file of photos) {
-          const ext = file.name.split('.').pop() || 'jpg';
+          // 拡張子は検証済み MIME から導出（file.name 依存を排除・round6）
+          const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as Record<string, string>)[file.type] || 'jpg';
           const path = `reviews/${facilityId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
           const { error: uploadErr } = await sb.storage.from('review-photos').upload(path, file);
           if (!uploadErr) {

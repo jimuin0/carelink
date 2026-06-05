@@ -11,6 +11,12 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getTodayString } from '@/lib/validations-booking';
+
+/** 'YYYY-MM-DD' を UTC 正午アンカーの epoch(ms) に変換（時刻成分・TZ・DST の影響を排除した純暦日表現） */
+function dateToUtcNoon(ymd: string): number {
+  return Date.UTC(+ymd.slice(0, 4), +ymd.slice(5, 7) - 1, +ymd.slice(8, 10), 12);
+}
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-03-25.dahlia',
@@ -53,9 +59,12 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     .eq('facility_id', booking.facility_id)
     .single();
 
-  // Calculate cancellation fee
-  const daysUntil = Math.ceil(
-    (new Date(booking.booking_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
+  // Calculate cancellation fee — 予約日までの残日数は JST の暦日差で算出する。
+  // 以前は new Date('YYYY-MM-DD')(UTC0時) と Date.now()(UTC実時刻) の差を ceil していたため、
+  // JST 午前帯（UTC 前日）に実行すると残日数が +1 され、当日料が前日料になる等、料率が1段ズレた。
+  // getTodayString()(JST) と booking_date を共に UTC 正午アンカーの純暦日に変換して差を取る。
+  const daysUntil = Math.round(
+    (dateToUtcNoon(booking.booking_date.slice(0, 10)) - dateToUtcNoon(getTodayString())) / (1000 * 60 * 60 * 24)
   );
 
   let feePercent = 0;

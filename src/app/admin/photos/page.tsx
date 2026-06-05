@@ -72,7 +72,8 @@ export default function AdminPhotosPage() {
     setUploading(true);
     try {
       const supabase = createBrowserSupabaseClient();
-      const ext = file.name.split('.').pop() || 'jpg';
+      // 拡張子は検証済み MIME から導出（file.name 依存を排除・round6）
+      const ext = ({ 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp' } as Record<string, string>)[file.type] || 'jpg';
       const path = `facilities/${facilityId}/${Date.now()}.${ext}`;
 
       const { error: uploadError } = await supabase.storage

@@ -29,10 +29,13 @@ jest.mock('@supabase/ssr', () => ({
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({ from: mockAdminFrom }),
 }));
+const mockChargeCreate = jest.fn();
+jest.mock('@/lib/payjp', () => ({ getPayjp: jest.fn() }));
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { getPayjp } from '@/lib/payjp';
 
 function makeGetRequest() {
   return new NextRequest('http://localhost/api/admin/featured-ads', { method: 'GET' });
@@ -96,6 +99,123 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   delete process.env.STRIPE_SECRET_KEY; // dev mode: no Stripe
+  (getPayjp as jest.Mock).mockReturnValue(null); // 既定: PAY.JP 無効（既存テストは従来挙動）
+  mockChargeCreate.mockResolvedValue({ id: 'ch_ad_1', paid: true, captured: true, amount: 9800 });
+});
+
+// ─── PAY.JP 同期課金（Phase 3） ─────────────────────────────────────────────
+function deleteEq() {
+  return { delete: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+}
+const PAYJP_TOKEN = 'tok_adAbc123';
+
+test('POST: PAY.JP token課金成功 → 201 paid・is_active=true', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return updateEq(null); // activate
+  });
+  const res = await POST(makePostRequest(validPostBody({ token: PAYJP_TOKEN })));
+  const json = await res.json();
+  expect(res.status).toBe(201);
+  expect(json.paid).toBe(true);
+  expect(json.chargeId).toBe('ch_ad_1');
+  expect(mockChargeCreate).toHaveBeenCalledWith(expect.objectContaining({ amount: 9800, currency: 'jpy', card: PAYJP_TOKEN }));
+});
+
+test('POST: PAY.JP token 不正 → 400・スロット削除', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  const delChain = deleteEq();
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return delChain;
+  });
+  const res = await POST(makePostRequest(validPostBody({ token: 'bad' })));
+  expect(res.status).toBe(400);
+  expect(delChain.delete).toHaveBeenCalled();
+  expect(mockChargeCreate).not.toHaveBeenCalled();
+});
+
+test('POST: PAY.JP 課金throw → 402・スロット削除', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  mockChargeCreate.mockRejectedValue(new Error('card_declined'));
+  const delChain = deleteEq();
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return delChain;
+  });
+  const res = await POST(makePostRequest(validPostBody({ token: PAYJP_TOKEN })));
+  expect(res.status).toBe(402);
+  expect(delChain.delete).toHaveBeenCalled();
+});
+
+test('POST: PAY.JP 課金が非Errorをthrow → 402（String化経路）', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  mockChargeCreate.mockRejectedValue('plain_string');
+  const delChain = deleteEq();
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return delChain;
+  });
+  const res = await POST(makePostRequest(validPostBody({ token: PAYJP_TOKEN })));
+  expect(res.status).toBe(402);
+});
+
+test('POST: PAY.JP charge.paid=false → 402・スロット削除', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  mockChargeCreate.mockResolvedValue({ id: 'ch_x', paid: false, captured: false });
+  const delChain = deleteEq();
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return delChain;
+  });
+  const res = await POST(makePostRequest(validPostBody({ token: PAYJP_TOKEN })));
+  expect(res.status).toBe(402);
+  expect(delChain.delete).toHaveBeenCalled();
+});
+
+test('POST: PAY.JP 課金成立後の有効化失敗 → 500（chargeId返却）', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return updateEq({ message: 'db error' }); // activate fails
+  });
+  const res = await POST(makePostRequest(validPostBody({ token: PAYJP_TOKEN })));
+  const json = await res.json();
+  expect(res.status).toBe(500);
+  expect(json.chargeId).toBe('ch_ad_1');
+});
+
+test('POST: PAY.JP有効でも token無し → Stripe/devフォールバック（dev即時有効化）', async () => {
+  (getPayjp as jest.Mock).mockReturnValue({ charges: { create: mockChargeCreate } });
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    if (n === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+    return updateEq(null);
+  });
+  const res = await POST(makePostRequest(validPostBody())); // token 無し
+  expect(res.status).toBe(201);
+  expect(mockChargeCreate).not.toHaveBeenCalled(); // PAY.JP 課金は走らない
 });
 
 // ─── GET ──────────────────────────────────────────────────────────────────────

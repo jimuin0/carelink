@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus } from '@/lib/facilities';
 import { getStaffByFacility } from '@/lib/staff';
 import { getCouponsByFacility } from '@/lib/coupons';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import BookingFlow from '@/components/booking/BookingFlow';
 
 interface Props {
@@ -28,10 +29,21 @@ export default async function BookingPage(props: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [staff, { menus }, coupons] = await Promise.all([
+  const [staff, { menus }, coupons, hasIntake] = await Promise.all([
     getStaffByFacility(facility.id),
     getFacilityMenus(facility.id),
     getCouponsByFacility(facility.id),
+    // この施設に有効な問診票テンプレがあるかを確認し、完了画面の問診票導線表示に渡す（scale監査 #6・配線漏れ修正）
+    (async () => {
+      const supabase = createServerSupabaseClient();
+      const { data } = await supabase
+        .from('intake_form_templates')
+        .select('id')
+        .eq('facility_id', facility.id)
+        .eq('is_active', true)
+        .maybeSingle();
+      return !!data;
+    })(),
   ]);
 
   return (
@@ -45,6 +57,7 @@ export default async function BookingPage(props: Props) {
           staff={staff}
           menus={menus}
           coupons={coupons}
+          hasIntake={hasIntake}
         />
       </div>
     </div>

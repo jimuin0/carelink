@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { bookingSchema } from '@/lib/validations-booking';
+import { bookingSchema, getTodayString } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
@@ -10,6 +10,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
+import { NON_OCCUPYING_STATUS_FILTER } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
       .select('id')
       .eq('facility_id', parsed.data.facility_id)
       .eq('booking_date', parsed.data.booking_date)
-      .not('status', 'in', '("cancelled","no_show")')
+      .not('status', 'in', NON_OCCUPYING_STATUS_FILTER)
       .lt('start_time', parsed.data.end_time)
       .gt('end_time', parsed.data.start_time);
 
@@ -106,25 +107,69 @@ export async function POST(request: Request) {
       serverTotalPrice = menuRow.price;
       // Apply coupon discount if provided
       if (parsed.data.coupon_id) {
-        const nowIso = new Date().toISOString();
+        // valid_from/valid_until は DATE 列('YYYY-MM-DD')。日付粒度・JST で比較する
+        // （UTCタイムスタンプ文字列と比較すると当日が常に期限切れ判定になり、JST午前は前日にずれるため）。
+        const today = getTodayString();
         const { data: coupon } = await supabase
           .from('coupons')
-          .select('discount_type, discount_value, is_active, valid_from, valid_until')
+          // special_price 種別の金額は special_price 列に入る（discount_value は null）。必ず取得する（round3 #04/#05）
+          // coupon_type は対象者限定（新規/リピート）の確定層検証に使う（round4 #B）
+          .select('discount_type, discount_value, special_price, coupon_type, is_active, valid_from, valid_until')
           .eq('id', parsed.data.coupon_id)
           .eq('facility_id', parsed.data.facility_id)
           .single();
         // Validate coupon is active and within its validity window server-side
         const couponValid = coupon &&
           coupon.is_active === true &&
-          (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
-          (coupon.valid_until == null || coupon.valid_until >= nowIso);
+          (coupon.valid_from == null || coupon.valid_from <= today) &&
+          (coupon.valid_until == null || coupon.valid_until >= today);
         if (couponValid && serverTotalPrice != null) {
           if (coupon.discount_type === 'percentage') {
+            // 値欠落クーポンで NaN/null 価格が確定するのを防ぐ（欠落時は割引せず元価格を維持）
+            if (coupon.discount_value == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
             serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
           } else if (coupon.discount_type === 'fixed') {
+            if (coupon.discount_value == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
             serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
           } else if (coupon.discount_type === 'special_price') {
-            serverTotalPrice = coupon.discount_value;
+            // special_price 列を優先（旧データ互換で discount_value もフォールバック）。両方 null は不正設定で 400
+            const sp = coupon.special_price ?? coupon.discount_value;
+            if (sp == null) return NextResponse.json({ error: 'クーポン設定が不正です' }, { status: 400 });
+            serverTotalPrice = sp;
+          }
+          // クーポン適用条件のサーバ検証（表示層を信頼しない）。
+          // #A メニュー限定: coupon_menus に行があれば、予約メニューが全てその許可集合に含まれること。
+          const { data: cmRows, error: cmErr } = await supabase
+            .from('coupon_menus')
+            .select('menu_id')
+            .eq('coupon_id', parsed.data.coupon_id);
+          if (cmErr) return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+          const allowedMenuIds = new Set((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
+          if (allowedMenuIds.size > 0 && !menuIdsToPrice.every((id) => allowedMenuIds.has(id))) {
+            return NextResponse.json({ error: 'このクーポンは選択されたメニューには利用できません' }, { status: 400 });
+          }
+          // #B 種別限定: new_customer=ご来店履歴なし限定 / repeat=履歴あり限定。
+          // 履歴は施設単位の有効予約(キャンセル系=cancelled/no_show/cancel_fee_paid を除く)有無で判定。ログイン時は user_id、
+          // 未ログイン時は email（bookingSchema で email は必須のため guest でも常に突合可能）。
+          // RLS(顧客は他予約を読めない)に依存せず確実に読むためサービスロールを使用。
+          if (coupon.coupon_type === 'new_customer' || coupon.coupon_type === 'repeat') {
+            const eligClient = createServiceRoleClient();
+            const histQuery = eligClient
+              .from('bookings')
+              .select('id')
+              .eq('facility_id', parsed.data.facility_id)
+              .not('status', 'in', NON_OCCUPYING_STATUS_FILTER)
+              .eq(user ? 'user_id' : 'email', user ? user.id : parsed.data.email)
+              .limit(1);
+            const { data: histRows, error: histErr } = await histQuery;
+            if (histErr) return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+            const hasHistory = (histRows ?? []).length > 0;
+            if (coupon.coupon_type === 'new_customer' && hasHistory) {
+              return NextResponse.json({ error: 'このクーポンは新規のお客様限定です' }, { status: 400 });
+            }
+            if (coupon.coupon_type === 'repeat' && !hasHistory) {
+              return NextResponse.json({ error: 'このクーポンはご来店履歴のあるお客様限定です' }, { status: 400 });
+            }
           }
         } else {
           // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
@@ -162,9 +207,15 @@ export async function POST(request: Request) {
     }
   }
 
+  // 実際に控除するポイントは確定額(serverTotalPrice)を上限にクランプする（金銭バグ修正）。
+  // 確認画面でポイント設定後にクーポンを割引大へ変更すると、client が points_used を再クランプせず生値を
+  // 送るため、控除額が確定額を超えポイントが過剰消失していた。残高/認証チェックは要求値(pointsUsed)で行い、
+  // 控除・値引き・保存は確定額上限の pointsApplied を使う。
+  const pointsApplied = serverTotalPrice != null ? Math.min(pointsUsed, serverTotalPrice) : pointsUsed;
+
   // ポイント値引き反映
-  const finalPrice = serverTotalPrice != null && pointsUsed > 0
-    ? Math.max(0, serverTotalPrice - pointsUsed)
+  const finalPrice = serverTotalPrice != null && pointsApplied > 0
+    ? Math.max(0, serverTotalPrice - pointsApplied)
     : serverTotalPrice;
 
   // 施設の即時確定モード取得
@@ -195,7 +246,7 @@ export async function POST(request: Request) {
     p_phone: parsed.data.phone ?? null,
     p_note: parsed.data.note ?? null,
     p_total_price: finalPrice ?? null,
-    p_points_used: pointsUsed,
+    p_points_used: pointsApplied,
     p_status: bookingStatus,
   });
   void bookingData;
@@ -204,6 +255,17 @@ export async function POST(request: Request) {
     // BOOKING_CONFLICT raised by the RPC
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+    }
+    // 確定層ゲート（時間帯停止 #03/#09/#10・日別受付上限 #05/#46）。表示とのレースでも DB レベルで拒否される。
+    if (error.message?.includes('SUSPENDED')) {
+      return NextResponse.json({ error: 'この時間帯はネット予約の受付を停止しています' }, { status: 409 });
+    }
+    if (error.message?.includes('CAPACITY_FULL')) {
+      return NextResponse.json({ error: '本日のネット予約受付は上限に達しました' }, { status: 409 });
+    }
+    // 施設が非公開(draft/suspended)→ネット予約不可（確定層ゲート #03）
+    if (error.message?.includes('FACILITY_NOT_BOOKABLE')) {
+      return NextResponse.json({ error: 'この施設は現在ネット予約を受け付けていません' }, { status: 409 });
     }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
@@ -214,25 +276,49 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
 
+  // 複数メニュー予約の全メニューIDを構築（#1 根本対策・保存は成功確定後に末尾で実施）。
+  const allMenuIds: string[] = Array.isArray(parsed.data.menu_ids) && parsed.data.menu_ids.length > 0
+    ? parsed.data.menu_ids
+    : (parsed.data.menu_id ? [parsed.data.menu_id] : []);
+
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:
   // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
   // then verify the running balance is still non-negative.
   // If another concurrent request already deducted points (balance changed since snapshot),
   // roll back and cancel the booking.
-  if (pointsUsed > 0 && user && newBookingId) {
+  if (pointsApplied > 0 && user && newBookingId) {
     const serviceSupabase = createServiceRoleClient();
-    const { data: deductionRow } = await serviceSupabase
+    const { data: deductionRow, error: deductionErr } = await serviceSupabase
       .from('user_points')
       .insert({
         user_id: user.id,
-        points: -pointsUsed,
+        points: -pointsApplied,
         reason: `予約利用 (${newBookingId.slice(0, 8)})`,
       })
       .select('id')
       .single();
 
+    // 控除 insert が失敗したら、値引きは確定済み(finalPrice/points_used 保存済み)なのに台帳が減らず
+    // 「値引き＋ポイント据え置き」の二重特典になる。予約を取消して整合を保つ（発症前の根本対策 round6）。
+    if (deductionErr) {
+      const { error: cancelErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      /* istanbul ignore next */
+      if (cancelErr) console.error('[booking] points deduction insert failed AND booking cancel failed — manual cleanup', { bookingId: newBookingId, err: cancelErr });
+      console.error('[booking] points deduction insert failed — booking cancelled', { bookingId: newBookingId, err: deductionErr });
+      return NextResponse.json({ error: '予約に失敗しました（ポイント処理エラー）' }, { status: 500 });
+    }
+
     // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
+    const { data: recheck, error: recheckErr } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
+    // 残高検証クエリ自体が失敗したら recheck=null→newBalance=0 でガードが空振りするため、安全側で巻き戻す。
+    if (recheckErr) {
+      // deductionErr 時は上で早期 return 済みのため、ここでは deductionRow は常に存在（?. は防御的・false側は到達不可）
+      /* istanbul ignore next */
+      if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
+      await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      console.error('[booking] points recheck failed — rolled back deduction and booking', { bookingId: newBookingId, err: recheckErr });
+      return NextResponse.json({ error: '予約に失敗しました（ポイント処理エラー）' }, { status: 500 });
+    }
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (newBalance < 0) {
       // CAS failed: another concurrent request deducted points between our read and write.
@@ -254,14 +340,19 @@ export async function POST(request: Request) {
   try {
     const [facilityResult, menuResult, staffResult, ownerResult] = await Promise.all([
       supabase.from('facility_profiles').select('name, phone').eq('id', parsed.data.facility_id).single(),
-      parsed.data.menu_id
-        ? supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).eq('facility_id', parsed.data.facility_id).single()
+      // 複数メニューは全件取得して名前を結合表示する（先頭1件のみ表示の欠落を解消・#1）
+      allMenuIds.length > 0
+        ? supabase.from('facility_menus').select('name').in('id', allMenuIds).eq('facility_id', parsed.data.facility_id)
         : Promise.resolve({ data: null }),
       parsed.data.staff_id
         ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
         : Promise.resolve({ data: null }),
       supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner').single(),
     ]);
+
+    const menuNames = Array.isArray(menuResult.data)
+      ? (menuResult.data as { name: string }[]).map((m) => m.name).filter(Boolean)
+      : (menuResult.data ? [(menuResult.data as { name: string }).name] : []);
 
     const emailData = {
       customerName: parsed.data.customer_name,
@@ -270,7 +361,7 @@ export async function POST(request: Request) {
       bookingDate: parsed.data.booking_date,
       startTime: parsed.data.start_time,
       endTime: parsed.data.end_time,
-      menuName: menuResult.data?.name,
+      menuName: menuNames.length > 0 ? menuNames.join('、') : undefined,
       staffName: staffResult.data?.name,
       totalPrice: finalPrice ?? undefined,
       bookingId: newBookingId,
@@ -391,7 +482,26 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ success: true, bookingId: newBookingId });
+  // 複数メニューの全IDを保存（成功確定後の付随更新・best-effort。失敗しても primary menu_id は残る＝劣化なし）。
+  if (allMenuIds.length > 0) {
+    try {
+      const menuIdsAdmin = createServiceRoleClient();
+      const { error: menuIdsErr } = await menuIdsAdmin.from('bookings').update({ menu_ids: allMenuIds }).eq('id', newBookingId);
+      if (menuIdsErr) console.error('[booking] menu_ids update failed (non-fatal, primary menu_id retained)', { bookingId: newBookingId, err: menuIdsErr.message });
+    } catch (menuIdsEx) {
+      console.error('[booking] menu_ids update threw (non-fatal)', { bookingId: newBookingId, err: menuIdsEx instanceof Error ? menuIdsEx.message : String(menuIdsEx) });
+    }
+  }
+
+  // サーバ再計算した確定額を応答に返す（クライアント計算値との乖離を完了画面/呼び出し側で解消するため）。
+  // finalPrice=ポイント控除後の支払額, subtotal=控除前(クーポン/指名料込み), pointsApplied=実控除ポイント。
+  return NextResponse.json({
+    success: true,
+    bookingId: newBookingId,
+    totalPrice: finalPrice ?? null,
+    subtotal: serverTotalPrice ?? null,
+    pointsApplied,
+  });
   } catch (e) {
     safeCaptureException(e, 'booking');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

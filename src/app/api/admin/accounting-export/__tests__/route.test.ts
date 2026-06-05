@@ -61,6 +61,8 @@ function bookingQueryChain(data: unknown[], error: unknown = null) {
   chain.gte = jest.fn(self);
   chain.lte = jest.fn(self);
   chain.limit = jest.fn(() => Promise.resolve({ data, error }));
+  // .range() 全件ページング対応。テストデータは <1000 件のため1回で返し切る（length<PAGEでループ終了）。
+  chain.range = jest.fn(() => Promise.resolve({ data, error }));
   return chain;
 }
 
@@ -141,10 +143,10 @@ test('GET: CSVインジェクション防止 (= で始まる値は引用符付�
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: '=SUM(A1)',
     created_at: '2026-01-01T10:00:00Z',
-    menu_name: '=CMD|"calc"!A0',
-    total_amount: 5000,
+    menu: { name: '=CMD|"calc"!A0' },
+    total_price: 5000,
     status: 'completed',
-    profiles: { display_name: '=EVIL', email: 'test@example.com' },
+    customer_name: '=EVIL', email: 'test@example.com',
   }]));
 
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
@@ -162,10 +164,18 @@ test('GET: freee形式 → 200 text/csv + BOM', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'booking-1',
     created_at: '2026-01-15T10:00:00Z',
-    menu_name: 'カット',
-    total_amount: 3300,
+    menu: { name: 'カット' },
+    total_price: 3300,
     status: 'completed',
-    profiles: { display_name: '田中花子', email: null },
+    customer_name: '田中花子', email: null,
+  }, {
+    // menu が配列で返るケース（PostgREST 埋め込みは object/array 双方あり得る）
+    id: 'booking-2',
+    created_at: '2026-01-16T10:00:00Z',
+    menu: [{ name: 'カラー' }],
+    total_price: 8800,
+    status: 'completed',
+    customer_name: '鈴木一郎', email: 'suzuki@example.com',
   }]));
 
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee', from: '2026-01-01', to: '2026-01-31' }));
@@ -182,16 +192,37 @@ test('GET: mf形式 → 200 text/csv', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'booking-1',
     created_at: '2026-01-15T10:00:00Z',
-    menu_name: 'カラー',
-    total_amount: 8800,
+    menu: [{ name: 'カラー' }],
+    total_price: 8800,
     status: 'confirmed',
-    profiles: null,
+    customer_name: null, email: null,
   }]));
 
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'mf' }));
   expect(res.status).toBe(200);
   const csv = await res.text();
   expect(csv).toContain('借方勘定科目'); // MF header
+});
+
+test('GET: 1000件超は .range() で全ページ取得（5000打ち切り解消）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  // 1ページ目=1000件（PAGE と同数→継続）、2ページ目=空（終了）
+  const fullPage = Array.from({ length: 1000 }, (_, i) => ({
+    id: `b${i}`, created_at: '2026-01-01T10:00:00Z', customer_name: `客${i}`, email: null, total_price: 1000, status: 'completed', menu: { name: 'カット' },
+  }));
+  let rangeCall = 0;
+  const chain: Record<string, jest.Mock> = {};
+  const self = () => chain;
+  chain.select = jest.fn(self); chain.eq = jest.fn(self); chain.in = jest.fn(self);
+  chain.order = jest.fn(self); chain.gte = jest.fn(self); chain.lte = jest.fn(self);
+  chain.range = jest.fn(() => { rangeCall++; return Promise.resolve({ data: rangeCall === 1 ? fullPage : [], error: null }); });
+  mockAdminFrom.mockReturnValue(chain);
+
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  expect(rangeCall).toBeGreaterThanOrEqual(2); // 2ページ目まで取得＝継続分岐を通過
+  const csv = await res.text();
+  expect(csv.split('\n').length).toBeGreaterThan(1000); // 1000行＋ヘッダ
 });
 
 test('GET: レートリミット params', async () => {
@@ -210,10 +241,10 @@ test('GET: generic形式 → 200', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b1',
     created_at: '2026-01-01T10:00:00Z',
-    menu_name: 'カット',
-    total_amount: 3300,
+    menu: [{ name: 'カット' }],
+    total_price: 3300,
     status: 'completed',
-    profiles: { display_name: '山田太郎', email: 'yamada@example.com' },
+    customer_name: '山田太郎', email: 'yamada@example.com',
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
@@ -258,10 +289,10 @@ test('GET: メニュー名にカンマを含む値は引用符で囲まれる（
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b-comma',
     created_at: '2026-03-01T09:00:00Z',
-    menu_name: 'カット,カラー',
-    total_amount: 5500,
+    menu: { name: 'カット,カラー' },
+    total_price: 5500,
     status: 'completed',
-    profiles: { display_name: '佐藤,次郎', email: 'sato@example.com' },
+    customer_name: '佐藤,次郎', email: 'sato@example.com',
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
@@ -294,10 +325,10 @@ test('GET: freee形式 profiles配列・null値フィールド', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b1',
     created_at: '2026-01-01T10:00:00Z',
-    menu_name: null,
-    total_amount: null,
+    menu: null,
+    total_price: null,
     status: 'completed',
-    profiles: [{ display_name: null, email: null }],
+    customer_name: null, email: null,
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'freee' }));
   expect(res.status).toBe(200);
@@ -310,10 +341,10 @@ test('GET: mf形式 fromなし・null値フィールド', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b1',
     created_at: '2026-01-01T10:00:00Z',
-    menu_name: null,
-    total_amount: null,
+    menu: null,
+    total_price: null,
     status: 'confirmed',
-    profiles: [{ display_name: null }],
+    customer_name: null,
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'mf' }));
   expect(res.status).toBe(200);
@@ -325,10 +356,10 @@ test('GET: generic形式 fromなし・null値フィールド', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b1',
     created_at: '2026-01-01T10:00:00Z',
-    menu_name: null,
-    total_amount: null,
+    menu: null,
+    total_price: null,
     status: 'completed',
-    profiles: [{ display_name: null, email: null }],
+    customer_name: null, email: null,
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
@@ -358,10 +389,10 @@ test('GET: CSV値にカンマ/引用符/改行 → 引用符で囲まれエス�
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b-quote',
     created_at: '2026-01-01T10:00:00Z',
-    menu_name: 'メ"ニュ,ー\n改行',
-    total_amount: 1000,
+    menu: { name: 'メ"ニュ,ー\n改行' },
+    total_price: 1000,
     status: 'completed',
-    profiles: { display_name: 'カンマ,テスト', email: 'a@b.c' },
+    customer_name: 'カンマ,テスト', email: 'a@b.c',
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);
@@ -404,10 +435,11 @@ test('GET: generic形式 profiles未定義 → csvEscape の ?? \'\' false分岐
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'b-undef',
     created_at: '2026-04-01T10:00:00Z',
-    menu_name: undefined,
-    total_amount: undefined,
+    menu: undefined,
+    total_price: undefined,
     status: 'completed',
-    profiles: undefined,
+    customer_name: undefined,
+    email: undefined,
   }]));
   const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
   expect(res.status).toBe(200);

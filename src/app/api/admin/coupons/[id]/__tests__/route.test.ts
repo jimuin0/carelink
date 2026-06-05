@@ -10,6 +10,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/revalidate', () => ({ revalidateFacilityById: jest.fn(), revalidateFacilityPublicPages: jest.fn() }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
@@ -21,12 +22,13 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockAdminFrom = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
+const mockStorageRemove = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, storage: { from: () => ({ remove: mockStorageRemove }) } }),
 }));
 
 import { PATCH, DELETE } from '../route';
@@ -128,6 +130,12 @@ test('PATCH: percentage discount_value = 100 → 200 (境界値)', async () => {
   expect(res.status).toBe(200);
 });
 
+test('PATCH: valid_from > valid_until → 400（有効期間の前後 refine・round3 #17）', async () => {
+  setupOwnership();
+  const res = await PATCH(makeRequest('PATCH', { valid_from: '2026-08-01', valid_until: '2026-07-01' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
 test('PATCH: fixed discount_value > 100 は許可', async () => {
   setupOwnership();
   const res = await PATCH(makeRequest('PATCH', { discount_type: 'fixed', discount_value: 5000 }), makeProps());
@@ -201,9 +209,12 @@ test('DELETE: DELETEのWHEREにfacility_idが含まれ成功 → 200', async () 
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
   const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
 
+  // pre-delete: image_url 取得（null → Storage削除なし）
+  const imgChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { image_url: null } })) }) }) }) };
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return imgChain;
     return { delete: deleteMock };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
@@ -216,11 +227,25 @@ test('DELETE: DELETEのWHEREにfacility_idが含まれ成功 → 200', async () 
   expect(innerEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
 });
 
+test('DELETE: image_url が carelink-uploads → Storage実体も削除(#06)', async () => {
+  mockStorageRemove.mockClear();
+  let n = 0;
+  const imgChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { image_url: 'https://x.supabase.co/storage/v1/object/public/carelink-uploads/coupons/c.jpg' } })) }) }) }) };
+  const delChain = { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+  mockAdminFrom.mockImplementation(() => { n++; if (n === 1) return singleChain({ facility_id: FACILITY_UUID }); if (n === 2) return imgChain; return delChain; });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
+  expect(mockStorageRemove).toHaveBeenCalledWith(['coupons/c.jpg']);
+});
+
 test('DELETE: DB削除失敗 → 500', async () => {
   let adminCallNum = 0;
+  const imgChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { image_url: null } })) }) }) }) };
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return imgChain;
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
@@ -317,4 +342,37 @@ test('PATCH: クーポンが存在しない → verifyCouponAdmin null → 401�
   mockAdminFrom.mockReturnValue(singleChain(null));
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(401);
+});
+
+// ─── 拡張カラム不在フォールバック（PATCH） ────────────────────────────────────
+test('PATCH: 拡張カラム不在(PGRST204)なら除外して再試行し 200', async () => {
+  let adminCallNum = 0;
+  const updateChain = (error: unknown) => ({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: error ? null : { id: COUPON_UUID }, error })),
+          }),
+        }),
+      }),
+    }),
+  });
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return updateChain({ code: 'PGRST204', message: 'column does not exist' });
+    return updateChain(null);
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { presentation_timing: '来店時' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(adminCallNum).toBe(3);
+});
+
+// ─── 有効期限の実在日チェック（#8・PATCH） ────────────────────────────────────
+test('PATCH: valid_until が不正日付(2026-04-31) → 400', async () => {
+  setupOwnership();
+  const res = await PATCH(makeRequest('PATCH', { valid_until: '2026-04-31' }), makeProps());
+  expect(res.status).toBe(400);
 });

@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { createServerSupabaseClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
+import { fetchAllPaged } from './paginate';
 
 const PER_PAGE = 20;
 
@@ -32,7 +33,9 @@ export async function searchFacilities(params: SearchParams) {
   if (params.prefecture) query = query.eq('prefecture', params.prefecture);
   if (params.city) query = query.eq('city', params.city);
   if (params.keyword) {
-    const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&');
+    // LIKE ワイルドカード(%_\)をエスケープし、さらに .or() の条件区切り , とグループ () を除去して
+    // フィルタ注入を防ぐ（round5 #zod-2。v1/customers と同形の防御）。
+    const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&').replace(/[,()]/g, '');
     query = query.or(
       `name.ilike.%${escaped}%,catch_copy.ilike.%${escaped}%,description.ilike.%${escaped}%,city.ilike.%${escaped}%,nearest_station.ilike.%${escaped}%`
     );
@@ -123,8 +126,11 @@ export async function getFeaturedFacilities(businessType?: string, area?: string
     .gte('ends_at', now)
     .limit(3);
 
-  if (businessType) query = query.or(`business_type.eq.${businessType},business_type.is.null`);
-  if (area) query = query.or(`area.eq.${area},area.is.null`);
+  // type/area は検索ページの生URLクエリが渡る。.or() テンプレートへ直結するため、
+  // 条件区切り , とグループ () を除去し長さも制限してフィルタ注入を防ぐ（round5 #zod-1）。
+  const safeOrValue = (v: string) => v.slice(0, 50).replace(/[,()]/g, '');
+  if (businessType) query = query.or(`business_type.eq.${safeOrValue(businessType)},business_type.is.null`);
+  if (area) query = query.or(`area.eq.${safeOrValue(area)},area.is.null`);
 
   const { data } = await query;
   return (data || [])
@@ -159,7 +165,9 @@ export async function getFacilityPhotos(facilityId: string) {
     .from('facility_photos')
     .select('*')
     .eq('facility_id', facilityId)
-    .order('sort_order');
+    // sort_order が同値（旧データ・複数 photo_type の共有空間）でも順序を決定的にする二次キー（管理GETと対称）
+    .order('sort_order', { ascending: true })
+    .order('created_at', { ascending: true });
   return { photos: (data || []) as FacilityPhoto[], error };
 }
 
@@ -339,16 +347,23 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
     ? `${year + 1}-01-01`
     : `${year}-${String(now.getMonth() + 2).padStart(2, '0')}-01`;
 
-  const { data } = await supabase
-    .from('bookings')
-    .select('facility_id')
-    .in('facility_id', facilityIds)
-    .in('status', ['pending', 'confirmed', 'completed'])
-    .gte('booking_date', monthStart)
-    .lt('booking_date', nextMonth);
+  // 当月の予約を全件ページングで取得（PostgREST db-max-rows(1000) による過少カウントを防ぐ・round6）。
+  const { rows: data } = await fetchAllPaged<{ facility_id: string }>(
+    async (offset, limit) => {
+      const { data: page, error } = await supabase
+        .from('bookings')
+        .select('facility_id')
+        .in('facility_id', facilityIds)
+        .in('status', ['pending', 'confirmed', 'completed'])
+        .gte('booking_date', monthStart)
+        .lt('booking_date', nextMonth)
+        .range(offset, offset + limit - 1);
+      return { data: page as { facility_id: string }[] | null, error };
+    },
+  );
 
   const counts: Record<string, number> = {};
-  for (const row of data || []) {
+  for (const row of data) {
     counts[row.facility_id] = (counts[row.facility_id] || 0) + 1;
   }
   return counts;

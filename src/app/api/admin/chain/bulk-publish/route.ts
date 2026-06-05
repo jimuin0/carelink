@@ -9,6 +9,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { inMemoryRateLimit } from '@/lib/rate-limit';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { revalidateFacilityPublicPages } from '@/lib/revalidate';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -47,19 +48,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   }
 
-  const { error } = await admin
+  // 公開判定の権威カラムは status='published'。is_published は read 経路が参照しないため、
+  // status を更新する（旧実装は is_published のみ更新で公開状態が一切変わらない no-op だった・scale監査）。
+  const newStatus = is_published ? 'published' : 'suspended';
+  const { data: updated, error } = await admin
     .from('facility_profiles')
-    .update({ is_published, updated_at: new Date().toISOString() })
-    .in('id', facility_ids);
+    .update({ status: newStatus, is_published, updated_at: new Date().toISOString() })
+    .in('id', facility_ids)
+    .select('slug');
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  // 各施設の公開ページ(ISR)を即時再検証（単体トグルと同様・反映漏れ防止）
+  for (const row of updated ?? []) {
+    revalidateFacilityPublicPages((row as { slug?: string }).slug);
+  }
 
   const { ip: auditIp, ua } = getRequestContext(req);
   void writeAuditLog({
     userId: user.id,
     action: 'update',
     tableName: 'facility_profiles',
-    newValues: { is_published, facility_ids, count: facility_ids.length },
+    newValues: { status: newStatus, is_published, facility_ids, count: facility_ids.length },
     ipAddress: auditIp,
     userAgent: ua,
   });

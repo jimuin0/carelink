@@ -64,7 +64,8 @@ export async function POST(req: NextRequest) {
   }
 
   // Generate OAuth2 authorization URL with CSRF-safe state
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
+  // 他の base-URL 系と同様にデフォルトを持たせる（未設定だと "undefined/..." になり OAuth が常に失敗していた）
+  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL ?? 'https://carelink-jp.com'}/api/google-calendar/callback`;
   const nonce = crypto.randomBytes(32).toString('hex');
   const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now(), nonce })).toString('base64url');
 

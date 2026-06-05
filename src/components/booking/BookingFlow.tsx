@@ -13,9 +13,10 @@ interface Props {
   staff: StaffProfile[];
   menus: FacilityMenu[];
   coupons: Coupon[];
+  hasIntake?: boolean;
 }
 
-export default function BookingFlow({ facility, staff, menus, coupons }: Props) {
+export default function BookingFlow({ facility, staff, menus, coupons, hasIntake = false }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
   const [selectedMenus, setSelectedMenus] = useState<FacilityMenu[]>([]);
@@ -31,6 +32,15 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const [note, setNote] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // a11y: 検証エラー時に対象フィールドへフォーカス移動＋aria-invalid を立てる（scale監査 #7）
+  const [fieldError, setFieldError] = useState<{ field: 'name' | 'email' | 'phone'; message: string } | null>(null);
+
+  const focusField = (id: string) => {
+    if (typeof document === 'undefined') return;
+    const el = document.getElementById(id) as HTMLElement | null;
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el?.focus({ preventScroll: true });
+  };
 
   // Pre-fill from user profile
   useEffect(() => {
@@ -123,13 +133,30 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
   const handleSubmit = async () => {
     if (submitting) return;
     if (!customerName || !email) {
-      setToast({ type: 'error', message: 'お名前とメールアドレスは必須です' });
+      const which = !customerName ? 'name' : 'email';
+      const message = 'お名前とメールアドレスは必須です';
+      setFieldError({ field: which, message });
+      setToast({ type: 'error', message });
+      focusField(which === 'name' ? 'booking-name' : 'booking-email');
       return;
     }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      setToast({ type: 'error', message: '正しいメールアドレスを入力してください' });
+      const message = '正しいメールアドレスを入力してください';
+      setFieldError({ field: 'email', message });
+      setToast({ type: 'error', message });
+      focusField('booking-email');
       return;
     }
+    // 電話番号は任意だが、入力時はサーバ(validations-booking)と同じ形式で先に検証し、
+    // 確認画面での汎用400(「リクエストが不正です」)による離脱を防ぐ。
+    if (phone && !/^0\d{1,4}-?\d{1,4}-?\d{3,4}$/.test(phone)) {
+      const message = '正しい電話番号を入力してください（例: 090-1234-5678）';
+      setFieldError({ field: 'phone', message });
+      setToast({ type: 'error', message });
+      focusField('booking-phone');
+      return;
+    }
+    setFieldError(null);
     setSubmitting(true);
 
     try {
@@ -150,7 +177,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           phone: phone || null,
           note: note || null,
           total_price: calculatePrice(),
-          points_used: usePoints && pointsToUse > 0 ? pointsToUse : undefined,
+          // 確定額にクランプして送信（クーポン変更後の過剰ポイント送信を防ぐ。サーバ側でも再クランプ）
+          points_used: usePoints && pointsToUse > 0 ? Math.min(pointsToUse, calculatePrice() ?? 0) : undefined,
         }),
         signal: AbortSignal.timeout(15000),
       });
@@ -164,6 +192,8 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           end_time: selectedSlot?.slot_end || '',
           facility: facility.name || '',
         });
+        // 問診票テンプレがある施設では完了画面に問診票導線を出す（has_intake 配線漏れ修正・scale監査 #6）
+        if (hasIntake) completeParams.set('has_intake', '1');
         router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
       } else {
         const body = await res.json().catch(() => null);
@@ -483,6 +513,9 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               if (finalPrice === null) return null;
               const menuTotal = selectedMenus.reduce((s, m) => s + (m.price || 0), 0);
               const hasCouponDiscount = selectedCoupon && menuTotal > finalPrice;
+              // ポイント控除を確定額に織り込む（サマリーの「合計」と下部「お支払い金額」の齟齬を解消・確定額を1か所に集約）
+              const appliedPoints = usePoints && pointsToUse > 0 ? Math.min(pointsToUse, finalPrice) : 0;
+              const payable = finalPrice - appliedPoints;
               return (
                 <div className="border-t border-sky-200 pt-2 mt-2 space-y-1">
                   {hasCouponDiscount && (
@@ -492,9 +525,21 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                     </div>
                   )}
                   <div className="flex justify-between">
-                    <span className="font-bold">{hasCouponDiscount ? 'クーポン適用後' : '合計金額'}</span>
-                    <span className="font-bold text-lg text-red-500">¥{finalPrice.toLocaleString()}</span>
+                    <span className={appliedPoints > 0 ? 'text-gray-500' : 'font-bold'}>{hasCouponDiscount ? 'クーポン適用後' : '小計'}</span>
+                    <span className={appliedPoints > 0 ? 'text-gray-500' : 'font-bold text-lg text-red-500'}>¥{finalPrice.toLocaleString()}</span>
                   </div>
+                  {appliedPoints > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">ポイント利用</span>
+                      <span className="text-red-500">-¥{appliedPoints.toLocaleString()}</span>
+                    </div>
+                  )}
+                  {appliedPoints > 0 && (
+                    <div className="flex justify-between border-t border-sky-200 pt-1.5 mt-1">
+                      <span className="font-bold">お支払い金額</span>
+                      <span className="font-bold text-lg text-red-500">¥{payable.toLocaleString()}</span>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -508,37 +553,52 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
               <input
                 id="booking-name"
                 value={customerName}
-                onChange={(e) => setCustomerName(e.target.value)}
+                onChange={(e) => { setCustomerName(e.target.value); if (fieldError?.field === 'name') setFieldError(null); }}
                 className="form-input"
                 placeholder="山田 太郎"
                 aria-required="true"
+                aria-invalid={fieldError?.field === 'name' || undefined}
+                aria-describedby={fieldError?.field === 'name' ? 'booking-name-error' : undefined}
                 maxLength={50}
               />
+              {fieldError?.field === 'name' && (
+                <p id="booking-name-error" role="alert" className="text-sm text-red-600 mt-1">{fieldError.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="booking-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
               <input
                 id="booking-email"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => { setEmail(e.target.value); if (fieldError?.field === 'email') setFieldError(null); }}
                 type="email"
                 className="form-input"
                 placeholder="example@email.com"
                 aria-required="true"
+                aria-invalid={fieldError?.field === 'email' || undefined}
+                aria-describedby={fieldError?.field === 'email' ? 'booking-email-error' : undefined}
                 maxLength={254}
               />
+              {fieldError?.field === 'email' && (
+                <p id="booking-email-error" role="alert" className="text-sm text-red-600 mt-1">{fieldError.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="booking-phone" className="form-label">電話番号</label>
               <input
                 id="booking-phone"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => { setPhone(e.target.value); if (fieldError?.field === 'phone') setFieldError(null); }}
                 type="tel"
                 className="form-input"
                 placeholder="090-1234-5678"
+                aria-invalid={fieldError?.field === 'phone' || undefined}
+                aria-describedby={fieldError?.field === 'phone' ? 'booking-phone-error' : undefined}
                 maxLength={20}
               />
+              {fieldError?.field === 'phone' && (
+                <p id="booking-phone-error" role="alert" className="text-sm text-red-600 mt-1">{fieldError.message}</p>
+              )}
             </div>
             <div>
               <label htmlFor="booking-note" className="form-label">備考</label>
@@ -579,7 +639,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                   </div>
                 )}
                 {usePoints && pointsToUse > 0 && (
-                  <p className="text-sm font-bold">お支払い金額: ¥{(currentPrice - pointsToUse).toLocaleString()}</p>
+                  <p className="text-sm font-bold">お支払い金額: ¥{Math.max(0, currentPrice - Math.min(pointsToUse, currentPrice)).toLocaleString()}</p>
                 )}
               </div>
             );
