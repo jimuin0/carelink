@@ -49,21 +49,28 @@ jobs:
           name: coverage-report
           path: coverage/
           retention-days: 30
-      - name: Coverage Gate（80%未満で失敗）
+      - name: Coverage Gate（行95%・branch99%未満で失敗＝L3退行を発症前ブロック）
+        # 旧ゲートは「Lines 80%未満で失敗」のみで、branch カバレッジが未ゲートだった。実測は
+        # Lines 99.5%超 / Branch 99.8%超なのに 80% 床では、テスト皆無の新規コードが混入しても CI が通り
+        # プロジェクトの L3 基準（branch 100%）が手動規律頼み＝必ず退行する穴になっていた。
+        # 行＋ブランチ両方に現実値直下の床を設けて、全 PR で意味ある退行を自動的に止める（真の予防）。
         run: |
-          LINES=$(cat coverage/coverage-summary.json 2>/dev/null | python3 -c "
+          python3 - <<'PY'
           import sys, json
-          d = json.load(sys.stdin)
-          total = d.get('total', {})
-          lines = total.get('lines', {}).get('pct', 0)
-          print(lines)
-          " 2>/dev/null || echo "0")
-          echo "Line coverage: ${LINES}%"
-          if (( $(echo "$LINES < 80" | bc -l) )); then
-            echo "❌ カバレッジが 80% を下回っています: ${LINES}%"
-            exit 1
-          fi
-          echo "✅ カバレッジ OK: ${LINES}%"
+          d = json.load(open('coverage/coverage-summary.json'))
+          t = d.get('total', {})
+          lines = t.get('lines', {}).get('pct', 0)
+          branches = t.get('branches', {}).get('pct', 0)
+          print(f"Line coverage: {lines}%  /  Branch coverage: {branches}%")
+          fail = False
+          if lines < 95:
+              print(f"❌ 行カバレッジが 95% 未満です: {lines}%"); fail = True
+          if branches < 99:
+              print(f"❌ ブランチカバレッジが 99% 未満です: {branches}%"); fail = True
+          if fail:
+              sys.exit(1)
+          print("✅ カバレッジ OK（行・ブランチ両方が床を満たす）")
+          PY
 
   e2e-test:
     name: E2E Tests (Playwright)
