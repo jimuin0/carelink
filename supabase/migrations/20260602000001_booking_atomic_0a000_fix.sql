@@ -97,5 +97,7 @@ BEGIN
 END;
 $$;
 
--- API（anon / authenticated）から呼べるよう EXECUTE を再付与（冪等）。
-GRANT EXECUTE ON FUNCTION create_booking_atomic TO anon, authenticated;
+-- 注: 後続の GRANT は 20260602000007_booking_atomic_0a000_grant.sql へ分離した。
+-- 「引数付き CREATE FUNCTION の直後に別文が続く」と CLI 2.75.0 系の文分割器が 42601 を
+-- 起こす（2.104.0 で修正済）ため、CLI バージョン非依存にする目的。本ファイルは関数定義
+-- （末尾＝最終文）のみを保持する。

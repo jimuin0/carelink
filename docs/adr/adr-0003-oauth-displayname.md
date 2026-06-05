@@ -47,6 +47,6 @@ VALUES (
 2. **OAuth provider 毎に別テーブル**: 過剰設計。
 
 ## References
-- Migration: `supabase/migrations/20260524_oauth_displayname.sql`
+- Migration: `supabase/migrations/20260524000002_oauth_displayname.sql`
 - フロント修正: `src/components/auth/AuthButton.tsx:58-67`, `src/components/search/HomeUserPanel.tsx:60-68`, `src/components/booking/BookingFlow.tsx:38-46`, `src/app/mypage/page.tsx:25`
-- 別件で audit_logs 統合も同時実施: `supabase/migrations/20260524_audit_signup_salon.sql`
+- 別件で audit_logs 統合も同時実施: `supabase/migrations/20260524000001_audit_signup_salon.sql`

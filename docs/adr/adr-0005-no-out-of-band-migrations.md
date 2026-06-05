@@ -10,14 +10,14 @@ Status: Accepted
 **静かなスキーマドリフト**（本番と repo の乖離）が複数回顕在化した。確認できた事実:
 
 1. **`create_booking_atomic` の 0A000 landmine**
-   `supabase/migrations/20260420_booking_insert_rls.sql` の定義は競合チェックに
+   `supabase/migrations/20260420000003_booking_insert_rls.sql` の定義は競合チェックに
    `SELECT COUNT(*) ... FOR UPDATE` を持っていた。PostgreSQL は集約関数(COUNT)と
    FOR UPDATE の併用を `0A000`（FOR UPDATE is not allowed with aggregate functions）で
    **プラン時に常に**拒否する。本番は out-of-band で修正済みで動作していたが、repo には
    誤定義が残り、新規環境への replay で予約 API 全滅を再発させる状態だった。
 
 2. **`public_reviews` の `user_id` 42703**
-   `supabase/migrations/20260420_public_reviews_view.sql` が存在しない列 `user_id` を
+   `supabase/migrations/20260420000007_public_reviews_view.sql` が存在しない列 `user_id` を
    SELECT しており、`CREATE VIEW` が `42703` で失敗 → トランザクション全体が rollback →
    View 未作成かつ直後の `DROP POLICY` も未実行、という二重ドリフトを生んでいた。
 
@@ -25,8 +25,8 @@ Status: Accepted
    View 未作成、および `facility_reviews` の anon 直読みで `reviewer_ip`（PII）が
    露出していた。
 
-これらは 2026-06-02 に `supabase/migrations/20260602_drift_repair.sql`（冪等な統合修復）と
-`supabase/migrations/20260602_booking_atomic_0a000_fix.sql`（予約 RPC の恒久修正）で
+これらは 2026-06-02 に `supabase/migrations/20260602000003_drift_repair.sql`（冪等な統合修復）と
+`supabase/migrations/20260602000001_booking_atomic_0a000_fix.sql`（予約 RPC の恒久修正）で
 repo と本番を一致させ、恒久修正済み。
 
 共通根本原因: **「本番 DB の変更が migration というバージョン管理された単一経路を通らず、
@@ -85,10 +85,10 @@ out-of-band（Dashboard SQL Editor 等での直接適用で repo 未反映）を
 
 ## References
 
-- file: `supabase/migrations/20260602_drift_repair.sql`（冪等な統合ドリフト修復）
-- file: `supabase/migrations/20260602_booking_atomic_0a000_fix.sql`（予約 RPC 0A000 恒久修正）
-- file: `supabase/migrations/20260420_booking_insert_rls.sql`（0A000 landmine を含んでいた定義・修正済）
-- file: `supabase/migrations/20260420_public_reviews_view.sql`（user_id 42703 を含んでいた定義・修正済）
+- file: `supabase/migrations/20260602000003_drift_repair.sql`（冪等な統合ドリフト修復）
+- file: `supabase/migrations/20260602000001_booking_atomic_0a000_fix.sql`（予約 RPC 0A000 恒久修正）
+- file: `supabase/migrations/20260420000003_booking_insert_rls.sql`（0A000 landmine を含んでいた定義・修正済）
+- file: `supabase/migrations/20260420000007_public_reviews_view.sql`（user_id 42703 を含んでいた定義・修正済）
 - file: `tests/contract/schema-invariants.contract.test.ts`（ドリフト恒久ガード）
 - file: `.github/workflows/ci.yml`（`contract-test` ジョブ）
 - runbook: `docs/runbooks/database-incident.md`（条件 E — 静かなドリフト）

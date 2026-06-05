@@ -13,8 +13,34 @@ UPDATE staff_profiles SET years_experience = 7 WHERE id = '4f1b1e3b-fb8c-4b31-a9
 UPDATE staff_profiles SET years_experience = 4 WHERE id = '89b3239e-6232-4d43-a48f-ed6ac8c418ed'; -- 高橋 まい
 
 -- ============================================================
--- 2. スタッフスケジュール（予約システムに必須）
+-- 2-4. 本番固有データ（スタッフスケジュール / ブログ / 施術カタログ）
 -- ============================================================
+-- これらは本番に手動投入済みの特定スタッフ・施設（ハードコード UUID）を
+-- 親に持つ。staff_schedules.staff_id / blog_posts.facility_id /
+-- treatment_catalogs.facility_id は NOT NULL FK のため、空の新規 DB
+-- （`supabase db reset` / CI E2E / 災害復旧）では FK 違反で reset 全体が中断する。
+--
+-- 恒久対策（発症前予防）: 親が全て揃っている時のみ実行する存在ガードで囲む。
+--   - 本番: 全 UUID が存在 → count 一致 → 従来どおり全 INSERT 実行（挙動不変。
+--           かつ本番では本 migration は適用済み version 管理により再実行されない）。
+--   - 新規 DB: 親が存在しない → count 不一致 → ブロック全体を skip（FK 違反を物理的に回避）。
+-- `$do$` は本ファイルに `$` 記号が存在しないため衝突しない安全なドル引用符。
+DO $do$
+BEGIN
+IF (SELECT count(*) FROM facility_profiles WHERE id IN (
+      '130830f4-b1ce-4cc2-8569-ab8f84a1213c',
+      '7eab63f1-446e-4932-b0c5-8c9d504a8a8d',
+      '906ef10d-89d9-432a-b1a4-3725b2708665'
+    )) = 3
+   AND (SELECT count(*) FROM staff_profiles WHERE id IN (
+      '944469ec-0463-4586-b9ea-5dae26684c31',
+      'dfa73c0d-2d45-4204-9606-2537acc056aa',
+      'ee97ef54-56c4-40de-a925-cccfa5686879',
+      '4f1b1e3b-fb8c-4b31-a925-68c79623c8cf',
+      '89b3239e-6232-4d43-a48f-ed6ac8c418ed',
+      'f200b03d-0db8-40a3-ac31-0894a163cb3b'
+    )) = 6
+THEN
 
 -- HAL 本店 スタッフ（月〜土 10:00-19:00）
 INSERT INTO staff_schedules (staff_id, day_of_week, start_time, end_time) VALUES
@@ -432,9 +458,15 @@ INSERT INTO treatment_catalogs (facility_id, staff_id, title, description, befor
   ARRAY['訪問鍼灸', 'リハビリ', '脳梗塞後遺症', '歩行改善']
 );
 
+END IF;
+END $do$;
+
 -- ============================================================
 -- 5. エリアデータ（検索用の地域階層）
 -- ============================================================
+-- areas は自己完結の参照データ（外部 FK は同テーブル内 parent_id の自己参照のみ・
+-- 親→子の順で挿入・全行 ON CONFLICT(slug) DO NOTHING）なので新規 DB でも安全に適用可能。
+-- 本番固有データではないためガード対象外。
 
 -- 関西地方
 INSERT INTO areas (id, name, slug, area_type, parent_id, sort_order) VALUES

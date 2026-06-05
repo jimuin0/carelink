@@ -102,8 +102,8 @@ BEGIN
 END;
 $$;
 
--- Drop the overbroad client INSERT policy — SECURITY DEFINER handles all inserts.
-DROP POLICY IF EXISTS "bookings_insert" ON bookings;
-
--- Grant EXECUTE on the function to anon and authenticated so the API can call it.
-GRANT EXECUTE ON FUNCTION create_booking_atomic TO anon, authenticated;
+-- 注: 旧版はこの後に DROP POLICY / GRANT を同一ファイルへ続けていたが、
+-- 「引数付き CREATE FUNCTION の直後に別文が続く」と Supabase CLI 2.75.0 系の
+-- 文分割器が 42601 を起こす（2.104.0 で修正済）。CLI バージョン非依存にするため
+-- 後続文を 20260420000015_booking_insert_rls_grants.sql へ分離した。
+-- 本ファイルは create_booking_atomic の定義（末尾＝最終文）のみを保持する。

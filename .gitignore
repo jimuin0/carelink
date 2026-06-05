@@ -43,3 +43,7 @@ reports/mutation/
 
 # claude code
 .claude/
+
+# playwright (E2E 成果物・ローカル/CI生成物)
+/playwright-report/
+/test-results/

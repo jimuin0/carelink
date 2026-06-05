@@ -85,20 +85,67 @@ jobs:
           node-version: '20'
           cache: 'npm'
       - run: npm ci
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          # 既知良好版にピン留め（再現性100%・発症前予防）。
+          # `latest` は将来のCLI更新で挙動が変わりうる変動要因。実際 CLI 2.75.0 の
+          # マイグレーション文分割器には「引数リスト付き CREATE FUNCTION の直後に別文が
+          # 続くファイル」を1チャンク化して 42601(cannot insert multiple commands into a
+          # prepared statement) を起こすバグがあり、2.104.0 で修正されていることを
+          # ローカル fresh-apply 実測で確認済み。下の `supabase start` ゲートが将来の
+          # ピン更新時の退行も検知する二重防御。
+          version: 2.104.0
+      - name: Start Supabase (fresh-apply gate)
+        # 恒久・発症前予防の中核ゲート。`supabase start` は supabase/migrations/*.sql を
+        # 「新規環境へ全 replay（fresh-apply）」する。version 衝突・42P16（View 列改名）・
+        # 関数重複（function name is not unique）等で 1 本でも適用失敗すれば、ここで CI が
+        # 落ち、e2e 以前に「migration が新規環境で再生不能」というドリフトを検知する。
+        # これが従来 fake.supabase.co で握り潰されていた E2E 連鎖失敗の真因（/api/health 503）
+        # を根治する: 実 Supabase をローカル起動し本物の DB/anon key を後段へ渡す。
+        run: supabase start
+      - name: Export Supabase local credentials
+        id: supabase
+        # `supabase status -o env` は ANON_KEY= / API_URL= 形式で出力（値はクォートなし）。
+        # 厳密な行頭アンカーで該当キーだけ抽出し、後段 step の env へ受け渡す。
+        run: |
+          STATUS=$(supabase status -o env)
+          API_URL=$(echo "$STATUS" | grep '^API_URL=' | cut -d= -f2-)
+          ANON_KEY=$(echo "$STATUS" | grep '^ANON_KEY=' | cut -d= -f2-)
+          SERVICE_ROLE_KEY=$(echo "$STATUS" | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2-)
+          # service_role key は /api/health の rate_limit プローブ（createServiceRoleClient →
+          # check_rate_limit RPC）が必須とする。欠けると criticalOk=false → 503 になり
+          # api-contract.spec.ts の status===200 / 'healthy'|'degraded' 期待が連鎖失敗する。
+          if [ -z "$API_URL" ] || [ -z "$ANON_KEY" ] || [ -z "$SERVICE_ROLE_KEY" ]; then
+            echo "❌ supabase status から API_URL / ANON_KEY / SERVICE_ROLE_KEY を取得できませんでした"
+            exit 1
+          fi
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$ANON_KEY"
+          echo "anon=$ANON_KEY" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$SERVICE_ROLE_KEY"
+          echo "service_role=$SERVICE_ROLE_KEY" >> "$GITHUB_OUTPUT"
       - name: Install Playwright Browsers
-        run: npx playwright install --with-deps chromium
+        # playwright.config の 2 プロジェクト（chromium / Mobile Safari=webkit）を両方導入。
+        # 従来は chromium のみで webkit 系の E2E が実行されない盲点があった。
+        run: npx playwright install --with-deps chromium webkit
       - name: Build
         run: npm run build
         env:
-          NEXT_PUBLIC_SUPABASE_URL: https://fake.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
           SKIP_ENV_VALIDATION: true
       - name: Run E2E Tests
         run: npm run test:e2e
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:3000
-          NEXT_PUBLIC_SUPABASE_URL: https://fake.supabase.co
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
+          NEXT_PUBLIC_SUPABASE_URL: ${{ steps.supabase.outputs.url }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ steps.supabase.outputs.anon }}
+          # /api/health の rate_limit プローブ（service_role + check_rate_limit RPC）に必須。
+          SUPABASE_SERVICE_ROLE_KEY: ${{ steps.supabase.outputs.service_role }}
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop || true
       - name: Upload E2E Report
         uses: actions/upload-artifact@v4
         if: always()

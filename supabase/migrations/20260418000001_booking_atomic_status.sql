@@ -1,6 +1,10 @@
 -- 予約アトミック関数にstatusパラメータを追加（v8.6）
 -- booking_auto_confirm対応: 即時確定モードをRPC内で完結させる
-
+--
+-- 旧 14 引数 overload（p_status 無し・20260405000001 由来）の DROP は、supabase CLI の
+-- 文分割器が DROP と CREATE FUNCTION($$) の同居を分離できず 42601 を起こすため、直前の
+-- 単文 migration 20260418000000_drop_stale_booking_atomic_overload.sql へ分離した。
+-- 本ファイルは 15 引数版の CREATE OR REPLACE（単文）のみを保持する。
 CREATE OR REPLACE FUNCTION create_booking_atomic(
   p_facility_id UUID,
   p_staff_id UUID,
@@ -67,4 +71,4 @@ BEGIN
 
   RETURN v_booking_id;
 END;
-$$;
+$$ ;

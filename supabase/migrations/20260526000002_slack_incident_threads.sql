@@ -38,38 +38,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
--- 新スレッドを記録、既存なら event_count をインクリメント
-CREATE OR REPLACE FUNCTION record_incident_thread(
-  p_key       TEXT,
-  p_channel   TEXT,
-  p_thread_ts TEXT
-) RETURNS VOID AS $$
-BEGIN
-  INSERT INTO slack_incident_threads (thread_key, channel, thread_ts)
-  VALUES (p_key, p_channel, p_thread_ts)
-  ON CONFLICT (thread_key) DO UPDATE
-  SET event_count = slack_incident_threads.event_count + 1;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
-
-REVOKE ALL ON FUNCTION get_incident_thread(TEXT) FROM PUBLIC;
-REVOKE ALL ON FUNCTION record_incident_thread(TEXT, TEXT, TEXT) FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION get_incident_thread(TEXT) TO service_role;
-GRANT EXECUTE ON FUNCTION record_incident_thread(TEXT, TEXT, TEXT) TO service_role;
-
--- 失効済みスレッド record の自動削除（1h 毎、pg_cron 必要）
-DO $$
-BEGIN
-  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_cron') THEN
-    PERFORM cron.schedule(
-      'slack-threads-cleanup',
-      '0 * * * *',
-      $cleanup$DELETE FROM slack_incident_threads WHERE expires_at < NOW()$cleanup$
-    );
-  ELSE
-    RAISE NOTICE 'pg_cron not enabled - slack_incident_threads cleanup must be scheduled manually';
-  END IF;
-END $$;
-
-COMMENT ON TABLE slack_incident_threads IS
-  'Phase 7c: 同 route + 同 commit の 500 連発を Slack スレッドに集約するための ts キャッシュ。24h で自動失効。';
+-- 注: record_incident_thread 関数は 20260526000003_slack_incident_threads_record_fn.sql、
+-- REVOKE / GRANT / pg_cron DO / COMMENT は 20260526000004_slack_incident_threads_grants.sql
+-- へ分離した。「引数付き CREATE FUNCTION の直後に別文が続く」と CLI 2.75.0 系の文分割器が
+-- 42601 を起こす（2.104.0 で修正済）ため、CLI バージョン非依存化が目的。
+-- 本ファイルはテーブル/インデックス/RLS と get_incident_thread 定義（末尾＝最終文）のみを保持する。

@@ -1,7 +1,7 @@
 name: SECURITY DEFINER search_path Lint
 
 # 発症前予防（L6）: SECURITY DEFINER 関数を SET search_path 固定なしで「新規追加」する
-# migration を PR 段階で弾く。20260603_secdef_search_path_fixation.sql が本番を一括
+# migration を PR 段階で弾く。20260603000001_secdef_search_path_fixation.sql が本番を一括
 # 是正した後、新規 migration で未固定の SECURITY DEFINER 関数が再混入するのを物理的に
 # 防止するチョークポイント（症状対処でなく恒久予防）。
 #
@@ -42,7 +42,7 @@ jobs:
 
           # この lint 導入日。これ以降の日付を持つ migration のみ強制する。
           CUTOFF = 20260604
-          FIX_FILE = '20260603_secdef_search_path_fixation.sql'
+          FIX_FILE = '20260603000001_secdef_search_path_fixation.sql'
           # 既知の歴史的非日付ファイル（グランドファザリング）。
           GRANDFATHER = {'combined_phase2_to_6.sql'}
 

@@ -18,6 +18,21 @@ npm run dev
 
 http://localhost:3000 でアクセス
 
+## ローカル DB（Supabase migration）
+
+`supabase/migrations/*.sql` をローカルへ新規適用（fresh-apply）する場合は **Supabase CLI 2.104.0 以上**を使うこと。
+
+```bash
+supabase --version   # 2.104.0 以上であること
+supabase start       # または: supabase db reset --local
+```
+
+> ⚠️ **CLI 2.75.0 以下では fresh-apply が失敗する**（既知の CLI バグ）。
+> 2.75.0 系のマイグレーション文分割器は「引数リスト付き `CREATE FUNCTION` の直後に別の文が続くファイル」を1チャンクにまとめてしまい、
+> `42601: cannot insert multiple commands into a prepared statement` で停止する（例: `20260420000003_booking_insert_rls.sql`）。
+> このバグは 2.104.0 で修正済み。CI（`.github/workflows/ci.yml`）も `supabase/setup-cli@v1` を `version: 2.104.0` にピン留めしている。
+> 古い CLI を使っている場合は `brew upgrade supabase` で更新する。
+
 ## 技術スタック
 
 - Next.js 14（App Router）

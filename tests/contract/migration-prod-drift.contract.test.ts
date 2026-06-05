@@ -39,8 +39,8 @@ const TYPES_FILE = join(__dirname, '..', '..', 'src', 'types', 'database.types.t
  *   database.types.ts を prod introspection で再生成・反映した（psql で applied_count=43 を実測確認）。
  *   よって本リストは空＝ドリフト 0 の状態。
  *   ※ 適用時に判明し恒久修正した landmine:
- *     - profiles に role / is_platform_admin 欠落 → supabase/migrations/20260324_profiles_admin_columns.sql で補完。
- *     - 20260417_nps_surveys / 20260417_reports の date_trunc(..., timestamptz) 部分 index が
+ *     - profiles に role / is_platform_admin 欠落 → supabase/migrations/20260324000001_profiles_admin_columns.sql で補完。
+ *     - 20260417000023_nps_surveys / 20260417000028_reports の date_trunc(..., timestamptz) 部分 index が
  *       非 IMMUTABLE で失敗 → AT TIME ZONE 'UTC' 付与で IMMUTABLE 化（UTC 月/日境界で決定的）。
  *   新規 migration は「本番適用 → 型再生成」をワンセットで完了させること。このリストへの追加は原則禁止。
  */
@@ -49,7 +49,8 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([]);
 /**
  * 本番に実在するが migration を持たない「残存テーブル」。
  * spatial_ref_sys は PostGIS のシステムテーブル（拡張機能が作成）。
- * features / job_postings は現行アプリが利用中だが migration 不在（要追補・別タスク）。
+ * features / job_postings は 20260320000002_prod_only_base_tables.sql で migration 追補済み
+ *   （fresh-apply 再生可能化）。よって migration-less ではなくなったため本リストから除外。
  * facilities / recruits / blog_authors / booking_menus は旧世代の未使用残存。
  * facility_booking_suspensions / facility_daily_capacity / salon_customer_notes は
  *   PR #53（feat/salon-board）所有のテーブル。当該ブランチに CREATE TABLE migration
@@ -60,8 +61,6 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([]);
  */
 const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
   'spatial_ref_sys',
-  'features',
-  'job_postings',
   'facilities',
   'recruits',
   'blog_authors',

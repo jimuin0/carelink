@@ -129,5 +129,5 @@
 - Supabase Dashboard / Status: https://status.supabase.com
 - 関連 commit: `ed0f98d`（handle_new_user trigger 修正）
 - 関連 ADR: [adr-0005-no-out-of-band-migrations.md](../adr/adr-0005-no-out-of-band-migrations.md)（out-of-band 修正禁止）
-- 関連ファイル: `supabase/migrations/20260602_drift_repair.sql`, `supabase/migrations/20260602_booking_atomic_0a000_fix.sql`, `tests/contract/schema-invariants.contract.test.ts`
+- 関連ファイル: `supabase/migrations/20260602000003_drift_repair.sql`, `supabase/migrations/20260602000001_booking_atomic_0a000_fix.sql`, `tests/contract/schema-invariants.contract.test.ts`
 - 関連 runbook: [external-dep-down.md](./external-dep-down.md), [500-surge.md](./500-surge.md)
