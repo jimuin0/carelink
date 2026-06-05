@@ -10,10 +10,20 @@ import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 
 export default function SignupPage() {
+  // 見出し・カード外枠は Suspense の外（=SSR）で描画する（login と同様）。
+  // useSearchParams を使う内容を Suspense で包むとフォールバックが SSR HTML になり、
+  // h1 が SSR されず a11y/SEO 劣化・E2E のヘッダ可視チェック失敗になるため、見出しを外出しする。
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
-      <SignupContent />
-    </Suspense>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          <h1 className="text-2xl font-bold text-center mb-8">新規登録</h1>
+          <Suspense fallback={<div className="min-h-[480px]" />}>
+            <SignupContent />
+          </Suspense>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -60,11 +70,7 @@ function SignupContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-lg p-8">
-          <h1 className="text-2xl font-bold text-center mb-8">新規登録</h1>
-
+    <>
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="signup-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
@@ -177,10 +183,8 @@ function SignupContent() {
               施設を探す
             </Link>
           </div>
-        </div>
-      </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
-    </div>
+    </>
   );
 }

@@ -10,10 +10,21 @@ import { loginSchema, type LoginFormData } from '@/lib/validations-auth';
 import Toast from '@/components/Toast';
 
 export default function LoginPage() {
+  // 見出し・カード外枠は Suspense の外（=SSR）で描画する。
+  // useSearchParams を使う LoginContent を Suspense で包むと、フォールバックが
+  // SSR HTML になるため、見出しを内側に置くと h1 が SSR されず（a11y/SEO 劣化・
+  // E2E のヘッダ可視チェック失敗）になる。見出しを外出しして常に SSR で出す。
   return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50" />}>
-      <LoginContent />
-    </Suspense>
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
+      <div className="w-full max-w-md">
+        <div className="bg-white rounded-2xl shadow-lg p-8">
+          <h1 className="text-2xl font-bold text-center mb-8">ログイン</h1>
+          <Suspense fallback={<div className="min-h-[420px]" />}>
+            <LoginContent />
+          </Suspense>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -50,11 +61,7 @@ function LoginContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        <div className="bg-white rounded-2xl shadow-lg p-8">
-          <h1 className="text-2xl font-bold text-center mb-8">ログイン</h1>
-
+    <>
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="login-email" className="form-label">メールアドレス</label>
@@ -146,10 +153,8 @@ function LoginContent() {
               施設を探す
             </Link>
           </div>
-        </div>
-      </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
-    </div>
+    </>
   );
 }

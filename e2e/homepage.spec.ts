@@ -9,9 +9,11 @@ test.describe('トップページ', () => {
 
   test('ナビゲーションが動作する', async ({ page }) => {
     await page.goto('/');
-    // メインナビのリンクが存在する
-    const nav = page.locator('nav').first();
-    await expect(nav).toBeVisible();
+    // ナビゲーションランドマークが存在することを検証する（viewport 非依存）。
+    // デスクトップ nav は `hidden sm:flex`、モバイル nav はハンバーガー内のため、
+    // モバイル幅では可視 nav が無く `toBeVisible` だと誤判定する。モバイルの開閉操作は
+    // 別テスト「モバイルでハンバーガーメニューが動作する」で担保している。
+    await expect(page.getByRole('navigation').first()).toBeAttached();
   });
 
   test('検索バーが表示される', async ({ page }) => {

@@ -15,10 +15,13 @@ const nextConfig = {
             key: 'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              // strict-dynamic: modern browsers ignore unsafe-inline when strict-dynamic is present.
-              // Legacy browsers fall back to unsafe-inline + allowlisted domains.
-              // Next step: migrate to nonce-based CSP when ready to remove unsafe-inline entirely.
-              "script-src 'self' 'unsafe-inline' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com",
+              // 注意: 'strict-dynamic' は nonce/hash と併用しない限り、近代ブラウザ(Chromium/WebKit)が
+              // 'self' / 'unsafe-inline' / ホスト許可を全て無視し、nonce の無い <script src> を全ブロックする。
+              // 本プロジェクトは nonce 機構を持たないため、'strict-dynamic' があると Next.js の
+              // チャンクが読めず client JS が一切 hydrate しない（ログイン等のクライアント機能が全停止）。
+              // よって 'strict-dynamic' を外し、'self'（同一オリジンのチャンク）＋'unsafe-inline'＋
+              // 許可ホストで script を許可する。nonce ベース CSP への移行は将来の課題として残す。
+              "script-src 'self' 'unsafe-inline' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com",
               "style-src 'self' 'unsafe-inline'",
               "font-src 'self'",
               "img-src 'self' data: https: blob:",
