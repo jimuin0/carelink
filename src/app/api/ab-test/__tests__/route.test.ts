@@ -3,12 +3,12 @@
  */
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST, GET } from '../route';
 
 let mockGetUser: jest.Mock;
@@ -74,7 +74,7 @@ function setupDefaultMocks(hasUser: boolean = false, isAdmin: boolean = false) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -105,7 +105,7 @@ const validEvent = {
 
 describe('POST /api/ab-test', () => {
   test('rate limiting → silent 200 ok=true', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await POST(makePostRequest(validEvent) as any);
     expect(res.status).toBe(200);
     const json = await res.json();
@@ -154,10 +154,10 @@ describe('POST /api/ab-test', () => {
   });
 
   test('rate limit params (100 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     POST(makePostRequest(validEvent, '192.168.1.1') as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe(100);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(100);
   });
 
   test('invalid JSON body → 200 (silently ignored via .catch)', async () => {
@@ -174,7 +174,7 @@ describe('POST /api/ab-test', () => {
 
 describe('GET /api/ab-test', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(makeGetRequest() as any);
     expect(res.status).toBe(429);
   });
@@ -234,11 +234,11 @@ describe('GET /api/ab-test', () => {
   });
 
   test('rate limit params (20 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     setupDefaultMocks(true, true);
     GET(makeGetRequest('exp-123', '192.168.1.1') as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe(20);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(20);
   });
 
   test('CSRF check failed → returns CSRF error response', async () => {
@@ -250,25 +250,25 @@ describe('GET /api/ab-test', () => {
   });
 
   test('POST: missing x-forwarded-for → uses "unknown" IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/ab-test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(validEvent),
     });
     await POST(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('GET: missing x-forwarded-for → uses "unknown" IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     setupDefaultMocks(true, true);
     const req = new Request('http://localhost/api/ab-test?key=exp-123', { method: 'GET' });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     await GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('GET: key longer than 100 chars → 400', async () => {

@@ -9,7 +9,6 @@ import Breadcrumb from '@/components/Breadcrumb';
 import StepIndicator from '@/components/StepIndicator';
 import Toast from '@/components/Toast';
 import Spinner from '@/components/Spinner';
-import { supabase } from '@/lib/supabase';
 import { formatPhone } from '@/lib/validations';
 
 const phoneRegex = /^[\d-]+$/;
@@ -60,19 +59,23 @@ export default function RecruitPage() {
   async function onSubmit(data: FormValues) {
     setSubmitting(true);
     try {
-      const { error: fErr } = await supabase.from('salons').insert({
-        facility_name: data.facility_name,
-        business_type: data.business_type,
-        representative_name: data.representative_name,
-        contact_name: data.contact_name,
-        email: data.email,
-        phone: data.phone,
-        postal_code: data.postal_code || null,
-        address: data.address || null,
-        website: data.website || null,
-        pr_text: data.description || null,
+      const res = await fetch('/api/salons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facility_name: data.facility_name,
+          business_type: data.business_type,
+          representative_name: data.representative_name,
+          contact_name: data.contact_name,
+          email: data.email,
+          phone: data.phone,
+          postal_code: data.postal_code || null,
+          address: data.address || null,
+          website: data.website || null,
+          pr_text: data.description || null,
+        }),
       });
-      if (fErr) throw fErr;
+      if (!res.ok) throw new Error('registration failed');
 
       fetch('/api/notify', {
         method: 'POST',

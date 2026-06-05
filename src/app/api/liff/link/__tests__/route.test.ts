@@ -16,12 +16,15 @@
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/line', () => ({
+  verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
+}));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST, DELETE } from '../route';
 
 let mockGetUser: jest.Mock;
@@ -84,7 +87,7 @@ function setupDefaultMocks(
 beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockResolvedValue(false);
   setupDefaultMocks();
 });
 
@@ -111,7 +114,7 @@ function makeDeleteRequest(ip = '192.168.1.1') {
 describe('POST/DELETE /api/liff/link', () => {
   describe('POST', () => {
     test('rate limiting → 429', async () => {
-      (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+      (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
       const res = await POST(
         makePostRequest({ access_token: 'valid-token' }) as any
@@ -216,21 +219,21 @@ describe('POST/DELETE /api/liff/link', () => {
     });
 
     test('rate limit params (10 req/min per IP)', async () => {
-      (inMemoryRateLimit as jest.Mock).mockClear();
+      (checkRateLimit as jest.Mock).mockClear();
 
       await POST(
         makePostRequest({ access_token: 'token' }, '192.168.1.1') as any
       );
 
-      const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-      expect(call[0]).toBe('192.168.1.1');
-      expect(call[1]).toBe(10);
-      expect(call[2]).toBe(60_000);
-      expect(call[3]).toBe('liff-link');
+      const call = (checkRateLimit as jest.Mock).mock.calls[0];
+      expect(call[1]).toBe('192.168.1.1');
+      expect(call[2]).toBe(10);
+      expect(call[3]).toBe(60_000);
+      expect(call[4]).toBe('liff-link');
     });
 
-    test('extracts first IP from x-forwarded-for', async () => {
-      (inMemoryRateLimit as jest.Mock).mockClear();
+    test('extracts last (trusted) IP from x-forwarded-for', async () => {
+      (checkRateLimit as jest.Mock).mockClear();
 
       await POST(
         makePostRequest(
@@ -239,12 +242,12 @@ describe('POST/DELETE /api/liff/link', () => {
         ) as any
       );
 
-      const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-      expect(call[0]).toBe('10.0.0.1');
+      const call = (checkRateLimit as jest.Mock).mock.calls[0];
+      expect(call[1]).toBe('192.168.1.1');
     });
 
     test('uses unknown IP when x-forwarded-for missing', async () => {
-      (inMemoryRateLimit as jest.Mock).mockClear();
+      (checkRateLimit as jest.Mock).mockClear();
 
       const req = new Request('http://localhost/api/liff/link', {
         method: 'POST',
@@ -254,8 +257,8 @@ describe('POST/DELETE /api/liff/link', () => {
 
       await POST(req as any);
 
-      const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-      expect(call[0]).toBe('unknown');
+      const call = (checkRateLimit as jest.Mock).mock.calls[0];
+      expect(call[1]).toBe('unknown');
     });
 
     test('exception during flow → 500', async () => {
@@ -282,11 +285,23 @@ describe('POST/DELETE /api/liff/link', () => {
       // Should call select().eq('line_user_id', ...).neq('id', ...)
       expect(mockProfilesSelect).toHaveBeenCalled();
     });
+
+    // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）
+    test('verifyLineAccessToken fails (audience mismatch) → 401', async () => {
+      const { verifyLineAccessToken } = require('@/lib/line');
+      (verifyLineAccessToken as jest.Mock).mockResolvedValueOnce({ ok: false });
+      const res = await POST(
+        makePostRequest({ access_token: 'foreign-token' }) as any
+      );
+      expect(res.status).toBe(401);
+      const json = await res.json();
+      expect(json.error).toContain('Invalid LINE token');
+    });
   });
 
   describe('DELETE', () => {
     test('rate limiting → 429', async () => {
-      (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+      (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
       const res = await DELETE(makeDeleteRequest() as any);
 
@@ -339,15 +354,15 @@ describe('POST/DELETE /api/liff/link', () => {
     });
 
     test('rate limit params (5 req/min per IP)', async () => {
-      (inMemoryRateLimit as jest.Mock).mockClear();
+      (checkRateLimit as jest.Mock).mockClear();
 
       await DELETE(makeDeleteRequest('192.168.1.1') as any);
 
-      const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-      expect(call[0]).toBe('192.168.1.1');
-      expect(call[1]).toBe(5);
-      expect(call[2]).toBe(60_000);
-      expect(call[3]).toBe('liff-link-delete');
+      const call = (checkRateLimit as jest.Mock).mock.calls[0];
+      expect(call[1]).toBe('192.168.1.1');
+      expect(call[2]).toBe(5);
+      expect(call[3]).toBe(60_000);
+      expect(call[4]).toBe('liff-link-delete');
     });
 
     test('exception during flow → 500', async () => {
@@ -360,11 +375,11 @@ describe('POST/DELETE /api/liff/link', () => {
 
     // Branch coverage: line 67 — x-forwarded-for ヘッダなし → 'unknown' を使用（|| right side）
     test('DELETE: x-forwarded-for ヘッダなし → IP=unknown（line 67 || false 分岐）', async () => {
-      (inMemoryRateLimit as jest.Mock).mockClear();
+      (checkRateLimit as jest.Mock).mockClear();
       const req = new Request('http://localhost/api/liff/link', { method: 'DELETE' });
       await DELETE(req as any);
-      const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-      expect(call[0]).toBe('unknown');
+      const call = (checkRateLimit as jest.Mock).mock.calls[0];
+      expect(call[1]).toBe('unknown');
     });
   });
 });

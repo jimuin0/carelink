@@ -10,7 +10,7 @@
  *   - DB failure → 500
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -30,7 +30,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest(facilityId: string | null = FACILITY_UUID) {
   const url = new URL('http://localhost/api/admin/subscription-plans');
@@ -83,7 +83,7 @@ function insertSingle(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -98,7 +98,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(429);
 });
@@ -189,23 +189,23 @@ test('GET: DB失敗 → 500', async () => {
 test('GET: レートリミット params (30/60s)', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(listChain([]));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await GET(makeGetRequest());
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(30);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(30);
+  expect(call[3]).toBe(60_000);
 });
 
 test('POST: レートリミット params (20/60s)', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(insertSingle({ id: 'plan-x', name: 'test' }));
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockClear();
   await POST(makePostRequest(validBody()));
-  const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-  expect(call[1]).toBe(20);
-  expect(call[2]).toBe(60_000);
+  const call = (checkRateLimit as jest.Mock).mock.calls[0];
+  expect(call[2]).toBe(20);
+  expect(call[3]).toBe(60_000);
 });
 
 test('POST: sessions_per_month が 100 (上限ぴったり) → 201', async () => {
@@ -250,7 +250,7 @@ test('GET: facility_id 不正UUID → 401', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makePostRequest(validBody()));
   expect(res.status).toBe(429);
 });
@@ -278,7 +278,7 @@ test('POST: is_active=false 明示 → 201', async () => {
 test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(listChain([]));
-  (inMemoryRateLimit as jest.Mock).mockClear();
+  (checkRateLimit as jest.Mock).mockClear();
   const url = new URL('http://localhost/api/admin/subscription-plans');
   url.searchParams.set('facility_id', FACILITY_UUID);
   const req = new NextRequest(url.toString(), {
@@ -286,5 +286,5 @@ test('GET: x-forwarded-for ヘッダ → IP抽出', async () => {
     headers: { 'x-forwarded-for': '10.0.0.1, 1.2.3.4' },
   });
   await GET(req);
-  expect((inMemoryRateLimit as jest.Mock).mock.calls[0][0]).toBe('10.0.0.1');
+  expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });

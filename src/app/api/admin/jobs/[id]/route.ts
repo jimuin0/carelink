@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { jobFormSchema } from '@/lib/jobs';
 import { writeAuditLog } from '@/lib/audit-logger';
@@ -37,8 +38,8 @@ async function authorize(jobId: string) {
 }
 
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-jobs-id-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'admin-jobs-id-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const params = await props.params;
@@ -58,7 +59,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 30, 60_000, 'admin-jobs-update')) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました' }, { status: 429 });
     }
@@ -121,7 +122,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 20, 60_000, 'admin-jobs-delete')) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました' }, { status: 429 });
     }

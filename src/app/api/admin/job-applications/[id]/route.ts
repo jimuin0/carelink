@@ -3,14 +3,15 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'job-applications-patch')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'job-applications-patch')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });

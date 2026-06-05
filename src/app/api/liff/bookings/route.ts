@@ -5,12 +5,14 @@
  */
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
+import { verifyLineAccessToken } from '@/lib/line';
 
 export async function GET(req: NextRequest) {
   try {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'liff-bookings')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'liff-bookings')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
 
@@ -18,6 +20,14 @@ export async function GET(req: NextRequest) {
   const authHeader = req.headers.get('Authorization');
   const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
   if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // ★ audience(channel)検証: /v2/profile は発行元チャネル(client_id)を検証しないため、
+  //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
+  //   line_user_id 詐称＝他人予約のIDOR閲覧を遮断）。fail-closed。
+  const tokenCheck = await verifyLineAccessToken(accessToken);
+  if (!tokenCheck.ok) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

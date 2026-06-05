@@ -132,31 +132,35 @@ export default function RegisterPage() {
         photoUrls.push(url);
       }
 
-      const { error } = await supabase.from('salons').insert({
-        facility_name: data.facility_name,
-        business_type: data.business_type,
-        representative_name: data.representative_name,
-        contact_name: data.contact_name,
-        email: data.email,
-        phone: data.phone,
-        contact_phone: data.contact_phone || null,
-        website: data.website || null,
-        postal_code: data.postal_code || null,
-        address: data.address || null,
-        building_name: data.building_name || null,
-        nearest_station: data.nearest_station || null,
-        business_hours: data.business_hours || null,
-        regular_holiday: data.regular_holiday || null,
-        seat_count: data.seat_count && !isNaN(data.seat_count) ? data.seat_count : null,
-        staff_count: data.staff_count && !isNaN(data.staff_count) ? data.staff_count : null,
-        has_parking: data.has_parking || false,
-        features: data.features || [],
-        pr_text: data.pr_text || null,
-        photo_url: photoUrls[0] || null,
-        photo_urls: photoUrls,
-        desired_start_date: data.desired_start_date || null,
+      const res = await fetch('/api/salons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facility_name: data.facility_name,
+          business_type: data.business_type,
+          representative_name: data.representative_name,
+          contact_name: data.contact_name,
+          email: data.email,
+          phone: data.phone,
+          contact_phone: data.contact_phone || null,
+          website: data.website || null,
+          postal_code: data.postal_code || null,
+          address: data.address || null,
+          building_name: data.building_name || null,
+          nearest_station: data.nearest_station || null,
+          business_hours: data.business_hours || null,
+          regular_holiday: data.regular_holiday || null,
+          seat_count: data.seat_count && !isNaN(data.seat_count) ? data.seat_count : null,
+          staff_count: data.staff_count && !isNaN(data.staff_count) ? data.staff_count : null,
+          has_parking: data.has_parking || false,
+          features: data.features || [],
+          pr_text: data.pr_text || null,
+          photo_url: photoUrls[0] || null,
+          photo_urls: photoUrls,
+          desired_start_date: data.desired_start_date || null,
+        }),
       });
-      if (error) throw error;
+      if (!res.ok) throw new Error('registration failed');
 
       // Slack notification (fire-and-forget)
       fetch('/api/notify', {

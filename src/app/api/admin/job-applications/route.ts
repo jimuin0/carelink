@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
 
@@ -16,8 +17,8 @@ async function getFacilityIds(userId: string): Promise<string[]> {
 }
 
 export async function GET(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'job-applications-get')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'job-applications-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -42,8 +43,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 5, 60_000, 'job-apply')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 5, 60_000, 'job-apply')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const body = await req.json().catch(() => ({}));

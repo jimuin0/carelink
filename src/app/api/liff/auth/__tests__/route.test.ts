@@ -11,8 +11,11 @@
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/line', () => ({
+  verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
+}));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
@@ -20,7 +23,7 @@ jest.mock('@/lib/supabase-server', () => ({
   createServerSupabaseAuthClient: jest.fn(),
 }));
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST } from '../route';
 
 let mockSingle: jest.Mock;
@@ -70,7 +73,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockResolvedValue(false);
   setupDefaultMocks();
 });
 
@@ -87,7 +90,7 @@ function makeRequest(body: object, ip = '192.168.1.1') {
 
 describe('POST /api/liff/auth', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
     const res = await POST(
       makeRequest({ access_token: 'valid-token' }) as any
@@ -179,30 +182,30 @@ describe('POST /api/liff/auth', () => {
   });
 
   test('rate limit params (20 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     POST(makeRequest({ access_token: 'token' }, '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(20);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('liff-auth');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(20);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('liff-auth');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
+    (checkRateLimit as jest.Mock).mockClear();
 
     POST(
       makeRequest({ access_token: 'token' }, '10.0.0.1, 192.168.1.1') as any
     );
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request('http://localhost/api/liff/auth', {
       method: 'POST',
@@ -212,8 +215,8 @@ describe('POST /api/liff/auth', () => {
 
     POST(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('invalid JSON → 500', async () => {
@@ -269,5 +272,15 @@ describe('POST /api/liff/auth', () => {
     const res = await POST(makeRequest({ access_token: 'token' }) as any);
     const json = await res.json();
     expect(json.picture_url).toBeNull();
+  });
+
+  // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）
+  test('verifyLineAccessToken fails (audience mismatch) → 401', async () => {
+    const { verifyLineAccessToken } = require('@/lib/line');
+    (verifyLineAccessToken as jest.Mock).mockResolvedValueOnce({ ok: false });
+    const res = await POST(makeRequest({ access_token: 'foreign-token' }) as any);
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toContain('Invalid LINE token');
   });
 });

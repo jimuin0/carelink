@@ -2,15 +2,16 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import type { AvailableSlot } from '@/types';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
   try {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'slots')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'slots')) {
     return NextResponse.json({ error: 'リクエストが多すぎます', slots: [] }, { status: 429 });
   }
 

@@ -12,14 +12,14 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST } from '../sync/route';
 
 let mockGetUser: jest.Mock;
@@ -27,7 +27,7 @@ let mockGetUser: jest.Mock;
 beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
 
   mockGetUser = jest.fn().mockResolvedValue({
     data: { user: { id: 'user-123', email: 'test@example.com' } },
@@ -101,7 +101,7 @@ describe('POST /api/google-calendar/sync', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await POST(makeRequest({ bookingId: BOOKING_UUID }));
 
@@ -149,26 +149,26 @@ describe('POST /api/google-calendar/sync', () => {
   });
 
   test('rate limit params (20 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makeRequest({ bookingId: BOOKING_UUID }, '192.168.1.1'));
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(20);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('gcal-sync');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(20);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('gcal-sync');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makeRequest({ bookingId: BOOKING_UUID }, '10.0.0.1, 192.168.1.1'));
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('UUID format validation - lowercase accepted', async () => {

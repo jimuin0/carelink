@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export async function GET(req: NextRequest) {
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'gbp-place-get')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'gbp-place-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
@@ -67,8 +68,8 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'gbp-place')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'gbp-place')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   // place_id を facility_profiles に保存

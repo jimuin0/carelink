@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
@@ -12,7 +13,7 @@ export async function POST(request: NextRequest) {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] ?? 'unknown';
+    const ip = getClientIp(request);
     const isLimited = await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'rl:push-sub');
     if (isLimited) {
       return NextResponse.json({ error: 'Too many requests' }, { status: 429 });

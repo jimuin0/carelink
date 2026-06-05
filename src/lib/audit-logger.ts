@@ -4,6 +4,7 @@
  */
 
 import { createServiceRoleClient } from './supabase-server';
+import { getClientIp } from './client-ip';
 
 export type AuditAction =
   | 'create'
@@ -67,7 +68,8 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
  */
 export function getRequestContext(request: Request): { ip: string | null; ua: string | null } {
   return {
-    ip: request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
+    // クライアント詐称可能な XFF 先頭値ではなく、信頼できるIP（x-real-ip 優先・XFF末尾）。
+    ip: getClientIp(request),
     ua: request.headers.get('user-agent') ?? null,
   };
 }

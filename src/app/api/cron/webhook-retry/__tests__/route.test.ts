@@ -41,7 +41,8 @@ function setupDefaultMocks(
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
   (scheduleRetry as jest.Mock).mockResolvedValue(undefined);
-  mockSendLineText = jest.fn().mockResolvedValue(undefined);
+  // sendLineText は成功時 true / 失敗時 false を返す契約（route 側が戻り値で成否判定）。
+  mockSendLineText = jest.fn().mockResolvedValue(true);
   (sendLineText as jest.Mock).mockImplementation(mockSendLineText);
 
   if (sendFails) {
@@ -224,6 +225,20 @@ describe('GET /api/cron/webhook-retry', () => {
     await GET(makeRequest() as any);
 
     expect(scheduleRetry).toHaveBeenCalled();
+  });
+
+  test('line_push returns false (retries exhausted) → scheduleRetry, not silent success', async () => {
+    // sendLineText が throw せず false を返す配信失敗ケース。
+    // 戻り値を無視していた旧実装では status='success' に倒れ通知が消失していた。
+    // false を throw → scheduleRetry に回ることを検証（サイレントデータロス防止の回帰固定）。
+    setupDefaultMocks(1);
+    mockSendLineText.mockResolvedValue(false);
+
+    await GET(makeRequest() as any);
+
+    expect(scheduleRetry).toHaveBeenCalled();
+    const call = (scheduleRetry as jest.Mock).mock.calls[0];
+    expect(call[2]).toContain('line_push failed');
   });
 
   test('failure includes error message and attempt_count++', async () => {

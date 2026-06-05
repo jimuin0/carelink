@@ -1,4 +1,5 @@
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/client-ip";
 /**
  * Stripe Checkout Session 作成（v8.5）
  * POST /api/payment/checkout
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
     }

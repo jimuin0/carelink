@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
@@ -29,8 +30,8 @@ async function getAdminUser(): Promise<string | null> {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'admin-feature-flags-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'admin-feature-flags-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
@@ -69,8 +70,8 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'admin-feature-flags-post')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'admin-feature-flags-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

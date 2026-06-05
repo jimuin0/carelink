@@ -3,11 +3,13 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { alertCaughtError } from '@/lib/alert';
 import { GET } from '../route';
 
 function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
@@ -56,7 +58,7 @@ function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
 
@@ -74,7 +76,7 @@ function makeRequest(apiKey: string = 'test-api-key', query: string = '', ip = '
 
 describe('GET /api/v1/customers', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(429);
   });
@@ -142,20 +144,20 @@ describe('GET /api/v1/customers', () => {
   });
 
   test('rate limit params (60 req/min per IP)', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
     await GET(makeRequest('test-key', '', '192.168.1.1') as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe(60);
-    expect(call[2]).toBe(60_000);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(60);
+    expect(call[3]).toBe(60_000);
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
-    (inMemoryRateLimit as jest.Mock).mockClear();
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
     await GET(makeRequest('test-key', '', '10.0.0.1, 192.168.1.1') as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('expired API key → 401', async () => {
@@ -302,15 +304,15 @@ describe('GET /api/v1/customers', () => {
   });
 
   test('missing x-forwarded-for → unknown IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/v1/customers', {
       method: 'GET',
       headers: { 'Authorization': 'Bearer test-api-key' },
     });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     await GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('limit=abc → デフォルト50', async () => {
@@ -436,6 +438,22 @@ describe('GET /api/v1/customers', () => {
     const json = await res.json();
     expect(json.data).toEqual([]);
     expect(json.pagination.total).toBe(0);
+  });
+
+  test('想定外 throw → JSON 500（契約維持）+ alertCaughtError で Slack 通報', async () => {
+    (checkRateLimit as jest.Mock).mockImplementation(() => {
+      throw new Error('unexpected boom');
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal Server Error');
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    expect(alertCaughtError).toHaveBeenCalledWith(
+      'v1-customers',
+      expect.any(Error),
+      '/api/v1/customers'
+    );
   });
 
   test('重複 user_id は dedup される', async () => {

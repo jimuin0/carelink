@@ -9,7 +9,8 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
@@ -31,8 +32,8 @@ async function getPlatformAdminUser(): Promise<string | null> {
 export async function PATCH(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'facility-verify')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'facility-verify')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
@@ -19,7 +20,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   const csrfError = checkCsrf(_request);
   if (csrfError) return csrfError;
 
-  const ip = _request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(_request);
   if (await checkRateLimit(mutationRateLimit, ip, 10, 60_000, 'cancel')) {
     return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
   }
@@ -83,7 +84,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     recordId: booking.id,
     oldValues: { status: booking.status },
     newValues: { status: 'cancelled' },
-    ipAddress: _request.headers.get('x-forwarded-for')?.split(',')[0] ?? null,
+    ipAddress: getClientIp(_request),
   });
 
   // Send cancellation email (non-blocking)

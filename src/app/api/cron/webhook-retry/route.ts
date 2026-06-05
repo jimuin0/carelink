@@ -55,7 +55,12 @@ export async function GET(request: Request) {
     for (const job of jobs) {
       try {
         if (job.webhook_type === 'line_push') {
-          await sendLineText(job.target_id, job.payload.message as string);
+          // sendLineText はリトライ上限到達時に throw せず false を返す。
+          // 戻り値を無視すると配信失敗でも下で status='success' に更新され、
+          // 通知が永久に消失する（サイレントデータロス）。false を明示的に throw し
+          // catch → scheduleRetry へ回して再送キューに戻す（発症前予防）。
+          const ok = await sendLineText(job.target_id, job.payload.message as string);
+          if (!ok) throw new Error('line_push failed after all retries');
         } else if (job.webhook_type === 'email' && resend) {
           const p = job.payload as { to: string; subject: string; html: string; from?: string };
           await resend.emails.send({

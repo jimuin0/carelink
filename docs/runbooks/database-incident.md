@@ -49,6 +49,14 @@
     （commit `ed0f98d fix: Google OAuth ユーザーの表示名空欄問題＋登録ログのaudit_logs統合`）
   → trigger SQL を確認し、`raw_user_meta_data` の `name` / `full_name` / `given_name` 全パスを拾えているか
 
+- **条件 E — 静かなドリフト（本番と repo migration の乖離）**
+  → 症状: 本番では動くが新規環境 replay で壊れる / repo の migration を素直に適用すると
+    エラー（`0A000` `42703` `42P16` `PGRST202` `PGRST205` 等）/ 「本番だけ直っている」
+  → 過去事例（2026-04〜06、ADR-0005 参照）: `create_booking_atomic` の 0A000 landmine、
+    `public_reviews` の `user_id` 42703、`facility_card_view` 未作成、`reviewer_ip` PII 漏洩。
+    いずれも **out-of-band 修正（本番直接修正で repo 未反映）が根本原因**。
+  → 復旧手順は **4-5** を参照
+
 ---
 
 ## 4. 復旧手順
@@ -77,6 +85,33 @@
 3. 修正 SQL を staging で適用 → 本番適用
 4. 既に量産された不整合ユーザーは別途 backfill スクリプトで修復
 
+### 4-5. 静かなドリフト（条件 E）の検知・復旧
+
+**検知（発症前に止める）**
+1. **contract test**: `tests/contract/schema-invariants.contract.test.ts` を
+   staging env（`STAGING_SUPABASE_*`）付きで `npm run test:contract` 実行。
+   RPC 存在・予約 RPC の 0A000 landmine・anon の過大公開・列/View 存在を検証する。
+   CI では `.github/workflows/ci.yml` の `contract-test` ジョブが PR で自動実行。
+2. **gen types 差分**: `supabase gen types typescript --project-id <ref> --schema public`
+   を一時ファイルに出力し、`src/types/database.types.ts` と diff。差分が出たらドリフト。
+   （read-only introspection。`.env` パース失敗時は `.env` の無い cwd（例 /tmp）から実行）
+3. **副作用ゼロ プローブ**: write 系 RPC は zero-UUID の FK 値で呼ぶと、本体実行前に
+   `23503`(FK 違反) で弾かれる。`0A000` が返れば landmine 再発、`PGRST202` なら関数不在、
+   と状態を無副作用で判別できる。
+
+**復旧（repo と本番を一致させる）**
+1. 乖離している本番の実定義を Supabase Dashboard / introspection で確定（推測しない）。
+2. **冪等な修復 migration** を `supabase/migrations/YYYYMMDD_*.sql` に新規作成する:
+   - `CREATE OR REPLACE FUNCTION/VIEW` / `ADD COLUMN IF NOT EXISTS` /
+     `DROP POLICY IF EXISTS` → `CREATE POLICY` を使い、何度適用しても安全にする。
+   - `CREATE OR REPLACE VIEW` は既存列の名前・順序・型を変えず、新列は**末尾追加のみ**
+     （中間挿入は `42P16`）。
+   - 誤定義を含む過去 migration ファイル**本体も**正しい定義に修正する（書き戻し）。
+     本番だけ直して repo を放置しない（それがドリフトの発生源）。
+3. 神原さんが Dashboard で migration を 1 回適用（本番が既に正しければ実質 no-op）。
+4. 適用後に上記「検知」手順を再実行し、ドリフト解消を確認する。
+5. ADR-0005（out-of-band 修正禁止）に沿い、緊急 out-of-band 修正は当日中に書き戻す。
+
 ---
 
 ## 5. 事後対応
@@ -93,4 +128,6 @@
 - Slack `#alerts-prod`
 - Supabase Dashboard / Status: https://status.supabase.com
 - 関連 commit: `ed0f98d`（handle_new_user trigger 修正）
+- 関連 ADR: [adr-0005-no-out-of-band-migrations.md](../adr/adr-0005-no-out-of-band-migrations.md)（out-of-band 修正禁止）
+- 関連ファイル: `supabase/migrations/20260602000003_drift_repair.sql`, `supabase/migrations/20260602000001_booking_atomic_0a000_fix.sql`, `tests/contract/schema-invariants.contract.test.ts`
 - 関連 runbook: [external-dep-down.md](./external-dep-down.md), [500-surge.md](./500-surge.md)

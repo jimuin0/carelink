@@ -4,7 +4,8 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { Resend } from 'resend';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { escSubject } from '@/lib/email';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { createHmac } from 'crypto';
@@ -36,8 +37,8 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 5, 60_000 * 10, 'newsletter-send')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 5, 60_000 * 10, 'newsletter-send')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });

@@ -11,6 +11,15 @@ import { createClient } from '@supabase/supabase-js';
 export const dynamic = 'force-dynamic';
 
 export async function POST(request: Request) {
+  // 署名検証を設定確認より先に行う（/api/stripe/webhook と整合・よりセキュア）。
+  // 未署名リクエストには設定状態(503)を晒さず、まず 400 で拒否する。
+  const body = await request.text();
+  const sig = request.headers.get('stripe-signature');
+
+  if (!sig) {
+    return NextResponse.json({ error: 'No signature' }, { status: 400 });
+  }
+
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -19,12 +28,6 @@ export async function POST(request: Request) {
   }
 
   const stripe = new Stripe(stripeKey);
-  const body = await request.text();
-  const sig = request.headers.get('stripe-signature');
-
-  if (!sig) {
-    return NextResponse.json({ error: 'No signature' }, { status: 400 });
-  }
 
   let event: Stripe.Event;
   try {

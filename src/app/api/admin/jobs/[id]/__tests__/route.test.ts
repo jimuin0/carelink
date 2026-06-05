@@ -13,7 +13,6 @@
 
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
   mutationRateLimit: {},
 }));
@@ -34,7 +33,7 @@ jest.mock('@supabase/ssr', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, PATCH, DELETE } from '../route';
-import { inMemoryRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeProps(id = JOB_UUID) {
@@ -120,7 +119,6 @@ function setupAuthorize(job: unknown = MOCK_JOB) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -136,7 +134,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockResolvedValue(true);
   const res = await GET(makeGetRequest(), makeProps());
   expect(res.status).toBe(429);
 });

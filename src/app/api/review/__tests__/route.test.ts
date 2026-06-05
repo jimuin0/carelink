@@ -118,6 +118,9 @@ const validReview = {
   rating_atmosphere: 3,
   rating_cleanliness: 4,
   rating_explanation: 5,
+  // 本番は reCAPTCHA secret 設定済み＝token 必須（fail-closed）。
+  // フロントが常に token を送る本番状態を既定とする。
+  recaptcha_token: 'valid-token',
 };
 
 describe('POST /api/review', () => {
@@ -266,7 +269,7 @@ describe('POST /api/review', () => {
     await POST(makeRequest(validReview, '10.0.0.1, 192.168.1.1'));
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('10.0.0.1');
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', async () => {
@@ -300,6 +303,8 @@ describe('POST /api/review', () => {
       rating_atmosphere: 3,
       rating_cleanliness: 4,
       rating_explanation: 5,
+      // 本番は reCAPTCHA secret 設定済み＝token 必須（fail-closed）
+      recaptcha_token: 'valid-token',
     };
 
     // Builds a fully correct mock for all three DB operations used by the route:
@@ -460,6 +465,19 @@ describe('POST /api/review', () => {
       const res = await POST(makeRequest({ ...bizReview, recaptcha_token: 'token' }));
 
       expect(res.status).toBe(403);
+    });
+
+    // fail-closed: secret設定時に token 省略 → 403（旧実装は素通り=fail-open だった）
+    // verifyRecaptcha を呼ぶ前に弾く（token必須化）ことを検証
+    test('reCAPTCHA secret設定済み + token欠如 → 403（fail-closed）', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      process.env.RECAPTCHA_SECRET_KEY = 'test-secret-key';
+      (verifyRecaptcha as jest.Mock).mockClear();
+
+      const res = await POST(makeRequest({ ...bizReview, recaptcha_token: undefined }));
+
+      expect(res.status).toBe(403);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
     });
 
     test('reCAPTCHA skipped when no RECAPTCHA_SECRET_KEY', async () => {

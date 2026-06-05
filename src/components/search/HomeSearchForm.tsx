@@ -43,7 +43,7 @@ export default function HomeSearchForm() {
           value={area}
           onChange={(e) => setArea(e.target.value)}
           aria-label="エリアを選択"
-          className="w-[120px] px-3 py-2.5 text-xs text-gray-600 bg-transparent border-r border-gray-100 focus:outline-none appearance-none"
+          className="w-[120px] px-3 py-2.5 text-base text-gray-600 bg-transparent border-r border-gray-100 focus:outline-none appearance-none"
         >
           <option value="">全エリア</option>
           {prefectures.map((p) => (
@@ -59,7 +59,7 @@ export default function HomeSearchForm() {
             onBlur={() => setSuggestOpen(false)}
             placeholder="サロン名・キーワード"
             aria-label="サロン名・キーワードで検索"
-            className="w-full px-4 py-2.5 text-sm text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-400"
+            className="w-full px-4 py-2.5 text-base text-gray-700 bg-transparent focus:outline-none placeholder:text-gray-400"
           />
           <SearchSuggest
             query={keyword}
@@ -77,7 +77,7 @@ export default function HomeSearchForm() {
           type="button"
           onClick={handleGeoSearch}
           disabled={geoLoading}
-          className="flex items-center gap-1.5 text-xs text-white font-medium hover:text-sky-100 transition-colors [text-shadow:0_1px_3px_rgba(0,0,0,0.3)]"
+          className="flex items-center gap-1.5 min-h-[24px] text-xs text-white font-medium hover:text-sky-100 transition-colors [text-shadow:0_1px_3px_rgba(0,0,0,0.3)]"
         >
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />

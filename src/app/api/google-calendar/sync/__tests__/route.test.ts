@@ -8,7 +8,7 @@
  *   - POST: booking ownership guard prevents other users from syncing
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
@@ -32,7 +32,7 @@ global.fetch = mockFetch;
 
 import { NextRequest } from 'next/server';
 import { POST, DELETE } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 function makeDeleteRequest(bookingId?: string) {
@@ -81,7 +81,7 @@ const TOKEN_ROW = {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.GOOGLE_CLIENT_ID = 'test-client-id';
@@ -215,7 +215,7 @@ test('DELETE: 正常削除 → 200 ok:true', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
   expect(res.status).toBe(429);
 });
@@ -313,7 +313,7 @@ test('DELETE: 不正なUUID → 400', async () => {
 });
 
 test('DELETE: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
   expect(res.status).toBe(429);
 });

@@ -1,15 +1,33 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { timingSafeEqual } from 'crypto';
 import { safeCaptureException } from '@/lib/safe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * 定数時間文字列比較。早期 return での文字単位リーク（タイミング攻撃）を防ぐ。
+ * - CSRF state nonce と HMAC 署名の検証に使用する。特に HMAC 署名比較
+ *   （サーバ計算値 vs 攻撃者制御値）は平文 !== だと署名をバイト単位で
+ *   復元され得る古典的タイミング攻撃面のため constant-time が必須。
+ * - 両引数とも非空文字列であることは呼び出し側で保証する（undefined 判定を
+ *   ここに持ち込むと到達不能ブランチが生まれるため）。長さ不一致は即 false
+ *   （state nonce/HMAC とも固定長で長さは秘匿対象でないため許容）。
+ */
+function timingSafeStrEqual(a: string, b: string): boolean {
+  const ba = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ba.length !== bb.length) return false;
+  return timingSafeEqual(ba, bb);
+}
+
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'line-callback')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'line-callback')) {
     const { origin } = new URL(request.url);
     return NextResponse.redirect(`${origin}/auth/login?error=too_many_requests`);
   }
@@ -31,7 +49,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/auth/login?error=line_denied`);
   }
 
-  if (!code || !state || state !== savedState) {
+  if (!code || !state || !savedState || !timingSafeStrEqual(state, savedState)) {
     return NextResponse.redirect(`${origin}/auth/login?error=line_invalid_state`);
   }
 
@@ -97,7 +115,7 @@ export async function GET(request: NextRequest) {
           );
           const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(data));
           const expected = Buffer.from(sig).toString('base64url');
-          if (expected !== parts[2]) {
+          if (!timingSafeStrEqual(expected, parts[2])) {
             // Signature mismatch — reject the id_token entirely
             return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
           }
@@ -106,8 +124,12 @@ export async function GET(request: NextRequest) {
           );
           email = payload.email || null;
         }
-      } catch {
-        // id_token verification failed — use fallback email
+      } catch (e) {
+        // ★ id_token 検証中に例外が出た場合は fallback email に流さず明確に拒否する。
+        //   従来はここで握り潰して未検証のまま処理を続けていたため、署名検証を
+        //   バイパスする経路になり得た（agent監査指摘）。fail-closed にする。
+        console.error('[line-callback] id_token verification threw', e);
+        return NextResponse.redirect(`${origin}/auth/login?error=line_token_invalid`);
       }
     }
 

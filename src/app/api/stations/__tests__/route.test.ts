@@ -5,17 +5,17 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
 
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
   const chainable: any = {};
@@ -33,7 +33,7 @@ beforeEach(() => {
 
 describe('GET /api/stations', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await GET(new Request('http://localhost/api/stations', {
       headers: { 'x-forwarded-for': '192.168.1.1' },
     }) as any);
@@ -50,21 +50,21 @@ describe('GET /api/stations', () => {
   });
 
   test('rate limit params', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     GET(new Request('http://localhost/api/stations', {
       headers: { 'x-forwarded-for': '192.168.1.1' },
     }) as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe(30);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(30);
   });
 
   test('IP extraction', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     GET(new Request('http://localhost/api/stations', {
       headers: { 'x-forwarded-for': '10.0.0.1, 192.168.1.1' },
     }) as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 });
 
@@ -191,12 +191,12 @@ describe('GET /api/stations', () => {
   });
 
   test('unknown IP（x-forwarded-for なし）でもレートリミット動作', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/stations');
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('data が null でも空配列で返る', async () => {

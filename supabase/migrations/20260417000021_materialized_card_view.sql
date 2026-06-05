@@ -1,0 +1,27 @@
+-- =============================================================================
+-- 【廃案・中和済み】facility_card_view のマテリアライズドビュー化（旧 v8.29）
+-- =============================================================================
+-- この migration は当初 facility_card_view を MATERIALIZED VIEW へ変換し、
+-- 書き込み毎に REFRESH するトリガを張る設計だった。しかし以下の理由で「採用しない」
+-- ことが権威 migration 20260602xxxxxx_drift_repair.sql（L58-60）で確定している:
+--
+--   1. matview 化は write-path（facility_profiles / coupons の INSERT/UPDATE/DELETE）に
+--      REFRESH MATERIALIZED VIEW CONCURRENTLY の副作用・失敗リスクを足す。本番は現に
+--      「素の VIEW」セマンティクスに依存しており、それを維持する（確実性優先）。
+--   2. 本 matview 定義は facility_menus.is_active 列を参照していたが、当該列は repo にも
+--      本番にも存在しない（prod introspection 済 src/types/database.types.ts で確認:
+--      facility_menus には is_featured / is_published はあるが is_active は無い）。
+--      存在しない列への参照は fresh-apply を 42703 で破壊する。
+--   3. 本 migration は本番へ一度も適用されていない（drift_repair の事実認定: 20260417
+--      系の google_rating_columns / materialized_card_view はいずれも本番未適用）。
+--
+-- したがって本ファイルは「廃案の記録」として版管理上は残しつつ、スキーマには一切
+-- 作用しない no-op とする。facility_card_view（素の VIEW・google 列末尾）の最終形は
+-- 直前の 20260417000017_google_rating_columns.sql と 20260602xxxxxx_drift_repair.sql が
+-- 確立する。本ファイルを復活させてはならない（fresh-apply とドリフトの再発源になる）。
+--
+-- 関連: docs/adr/adr-0005-no-out-of-band-migrations.md
+-- =============================================================================
+
+-- intentionally no-op
+SELECT 1;

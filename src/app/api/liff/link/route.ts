@@ -6,13 +6,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
+import { verifyLineAccessToken } from '@/lib/line';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'liff-link')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'liff-link')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
@@ -23,6 +25,14 @@ export async function POST(req: NextRequest) {
     const { access_token } = await req.json();
     if (!access_token || typeof access_token !== 'string' || access_token.length > 512) {
       return NextResponse.json({ error: 'access_token required' }, { status: 400 });
+    }
+
+    // ★ audience(channel)検証: /v2/profile は発行元チャネル(client_id)を検証しないため、
+    //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
+    //   line_user_id 詐称＝被害者LINEの不正紐付けを遮断）。fail-closed。
+    const tokenCheck = await verifyLineAccessToken(access_token);
+    if (!tokenCheck.ok) {
+      return NextResponse.json({ error: 'Invalid LINE token' }, { status: 401 });
     }
 
     // LINEトークンを検証
@@ -64,8 +74,8 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const deleteIp = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(deleteIp, 5, 60_000, 'liff-link-delete')) {
+  const deleteIp = getClientIp(req);
+  if (await checkRateLimit(null, deleteIp, 5, 60_000, 'liff-link-delete')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {

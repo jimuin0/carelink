@@ -12,11 +12,11 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server');
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 let mockStaffSelect: jest.Mock;
@@ -58,7 +58,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
 
@@ -81,7 +81,7 @@ function makeRequest(
 
 describe('GET /api/availability', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(makeRequest() as any);
 
@@ -250,24 +250,24 @@ describe('GET /api/availability', () => {
   });
 
   test('rate limit params (10 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(VALID_UUID, undefined, 2026, 5, '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(10);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('availability');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(10);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('availability');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(VALID_UUID, undefined, 2026, 5, '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('exception during processing → 500', async () => {
@@ -300,11 +300,11 @@ describe('GET /api/availability', () => {
   });
 
   test('missing x-forwarded-for → uses "unknown" IP', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const req = new Request(`http://localhost/api/availability?facilityId=${VALID_UUID}&year=2026&month=5`, { method: 'GET' });
     GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('staffList null (?? []) → dates empty', async () => {

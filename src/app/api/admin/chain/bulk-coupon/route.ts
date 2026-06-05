@@ -6,15 +6,16 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'bulk-coupon')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'bulk-coupon')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();

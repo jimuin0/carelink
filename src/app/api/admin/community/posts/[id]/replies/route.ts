@@ -3,7 +3,8 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { UUID_REGEX } from '@/lib/constants';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 async function requireFacilityMember(userId: string) {
   const admin = createServiceRoleClient();
@@ -19,8 +20,8 @@ async function requireFacilityMember(userId: string) {
 
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'community-replies-get')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'community-replies-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
@@ -48,8 +49,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const params = await props.params;
   const csrfError = checkCsrf(req);
   if (csrfError) return csrfError;
-  const ip = req.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'community-replies')) {
+  const ip = getClientIp(req);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'community-replies')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });

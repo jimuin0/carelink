@@ -1,4 +1,5 @@
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/client-ip";
 /**
  * アカウント削除 API（v8.5）
  * POST /api/account/delete
@@ -18,7 +19,7 @@ export async function POST(request: NextRequest) {
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
     }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { safeCaptureException } from '@/lib/safe';
 import { writeAuditLog } from '@/lib/audit-logger';
@@ -10,7 +11,7 @@ import { withRoute } from '@/lib/with-route';
 export const dynamic = 'force-dynamic';
 
 export const POST = withRoute(async (request) => {
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
 
     const body = await request.json().catch(() => ({}));
     const { bookingId } = body;

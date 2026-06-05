@@ -4,7 +4,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const grantSchema = z.object({
@@ -21,8 +22,8 @@ const useSchema = z.object({
 });
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'user-packages-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'user-packages-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -62,8 +63,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'user-packages')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'user-packages')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();
@@ -128,8 +129,8 @@ export async function POST(request: NextRequest) {
 export async function PATCH(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'user-packages-use')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'user-packages-use')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const supabase = await createServerSupabaseAuthClient();

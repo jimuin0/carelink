@@ -4,7 +4,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const packageSchema = z.object({
   name: z.string().min(1).max(100),
@@ -38,8 +39,8 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'packages-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'packages-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const facilityId = await getAdminFacilityId(request);
@@ -61,8 +62,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'packages')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'packages')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const facilityId = await getAdminFacilityId(request);

@@ -30,9 +30,13 @@ test.describe('支払いページ', () => {
 });
 
 test.describe('領収書 API', () => {
-  test('session_id なしで 400 が返る', async ({ request }) => {
+  // 設計: 受領書 API は「認証 → 入力検証」の順（route.ts:24-30）。未認証に入力検証の
+  // 挙動を晒さないため、未認証なら入力の妥当性に関わらず 401 を先に返すのが正しい。
+  // 入力検証(400: missing / too-long / unpaid)は単体テスト
+  // src/app/api/stripe/receipt/__tests__/route.test.ts が認証モック下で担保している。
+  test('未認証は session_id なしでも 401（認証が入力検証より先）', async ({ request }) => {
     const response = await request.get('/api/stripe/receipt');
-    expect(response.status()).toBe(400);
+    expect(response.status()).toBe(401);
   });
 
   test('未認証で 401 が返る', async ({ request }) => {
@@ -40,10 +44,10 @@ test.describe('領収書 API', () => {
     expect(response.status()).toBe(401);
   });
 
-  test('長すぎる session_id で 400 が返る', async ({ request }) => {
+  test('未認証は長すぎる session_id でも 401（認証が入力検証より先）', async ({ request }) => {
     const longId = 'x'.repeat(201);
     const response = await request.get(`/api/stripe/receipt?session_id=${longId}`);
-    expect(response.status()).toBe(400);
+    expect(response.status()).toBe(401);
   });
 
   test('Cache-Control が private, no-store である', async ({ request }) => {

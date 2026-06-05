@@ -4,7 +4,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
@@ -45,8 +46,8 @@ async function getAdminInfo(request: NextRequest): Promise<{ userId: string; fac
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 30, 60_000, 'coupons-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 30, 60_000, 'coupons-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminInfo(request);
@@ -66,8 +67,8 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'coupons-create')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'coupons-create')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const auth = await getAdminInfo(request);

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { checkCsrf } from '@/lib/csrf';
-import { mutationRateLimit, checkRateLimit, inMemoryRateLimit } from '@/lib/rate-limit';
+import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { jobFormSchema } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -23,8 +24,8 @@ async function getOwnerFacilityIds() {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-jobs-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'admin-jobs-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
@@ -51,7 +52,7 @@ export async function POST(request: Request) {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
 
-    const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 20, 60_000, 'admin-jobs')) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました' }, { status: 429 });
     }

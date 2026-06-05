@@ -11,6 +11,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/client-ip";
 import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
-    const ip = request.headers.get("x-forwarded-for")?.split(",")[0] || "unknown";
+    const ip = getClientIp(request);
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
     }

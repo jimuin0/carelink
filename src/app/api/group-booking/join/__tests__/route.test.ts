@@ -8,7 +8,7 @@
  *   - invited member confirmation returns 500 if UPDATE fails
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
@@ -26,7 +26,7 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 
 import { POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
 const OPEN_GROUP = {
@@ -60,7 +60,7 @@ function singleChain(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
 });
@@ -74,7 +74,7 @@ test('未認証 → 401', async () => {
 });
 
 test('レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makeRequest({ share_code: 'ABCD12' }));
   expect(res.status).toBe(429);
 });

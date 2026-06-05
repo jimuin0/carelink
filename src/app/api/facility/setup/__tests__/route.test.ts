@@ -437,7 +437,7 @@ describe('POST /api/facility/setup', () => {
     expect(call[3]).toBe(60_000); // window
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     await POST(
@@ -448,7 +448,7 @@ describe('POST /api/facility/setup', () => {
     );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe('10.0.0.1');
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('invalid JSON body → defaults to empty object', async () => {

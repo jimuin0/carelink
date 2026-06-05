@@ -16,7 +16,10 @@ test.describe('API レスポンス形式', () => {
 
     const json = await response.json();
     expect(json).toHaveProperty('status');
-    expect(json.status).toBe('ok');
+    // /api/health は 'ok' を返さない（src/app/api/health/route.ts）。
+    // criticalOk（supabase+rate_limit）が真なら 200 + 'healthy'|'degraded'、
+    // 偽なら 503 + 'unhealthy'。status===200 を上で確証済みのため healthy|degraded のみ許容。
+    expect(['healthy', 'degraded']).toContain(json.status);
     expect(json).toHaveProperty('timestamp');
     expect(json).toHaveProperty('elapsed_ms');
     expect(typeof json.elapsed_ms).toBe('number');

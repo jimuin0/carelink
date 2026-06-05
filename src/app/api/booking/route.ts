@@ -5,6 +5,7 @@ import { bookingSchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import { safeCaptureException } from '@/lib/safe';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
@@ -18,7 +19,7 @@ export async function POST(request: Request) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (await checkRateLimit(bookingRateLimit, ip, 3, 300_000, 'booking')) {
     return NextResponse.json({ error: '短時間に多くのリクエストがありました。しばらくお待ちください。' }, { status: 429 });
   }

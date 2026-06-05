@@ -9,6 +9,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -24,7 +25,7 @@ export async function POST(request: Request) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
+  const ip = getClientIp(request);
   if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, 'report')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }

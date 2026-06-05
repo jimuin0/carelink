@@ -13,13 +13,16 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
+}));
+jest.mock('@/lib/line', () => ({
+  verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
 }));
 jest.mock('@/lib/supabase-server');
 
 global.fetch = jest.fn();
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
 // Helper to create chainable mock
@@ -110,7 +113,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (global.fetch as jest.Mock).mockClear();
   setupDefaultMocks();
 });
@@ -142,7 +145,7 @@ const BOOKING_UUID = '11111111-1111-1111-1111-111111111111';
 
 describe('GET /api/liff/bookings', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(makeRequest() as any);
 
@@ -180,28 +183,28 @@ describe('GET /api/liff/bookings', () => {
   });
 
   test('rate limit params (30 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(undefined, 'token', '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(30);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('liff-bookings');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(30);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('liff-bookings');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
+    (checkRateLimit as jest.Mock).mockClear();
 
     GET(makeRequest(undefined, 'token', '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('uses unknown IP when x-forwarded-for missing', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     const req = new Request('http://localhost/api/liff/bookings', {
       method: 'GET',
@@ -210,8 +213,8 @@ describe('GET /api/liff/bookings', () => {
 
     GET(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('invalid LINE token → 401', async () => {
@@ -285,6 +288,16 @@ describe('GET /api/liff/bookings', () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(500);
+  });
+
+  // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）
+  test('verifyLineAccessToken fails (audience mismatch) → 401', async () => {
+    const { verifyLineAccessToken } = require('@/lib/line');
+    (verifyLineAccessToken as jest.Mock).mockResolvedValueOnce({ ok: false });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(401);
+    const json = await res.json();
+    expect(json.error).toBe('Unauthorized');
   });
 
 });

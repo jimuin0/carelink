@@ -10,12 +10,18 @@ jest.mock('@/lib/supabase-server', () => ({
 import { inMemoryRateLimit, checkRateLimit } from '../rate-limit';
 
 describe('inMemoryRateLimit - advanced', () => {
-  test('ウィンドウ期限後はカウントがリセットされる', async () => {
-    const prefix = 'test-expire-' + Date.now();
-    inMemoryRateLimit('9.9.9.9', 1, 50, prefix);
-    expect(inMemoryRateLimit('9.9.9.9', 1, 50, prefix)).toBe(true);
-    await new Promise(r => setTimeout(r, 60));
-    expect(inMemoryRateLimit('9.9.9.9', 1, 50, prefix)).toBe(false);
+  test('ウィンドウ期限後はカウントがリセットされる', () => {
+    // 実時間 setTimeout 待ちは coverage 計装の遅延で非決定になるため fake timers で決定化。
+    jest.useFakeTimers();
+    try {
+      const prefix = 'test-expire-fixed';
+      inMemoryRateLimit('9.9.9.9', 1, 50, prefix);
+      expect(inMemoryRateLimit('9.9.9.9', 1, 50, prefix)).toBe(true);
+      jest.advanceTimersByTime(60); // windowMs(50) 超過 → カウントリセット
+      expect(inMemoryRateLimit('9.9.9.9', 1, 50, prefix)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('limit=0は全リクエストを拒否する', () => {
@@ -42,12 +48,23 @@ describe('checkRateLimit', () => {
 });
 
 describe('inMemoryRateLimit - メモリ管理', () => {
-  test('ウィンドウ境界値: ちょうど windowMs-1ms は同一ウィンドウ内', async () => {
-    const prefix = 'test-boundary-' + Date.now();
-    const windowMs = 100;
-    inMemoryRateLimit('5.5.5.5', 1, windowMs, prefix);
-    // ウィンドウが切れる前は制限される
-    expect(inMemoryRateLimit('5.5.5.5', 1, windowMs, prefix)).toBe(true);
+  test('ウィンドウ境界値: ちょうど windowMs-1ms は同一ウィンドウ内', () => {
+    // coverage 計装の遅延で 1回目と2回目の実時刻間隔が windowMs を跨ぐと false になる
+    // 実時刻依存フレーキーを fake timers で根絶し、境界の両側を決定的に検証する。
+    jest.useFakeTimers();
+    try {
+      const prefix = 'test-boundary-fixed';
+      const windowMs = 100;
+      inMemoryRateLimit('5.5.5.5', 1, windowMs, prefix); // t=0, count=1
+      jest.advanceTimersByTime(windowMs - 1); // now - t = 99 < 100 → 同一ウィンドウ
+      // ウィンドウが切れる前は制限される
+      expect(inMemoryRateLimit('5.5.5.5', 1, windowMs, prefix)).toBe(true);
+      jest.advanceTimersByTime(1); // now - t = 100 >= 100 → ウィンドウ切れ
+      // 境界でカウントがリセットされ制限されない
+      expect(inMemoryRateLimit('5.5.5.5', 1, windowMs, prefix)).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('大量の異なる IP でメモリが爆発しない', () => {

@@ -9,14 +9,19 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
+// POST の DB 書き込み・参照は service_role に集約されたため、その経路を
+// 既存の createServerClient モックに委譲する（auth 判定は anon クライアント）。
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { POST, DELETE } from '../route';
 
 let mockGetUser: jest.Mock;
@@ -61,17 +66,26 @@ function setupMocks(hasUser: boolean = false, hasDuplicate: boolean = false, has
   cookies.mockResolvedValue({
     getAll: jest.fn(() => []),
   });
+
+  // service_role クライアントは現行の createServerClient モックへ委譲する
+  // （cookies は無関係なのでダミーを渡す）。POST の重複確認・施設確認・insert は
+  // 各テストが createServerClient に組んだ from チェーンを共有する。
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockImplementation(() =>
+    require('@supabase/ssr').createServerClient('url', 'key', { cookies: { getAll: () => [] } })
+  );
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
 
   setupMocks(false, false, true);
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-key';
 });
 
 function makePostRequest(body: object, ip = '192.168.1.1') {
@@ -114,7 +128,7 @@ describe('POST /api/waitlist', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await POST(makePostRequest(validWaitlist));
 
@@ -216,24 +230,24 @@ describe('POST /api/waitlist', () => {
   });
 
   test('rate limit params (5 req/min per IP)', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     await POST(makePostRequest(validWaitlist, '192.168.1.1'));
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(5);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('waitlist');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(5);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('waitlist');
   });
 
-  test('extracts first IP from x-forwarded-for', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  test('extracts last (trusted) IP from x-forwarded-for', async () => {
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     await POST(makePostRequest(validWaitlist, '10.0.0.1, 192.168.1.1'));
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   test('non-auth user + facility found + insert success → 200', async () => {
@@ -378,15 +392,15 @@ describe('POST /api/waitlist', () => {
   });
 
   test('POST: x-forwarded-for missing → unknown IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const req = new Request('http://localhost/api/waitlist', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(validWaitlist),
     });
     await POST(req);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('POST: cookie getAll callback is invocable', async () => {
@@ -417,7 +431,7 @@ describe('DELETE /api/waitlist', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (checkCsrf as jest.Mock).mockReturnValue(null);
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     mockGetUser = jest.fn().mockResolvedValue({
       data: { user: { id: 'user-123', email: 'test@example.com' } },
@@ -451,7 +465,7 @@ describe('DELETE /api/waitlist', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111'));
 
@@ -495,15 +509,15 @@ describe('DELETE /api/waitlist', () => {
   });
 
   test('rate limit params (10 req/min per IP)', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     await DELETE(makeDeleteRequest('550e8400-e29b-41d4-a716-446655440000', '192.168.1.1'));
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(10);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('waitlist-delete');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(10);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('waitlist-delete');
   });
 
   test('UUID exactly 36 chars accepted', async () => {
@@ -531,14 +545,14 @@ describe('DELETE /api/waitlist', () => {
   });
 
   test('DELETE: x-forwarded-for missing → unknown IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
     const a = '2'.repeat(8);
     const b = '2'.repeat(4);
     const validId = `${a}-${b}-${b}-${b}-${'2'.repeat(12)}`;
     const req = new Request(`http://localhost/api/waitlist?id=${validId}`, { method: 'DELETE' });
     await DELETE(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('DELETE: cookie getAll callback is invocable', async () => {

@@ -7,7 +7,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Anthropic from '@anthropic-ai/sdk';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 
@@ -37,8 +38,8 @@ const SYSTEM_PROMPT = `あなたはCareLink（鍼灸・整体・マッサージ�
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'ai-support')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'ai-support')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

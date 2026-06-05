@@ -4,7 +4,8 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 const answerSchema = z.object({
   qa_id: z.string().uuid(),
@@ -44,8 +45,8 @@ export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
 
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 20, 60_000, 'admin-qa-post')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'admin-qa-post')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 

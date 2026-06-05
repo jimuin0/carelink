@@ -12,7 +12,13 @@ jest.mock('../supabase-server', () => ({
   createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
 }));
 
+// cron 失敗時の Slack 通報を検証するため alert をモック化（実投稿させない）
+jest.mock('../alert', () => ({
+  alertCaughtError: jest.fn(),
+}));
+
 import { logCronRun, withCronLog } from '../cron-logger';
+import { alertCaughtError } from '../alert';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -50,6 +56,38 @@ describe('logCronRun', () => {
       status: 'error',
       error_msg: 'Something went wrong',
     }));
+  });
+
+  test('error → Slack alert (alertCaughtError) を発火する', async () => {
+    await logCronRun('test-job', 'error', new Date(), { error_msg: 'boom' });
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
+    const [tag, err, route] = (alertCaughtError as jest.Mock).mock.calls[0];
+    expect(tag).toBe('cron:test-job');
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe('boom');
+    expect(route).toBe('/api/cron/test-job');
+  });
+
+  test('error_msg 未指定 → unknown error で通報する', async () => {
+    await logCronRun('test-job', 'error', new Date());
+    const [, err] = (alertCaughtError as jest.Mock).mock.calls[0];
+    expect((err as Error).message).toBe('unknown error');
+  });
+
+  test('success → Slack alert を発火しない（誤通報防止）', async () => {
+    await logCronRun('test-job', 'success', new Date(), { processed: 1 });
+    expect(alertCaughtError).not.toHaveBeenCalled();
+  });
+
+  test('skipped → Slack alert を発火しない', async () => {
+    await logCronRun('test-job', 'skipped', new Date());
+    expect(alertCaughtError).not.toHaveBeenCalled();
+  });
+
+  test('DB insert 失敗時でも error は通報する（記録失敗こそ通報必要）', async () => {
+    mockInsert.mockRejectedValue(new Error('DB error'));
+    await logCronRun('test-job', 'error', new Date(), { error_msg: 'x' });
+    expect(alertCaughtError).toHaveBeenCalledTimes(1);
   });
 
   test('does not throw when DB insert fails (fire-and-forget)', async () => {

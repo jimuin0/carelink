@@ -11,7 +11,7 @@
  *   - DB failure → 500
  */
 
-jest.mock('@/lib/rate-limit', () => ({ inMemoryRateLimit: jest.fn(() => false) }));
+jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
@@ -30,7 +30,7 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 function makeGetRequest() {
   return new NextRequest('http://localhost/api/admin/white-label', { method: 'GET' });
@@ -74,7 +74,7 @@ function upsertSingle(data: unknown, error: unknown = null) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -89,7 +89,7 @@ test('GET: 未認証 → 401', async () => {
 });
 
 test('GET: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(429);
 });
@@ -232,7 +232,7 @@ test('GET: 設定あり → 200 with config', async () => {
 });
 
 test('POST: レートリミット → 429', async () => {
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+  (checkRateLimit as jest.Mock).mockReturnValue(true);
   const res = await POST(makePostRequest({ domain: 'example.com' }));
   expect(res.status).toBe(429);
 });

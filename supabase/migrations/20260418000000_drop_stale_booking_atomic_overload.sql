@@ -1,0 +1,22 @@
+-- =============================================================================
+-- create_booking_atomic 旧 14 引数 overload の明示 DROP（fresh-apply 専用・冪等）
+-- =============================================================================
+-- 20260405000001_booking_conflict_constraint.sql が p_status 無しの 14 引数版を定義する。
+-- 直後の 20260418000001_booking_atomic_status.sql は p_status 付き 15 引数版を
+-- CREATE OR REPLACE するが、引数リストが異なると「置換」ではなく新規 overload になるため、
+-- DROP しないと 14 引数版と 15 引数版が共存する。すると後続の
+--   20260420000003_booking_insert_rls.sql:109  GRANT EXECUTE ON FUNCTION create_booking_atomic
+--   20260602000001_booking_atomic_0a000_fix.sql GRANT EXECUTE ON FUNCTION create_booking_atomic
+-- という「引数省略の bare GRANT」が "function name is not unique"(42725) で fresh-apply を破壊する。
+-- 本番は out-of-band 修正で 15 引数版へ一本化済み（ADR-0005 / 0A000 修正）。
+--
+-- 【なぜ独立ファイルか】supabase CLI のマイグレーション実行系（pgx）は migration ファイルを
+-- 文単位に分割して prepared statement で適用する。DROP と CREATE FUNCTION($$...$$) を同一
+-- ファイルに同居させると、この CLI 版の分割器が両文を分離できず「whole file = 1 文」と誤認し、
+-- 複数コマンドを 1 prepared statement に渡す形になって 42601
+-- "cannot insert multiple commands into a prepared statement" で落ちる
+-- （psql -f の simple protocol では顕在化しないが supabase start/db reset では確実に再現）。
+-- これを恒久回避するため DROP を単文の独立 migration に分離する（1 文ファイルは分割不能性が無い）。
+-- =============================================================================
+
+DROP FUNCTION IF EXISTS create_booking_atomic(UUID, UUID, UUID, UUID, UUID, DATE, TIME, TIME, TEXT, TEXT, TEXT, TEXT, INT, INT);

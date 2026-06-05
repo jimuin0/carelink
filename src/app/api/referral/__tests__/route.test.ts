@@ -10,7 +10,6 @@
 
 jest.mock('@/lib/rate-limit', () => ({
   mutationRateLimit: 'mutationLimit',
-  inMemoryRateLimit: jest.fn(() => false),
   checkRateLimit: jest.fn(),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -25,7 +24,7 @@ jest.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
-import { inMemoryRateLimit, checkRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 let mockGetUser: jest.Mock;
 
@@ -66,14 +65,13 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   setupDefaultMocks();
 });
 
 describe('GET /api/referral', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
     const { GET } = await import('../route');
     const req = new Request('http://localhost/api/referral');
@@ -492,13 +490,13 @@ describe('cookie callbacks and body parse catch', () => {
   });
 
   test('GET: missing x-forwarded-for → "unknown" IP', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const { GET } = await import('../route');
     const req = new Request('http://localhost/api/referral');
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
     await GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('GET: insert error → 500', async () => {

@@ -11,13 +11,13 @@
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/supabase-server-auth');
 jest.mock('@/lib/supabase-server');
 
 import { checkCsrf } from '@/lib/csrf';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 const BOOKING_UUID = 'a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11';
 
@@ -77,7 +77,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   setupDefaultMocks();
 });
 
@@ -104,7 +104,7 @@ describe('POST /api/nps', () => {
   });
 
   test('rate limiting (5/hour) → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const { POST } = await import('../route');
     const res = await POST(makePostRequest({ score: 8 }) as any);
@@ -233,7 +233,7 @@ describe('POST /api/nps', () => {
   });
 
   test('POST: missing x-forwarded-for → uses "unknown"', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const { POST } = await import('../route');
     const req = new Request('http://localhost/api/nps', {
       method: 'POST',
@@ -241,8 +241,8 @@ describe('POST /api/nps', () => {
       body: JSON.stringify({ score: 7 }),
     });
     await POST(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls.find((c) => c[3] === 'nps');
-    expect(call![0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls.find((c) => c[4] === 'nps');
+    expect(call![1]).toBe('unknown');
   });
 
   test('booking_id set but anonymous user → silently nullified', async () => {
@@ -271,14 +271,14 @@ describe('POST /api/nps', () => {
   });
 
   test('rate limit params (5 req/hour)', async () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
 
     const { POST } = await import('../route');
     await POST(makePostRequest({ score: 8 }, '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[1]).toBe(5);
-    expect(call[2]).toBe(60_000 * 60);
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[2]).toBe(5);
+    expect(call[3]).toBe(60_000 * 60);
   });
 });
 
@@ -334,7 +334,7 @@ function setupGetMocks(
 
 describe('GET /api/nps', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const { GET } = await import('../route');
     const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
@@ -469,13 +469,13 @@ describe('GET /api/nps', () => {
 
   test('GET: missing x-forwarded-for → uses "unknown"', async () => {
     setupGetMocks(true, true, []);
-    (inMemoryRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockClear();
     const { GET } = await import('../route');
     const req = new Request(`http://localhost/api/nps?facility_id=${FACILITY_UUID}`, { method: 'GET' });
     Object.defineProperty(req, 'nextUrl', { value: new URL(req.url), writable: true });
     await GET(req as any);
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls.find((c) => c[3] === 'nps-get');
-    expect(call![0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls.find((c) => c[4] === 'nps-get');
+    expect(call![1]).toBe('unknown');
   });
 
   test('GET: data null (?? []) → nps=null, count=0', async () => {
@@ -511,16 +511,16 @@ describe('GET /api/nps', () => {
 
   test('rate limit params (20 req/min)', async () => {
     setupGetMocks(true, true, []);
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     const { GET } = await import('../route');
     await GET(makeGetRequest({ facility_id: FACILITY_UUID }) as any);
 
-    const calls = (inMemoryRateLimit as jest.Mock).mock.calls;
-    const getCall = calls.find((c) => c[3] === 'nps-get');
+    const calls = (checkRateLimit as jest.Mock).mock.calls;
+    const getCall = calls.find((c) => c[4] === 'nps-get');
     expect(getCall).toBeDefined();
-    expect(getCall![1]).toBe(20);
-    expect(getCall![2]).toBe(60_000);
+    expect(getCall![2]).toBe(20);
+    expect(getCall![3]).toBe(60_000);
   });
 });

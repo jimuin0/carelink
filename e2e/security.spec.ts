@@ -87,19 +87,24 @@ test.describe('XSS 防止', () => {
 
 test.describe('オープンリダイレクト防止', () => {
   test('外部URLへのリダイレクトが防止される', async ({ page }) => {
-    // redirect パラメータに外部URLを指定しても外部にリダイレクトされない
+    // アプリは redirect を内部でサニタイズする（'/' 始まり以外は /mypage に丸める）。
+    // page.url() は goto したアドレスそのもの（評価対象を含む）なので不適切。
+    // redirect を実際に消費する LINE ログインリンクの href がサニタイズされ、
+    // 外部URLを redirect 先として含まないことを検証する。
     await page.goto('/auth/login?redirect=https://evil.example.com');
-    await page.waitForLoadState('networkidle');
-    expect(page.url()).not.toContain('evil.example.com');
+    const lineHref = await page.getByRole('link', { name: /LINE/ }).getAttribute('href');
+    expect(lineHref).not.toContain('evil.example.com');
   });
 
   test('javascript: スキームのリダイレクトが防止される', async ({ page }) => {
-    await page.goto('/auth/login?redirect=javascript:alert(1)');
-    await page.waitForLoadState('networkidle');
     let alertTriggered = false;
     page.on('dialog', () => { alertTriggered = true; });
+    await page.goto('/auth/login?redirect=javascript:alert(1)');
+    // ダイアログが発火しない（javascript: が実行されない）こと、かつ redirect 消費先の
+    // LINE リンク href に javascript: が混入しないこと（サニタイズ）を検証する。
+    const lineHref = await page.getByRole('link', { name: /LINE/ }).getAttribute('href');
+    expect(lineHref).not.toContain('javascript:');
     expect(alertTriggered).toBe(false);
-    expect(page.url()).not.toContain('javascript:');
   });
 });
 
@@ -151,7 +156,8 @@ test.describe('IDOR 防止', () => {
   });
 
   test('認証なしでプロフィール更新できない', async ({ request }) => {
-    const response = await request.patch('/api/profile', {
+    // /api/profile は PUT で更新する（route.ts は PUT のみ定義）。未認証では拒否される。
+    const response = await request.put('/api/profile', {
       data: { display_name: 'ハッカー' },
       headers: { 'Content-Type': 'application/json' },
     });

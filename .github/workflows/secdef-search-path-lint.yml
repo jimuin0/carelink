@@ -1,0 +1,120 @@
+name: SECURITY DEFINER search_path Lint
+
+# 発症前予防（L6）: SECURITY DEFINER 関数を SET search_path 固定なしで「新規追加」する
+# migration を PR 段階で弾く。20260603000001_secdef_search_path_fixation.sql が本番を一括
+# 是正した後、新規 migration で未固定の SECURITY DEFINER 関数が再混入するのを物理的に
+# 防止するチョークポイント（症状対処でなく恒久予防）。
+#
+# 【スコープ設計: ファイル名日付カットオフ方式（merge-base 非依存）】
+#   旧実装は git diff（base...HEAD）で「新規/変更ファイル」を判定していたが、feature
+#   ブランチが main から大きく分岐し migration 履歴全体を抱える場合、merge-base が遠く
+#   なり歴史的ファイルが軒並み diff に含まれ、歴史的 SECURITY DEFINER 関数（実行時に
+#   20260603 の動的 ALTER で是正済み・本番適用済み）まで誤って fail させていた。
+#   これを根治するため、git diff に依存せず migration ファイル名の 8 桁日付が
+#   CUTOFF 以降のものだけを強制対象とする決定的方式に置換する。歴史的ファイルは常に
+#   グランドファザリングされ、CUTOFF 以降の新規 migration だけを確実に弾く。
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+      - '.github/workflows/secdef-search-path-lint.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'supabase/migrations/**.sql'
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    name: Reject newly-added SECURITY DEFINER without SET search_path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Lint enforced migrations (filename date >= CUTOFF)
+        run: |
+          python3 - <<'PY'
+          import os, re, sys, glob
+
+          # この lint 導入日。これ以降の日付を持つ migration のみ強制する。
+          CUTOFF = 20260604
+          FIX_FILE = '20260603000001_secdef_search_path_fixation.sql'
+          # 既知の歴史的非日付ファイル（グランドファザリング）。
+          GRANDFATHER = {'combined_phase2_to_6.sql'}
+
+          def is_enforced(path: str) -> bool:
+              base = os.path.basename(path)
+              if base in GRANDFATHER:
+                  return False
+              m = re.match(r'(\d{8})', base)
+              if not m:
+                  return True   # 非日付の新規ファイルは強制（バイパス防止）
+              return int(m.group(1)) >= CUTOFF
+
+          all_files = sorted(glob.glob('supabase/migrations/*.sql'))
+          files = [f for f in all_files if is_enforced(f)]
+          if not files:
+              print(f"✅ CUTOFF({CUTOFF}) 以降の強制対象 migration なし")
+              sys.exit(0)
+
+          def strip_sql_comments(sql: str) -> str:
+              sql = re.sub(r'/\*.*?\*/', ' ', sql, flags=re.DOTALL)
+              sql = re.sub(r'--[^\n]*', ' ', sql)
+              return sql
+
+          # CREATE [OR REPLACE] FUNCTION 名(...) ... 本体 $tag$...$tag$ ... ; を 1 件ずつ抽出。
+          func_re = re.compile(
+              r'CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:public\.)?(?P<name>\w+)\s*\([^;]*?\)'
+              r'.*?AS\s+(?P<tag>\$\w*\$).*?(?P=tag)'
+              r'(?P<attrs>[^;]*?);',
+              re.IGNORECASE | re.DOTALL,
+          )
+
+          errors = []
+          for path in files:
+              if path.endswith(FIX_FILE):
+                  continue  # 一括是正 migration 自身（動的 ALTER）は対象外
+              if not os.path.exists(path):
+                  continue
+              with open(path, encoding='utf-8') as fh:
+                  raw = fh.read()
+              sql = strip_sql_comments(raw)
+
+              altered = set(
+                  m.group(1).lower()
+                  for m in re.finditer(
+                      r'ALTER\s+FUNCTION\s+(?:public\.)?(\w+)\s*\([^)]*\)\s+SET\s+search_path',
+                      sql, re.IGNORECASE)
+              )
+              if re.search(r'ALTER\s+FUNCTION[^\n;]*SET\s+search_path', sql, re.IGNORECASE) \
+                 and re.search(r'\bDO\s+\$\$', sql, re.IGNORECASE):
+                  continue
+
+              for m in func_re.finditer(sql):
+                  body_and_attrs = m.group(0)
+                  if not re.search(r'SECURITY\s+DEFINER', body_and_attrs, re.IGNORECASE):
+                      continue
+                  if re.search(r'SET\s+search_path', body_and_attrs, re.IGNORECASE):
+                      continue
+                  fname = m.group('name')
+                  if fname.lower() in altered:
+                      continue
+                  errors.append(f"{path}: function `{fname}` is SECURITY DEFINER but has no SET search_path")
+
+          if errors:
+              print("🔴 新規 migration の SECURITY DEFINER 関数に search_path 固定がありません:")
+              for e in errors:
+                  print(f"  - {e}")
+              print("")
+              print("【対応】関数定義に次のいずれかを付与してください:")
+              print("  ... $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, extensions, pg_temp;")
+              print("  （pg_temp を最後に明示し temp テーブルの shadowing を封じる）")
+              print("  もしくは ALTER FUNCTION <name>(<args>) SET search_path = ...; を同一 migration に追加")
+              sys.exit(1)
+
+          print(f"✅ CUTOFF({CUTOFF}) 以降の SECURITY DEFINER 関数は全て search_path 固定済み")
+          PY

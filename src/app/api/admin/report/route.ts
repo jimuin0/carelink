@@ -7,13 +7,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'admin-report')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'admin-report')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const { searchParams } = new URL(request.url);

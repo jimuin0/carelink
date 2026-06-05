@@ -11,7 +11,7 @@
 jest.mock('@/lib/rate-limit', () => ({
   mutationRateLimit: {},
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({

@@ -4,7 +4,8 @@
  * POST: 紹介コード使用（新規ユーザーが初回予約完了時に呼ぶ）
  */
 
-import { mutationRateLimit, inMemoryRateLimit } from "@/lib/rate-limit";
+import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { getClientIp } from "@/lib/client-ip";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
@@ -21,8 +22,8 @@ function generateCode(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 10, 60_000, 'referral-get')) {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 10, 60_000, 'referral-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   const cookieStore = await cookies();

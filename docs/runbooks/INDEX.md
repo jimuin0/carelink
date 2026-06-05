@@ -43,7 +43,7 @@
 | `vercel deploy` 失敗 / build エラー / cron 設定拒否 | デプロイ失敗 | [deploy-failure.md](./deploy-failure.md) |
 | API キー / Webhook URL / token が git・log・Slack に出た | シークレット漏洩 | [secret-leak.md](./secret-leak.md) |
 | Supabase / Stripe / Upstash / Resend / LINE が応答しない | 外部依存ダウン | [external-dep-down.md](./external-dep-down.md) |
-| DB 接続不能 / マイグレ失敗 / RLS 違反 / trigger 異常 | DB 起因 | [database-incident.md](./database-incident.md) |
+| DB 接続不能 / マイグレ失敗 / RLS 違反 / trigger 異常 / 静かなドリフト（本番と repo 乖離） | DB 起因 | [database-incident.md](./database-incident.md) |
 
 ---
 

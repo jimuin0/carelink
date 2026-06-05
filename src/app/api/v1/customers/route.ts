@@ -7,7 +7,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
+import { alertCaughtError } from '@/lib/alert';
 
 const API_VERSION = '1.0.0';
 
@@ -24,9 +26,22 @@ async function resolveApiKey(apiKey: string) {
   return { facility_id: data.facility_id, scopes: data.scopes ?? [] as string[] };
 }
 
-export async function GET(request: NextRequest) {
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0] || 'unknown';
-  if (inMemoryRateLimit(ip, 60, 60_000, 'v1-customers')) {
+export async function GET(request: NextRequest): Promise<NextResponse> {
+  // 外部公開 JSON API のため、想定外 throw でも必ず JSON 500 を返して契約を守る
+  // （未捕捉だと Next.js 既定の非JSON 500 が返り API クライアントを壊す）。
+  // catch 経路は instrumentation.ts onRequestError に伝播しないため、
+  // Slack 通知漏れを防ぐべく alertCaughtError を明示発火する（🔴2 と同方針）。
+  try {
+    return await handleGet(request);
+  } catch (e) {
+    alertCaughtError('v1-customers', e, new URL(request.url).pathname);
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+}
+
+async function handleGet(request: NextRequest): Promise<NextResponse> {
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 60, 60_000, 'v1-customers')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
   const authHeader = request.headers.get('Authorization');

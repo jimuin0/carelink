@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 
@@ -34,15 +33,19 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
 
   const onSubmit = async (data: InquiryFormData) => {
     try {
-      const { error } = await createBrowserSupabaseClient().from('facility_inquiries').insert({
-        facility_id: facilityId,
-        facility_name: facilityName,
-        name: data.name,
-        email: data.email,
-        phone: data.phone || null,
-        message: data.message,
+      // anon 直 INSERT を廃し、サーバ API（service_role + CSRF + rate-limit）に集約。
+      const res = await fetch('/api/inquiry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          facility_id: facilityId,
+          name: data.name,
+          email: data.email,
+          phone: data.phone || null,
+          message: data.message,
+        }),
       });
-      if (error) throw error;
+      if (!res.ok) throw new Error('inquiry submission failed');
 
       // Slack notification (fire-and-forget)
       fetch('/api/notify', {

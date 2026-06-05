@@ -10,7 +10,7 @@
  */
 
 jest.mock('@/lib/rate-limit', () => ({
-  inMemoryRateLimit: jest.fn(() => false),
+  checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/supabase-server-auth');
@@ -20,7 +20,7 @@ jest.mock('crypto', () => ({
   randomBytes: jest.fn(() => Buffer.alloc(32, 'a')),
 }));
 
-import { inMemoryRateLimit } from '@/lib/rate-limit';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { GET, POST } from '../route';
 
@@ -30,7 +30,7 @@ let mockDelete: jest.Mock;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
 
   mockGetUser = jest.fn().mockResolvedValue({
@@ -97,7 +97,7 @@ function makePostRequest(body: object, ip = '192.168.1.1') {
 
 describe('GET /api/google-calendar', () => {
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await GET(makeGetRequest() as any);
 
@@ -154,38 +154,38 @@ describe('GET /api/google-calendar', () => {
   });
 
   test('rate limit params (20 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     GET(makeGetRequest('192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(20);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('google-calendar-get');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(20);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('google-calendar-get');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     GET(makeGetRequest('10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   // Branch coverage: line 16 — x-forwarded-for ヘッダなし → 'unknown' にフォールバック
   test('x-forwarded-for ヘッダなし (GET) → IP が unknown にフォールバック', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     const req = new Request('http://localhost/api/google-calendar', { method: 'GET' });
     GET(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 });
 
@@ -200,7 +200,7 @@ describe('POST /api/google-calendar', () => {
   });
 
   test('rate limiting → 429', async () => {
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(true);
+    (checkRateLimit as jest.Mock).mockReturnValue(true);
 
     const res = await POST(makePostRequest({}) as any);
 
@@ -243,32 +243,32 @@ describe('POST /api/google-calendar', () => {
   });
 
   test('rate limit params (10 req/min per IP)', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makePostRequest({}, '192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('192.168.1.1');
-    expect(call[1]).toBe(10);
-    expect(call[2]).toBe(60_000);
-    expect(call[3]).toBe('google-calendar');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
+    expect(call[2]).toBe(10);
+    expect(call[3]).toBe(60_000);
+    expect(call[4]).toBe('google-calendar');
   });
 
-  test('extracts first IP from x-forwarded-for', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+  test('extracts last (trusted) IP from x-forwarded-for', () => {
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     POST(makePostRequest({}, '10.0.0.1, 192.168.1.1') as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('10.0.0.1');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('192.168.1.1');
   });
 
   // Branch coverage: line 41 — x-forwarded-for ヘッダなし → 'unknown' にフォールバック
   test('x-forwarded-for ヘッダなし (POST) → IP が unknown にフォールバック', () => {
-    (inMemoryRateLimit as jest.Mock).mockClear();
-    (inMemoryRateLimit as jest.Mock).mockReturnValue(false);
+    (checkRateLimit as jest.Mock).mockClear();
+    (checkRateLimit as jest.Mock).mockReturnValue(false);
 
     const req = new Request('http://localhost/api/google-calendar', {
       method: 'POST',
@@ -277,8 +277,8 @@ describe('POST /api/google-calendar', () => {
     });
     POST(req as any);
 
-    const call = (inMemoryRateLimit as jest.Mock).mock.calls[0];
-    expect(call[0]).toBe('unknown');
+    const call = (checkRateLimit as jest.Mock).mock.calls[0];
+    expect(call[1]).toBe('unknown');
   });
 
   test('POST requires CSRF token validation', () => {
