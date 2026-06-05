@@ -106,13 +106,17 @@ jobs:
         run: supabase start
       - name: Export Supabase local credentials
         id: supabase
-        # `supabase status -o env` は ANON_KEY= / API_URL= 形式で出力（値はクォートなし）。
-        # 厳密な行頭アンカーで該当キーだけ抽出し、後段 step の env へ受け渡す。
+        # `supabase status -o env` は KEY=VALUE 形式で出力するが、CLI バージョンにより
+        # 値がダブルクォートで囲まれる（2.104.0 は API_URL="http://..." とクォート付き、
+        # KEY 類はクォートなし）。行頭アンカーで抽出後、前後のダブルクォートを必ず除去する
+        # （クォートを残すと NEXT_PUBLIC_SUPABASE_URL='"http://..."' となり
+        # supabase-js が "Invalid supabaseUrl" で next build を落とす）。
         run: |
           STATUS=$(supabase status -o env)
-          API_URL=$(echo "$STATUS" | grep '^API_URL=' | cut -d= -f2-)
-          ANON_KEY=$(echo "$STATUS" | grep '^ANON_KEY=' | cut -d= -f2-)
-          SERVICE_ROLE_KEY=$(echo "$STATUS" | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2-)
+          unquote() { sed -E 's/^"//; s/"$//'; }
+          API_URL=$(echo "$STATUS" | grep '^API_URL=' | cut -d= -f2- | unquote)
+          ANON_KEY=$(echo "$STATUS" | grep '^ANON_KEY=' | cut -d= -f2- | unquote)
+          SERVICE_ROLE_KEY=$(echo "$STATUS" | grep '^SERVICE_ROLE_KEY=' | cut -d= -f2- | unquote)
           # service_role key は /api/health の rate_limit プローブ（createServiceRoleClient →
           # check_rate_limit RPC）が必須とする。欠けると criticalOk=false → 503 になり
           # api-contract.spec.ts の status===200 / 'healthy'|'degraded' 期待が連鎖失敗する。
