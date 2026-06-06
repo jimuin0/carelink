@@ -38,12 +38,12 @@ describe('getCustomerVisits()', () => {
     expect(orderFn).toHaveBeenCalledWith('visit_date', { ascending: false });
   });
 
-  test('emailあり → customer_emailでも絞り込む', async () => {
+  test('emailあり → email_canonical(正規化)で絞り込む', async () => {
     const visits = [
       { id: 'v2', facility_id: 'f1', customer_email: 'b@test.com', visit_date: '2026-04-02' },
     ];
 
-    // When email is provided, the route chains one more .eq('customer_email', email)
+    // email 指定時は email_canonical で絞り込む（入力も canonicalizeEmail で正規化）
     const eqEmailFn = jest.fn(() => Promise.resolve({ data: visits }));
     const orderFn = jest.fn(() => ({ eq: eqEmailFn }));
     const chain = {
@@ -53,9 +53,10 @@ describe('getCustomerVisits()', () => {
     };
     mockSupabase.from.mockReturnValue(chain);
 
-    const result = await getCustomerVisits('f1', 'b@test.com');
+    // Gmail 別名で渡しても canonical に正規化して突合する
+    const result = await getCustomerVisits('f1', 'B.B+x@Gmail.com');
     expect(result).toEqual(visits);
-    expect(eqEmailFn).toHaveBeenCalledWith('customer_email', 'b@test.com');
+    expect(eqEmailFn).toHaveBeenCalledWith('email_canonical', 'bb@gmail.com');
   });
 
   test('data が null → 空配列を返す', async () => {
@@ -107,6 +108,26 @@ describe('getUniqueCustomers()', () => {
 
     const bEntry = result.find(r => r.email === 'b@test.com');
     expect(bEntry?.visit_count).toBe(1);
+  });
+
+  test('email_canonical で Gmail 別名を同一人物に統合（表示は原文を保持）', async () => {
+    // 同一人物が Gmail のドット/+tag 違いで来店 → email_canonical が同一なので1顧客に統合される
+    const rows = [
+      { customer_email: 'f.o.o@gmail.com', email_canonical: 'foo@gmail.com', customer_name: '太郎', visit_date: '2026-04-10' },
+      { customer_email: 'foo+shop@gmail.com', email_canonical: 'foo@gmail.com', customer_name: '太郎', visit_date: '2026-04-05' },
+    ];
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn(() => Promise.resolve({ data: rows })),
+    };
+    mockSupabase.from.mockReturnValue(chain);
+
+    const result = await getUniqueCustomers('f1');
+    // 別名2件が1顧客に統合（visit_count=2）。表示メールは原文(最初の行)を保持。
+    expect(result).toHaveLength(1);
+    expect(result[0].visit_count).toBe(2);
+    expect(result[0].email).toBe('f.o.o@gmail.com');
   });
 
   test('単一ユーザーは visit_count=1', async () => {

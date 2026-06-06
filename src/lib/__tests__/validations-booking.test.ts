@@ -115,15 +115,15 @@ describe('bookingSchema — deep tests', () => {
     expect(bookingSchema.safeParse({ ...validBooking, email }).success).toBe(true);
   });
 
-  // round6+Gmail正規化: email の保存時 canonical 化（突合の非対称・顧客分裂・new_customer クーポン
-  // 複数取得=金銭バグを防ぐ）。Gmail はドット・"+tag" 除去＋小文字化、非Gmail は小文字化のみ。
-  test('email は canonical 化される（Gmail はドット/+tag 除去・小文字化）', () => {
+  // email_canonical 列方式: 保存 email は「原文の小文字化のみ」（Gmail の "+tag"・ドットを届け先として保持）。
+  // 同一人物の突合は DB の bookings.email_canonical 生成列／入力側 canonicalizeEmail で別途行う。
+  test('email は小文字化のみ（Gmail の +tag/ドットは保持＝送信先を尊重）', () => {
     const r = bookingSchema.safeParse({ ...validBooking, email: 'Taro.Yamada+shopA@Gmail.COM' });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.email).toBe('taroyamada@gmail.com');
+    if (r.success) expect(r.data.email).toBe('taro.yamada+shopa@gmail.com');
   });
 
-  test('email 非Gmail は小文字化のみ（ドット・+tag は保持）', () => {
+  test('email 非Gmail も小文字化のみ（ドット・+tag は保持）', () => {
     const r = bookingSchema.safeParse({ ...validBooking, email: 'Taro.Yamada+x@Example.COM' });
     expect(r.success).toBe(true);
     if (r.success) expect(r.data.email).toBe('taro.yamada+x@example.com');

@@ -65,12 +65,13 @@ export async function GET(request: Request) {
       // 完了済み予約からメール別に集計（直近2年分・全件）。
       // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
       // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
-      type BookingRow = { email: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      // RFM の顧客識別は email_canonical（Gmail 別名統合）で行い、同一人物の分裂を防ぐ（round: email_canonical 列方式）。
+      type BookingRow = { email_canonical: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
       const { rows: bookings } = await fetchAllPaged<BookingRow>(
         async (offset, limit) => {
           const { data, error } = await supabase
             .from('bookings')
-            .select('email, customer_name, booking_date, total_price, status')
+            .select('email_canonical, customer_name, booking_date, total_price, status')
             .eq('facility_id', facility.id)
             .in('status', ['completed', 'confirmed'])
             .gte('booking_date', twoYearsAgo)
@@ -91,8 +92,8 @@ export async function GET(request: Request) {
       }>();
 
       for (const b of bookings) {
-        if (!b.email) continue;
-        const existing = customerMap.get(b.email);
+        if (!b.email_canonical) continue;
+        const existing = customerMap.get(b.email_canonical);
         if (existing) {
           existing.visits++;
           existing.spent += b.total_price || 0;
@@ -100,7 +101,7 @@ export async function GET(request: Request) {
           if (b.booking_date > existing.lastVisit) existing.lastVisit = b.booking_date;
           if (b.customer_name) existing.name = b.customer_name;
         } else {
-          customerMap.set(b.email, {
+          customerMap.set(b.email_canonical, {
             name: b.customer_name || '',
             firstVisit: b.booking_date,
             lastVisit: b.booking_date,
