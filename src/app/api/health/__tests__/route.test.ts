@@ -116,6 +116,37 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(json.deps.rate_limit.ok).toBe(false);
   });
 
+  test('Supabase 初回失敗→即再試行成功 → 200（一過性スパイク吸収・retried フラグ）', async () => {
+    // critical probe は失敗時に1回だけ再試行する。初回失敗・2回目成功なら 503 にならない。
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const limitMock = jest.fn()
+      .mockResolvedValueOnce({ error: { message: 'transient timeout' } }) // 1回目: 一過性失敗
+      .mockResolvedValueOnce({ error: null });                            // 2回目: 回復
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: limitMock }) }),
+    });
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.deps.supabase.ok).toBe(true);
+    expect(json.deps.supabase.retried).toBe(true);
+    expect(limitMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('Supabase 2回とも失敗 → 503（持続的な実停止のみ unhealthy）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const limitMock = jest.fn().mockResolvedValue({ error: { message: 'sustained outage' } });
+    createServerSupabaseClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: limitMock }) }),
+    });
+    const res = await GET();
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.deps.supabase.ok).toBe(false);
+    expect(json.deps.supabase.retried).toBe(true);
+    expect(limitMock).toHaveBeenCalledTimes(2);
+  });
+
   test('Stripe NG のみ → 200 degraded (critical 維持)', async () => {
     setupDefaultMocks({ stripeOk: false });
     const res = await GET();
