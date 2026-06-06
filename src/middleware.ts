@@ -52,17 +52,52 @@ function getMembershipCacheKey(userId: string): string {
   return `_cm_mbr_${userId.replace(/-/g, '').slice(0, 16)}`;
 }
 
+// per-request nonce ベースの CSP を構築する。
+// 'strict-dynamic' + 'nonce-...' により、nonce 付き（=Next.js が出力する）スクリプトのみ信頼し、
+// それらが動的 import する子スクリプト(GA/Clarity 等の next/script)も連鎖的に許可する。
+// これにより 'unsafe-inline'（任意のインライン実行=XSS 経路）を script から排除できる。
+function buildCspHeader(nonce: string): string {
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://www.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com`,
+    "style-src 'self' 'unsafe-inline'",
+    "font-src 'self'",
+    "img-src 'self' data: https: blob:",
+    "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",
+    "frame-ancestors 'none'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join('; ');
+}
+
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 公開ページは認証チェックをスキップ（パフォーマンス最適化）
+  // 全ページ応答に per-request nonce ベース CSP を付与する。
+  // Next.js は request header の Content-Security-Policy から nonce を読み取り、自身の
+  // <script> に nonce を適用する。layout は x-nonce を読んで inline JSON-LD に付与する。
+  const nonce = crypto.randomUUID().replace(/-/g, '');
+  const cspHeader = buildCspHeader(nonce);
+  const requestHeaders = new Headers(request.headers);
+  requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('Content-Security-Policy', cspHeader);
+  const setCsp = (res: NextResponse): NextResponse => {
+    res.headers.set('Content-Security-Policy', cspHeader);
+    return res;
+  };
+
+  // 公開ページは認証チェックをスキップ（パフォーマンス最適化）。CSP は全応答に付与する。
   const isProtected = PROTECTED_PATHS.some((path) => pathname.startsWith(path));
   const isAuthPage = pathname === '/auth/login' || pathname === '/auth/signup';
   if (!isProtected && !isAuthPage) {
-    return NextResponse.next({ request });
+    return setCsp(NextResponse.next({ request: { headers: requestHeaders } }));
   }
 
-  let supabaseResponse = NextResponse.next({ request });
+  let supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
 
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,7 +111,7 @@ export async function middleware(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) =>
             request.cookies.set(name, value)
           );
-          supabaseResponse = NextResponse.next({ request });
+          supabaseResponse = NextResponse.next({ request: { headers: requestHeaders } });
           cookiesToSet.forEach(({ name, value, options }) =>
             supabaseResponse.cookies.set(name, value, options)
           );
@@ -100,7 +135,7 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';
     url.searchParams.set('redirect', request.nextUrl.pathname);
-    return NextResponse.redirect(url);
+    return setCsp(NextResponse.redirect(url));
   }
 
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
@@ -143,7 +178,7 @@ export async function middleware(request: NextRequest) {
     if (!hasAccess) {
       const url = request.nextUrl.clone();
       url.pathname = '/mypage';
-      return NextResponse.redirect(url);
+      return setCsp(NextResponse.redirect(url));
     }
   }
 
@@ -151,10 +186,10 @@ export async function middleware(request: NextRequest) {
   if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
     const url = request.nextUrl.clone();
     url.pathname = '/mypage';
-    return NextResponse.redirect(url);
+    return setCsp(NextResponse.redirect(url));
   }
 
-  return supabaseResponse;
+  return setCsp(supabaseResponse);
 }
 
 // テスト用エクスポート（L6 認証バイパステスト）

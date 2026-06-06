@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Script from "next/script";
 import { Noto_Sans_JP } from "next/font/google";
 import { GoogleAnalytics } from "@next/third-parties/google";
+import { headers } from "next/headers";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
@@ -56,7 +57,7 @@ export const metadata: Metadata = {
   },
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
@@ -65,6 +66,9 @@ export default function RootLayout({
   const rawClarityId = process.env.NEXT_PUBLIC_CLARITY_ID;
   const gaId = rawGaId && /^G-[A-Z0-9]+$/.test(rawGaId) ? rawGaId : undefined;
   const clarityId = rawClarityId && /^[a-z0-9]+$/i.test(rawClarityId) ? rawClarityId : undefined;
+  // middleware が付与した per-request nonce を読み、インライン JSON-LD に適用する
+  // （nonce ベース CSP で 'unsafe-inline' を排除しても CSP 違反にならないようにする）。
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
 
   return (
     <html lang="ja" className={notoSansJp.variable}>
@@ -77,6 +81,7 @@ export default function RootLayout({
       <body className="antialiased min-h-screen flex flex-col">
         <script
           type="application/ld+json"
+          nonce={nonce}
           dangerouslySetInnerHTML={{
             __html: safeJsonLd([
               {
