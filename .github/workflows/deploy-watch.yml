@@ -22,10 +22,9 @@ jobs:
     # Production deployment の失敗のみ Issue 化（Preview 失敗はノイズになるため除外）
     # Preview デプロイは PR 毎に走るため失敗時の自動 Issue は spam 源だった。
     # Preview 失敗は PR の Vercel Bot コメントで開発者が直接確認できる。
-    if: >
-      ${{ github.event_name == 'deployment_status'
-          && github.event.deployment_status.state == 'failure'
-          && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production') }}
+    # 注: folded scalar (`>`) は ${{ }} の外に改行を付与し GitHub が文字列扱い→常時 true になる。
+    # 単一行の式（${{ }} なし）で記述する。
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'failure' && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production')
     runs-on: ubuntu-latest
     steps:
       - name: Create issue
@@ -60,10 +59,8 @@ jobs:
     name: Notify Deploy Success + Startup Check
     # 品質スタック L7-D: 起動時 (= deploy 成功直後) に全依存系の OK/NG を Slack 通知
     # Production deploy 成功時のみ。5分待ってから /api/health を叩いて結果を投稿。
-    if: >
-      ${{ github.event_name == 'deployment_status'
-          && github.event.deployment_status.state == 'success'
-          && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production') }}
+    # folded scalar による常時 true を回避（単一行・${{ }} なし）。
+    if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production')
     runs-on: ubuntu-latest
     steps:
       - name: Wait for deployment warm-up (60s)
@@ -125,7 +122,7 @@ jobs:
 
       - name: Get main HEAD SHA
         id: head
-        run: echo "sha=$(git rev-parse origin/main)" >> $GITHUB_OUTPUT
+        run: echo "sha=$(git rev-parse origin/main)" >> "$GITHUB_OUTPUT"
 
       - name: Get latest Production deployment SHA
         id: prod
@@ -133,8 +130,8 @@ jobs:
           # GitHub Deployments API（Vercel が production deployment を作成しているはず）
           SHA=$(gh api "repos/${{ github.repository }}/deployments?environment=Production&per_page=1" --jq '.[0].sha // ""')
           CREATED=$(gh api "repos/${{ github.repository }}/deployments?environment=Production&per_page=1" --jq '.[0].created_at // ""')
-          echo "sha=$SHA" >> $GITHUB_OUTPUT
-          echo "created=$CREATED" >> $GITHUB_OUTPUT
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "created=$CREATED" >> "$GITHUB_OUTPUT"
 
       - name: Compare and alert
         run: |

@@ -40,7 +40,7 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
       - name: Coverage Summary
         run: |
-          echo "## Test Coverage" >> $GITHUB_STEP_SUMMARY
+          echo "## Test Coverage" >> "$GITHUB_STEP_SUMMARY"
           cat coverage/lcov-report/index.html 2>/dev/null | grep -E "strong|fraction" | head -20 || true
       - name: Upload Coverage
         uses: actions/upload-artifact@v4
@@ -51,7 +51,7 @@ jobs:
           retention-days: 30
       - name: Coverage Gate（Lines 80%未満 / Branches 100%未満で失敗）
         run: |
-          read LINES BRANCHES <<< "$(cat coverage/coverage-summary.json 2>/dev/null | python3 -c "
+          read -r LINES BRANCHES <<< "$(cat coverage/coverage-summary.json 2>/dev/null | python3 -c "
           import sys, json
           d = json.load(sys.stdin)
           total = d.get('total', {})
@@ -260,10 +260,10 @@ jobs:
           STAGING_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
         run: |
           if [ -z "$STAGING_SUPABASE_URL" ] || [ -z "$STAGING_SUPABASE_ANON_KEY" ]; then
-            echo "⚠️ STAGING_SUPABASE_* 未設定: contract ドリフトゲートは **無効**（全テスト skip）。" >> $GITHUB_STEP_SUMMARY
-            echo "有効化するには GitHub Secrets に STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY（任意で STAGING_SUPABASE_SERVICE_ROLE_KEY）を設定してください。" >> $GITHUB_STEP_SUMMARY
+            echo "⚠️ STAGING_SUPABASE_* 未設定: contract ドリフトゲートは **無効**（全テスト skip）。" >> "$GITHUB_STEP_SUMMARY"
+            echo "有効化するには GitHub Secrets に STAGING_SUPABASE_URL / STAGING_SUPABASE_ANON_KEY（任意で STAGING_SUPABASE_SERVICE_ROLE_KEY）を設定してください。" >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "✅ STAGING_SUPABASE_* 設定済み: contract ドリフトゲート **有効**。" >> $GITHUB_STEP_SUMMARY
+            echo "✅ STAGING_SUPABASE_* 設定済み: contract ドリフトゲート **有効**。" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Run Contract Tests
         run: npm run test:contract
