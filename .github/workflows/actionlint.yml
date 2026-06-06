@@ -42,4 +42,10 @@ jobs:
         run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
 
       - name: Run actionlint
+        # shellcheck の severity を warning に上げる（info/style は shellcheck の版差で
+        # 揺れ、再現性を損なうため除外）。これにより actionlint ネイティブ検査
+        # （YAML 構文・Actions スキーマ・if 等の式・未定義参照・非推奨 action）と、
+        # warning 以上の実害ある shell 問題のみを merge 前ゲートとして強制する。
+        env:
+          SHELLCHECK_OPTS: --severity=warning
         run: actionlint -color
