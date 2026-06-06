@@ -654,7 +654,7 @@ describe('POST /api/booking', () => {
   function setupCouponEligibility(opts: {
     coupon?: Record<string, unknown>;
     cmRows?: unknown; cmError?: boolean;
-    histRows?: unknown; histError?: boolean;
+    histRows?: unknown; histError?: boolean; histMissingColumn?: boolean;
     user?: { id: string } | null;
   }) {
     mockGetUser.mockResolvedValue({ data: { user: opts.user ?? null } });
@@ -678,6 +678,11 @@ describe('POST /api/booking', () => {
     const histHandler = jest.fn(() => histChain);
     histChain.select = histHandler; histChain.eq = histHandler; histChain.not = histHandler;
     histChain.limit = jest.fn(() => Promise.resolve(histResolved));
+    // email_canonical 列未適用フォールバック検証用: 1回目(email_canonical)を列不在エラーにする chain
+    const histMissingChain: Record<string, unknown> = {};
+    const histMissingHandler = jest.fn(() => histMissingChain);
+    histMissingChain.select = histMissingHandler; histMissingChain.eq = histMissingHandler; histMissingChain.not = histMissingHandler;
+    histMissingChain.limit = jest.fn(() => Promise.resolve({ data: null, error: { code: '42703', message: 'column "email_canonical" does not exist' } }));
     const usesHistory = opts.coupon?.coupon_type === 'new_customer' || opts.coupon?.coupon_type === 'repeat';
     const nullChain = fluent({ data: null });
     let n = 0;
@@ -687,7 +692,9 @@ describe('POST /api/booking', () => {
       if (n === 2) return menuChain;
       if (n === 3) return couponChain;
       if (n === 4) return cmChain;
-      if (n === 5 && usesHistory) return histChain; // 種別限定時のみ履歴照合（call5）
+      // 種別限定時のみ履歴照合（call5）。列不在フォールバック検証時は call5=列不在エラー → call6=email 照合(histChain)。
+      if (n === 5 && usesHistory) return opts.histMissingColumn ? histMissingChain : histChain;
+      if (n === 6 && usesHistory && opts.histMissingColumn) return histChain;
       return nullChain;
     });
   }
@@ -721,6 +728,14 @@ describe('POST /api/booking', () => {
   test('#B new_customer クーポン + 履歴なし→成功', async () => {
     setupCouponEligibility({ coupon: { coupon_type: 'new_customer' }, histRows: [] });
     expect((await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }))).status).not.toBe(400);
+  });
+
+  test('#B ゲスト: email_canonical 列未適用(42703) → email でフォールバック照合（無破壊）', async () => {
+    // ゲスト(user=null)。1回目 email_canonical 照合が列不在エラー → email にフォールバックし履歴なし→新規成功
+    setupCouponEligibility({ coupon: { coupon_type: 'new_customer' }, histMissingColumn: true, histRows: [] });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: MENU_ID, coupon_id: COUPON_ID }));
+    expect(res.status).not.toBe(400);
+    expect(res.status).not.toBe(500);
   });
 
   test('#B repeat クーポン + 履歴なし(null)→400', async () => {

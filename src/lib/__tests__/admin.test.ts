@@ -70,6 +70,40 @@ describe('getCustomerVisits()', () => {
     const result = await getCustomerVisits('f1');
     expect(result).toEqual([]);
   });
+
+  test('email指定 + email_canonical 列未適用(42703) → customer_email でフォールバック', async () => {
+    const visits = [{ id: 'v9', facility_id: 'f1', customer_email: 'b@test.com', visit_date: '2026-04-02' }];
+    // base().eq(col,val) の終端。1回目(email_canonical)は列不在エラー、2回目(customer_email)は data。
+    const tailEq = jest.fn((col: string) =>
+      col === 'email_canonical'
+        ? Promise.resolve({ data: null, error: { code: '42703', message: 'column "email_canonical" does not exist' } })
+        : Promise.resolve({ data: visits })
+    );
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn(() => ({ eq: tailEq })),
+    };
+    mockSupabase.from.mockReturnValue(chain);
+
+    const result = await getCustomerVisits('f1', 'b@test.com');
+    expect(result).toEqual(visits);
+    expect(tailEq).toHaveBeenCalledWith('email_canonical', 'b@test.com');
+    expect(tailEq).toHaveBeenCalledWith('customer_email', 'b@test.com');
+  });
+
+  test('email指定 + 結果 data=null（エラーなし）→ 空配列（?? [] 分岐）', async () => {
+    const tailEq = jest.fn(() => Promise.resolve({ data: null }));
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn(() => ({ eq: tailEq })),
+    };
+    mockSupabase.from.mockReturnValue(chain);
+
+    const result = await getCustomerVisits('f1', 'b@test.com');
+    expect(result).toEqual([]);
+  });
 });
 
 describe('getUniqueCustomers()', () => {
@@ -146,5 +180,30 @@ describe('getUniqueCustomers()', () => {
     expect(result).toHaveLength(1);
     expect(result[0].visit_count).toBe(1);
     expect(result[0].last_visit).toBe('2026-03-01');
+  });
+
+  test('email_canonical 列が未適用(42703) → customer_email を JS canonical 化してフォールバック', async () => {
+    const rows = [
+      { customer_email: 'f.o.o@gmail.com', customer_name: '太郎', visit_date: '2026-04-10' },
+      { customer_email: 'foo+x@gmail.com', customer_name: '太郎', visit_date: '2026-04-05' },
+    ];
+    let call = 0;
+    const orderFn = jest.fn(() => {
+      call++;
+      // 1回目(email_canonical 含む select)は列不在エラー、2回目(フォールバック select)は data
+      if (call === 1) return Promise.resolve({ data: null, error: { code: '42703', message: 'column "email_canonical" does not exist' } });
+      return Promise.resolve({ data: rows });
+    });
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: orderFn,
+    };
+    mockSupabase.from.mockReturnValue(chain);
+
+    const result = await getUniqueCustomers('f1');
+    // canonicalizeEmail で foo@gmail.com に統合 → 1顧客 visit_count=2
+    expect(result).toHaveLength(1);
+    expect(result[0].visit_count).toBe(2);
   });
 });

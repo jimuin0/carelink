@@ -12,6 +12,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { NON_OCCUPYING_STATUS_FILTER } from '@/lib/constants';
 import { canonicalizeEmail } from '@/lib/email-canonical';
+import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
 
 export const dynamic = 'force-dynamic';
 
@@ -155,16 +156,25 @@ export async function POST(request: Request) {
           // RLS(顧客は他予約を読めない)に依存せず確実に読むためサービスロールを使用。
           if (coupon.coupon_type === 'new_customer' || coupon.coupon_type === 'repeat') {
             const eligClient = createServiceRoleClient();
-            const histQuery = eligClient
+            const histBy = (col: string, val: string) => eligClient
               .from('bookings')
               .select('id')
               .eq('facility_id', parsed.data.facility_id)
               .not('status', 'in', NON_OCCUPYING_STATUS_FILTER)
-              // ゲストの同一人物判定は email_canonical（Gmail 別名統合）で行う。入力も canonicalizeEmail で
-              // 揃える（保存 email は原文だが、突合は canonical 列同士で一致させる）。round: email_canonical 列方式。
-              .eq(user ? 'user_id' : 'email_canonical', user ? user.id : canonicalizeEmail(parsed.data.email))
+              .eq(col, val)
               .limit(1);
-            const { data: histRows, error: histErr } = await histQuery;
+            // ログイン時は user_id、ゲストは email_canonical（Gmail 別名統合）で履歴照合。
+            // email_canonical 列が未適用(migration前)の環境では生 email にフォールバックして壊さない（無破壊・デプロイ順序非依存）。
+            let histRows: { id: string }[] | null;
+            let histErr: unknown;
+            if (user) {
+              ({ data: histRows, error: histErr } = await histBy('user_id', user.id));
+            } else {
+              ({ data: histRows, error: histErr } = await histBy('email_canonical', canonicalizeEmail(parsed.data.email)));
+              if (isMissingColumnError(histErr as DbError | null)) {
+                ({ data: histRows, error: histErr } = await histBy('email', parsed.data.email));
+              }
+            }
             if (histErr) return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
             const hasHistory = (histRows ?? []).length > 0;
             if (coupon.coupon_type === 'new_customer' && hasHistory) {

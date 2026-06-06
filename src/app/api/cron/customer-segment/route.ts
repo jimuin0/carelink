@@ -11,6 +11,8 @@ import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
+import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
+import { canonicalizeEmail } from '@/lib/email-canonical';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,12 +68,13 @@ export async function GET(request: Request) {
       // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
       // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
       // RFM の顧客識別は email_canonical（Gmail 別名統合）で行い、同一人物の分裂を防ぐ（round: email_canonical 列方式）。
-      type BookingRow = { email_canonical: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
-      const { rows: bookings } = await fetchAllPaged<BookingRow>(
+      // email_canonical 列が未適用(migration前)なら生 email にフォールバックし JS で canonical 化（無破壊・デプロイ順序非依存）。
+      type BookingRow = { email_canonical?: string | null; email?: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      const fetchBookings = (col: 'email_canonical' | 'email') => fetchAllPaged<BookingRow>(
         async (offset, limit) => {
           const { data, error } = await supabase
             .from('bookings')
-            .select('email_canonical, customer_name, booking_date, total_price, status')
+            .select(`${col}, customer_name, booking_date, total_price, status`)
             .eq('facility_id', facility.id)
             .in('status', ['completed', 'confirmed'])
             .gte('booking_date', twoYearsAgo)
@@ -79,6 +82,13 @@ export async function GET(request: Request) {
           return { data: data as BookingRow[] | null, error };
         },
       );
+      const firstFetch = await fetchBookings('email_canonical');
+      let bookings = firstFetch.rows;
+      let usingCanonicalColumn = true;
+      if (isMissingColumnError(firstFetch.error as DbError | null)) {
+        bookings = (await fetchBookings('email')).rows;
+        usingCanonicalColumn = false;
+      }
 
       if (bookings.length === 0) { skipped++; continue; }
 
@@ -92,8 +102,10 @@ export async function GET(request: Request) {
       }>();
 
       for (const b of bookings) {
-        if (!b.email_canonical) continue;
-        const existing = customerMap.get(b.email_canonical);
+        // canonical 列があればそれを、無ければ生 email を JS で canonical 化したものを識別キーにする。
+        const key = usingCanonicalColumn ? (b.email_canonical ?? null) : (b.email ? canonicalizeEmail(b.email) : null);
+        if (!key) continue;
+        const existing = customerMap.get(key);
         if (existing) {
           existing.visits++;
           existing.spent += b.total_price || 0;
@@ -101,7 +113,7 @@ export async function GET(request: Request) {
           if (b.booking_date > existing.lastVisit) existing.lastVisit = b.booking_date;
           if (b.customer_name) existing.name = b.customer_name;
         } else {
-          customerMap.set(b.email_canonical, {
+          customerMap.set(key, {
             name: b.customer_name || '',
             firstVisit: b.booking_date,
             lastVisit: b.booking_date,

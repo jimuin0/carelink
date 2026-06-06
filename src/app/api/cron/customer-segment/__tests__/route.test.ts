@@ -1053,4 +1053,36 @@ describe('GET /api/cron/customer-segment', () => {
     jest.useRealTimers();
     delete process.env.RESEND_API_KEY;
   });
+
+  test('email_canonical 列が未適用(42703) → email でフォールバックし JS canonical 化で集計', async () => {
+    delete process.env.RESEND_API_KEY; // メール経路を無効化して集計のみ検証
+    // 1回目(email_canonical select)は列不在エラー、2回目(email フォールバック)は gmail 別名2件
+    const rangeMock = jest.fn()
+      .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "email_canonical" does not exist' } })
+      .mockResolvedValueOnce({ data: [
+        { email: 'f.o.o@gmail.com', customer_name: 'T', booking_date: '2026-05-10', total_price: 5000, status: 'completed' },
+        { email: 'foo+x@gmail.com', customer_name: 'T', booking_date: '2026-05-05', total_price: 5000, status: 'completed' },
+        { email: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 0, status: 'completed' }, // email null → スキップ(b.email falsy 分岐)
+      ] });
+    const upsertMock = jest.fn().mockResolvedValue({ data: [], error: null });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return { select: () => ({ eq: () => ({ range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'S', slug: 's' }] }) }) }) };
+      }
+      if (table === 'bookings') {
+        return { select: () => ({ eq: () => ({ in: () => ({ gte: () => ({ range: rangeMock }) }) }) }) };
+      }
+      if (table === 'customer_segments') return { upsert: (...a: any[]) => upsertMock(...a) };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // email_canonical → email の2回 range が呼ばれる（フォールバック発火の証跡）
+    expect(rangeMock).toHaveBeenCalledTimes(2);
+    // gmail 別名2件が canonical 統合され1顧客 visits=2 で upsert される
+    const rows = upsertMock.mock.calls[0][0];
+    expect(rows).toHaveLength(1);
+    expect(rows[0].total_visits).toBe(2);
+  });
 });
