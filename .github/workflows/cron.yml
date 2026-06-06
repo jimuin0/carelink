@@ -37,7 +37,7 @@ jobs:
           TRIGGER_CRON: ${{ github.event.schedule }}
         run: |
           if [ -n "$MANUAL_JOB" ]; then
-            echo "path=$MANUAL_JOB" >> $GITHUB_OUTPUT
+            echo "path=$MANUAL_JOB" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           case "$TRIGGER_CRON" in
@@ -55,7 +55,7 @@ jobs:
             "0 16 1 * *")    P="/api/cron/newsletter-digest" ;;
             *) echo "Unknown schedule: $TRIGGER_CRON"; exit 1 ;;
           esac
-          echo "path=$P" >> $GITHUB_OUTPUT
+          echo "path=$P" >> "$GITHUB_OUTPUT"
 
       - name: Call cron endpoint
         env:

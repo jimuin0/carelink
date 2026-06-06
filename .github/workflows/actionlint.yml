@@ -1,0 +1,51 @@
+name: Actionlint
+
+# GitHub Actions ワークフローの静的検証ゲート（発症前予防）。
+#
+# 背景（事実）: deploy-watch.yml / monthly-batch-watcher.yml が
+#   - run:| 内の複数行インライン python による YAML ブロックスカラー崩れ → startup_failure
+#   - folded scalar の if:（`if: >` + ${{ }}）→ 式が常に true に評価される
+#   という不具合を抱え、push のたびに失敗 run を生成し、デプロイ/月次の監視 workflow が
+#   一度も正常起動していなかった。これらは「workflow を merge する前に検証するゲート」が
+#   無かったために潜在していた。
+#
+# 本 workflow は .github/workflows/** の変更時に actionlint を実行し、YAML 構文・
+# Actions スキーマ・式（if 等）・shellcheck（run スクリプト）を merge 前に検証して
+# 同種の再発を構造的に防ぐ（症状でなく発症前予防）。actionlint は Go で版固定インストール
+# する（第三者 action / curl|bash に依存せず、module checksum で再現性を担保）。
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: Lint GitHub Actions workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+
+      - name: Install actionlint (pinned)
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+
+      - name: Run actionlint
+        # shellcheck の severity を warning に上げる（info/style は shellcheck の版差で
+        # 揺れ、再現性を損なうため除外）。これにより actionlint ネイティブ検査
+        # （YAML 構文・Actions スキーマ・if 等の式・未定義参照・非推奨 action）と、
+        # warning 以上の実害ある shell 問題のみを merge 前ゲートとして強制する。
+        env:
+          SHELLCHECK_OPTS: --severity=warning
+        run: actionlint -color

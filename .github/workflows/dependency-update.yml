@@ -51,7 +51,7 @@ jobs:
         run: |
           npm audit --json > audit-report.json 2>/dev/null || true
           VULN_COUNT=$(cat audit-report.json | python3 -c "import sys, json; d=json.load(sys.stdin); print(d.get('metadata', {}).get('vulnerabilities', {}).get('total', 0))" 2>/dev/null || echo "0")
-          echo "vuln_count=$VULN_COUNT" >> $GITHUB_OUTPUT
+          echo "vuln_count=$VULN_COUNT" >> "$GITHUB_OUTPUT"
 
       - name: Create issue if vulnerabilities found
         if: steps.audit.outputs.vuln_count != '0'
