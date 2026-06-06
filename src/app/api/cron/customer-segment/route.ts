@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject } from '@/lib/email';
+import { fetchAllPaged } from '@/lib/paginate';
 import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
 import { canonicalizeEmail } from '@/lib/email-canonical';
 
@@ -37,13 +38,19 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id, name, slug')
-      .eq('status', 'published')
-      .limit(200);
+    // 全公開施設を全件ページング取得（旧 .limit(200) は201施設目以降がRFM分析対象外だった・scale監査）
+    const { rows: facilities } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_profiles')
+          .select('id, name, slug')
+          .eq('status', 'published')
+          .range(offset, offset + limit - 1);
+        return { data: data as { id: string; name: string; slug: string }[] | null, error };
+      },
+    );
 
-    if (!facilities) {
+    if (facilities.length === 0) {
       await logCronRun('customer-segment', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }
@@ -57,26 +64,33 @@ export async function GET(request: Request) {
     let skipped = 0;
 
     for (const facility of facilities) {
-      // 完了済み予約からメール別に集計（直近2年分、最大2000件）。
-      // 同一人物の識別は email_canonical（Gmail のドット/"+tag"/googlemail を統合）で行い RFM 分裂を防ぐ。
-      // email_canonical 列が未適用(migration前)なら生 email にフォールバックし JS で canonical 化（無破壊・順序非依存）。
-      type BRow = { email_canonical?: string | null; email?: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
-      const fetchBookings = (col: 'email_canonical' | 'email') => supabase
-        .from('bookings')
-        .select(`${col}, customer_name, booking_date, total_price, status`)
-        .eq('facility_id', facility.id)
-        .in('status', ['completed', 'confirmed'])
-        .gte('booking_date', twoYearsAgo)
-        .limit(2000);
+      // 完了済み予約からメール別に集計（直近2年分・全件）。
+      // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
+      // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
+      // RFM の顧客識別は email_canonical（Gmail 別名統合）で行い、同一人物の分裂を防ぐ（round: email_canonical 列方式）。
+      // email_canonical 列が未適用(migration前)なら生 email にフォールバックし JS で canonical 化（無破壊・デプロイ順序非依存）。
+      type BookingRow = { email_canonical?: string | null; email?: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      const fetchBookings = (col: 'email_canonical' | 'email') => fetchAllPaged<BookingRow>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('bookings')
+            .select(`${col}, customer_name, booking_date, total_price, status`)
+            .eq('facility_id', facility.id)
+            .in('status', ['completed', 'confirmed'])
+            .gte('booking_date', twoYearsAgo)
+            .range(offset, offset + limit - 1);
+          return { data: data as BookingRow[] | null, error };
+        },
+      );
       const firstFetch = await fetchBookings('email_canonical');
-      let bookings = firstFetch.data as BRow[] | null;
+      let bookings = firstFetch.rows;
       let usingCanonicalColumn = true;
       if (isMissingColumnError(firstFetch.error as DbError | null)) {
-        bookings = (await fetchBookings('email')).data as BRow[] | null;
+        bookings = (await fetchBookings('email')).rows;
         usingCanonicalColumn = false;
       }
 
-      if (!bookings || bookings.length === 0) { skipped++; continue; }
+      if (bookings.length === 0) { skipped++; continue; }
 
       // メール別に集計
       const customerMap = new Map<string, {
@@ -88,6 +102,7 @@ export async function GET(request: Request) {
       }>();
 
       for (const b of bookings) {
+        // canonical 列があればそれを、無ければ生 email を JS で canonical 化したものを識別キーにする。
         const key = usingCanonicalColumn ? (b.email_canonical ?? null) : (b.email ? canonicalizeEmail(b.email) : null);
         if (!key) continue;
         const existing = customerMap.get(key);
@@ -183,7 +198,7 @@ export async function GET(request: Request) {
                 valid_until: validUntil,
               });
               if (couponErr) {
-                console.error('[customer-segment] coupon insert failed, skipping email', { email, error: couponErr });
+                console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
                 continue;
               }
 
@@ -205,7 +220,7 @@ export async function GET(request: Request) {
                   </p>
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
-              }).catch((err) => console.error('[customer-segment] email send failed', { email, err }));
+              }).catch((err) => console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err }));
             }
           }
         }
