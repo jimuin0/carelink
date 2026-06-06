@@ -20,7 +20,7 @@ export const revalidate = 0;
 
 const DEP_TIMEOUT_MS = 1500;
 
-type DepResult = { ok: boolean; elapsed_ms: number; error?: string };
+type DepResult = { ok: boolean; elapsed_ms: number; error?: string; retried?: boolean };
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   // タイマーを必ず clearTimeout する（race で p が勝った場合も timeout が発火した場合も）。
@@ -55,8 +55,19 @@ async function probe(label: string, fn: () => Promise<void>): Promise<DepResult>
   }
 }
 
+// Critical 依存は「単発の一過性レイテンシ・スパイク（cold start / 瞬間的な高負荷 / 一時的なネットワーク遅延）」を
+// 依存の"停止"と誤判定しないよう、失敗時に1回だけ即再試行する（真の予防：発症前）。
+// 2回目の結果を採用＝一過性スパイクなら成功して吸収、持続的な実停止なら2回とも失敗して ok:false → 503。
+// これにより「実際には稼働しているのに単発の遅延で 503 ページ通知」を構造的に無くす。
+async function criticalProbe(label: string, fn: () => Promise<void>): Promise<DepResult> {
+  const first = await probe(label, fn);
+  if (first.ok) return first;
+  const retry = await probe(label, fn);
+  return { ...retry, retried: true };
+}
+
 async function probeSupabase(): Promise<DepResult> {
-  return probe('supabase', async () => {
+  return criticalProbe('supabase', async () => {
     const supabase = createServerSupabaseClient();
     const { error } = await supabase
       .from('facility_profiles')
@@ -67,7 +78,7 @@ async function probeSupabase(): Promise<DepResult> {
 }
 
 async function probeRateLimit(): Promise<DepResult> {
-  return probe('rate_limit', async () => {
+  return criticalProbe('rate_limit', async () => {
     // Supabase RPC check_rate_limit を実呼びして実装の生存確認
     // 大きな limit で 1 回呼んでも実害なし（バケットに 1 行作るだけ、1h で自動削除）
     const supabase = createServiceRoleClient();
