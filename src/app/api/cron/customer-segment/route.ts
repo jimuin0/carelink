@@ -10,6 +10,8 @@ import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject } from '@/lib/email';
+import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
+import { canonicalizeEmail } from '@/lib/email-canonical';
 
 export const dynamic = 'force-dynamic';
 
@@ -55,14 +57,24 @@ export async function GET(request: Request) {
     let skipped = 0;
 
     for (const facility of facilities) {
-      // 完了済み予約からメール別に集計（直近2年分、最大2000件）
-      const { data: bookings } = await supabase
+      // 完了済み予約からメール別に集計（直近2年分、最大2000件）。
+      // 同一人物の識別は email_canonical（Gmail のドット/"+tag"/googlemail を統合）で行い RFM 分裂を防ぐ。
+      // email_canonical 列が未適用(migration前)なら生 email にフォールバックし JS で canonical 化（無破壊・順序非依存）。
+      type BRow = { email_canonical?: string | null; email?: string | null; customer_name: string | null; booking_date: string; total_price: number | null; status: string };
+      const fetchBookings = (col: 'email_canonical' | 'email') => supabase
         .from('bookings')
-        .select('email, customer_name, booking_date, total_price, status')
+        .select(`${col}, customer_name, booking_date, total_price, status`)
         .eq('facility_id', facility.id)
         .in('status', ['completed', 'confirmed'])
         .gte('booking_date', twoYearsAgo)
         .limit(2000);
+      const firstFetch = await fetchBookings('email_canonical');
+      let bookings = firstFetch.data as BRow[] | null;
+      let usingCanonicalColumn = true;
+      if (isMissingColumnError(firstFetch.error as DbError | null)) {
+        bookings = (await fetchBookings('email')).data as BRow[] | null;
+        usingCanonicalColumn = false;
+      }
 
       if (!bookings || bookings.length === 0) { skipped++; continue; }
 
@@ -76,8 +88,9 @@ export async function GET(request: Request) {
       }>();
 
       for (const b of bookings) {
-        if (!b.email) continue;
-        const existing = customerMap.get(b.email);
+        const key = usingCanonicalColumn ? (b.email_canonical ?? null) : (b.email ? canonicalizeEmail(b.email) : null);
+        if (!key) continue;
+        const existing = customerMap.get(key);
         if (existing) {
           existing.visits++;
           existing.spent += b.total_price || 0;
@@ -85,7 +98,7 @@ export async function GET(request: Request) {
           if (b.booking_date > existing.lastVisit) existing.lastVisit = b.booking_date;
           if (b.customer_name) existing.name = b.customer_name;
         } else {
-          customerMap.set(b.email, {
+          customerMap.set(key, {
             name: b.customer_name || '',
             firstVisit: b.booking_date,
             lastVisit: b.booking_date,

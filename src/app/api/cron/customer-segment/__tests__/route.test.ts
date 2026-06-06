@@ -55,7 +55,7 @@ function setupDefaultMocks(
   // Booking data for each facility
   const bookingsData = Array.from({ length: bookingsPerFacility }, (_, i) => ({
     id: `booking-${i}`,
-    email: `customer${i % 2}@example.com`,
+    email_canonical: `customer${i % 2}@example.com`,
     customer_name: `Customer ${i % 2}`,
     booking_date: `2026-05-${15 - i}`,
     total_price: (i + 1) * 5000,
@@ -238,7 +238,7 @@ describe('GET /api/cron/customer-segment', () => {
               limit: jest.fn().mockResolvedValue({
                 data: [
                   {
-                    email: null,
+                    email_canonical: null,
                     customer_name: 'No Email',
                     booking_date: '2026-05-15',
                     total_price: 5000,
@@ -389,14 +389,14 @@ describe('GET /api/cron/customer-segment', () => {
         .split('T')[0];
       return [
         {
-          email: 'atrisk@example.com',
+          email_canonical: 'atrisk@example.com',
           customer_name: 'At Risk Customer',
           booking_date: daysAgo62, // last visit
           total_price: 5000,
           status: 'completed',
         },
         {
-          email: 'atrisk@example.com',
+          email_canonical: 'atrisk@example.com',
           customer_name: 'At Risk Customer',
           booking_date: daysAgo90, // first visit (2 total → at_risk eligible)
           total_price: 5000,
@@ -552,8 +552,8 @@ describe('GET /api/cron/customer-segment', () => {
                 limit: jest.fn().mockResolvedValue({
                   data: [
                     // recent customer (not at_risk by day range)
-                    { email: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo30, total_price: 5000, status: 'completed' },
-                    { email: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo60, total_price: 5000, status: 'completed' },
+                    { email_canonical: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo30, total_price: 5000, status: 'completed' },
+                    { email_canonical: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo60, total_price: 5000, status: 'completed' },
                   ],
                 }),
               }),
@@ -593,9 +593,9 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: 'x@example.com', customer_name: 'First', booking_date: '2026-04-01', total_price: 1000, status: 'completed' },
-                  { email: 'x@example.com', customer_name: null, booking_date: '2026-03-01', total_price: null, status: 'completed' },
-                  { email: 'x@example.com', customer_name: 'Latest', booking_date: '2026-05-01', total_price: 2000, status: 'completed' },
+                  { email_canonical: 'x@example.com', customer_name: 'First', booking_date: '2026-04-01', total_price: 1000, status: 'completed' },
+                  { email_canonical: 'x@example.com', customer_name: null, booking_date: '2026-03-01', total_price: null, status: 'completed' },
+                  { email_canonical: 'x@example.com', customer_name: 'Latest', booking_date: '2026-05-01', total_price: 2000, status: 'completed' },
                 ],
               }),
             }),
@@ -668,8 +668,8 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: 'lost@example.com', customer_name: 'Lost', booking_date: daysAgo130, total_price: 5000, status: 'completed' },
-                  { email: 'lost@example.com', customer_name: 'Lost', booking_date: daysAgo150, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'lost@example.com', customer_name: 'Lost', booking_date: daysAgo130, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'lost@example.com', customer_name: 'Lost', booking_date: daysAgo150, total_price: 5000, status: 'completed' },
                 ],
               }),
             }),
@@ -705,11 +705,11 @@ describe('GET /api/cron/customer-segment', () => {
               limit: jest.fn().mockResolvedValue({
                 data: [
                   // 最初のエントリ
-                  { email: 'a@example.com', customer_name: 'A', booking_date: '2026-04-01', total_price: 3000, status: 'completed' },
+                  { email_canonical: 'a@example.com', customer_name: 'A', booking_date: '2026-04-01', total_price: 3000, status: 'completed' },
                   // 古い日付 → firstVisit を更新
-                  { email: 'a@example.com', customer_name: null, booking_date: '2026-01-01', total_price: null, status: 'completed' },
+                  { email_canonical: 'a@example.com', customer_name: null, booking_date: '2026-01-01', total_price: null, status: 'completed' },
                   // 新しい日付 → lastVisit を更新
-                  { email: 'a@example.com', customer_name: 'A Updated', booking_date: '2026-05-01', total_price: 2000, status: 'completed' },
+                  { email_canonical: 'a@example.com', customer_name: 'A Updated', booking_date: '2026-05-01', total_price: 2000, status: 'completed' },
                 ],
               }),
             }),
@@ -743,8 +743,8 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 5000, status: 'completed' },
-                  { email: 'valid@example.com', customer_name: 'Valid', booking_date: '2026-05-01', total_price: 5000, status: 'completed' },
+                  { email_canonical: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 5000, status: 'completed' },
+                  { email_canonical: 'valid@example.com', customer_name: 'Valid', booking_date: '2026-05-01', total_price: 5000, status: 'completed' },
                 ],
               }),
             }),
@@ -796,8 +796,8 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo10, total_price: 5000, status: 'completed' },
-                  { email: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo20, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo10, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo20, total_price: 5000, status: 'completed' },
                 ],
               }),
             }),
@@ -842,8 +842,8 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
-                  { email: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
                 ],
               }),
             }),
@@ -888,7 +888,7 @@ describe('GET /api/cron/customer-segment', () => {
               limit: jest.fn().mockResolvedValue({
                 data: [
                   // null customer_name on the FIRST (new entry) booking → hits `b.customer_name || ''` false side
-                  { email: 'noname@example.com', customer_name: null, booking_date: '2026-05-01', total_price: 3000, status: 'completed' },
+                  { email_canonical: 'noname@example.com', customer_name: null, booking_date: '2026-05-01', total_price: 3000, status: 'completed' },
                 ],
               }),
             }),
@@ -923,7 +923,7 @@ describe('GET /api/cron/customer-segment', () => {
               limit: jest.fn().mockResolvedValue({
                 data: [
                   // null total_price on the FIRST (new entry) booking → hits `b.total_price || 0` false side
-                  { email: 'noprice@example.com', customer_name: 'NoPriceCustomer', booking_date: '2026-05-01', total_price: null, status: 'completed' },
+                  { email_canonical: 'noprice@example.com', customer_name: 'NoPriceCustomer', booking_date: '2026-05-01', total_price: null, status: 'completed' },
                 ],
               }),
             }),
@@ -964,8 +964,8 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: 'atrisk_direct@example.com', customer_name: 'AtRisk', booking_date: daysAgo70, total_price: 5000, status: 'completed' },
-                  { email: 'atrisk_direct@example.com', customer_name: 'AtRisk', booking_date: daysAgo100, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'atrisk_direct@example.com', customer_name: 'AtRisk', booking_date: daysAgo70, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'atrisk_direct@example.com', customer_name: 'AtRisk', booking_date: daysAgo100, total_price: 5000, status: 'completed' },
                 ],
               }),
             }),
@@ -1012,8 +1012,8 @@ describe('GET /api/cron/customer-segment', () => {
             gte: jest.fn().mockReturnValue({
               limit: jest.fn().mockResolvedValue({
                 data: [
-                  { email: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
-                  { email: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
+                  { email_canonical: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
                 ],
               }),
             }),
@@ -1050,5 +1050,35 @@ describe('GET /api/cron/customer-segment', () => {
     consoleSpy.mockRestore();
     jest.useRealTimers();
     delete process.env.RESEND_API_KEY;
+  });
+
+  test('email_canonical 列が未適用(42703) → email でフォールバックし JS canonical 化で集計', async () => {
+    delete process.env.RESEND_API_KEY;
+    // 1回目(email_canonical select).limit → 列不在エラー、2回目(email フォールバック).limit → gmail 別名2件
+    const limitMock = jest.fn()
+      .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "email_canonical" does not exist' } })
+      .mockResolvedValueOnce({ data: [
+        { email: 'f.o.o@gmail.com', customer_name: 'T', booking_date: '2026-05-10', total_price: 5000, status: 'completed' },
+        { email: 'foo+x@gmail.com', customer_name: 'T', booking_date: '2026-05-05', total_price: 5000, status: 'completed' },
+        { email: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 0, status: 'completed' },
+      ] });
+    const upsertMock = jest.fn().mockResolvedValue({ data: [], error: null });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') {
+        return { select: () => ({ eq: () => ({ limit: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'S', slug: 's' }] }) }) }) };
+      }
+      if (table === 'bookings') {
+        return { select: () => ({ eq: () => ({ in: () => ({ gte: () => ({ limit: limitMock }) }) }) }) };
+      }
+      if (table === 'customer_segments') return { upsert: (...a: any[]) => upsertMock(...a) };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(limitMock).toHaveBeenCalledTimes(2); // email_canonical → email
+    const rows = upsertMock.mock.calls[0][0];
+    expect(rows).toHaveLength(1); // gmail 別名2件が canonical 統合
+    expect(rows[0].total_visits).toBe(2);
   });
 });
