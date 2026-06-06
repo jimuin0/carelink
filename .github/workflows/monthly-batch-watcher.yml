@@ -40,11 +40,7 @@ jobs:
           BODY=$(echo "$RESP" | head -n -1)
           CODE=$(echo "$RESP" | tail -n 1)
           echo "http=$CODE"
-          COUNT=$(echo "$BODY" | python3 -c "import sys,json
-try:
-    print(len(json.load(sys.stdin)))
-except Exception:
-    print(0)")
+          COUNT=$(echo "$BODY" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
           echo "fired_count=$COUNT" >> "$GITHUB_OUTPUT"
           echo "since=$SINCE" >> "$GITHUB_OUTPUT"
           echo "📊 newsletter-digest fired in last 24h: $COUNT"
