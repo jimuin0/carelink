@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,14 +40,24 @@ export async function GET(request: Request) {
 
     // birth_dateが今日（月日一致）のプロフィールを取得
     // PostgreSQLの TO_CHAR で月日を比較
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, email, display_name')
-      .not('birth_date', 'is', null)
-      .filter('birth_date', 'like', `%-${todayMD}`)
-      .limit(500);
+    // 本日が誕生日の profiles を全件ページング取得（旧 .limit(500) は同日誕生日が500人超で501人目以降に
+    // ポイント付与・通知漏れ。本番監査）。email_unsubscribed も取得しメール送信のみ抑止する。
+    type BirthdayProfile = { id: string; email: string | null; display_name: string | null; email_unsubscribed: boolean | null };
+    const { rows: profiles } = await fetchAllPaged<BirthdayProfile>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('id, email, display_name, email_unsubscribed')
+          .not('birth_date', 'is', null)
+          .filter('birth_date', 'like', `%-${todayMD}`)
+          .range(offset, offset + limit - 1);
+        return { data: data as BirthdayProfile[] | null, error };
+      },
+    );
 
-    if (!profiles || profiles.length === 0) {
+    // profiles は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!profiles は到達不能=branch穴になる）。
+    // ログ・返却は main 側のリッチ版（processed/skipped/status/sent を全て返す superset）に統一。
+    if (profiles.length === 0) {
       await logCronRun('birthday-coupon', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
@@ -75,8 +86,8 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // メール送信
-      if (resend && profile.email) {
+      // メール送信（ポイント付与は取引性のため上で常に実施。メールは配信停止者には送らない）
+      if (resend && profile.email && !profile.email_unsubscribed) {
         await resend.emails.send({
           from: FROM,
           to: profile.email,
