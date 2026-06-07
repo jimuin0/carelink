@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
+import { fetchAllPaged } from '@/lib/paginate';
 import { createHmac } from 'crypto';
 
 function makeUnsubToken(email: string): string {
@@ -159,13 +160,22 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Get all owner emails
-    const { data: owners } = await admin
-      .from('facility_members')
-      .select('profiles(email)')
-      .eq('role', 'owner');
+    // Get all owner emails. PostgREST の db-max-rows(1000) を全件ページング（共有ヘルパ）で越える
+    // （旧 limit なしだとオーナー1000人超で1000人目以降に配信漏れ・round6）。安全上限5万人。
+    type OwnerRow = { profiles: { email: string } | { email: string }[] | null };
+    const { rows: owners } = await fetchAllPaged<OwnerRow>(
+      async (offset, limit) => {
+        const { data, error } = await admin
+          .from('facility_members')
+          .select('profiles(email)')
+          .eq('role', 'owner')
+          .range(offset, offset + limit - 1);
+        return { data: data as OwnerRow[] | null, error };
+      },
+      { maxRows: 50000 },
+    );
 
-    const emails: string[] = (owners || [])
+    const emails: string[] = owners
       .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
         const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
         return p?.email;
@@ -174,6 +184,36 @@ export async function GET(req: NextRequest) {
 
     const uniqueEmails = Array.from(new Set(emails));
 
+    // 配信停止者を除外する（特定電子メール法: 配信停止の意思表示後の送信は禁止）。
+    // unsubscribe は profiles.email_unsubscribed=true と newsletter_subscriptions.is_active=false を立てる。
+    const { rows: unsubProfiles } = await fetchAllPaged<{ email: string | null }>(
+      async (offset, limit) => {
+        const { data, error } = await admin
+          .from('profiles')
+          .select('email')
+          .eq('email_unsubscribed', true)
+          .range(offset, offset + limit - 1);
+        return { data: data as { email: string | null }[] | null, error };
+      },
+      { maxRows: 100000 },
+    );
+    const { rows: unsubNewsletter } = await fetchAllPaged<{ email: string | null }>(
+      async (offset, limit) => {
+        const { data, error } = await admin
+          .from('newsletter_subscriptions')
+          .select('email')
+          .eq('is_active', false)
+          .range(offset, offset + limit - 1);
+        return { data: data as { email: string | null }[] | null, error };
+      },
+      { maxRows: 100000 },
+    );
+    const unsubscribed = new Set<string>([
+      ...(unsubProfiles.map((r) => r.email).filter(Boolean) as string[]),
+      ...(unsubNewsletter.map((r) => r.email).filter(Boolean) as string[]),
+    ]);
+    const sendableEmails = uniqueEmails.filter((e) => !unsubscribed.has(e));
+
     const resend = new Resend(process.env.RESEND_API_KEY);
     let sentCount = 0;
     let failedCount = 0;
@@ -181,8 +221,8 @@ export async function GET(req: NextRequest) {
 
     // Send individually with personalized unsubscribe URLs (batch of 100 = Resend limit)
     const BATCH_SIZE = 100;
-    for (let i = 0; i < uniqueEmails.length; i += BATCH_SIZE) {
-      const chunk = uniqueEmails.slice(i, i + BATCH_SIZE);
+    for (let i = 0; i < sendableEmails.length; i += BATCH_SIZE) {
+      const chunk = sendableEmails.slice(i, i + BATCH_SIZE);
       const messages = chunk.map((email) => {
         const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
         return {
