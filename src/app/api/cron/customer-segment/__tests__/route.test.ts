@@ -46,7 +46,7 @@ function setupDefaultMocks(
 
   mockFacilitiesSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({
+      range: jest.fn().mockResolvedValue({
         data: facilitiesData,
       }),
     }),
@@ -67,7 +67,7 @@ function setupDefaultMocks(
       eq: jest.fn().mockReturnValue({
         in: jest.fn().mockReturnValue({
           gte: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({
+            range: jest.fn().mockResolvedValue({
               data: bookingsData,
             }),
           }),
@@ -187,7 +187,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [],
               }),
             }),
@@ -206,8 +206,10 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
 
+    expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.processed).toBe(0);
+    // 施設が空配列の場合は早期リターンで {status:'ok', count:0}
+    expect(json.count).toBe(0);
   });
 
   test('upserts to customer_segments table', async () => {
@@ -235,7 +237,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   {
                     email_canonical: null,
@@ -324,7 +326,7 @@ describe('GET /api/cron/customer-segment', () => {
   test('facilities query returns null → early return with count 0', async () => {
     mockFacilitiesSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue({
+        range: jest.fn().mockResolvedValue({
           data: null, // explicitly null, not []
         }),
       }),
@@ -422,7 +424,7 @@ describe('GET /api/cron/customer-segment', () => {
           eq: jest.fn().mockReturnValue({
             in: jest.fn().mockReturnValue({
               gte: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({ data: atRiskBookings }),
+                range: jest.fn().mockResolvedValue({ data: atRiskBookings }),
               }),
             }),
           }),
@@ -549,7 +551,7 @@ describe('GET /api/cron/customer-segment', () => {
           eq: jest.fn().mockReturnValue({
             in: jest.fn().mockReturnValue({
               gte: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({
+                range: jest.fn().mockResolvedValue({
                   data: [
                     // recent customer (not at_risk by day range)
                     { email_canonical: 'recent@example.com', customer_name: 'Recent', booking_date: daysAgo30, total_price: 5000, status: 'completed' },
@@ -591,7 +593,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: 'x@example.com', customer_name: 'First', booking_date: '2026-04-01', total_price: 1000, status: 'completed' },
                   { email_canonical: 'x@example.com', customer_name: null, booking_date: '2026-03-01', total_price: null, status: 'completed' },
@@ -632,7 +634,7 @@ describe('GET /api/cron/customer-segment', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockFacilitiesSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        limit: jest.fn().mockRejectedValue(new Error('Supabase connection refused')),
+        range: jest.fn().mockRejectedValue(new Error('Supabase connection refused')),
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
@@ -666,7 +668,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: 'lost@example.com', customer_name: 'Lost', booking_date: daysAgo130, total_price: 5000, status: 'completed' },
                   { email_canonical: 'lost@example.com', customer_name: 'Lost', booking_date: daysAgo150, total_price: 5000, status: 'completed' },
@@ -702,7 +704,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   // 最初のエントリ
                   { email_canonical: 'a@example.com', customer_name: 'A', booking_date: '2026-04-01', total_price: 3000, status: 'completed' },
@@ -741,7 +743,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 5000, status: 'completed' },
                   { email_canonical: 'valid@example.com', customer_name: 'Valid', booking_date: '2026-05-01', total_price: 5000, status: 'completed' },
@@ -794,7 +796,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo10, total_price: 5000, status: 'completed' },
                   { email_canonical: 'recent@ex.com', customer_name: 'R', booking_date: daysAgo20, total_price: 5000, status: 'completed' },
@@ -840,7 +842,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
                   { email_canonical: 'atrisk2@example.com', customer_name: 'AR2', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
@@ -885,7 +887,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   // null customer_name on the FIRST (new entry) booking → hits `b.customer_name || ''` false side
                   { email_canonical: 'noname@example.com', customer_name: null, booking_date: '2026-05-01', total_price: 3000, status: 'completed' },
@@ -920,7 +922,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   // null total_price on the FIRST (new entry) booking → hits `b.total_price || 0` false side
                   { email_canonical: 'noprice@example.com', customer_name: 'NoPriceCustomer', booking_date: '2026-05-01', total_price: null, status: 'completed' },
@@ -962,7 +964,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: 'atrisk_direct@example.com', customer_name: 'AtRisk', booking_date: daysAgo70, total_price: 5000, status: 'completed' },
                   { email_canonical: 'atrisk_direct@example.com', customer_name: 'AtRisk', booking_date: daysAgo100, total_price: 5000, status: 'completed' },
@@ -1010,7 +1012,7 @@ describe('GET /api/cron/customer-segment', () => {
         eq: jest.fn().mockReturnValue({
           in: jest.fn().mockReturnValue({
             gte: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({
+              range: jest.fn().mockResolvedValue({
                 data: [
                   { email_canonical: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo62, total_price: 5000, status: 'completed' },
                   { email_canonical: 'atrisk3@example.com', customer_name: 'AR3', booking_date: daysAgo90, total_price: 5000, status: 'completed' },
@@ -1053,22 +1055,22 @@ describe('GET /api/cron/customer-segment', () => {
   });
 
   test('email_canonical 列が未適用(42703) → email でフォールバックし JS canonical 化で集計', async () => {
-    delete process.env.RESEND_API_KEY;
-    // 1回目(email_canonical select).limit → 列不在エラー、2回目(email フォールバック).limit → gmail 別名2件
-    const limitMock = jest.fn()
+    delete process.env.RESEND_API_KEY; // メール経路を無効化して集計のみ検証
+    // 1回目(email_canonical select)は列不在エラー、2回目(email フォールバック)は gmail 別名2件
+    const rangeMock = jest.fn()
       .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "email_canonical" does not exist' } })
       .mockResolvedValueOnce({ data: [
         { email: 'f.o.o@gmail.com', customer_name: 'T', booking_date: '2026-05-10', total_price: 5000, status: 'completed' },
         { email: 'foo+x@gmail.com', customer_name: 'T', booking_date: '2026-05-05', total_price: 5000, status: 'completed' },
-        { email: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 0, status: 'completed' },
+        { email: null, customer_name: 'NoEmail', booking_date: '2026-05-01', total_price: 0, status: 'completed' }, // email null → スキップ(b.email falsy 分岐)
       ] });
     const upsertMock = jest.fn().mockResolvedValue({ data: [], error: null });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') {
-        return { select: () => ({ eq: () => ({ limit: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'S', slug: 's' }] }) }) }) };
+        return { select: () => ({ eq: () => ({ range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'S', slug: 's' }] }) }) }) };
       }
       if (table === 'bookings') {
-        return { select: () => ({ eq: () => ({ in: () => ({ gte: () => ({ limit: limitMock }) }) }) }) };
+        return { select: () => ({ eq: () => ({ in: () => ({ gte: () => ({ range: rangeMock }) }) }) }) };
       }
       if (table === 'customer_segments') return { upsert: (...a: any[]) => upsertMock(...a) };
       return {};
@@ -1076,9 +1078,11 @@ describe('GET /api/cron/customer-segment', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    expect(limitMock).toHaveBeenCalledTimes(2); // email_canonical → email
+    // email_canonical → email の2回 range が呼ばれる（フォールバック発火の証跡）
+    expect(rangeMock).toHaveBeenCalledTimes(2);
+    // gmail 別名2件が canonical 統合され1顧客 visits=2 で upsert される
     const rows = upsertMock.mock.calls[0][0];
-    expect(rows).toHaveLength(1); // gmail 別名2件が canonical 統合
+    expect(rows).toHaveLength(1);
     expect(rows[0].total_visits).toBe(2);
   });
 });
