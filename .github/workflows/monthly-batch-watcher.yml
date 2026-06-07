@@ -30,12 +30,18 @@ jobs:
           SUPABASE_URL: https://xzafxiupbflvgbarrihe.supabase.co
           SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
-          # 前日 00:00 UTC 以降の newsletter-digest success ログを取得。
+          # 当月 1 日 00:00 UTC 以降の newsletter-digest success ログを取得。
+          # newsletter-digest は毎月 1 日 16:00 UTC 発火・本 watcher は 2 日に検証する設計。
+          # 旧実装は SINCE="昨日 00:00" だったため、本 watcher が 2 日以外（手動 dispatch /
+          # 再実行 / スケジュールずれ）に走ると窓が 1 日発火より後ろにずれ、実際は発火済みでも
+          # 「未発火」と誤検知した（監視の偽陽性＝狼少年化で監視不信を招く盲点）。
+          # SINCE を「当月初日 00:00 UTC」に固定し、実行日に依存せず当月の発火有無を判定する
+          # （発症前予防・恒久対策）。当月初日は GNU/BSD date 共通で literal "-01" で表現できる。
           # 重要: HTTP status を検証せず本文を len() すると、401/500 等のエラー本文
           # （JSON オブジェクト）のキー数を「発火回数」と誤カウントし、監視が認証/接続
           # エラーに盲目（恒常的な偽陽性）になる。status を ok / error に分け、error は
           # 別途警報する（発火の有無を確認できないことを隠さない＝発症前予防）。
-          SINCE=$(date -u -d "yesterday 00:00:00" +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u -v-1d +"%Y-%m-%dT00:00:00Z")
+          SINCE=$(date -u +"%Y-%m-01T00:00:00Z")
           echo "since=$SINCE" >> "$GITHUB_OUTPUT"
           echo "since=$SINCE"
 
@@ -73,7 +79,7 @@ jobs:
           COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d) if isinstance(d, list) else 0)" 2>/dev/null || echo 0)
           echo "status=ok" >> "$GITHUB_OUTPUT"
           echo "fired_count=$COUNT" >> "$GITHUB_OUTPUT"
-          echo "📊 newsletter-digest fired in last 24h: $COUNT"
+          echo "📊 newsletter-digest fired since $SINCE (当月分): $COUNT"
 
       - name: Alert if not fired
         if: steps.fetch.outputs.status == 'ok' && steps.fetch.outputs.fired_count == '0'
