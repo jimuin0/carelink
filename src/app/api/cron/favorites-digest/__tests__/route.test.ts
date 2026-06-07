@@ -161,7 +161,7 @@ function setupDefaultMocks(
   const claimedData = alreadySentThisWeek ? [] : [{ id: 'user-1' }];
 
   mockFavoritesSelect = jest.fn().mockReturnValue({
-    limit: jest.fn().mockResolvedValue({ data: favoritesData }),
+    range: jest.fn().mockResolvedValue({ data: favoritesData }),
   });
   mockCouponsSelect = jest.fn().mockReturnValue({
     in: jest.fn().mockReturnValue({
@@ -489,7 +489,7 @@ describe('GET /api/cron/favorites-digest', () => {
 
   test('favorites query returns null → 200 with sent=0', async () => {
     mockFavoritesSelect = jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({ data: null }),
+      range: jest.fn().mockResolvedValue({ data: null }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') {
@@ -514,7 +514,7 @@ describe('GET /api/cron/favorites-digest', () => {
   test('facility missing from facilityMap → filtered out', async () => {
     // Favorites point to fac-99 which isn't in facilities query result
     mockFavoritesSelect = jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({
+      range: jest.fn().mockResolvedValue({
         data: [{ user_id: 'user-1', facility_id: 'fac-99' }],
       }),
     });
@@ -689,7 +689,7 @@ describe('GET /api/cron/favorites-digest', () => {
   test('新着メニューのみの施設（クーポンなし）→ newCoupons=0 でメール送信', async () => {
     // fac-1: menu only (no coupons), user-1 favorites fac-1
     mockFavoritesSelect = jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({
+      range: jest.fn().mockResolvedValue({
         data: [{ user_id: 'user-1', facility_id: 'fac-1' }],
       }),
     });
