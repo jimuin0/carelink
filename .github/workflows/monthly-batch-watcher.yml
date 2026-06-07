@@ -39,6 +39,13 @@ jobs:
           echo "since=$SINCE" >> "$GITHUB_OUTPUT"
           echo "since=$SINCE"
 
+          # secret に混入した改行(CR/LF)を除去する。改行付きの値を curl の
+          # -H ヘッダに渡すと curl が exit 43 (CURLE_BAD_FUNCTION_ARGUMENT) で落ち、
+          # 監視ジョブ自体が起動不能になる（発火有無を確認できない盲点）。
+          # service_role JWT は base64url で改行・空白を含まないため除去は安全。
+          # 発症前予防: secret 側に改行が紛れても監視が機能し続けるようにする。
+          SERVICE_ROLE_KEY=$(printf '%s' "$SERVICE_ROLE_KEY" | tr -d '\r\n')
+
           if [ -z "$SERVICE_ROLE_KEY" ]; then
             echo "http=000 (SUPABASE_SERVICE_ROLE_KEY 未設定)"
             echo "status=error" >> "$GITHUB_OUTPUT"
