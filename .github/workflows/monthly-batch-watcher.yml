@@ -10,7 +10,9 @@ name: Monthly Batch Watcher
 
 on:
   schedule:
-    - cron: '0 3 2 * *'   # 毎月 2 日 03:00 UTC
+    # 毎月 8 日 03:00 UTC。newsletter-digest は専用 workflow が 1〜7 日に self-heal 再試行するため、
+    # その窓を過ぎた 8 日に判定する（窓内に判定すると self-heal 途中で偽陽性アラートになる）。
+    - cron: '0 3 8 * *'
   workflow_dispatch:
 
 permissions:

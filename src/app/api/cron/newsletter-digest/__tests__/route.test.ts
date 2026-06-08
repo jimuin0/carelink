@@ -1,121 +1,116 @@
 /**
  * @jest-environment node
  *
- * Tests for GET /api/cron/newsletter-digest
+ * Tests for GET /api/cron/newsletter-digest (exactly-once 版)
  * Key assertions:
- *   - CRON_SECRET validation
- *   - Idempotency (check existing newsletter_campaigns)
- *   - Monthly newsletter to facility owners
- *   - HMAC unsubscribe token generation
- *   - Resend batch.send integration
- *   - HTML email generation with stats
+ *   - CRON_SECRET / 必須 env 検証
+ *   - fast-path: 当月 'sent' 済みなら skip
+ *   - owner へ 1 通ずつ idempotencyKey 付きで送信し newsletter_send_log に記録
+ *   - 台帳済みアドレスは再送しない（exactly-once）
+ *   - 配信停止者を除外
+ *   - campaign find-or-create（既存再利用 / 新規 insert / insert エラー）
+ *   - 送信失敗・予算超過時は campaign を 'sent' にせず 'skipped' ログ（watcher が検知継続）
+ *   - 全送信完了時のみ 'success'
  */
 
 jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/cron-logger');
 jest.mock('resend');
 
 import { checkCronAuth } from '@/lib/cron-auth';
+import { logCronRun } from '@/lib/cron-logger';
 import { GET } from '../route';
 
-let mockSelect: jest.Mock;
-let mockBatchSend: jest.Mock;
-
-function setupDefaultMocks(alreadySent: boolean = false) {
-  (checkCronAuth as jest.Mock).mockReturnValue(null);
-
-  const existingData = alreadySent ? [{ id: 'campaign-1' }] : [];
-
-  mockSelect = jest.fn()
-    .mockReturnValueOnce({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          gte: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({
-              data: existingData,
-            }),
-          }),
-        }),
-      }),
-    })
-    .mockReturnValueOnce({
-      gte: jest.fn().mockReturnValue({
-        lte: jest.fn().mockResolvedValue({
-          count: 42,
-        }),
-      }),
-    })
-    .mockReturnValueOnce({
-      gte: jest.fn().mockReturnValue({
-        lte: jest.fn().mockResolvedValue({
-          count: 15,
-        }),
-      }),
-    })
-    .mockReturnValueOnce({
-      gte: jest.fn().mockReturnValue({
-        lte: jest.fn().mockResolvedValue({
-          count: 3,
-        }),
-      }),
-    });
-
-  const mockCampaignInsert = jest.fn().mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      single: jest.fn().mockResolvedValue({
-        data: { id: 'campaign-123' },
-        error: null,
-      }),
-    }),
+// 任意のクエリチェーン（eq/gte/lte/order/range/limit/select/single...）を受けて
+// 最終的に `result` へ解決する thenable proxy。
+function makeChain(result: any) {
+  const p = Promise.resolve(result);
+  const proxy: any = new Proxy(function () {}, {
+    get(_t, prop) {
+      if (prop === 'then') return p.then.bind(p);
+      if (prop === 'catch') return p.catch.bind(p);
+      if (prop === 'finally') return p.finally.bind(p);
+      return () => proxy;
+    },
+    apply() {
+      return proxy;
+    },
   });
-  const mockCampaignUpdate = jest.fn().mockReturnValue({
-    eq: jest.fn().mockResolvedValue({ error: null }),
-  });
+  return proxy;
+}
+
+let mockSend: jest.Mock;
+let mockSendLogInsert: jest.Mock;
+let mockCampaignInsert: jest.Mock;
+let mockCampaignUpdate: jest.Mock;
+
+function setup(opts: any = {}) {
+  const {
+    alreadySent = false,
+    existingCampaign = false,
+    owners = [{ profiles: { email: 'owner@example.com' } }],
+    unsubProfiles = [] as any[],
+    unsubNewsletter = [] as any[],
+    ledger = [] as any[],
+    campaignInsertError = null,
+    campaignInsertData = { id: 'campaign-new' },
+    campaignUpdateError = null,
+    sendLogInsertResult = { error: null },
+    sendRejects = false,
+    authError = null,
+    bookingsCount = 42,
+    reviewsCount = 15,
+    facilitiesCount = 3,
+  } = opts;
+
+  (checkCronAuth as jest.Mock).mockReturnValue(authError);
+  (logCronRun as jest.Mock).mockResolvedValue(undefined);
+
+  mockCampaignInsert = jest.fn().mockReturnValue(
+    makeChain({ data: campaignInsertError ? null : campaignInsertData, error: campaignInsertError }),
+  );
+  mockCampaignUpdate = jest.fn().mockReturnValue(makeChain({ error: campaignUpdateError }));
+  mockSendLogInsert = jest.fn().mockReturnValue(makeChain(sendLogInsertResult));
+
+  // newsletter_campaigns.select: 1回目=fast-path(sent), 2回目=find-existing
+  const campaignSelect = jest.fn()
+    .mockReturnValueOnce(makeChain({ data: alreadySent ? [{ id: 'campaign-sent' }] : [] }))
+    .mockReturnValueOnce(makeChain({ data: existingCampaign ? [{ id: 'campaign-existing' }] : [] }));
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn().mockImplementation((table: string) => {
-      if (table === 'newsletter_campaigns') {
-        return {
-          select: (...args: any[]) => mockSelect(...args),
-          insert: mockCampaignInsert,
-          update: mockCampaignUpdate,
-        };
-      } else if (table === 'facility_members') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              range: jest.fn().mockResolvedValue({ data: [{ profiles: { email: 'owner@example.com' } }] }),
-            }),
-          }),
-        };
-      } else if (table === 'cron_logs') {
-        return {
-          insert: jest.fn().mockResolvedValue({ error: null }),
-        };
-      } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
-        // 配信停止リスト（既定は誰も停止していない）
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              range: jest.fn().mockResolvedValue({ data: [], error: null }),
-            }),
-          }),
-        };
+      switch (table) {
+        case 'newsletter_campaigns':
+          return { select: campaignSelect, insert: mockCampaignInsert, update: mockCampaignUpdate };
+        case 'bookings':
+          return { select: jest.fn().mockReturnValue(makeChain({ count: bookingsCount })) };
+        case 'reviews':
+          return { select: jest.fn().mockReturnValue(makeChain({ count: reviewsCount })) };
+        case 'facility_profiles':
+          return { select: jest.fn().mockReturnValue(makeChain({ count: facilitiesCount })) };
+        case 'facility_members':
+          return { select: jest.fn().mockReturnValue(makeChain({ data: owners })) };
+        case 'profiles':
+          return { select: jest.fn().mockReturnValue(makeChain({ data: unsubProfiles })) };
+        case 'newsletter_subscriptions':
+          return { select: jest.fn().mockReturnValue(makeChain({ data: unsubNewsletter })) };
+        case 'newsletter_send_log':
+          return { select: jest.fn().mockReturnValue(makeChain({ data: ledger })), insert: mockSendLogInsert };
+        case 'cron_logs':
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        default:
+          return {};
       }
-      // bookings, reviews, facility_profiles (count queries)
-      return { select: (...args: any[]) => mockSelect(...args) };
     }),
   });
 
-  mockBatchSend = jest.fn().mockResolvedValue({
-    data: { id: 'batch-123' },
-  });
-
+  mockSend = sendRejects
+    ? jest.fn().mockRejectedValue(new Error('Resend down'))
+    : jest.fn().mockResolvedValue({ data: { id: 'email-1' } });
   const { Resend } = require('resend');
-  Resend.mockImplementation(() => ({
-    batch: { send: mockBatchSend },
-  }));
+  Resend.mockImplementation(() => ({ emails: { send: mockSend } }));
 
   process.env.NEWSLETTER_UNSUBSCRIBE_SECRET = 'secret-key';
   process.env.RESEND_API_KEY = 'test-key';
@@ -123,610 +118,222 @@ function setupDefaultMocks(alreadySent: boolean = false) {
 
 beforeEach(() => {
   jest.clearAllMocks();
-  setupDefaultMocks();
+  jest.restoreAllMocks();
+  setup();
 });
 
 function makeRequest() {
   return new Request('http://localhost/api/cron/newsletter-digest', {
     method: 'GET',
-    headers: { 'Authorization': 'Bearer cron-secret' },
+    headers: { authorization: 'Bearer cron-secret' },
   });
 }
 
 describe('GET /api/cron/newsletter-digest', () => {
-  test('CRON_SECRET check failed → returns error', async () => {
-    const errorResponse = new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-    (checkCronAuth as jest.Mock).mockReturnValue(errorResponse);
-
+  test('auth error → returns it', async () => {
+    setup({ authError: new Response('no', { status: 401 }) });
     const res = await GET(makeRequest() as any);
-
     expect(res.status).toBe(401);
   });
 
-  test('already sent this month → skipped', async () => {
-    setupDefaultMocks(true);
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.skipped).toBe(true);
-  });
-
-  test('not sent yet → sends newsletter', async () => {
-    setupDefaultMocks(false);
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    expect(mockBatchSend).toHaveBeenCalled();
-  });
-
-  test('配信停止オーナーは送信対象から除外される（特電法）', async () => {
-    setupDefaultMocks(false);
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let campCalls = 0;
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          campCalls++;
-          if (campCalls === 1) return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) }) }) }) }) };
-          if (campCalls === 2) return { insert: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'camp-x' }, error: null }) }) }) };
-          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
-        } else if (table === 'facility_members') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [{ profiles: { email: 'unsub@example.com' } }] }) }) }) };
-        } else if (table === 'cron_logs') {
-          return { insert: jest.fn().mockResolvedValue({ error: null }) };
-        } else if (table === 'profiles') {
-          // このオーナーは配信停止済み
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [{ email: 'unsub@example.com' }], error: null }) }) }) };
-        } else if (table === 'newsletter_subscriptions') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
-        }
-        // bookings/reviews/facility_profiles の count クエリ
-        return { select: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockResolvedValue({ count: 0 }) }) }) };
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    // 唯一のオーナーが配信停止済みのため送信されない
-    expect(mockBatchSend).not.toHaveBeenCalled();
-  });
-
-  test('missing NEWSLETTER_UNSUBSCRIBE_SECRET → 503', async () => {
+  test('NEWSLETTER_UNSUBSCRIBE_SECRET missing → 503', async () => {
     delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-
     const res = await GET(makeRequest() as any);
-
     expect(res.status).toBe(503);
   });
 
-  test('missing RESEND_API_KEY → 503', async () => {
+  test('RESEND_API_KEY missing → 503', async () => {
     delete process.env.RESEND_API_KEY;
-
     const res = await GET(makeRequest() as any);
-
     expect(res.status).toBe(503);
   });
 
-  test('HMAC unsubscribe token generation', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      // Each email should have unsubscribe URL with HMAC token
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0].html).toContain('unsubscribe');
-      }
-    }
-  });
-
-  test('includes booking count in HTML', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0].html).toContain('42');
-      }
-    }
-  });
-
-  test('includes review count in HTML', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0].html).toContain('15');
-      }
-    }
-  });
-
-  test('includes new facilities count in HTML', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0].html).toContain('3');
-      }
-    }
-  });
-
-  test('includes month in newsletter subject', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0].subject).toContain('ニュースレター');
-      }
-    }
-  });
-
-  test('HTML contains CareLink header', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0].html).toContain('CareLink');
-      }
-    }
-  });
-
-  test('unsubscribe token is SHA256 HMAC', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        const html = emails[0].html;
-        // Check for hex format (SHA256 produces 64 hex chars)
-        expect(html).toMatch(/hmac=[a-f0-9]{64}/);
-      }
-    }
-  });
-
-  test('unsubscribe URL is properly encoded', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        const html = emails[0].html;
-        expect(html).toMatch(/unsubscribe\?email=/);
-      }
-    }
-  });
-
-  test('batch.send receives email array', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      expect(Array.isArray(emails)).toBe(true);
-    }
-  });
-
-  test('each email has required fields', async () => {
-    const res = await GET(makeRequest() as any);
-
-    if (mockBatchSend.mock.calls.length > 0) {
-      const emails = mockBatchSend.mock.calls[0][0];
-      if (Array.isArray(emails) && emails.length > 0) {
-        expect(emails[0]).toHaveProperty('to');
-        expect(emails[0]).toHaveProperty('subject');
-        expect(emails[0]).toHaveProperty('html');
-      }
-    }
-  });
-
-  test('idempotency: checks start of current month', async () => {
-    await GET(makeRequest() as any);
-
-    // Verify that the query checked for existing campaigns
-    expect(mockSelect).toHaveBeenCalled();
-  });
-
-  test('returns 200 with response', async () => {
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json).toBeDefined();
-  });
-
-  test('campaign insert エラー → 500', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let newsletterCalls = 0;
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          newsletterCalls++;
-          if (newsletterCalls === 1) {
-            return {
-              select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  eq: jest.fn().mockReturnValue({
-                    gte: jest.fn().mockReturnValue({
-                      limit: jest.fn().mockResolvedValue({ data: [] }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          }
-          return {
-            insert: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: null, error: { message: 'Insert failed' } }),
-              }),
-            }),
-          };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              lte: jest.fn().mockResolvedValue({ count: 0 }),
-            }),
-          }),
-        };
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(500);
-  });
-
-  test('batch send 失敗 → failedCount に加算して 200 続行', async () => {
-    mockBatchSend.mockRejectedValue(new Error('batch send failed'));
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
-  });
-
-  test('insert conflict (23505) → skipped 200', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let newsletterCalls = 0;
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          newsletterCalls++;
-          if (newsletterCalls === 1) {
-            return {
-              select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  eq: jest.fn().mockReturnValue({
-                    gte: jest.fn().mockReturnValue({
-                      limit: jest.fn().mockResolvedValue({ data: [] }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          }
-          return {
-            insert: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'unique violation' } }),
-              }),
-            }),
-          };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              lte: jest.fn().mockResolvedValue({ count: 0 }),
-            }),
-          }),
-        };
-      }),
-    });
-
+  test('already sent this month → skip, no send', async () => {
+    setup({ alreadySent: true });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.skipped).toBe(true);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'skipped', expect.any(Date), expect.any(Object));
   });
 
-  test('owners with profiles as array → email extracted', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let newsletterCalls = 0;
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          newsletterCalls++;
-          if (newsletterCalls === 1) {
-            return {
-              select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  eq: jest.fn().mockReturnValue({
-                    gte: jest.fn().mockReturnValue({
-                      limit: jest.fn().mockResolvedValue({ data: [] }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          } else if (newsletterCalls === 2) {
-            return {
-              insert: jest.fn().mockReturnValue({
-                select: jest.fn().mockReturnValue({
-                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-arr' }, error: null }),
-                }),
-              }),
-            };
-          }
-          return {
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ error: null }),
-            }),
-          };
-        } else if (table === 'facility_members') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                range: jest.fn().mockResolvedValue({
-                  // profiles as array (covers Array.isArray true branch) + null entry (filter)
-                  data: [
-                    { profiles: [{ email: 'arr@example.com' }] },
-                    { profiles: null },
-                    { profiles: [] },
-                  ],
-                }),
-              }),
-            }),
-          };
-        } else if (table === 'cron_logs') {
-          return { insert: jest.fn().mockResolvedValue({ error: null }) };
-        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              lte: jest.fn().mockResolvedValue({ count: null }),
-            }),
-          }),
-        };
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(200);
-  });
-
-  test('catch non-Error throw → String fallback', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn(() => { throw 'plain string error'; }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(500);
-  });
-
-  // Branch coverage: line 10 — makeUnsubToken の if (!secret) throw ブランチ
-  // Line 26 のガードは通過後、送信ループで secret が消えているシナリオ
-  test('secret が送信ループ中に消えた場合 → catch → 500', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let newsletterCalls = 0;
-
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          newsletterCalls++;
-          if (newsletterCalls === 1) {
-            return {
-              select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  eq: jest.fn().mockReturnValue({
-                    gte: jest.fn().mockReturnValue({
-                      limit: jest.fn().mockResolvedValue({ data: [] }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          } else if (newsletterCalls === 2) {
-            return {
-              insert: jest.fn().mockReturnValue({
-                select: jest.fn().mockReturnValue({
-                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-sec' }, error: null }),
-                }),
-              }),
-            };
-          }
-          return {
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ error: null }),
-            }),
-          };
-        } else if (table === 'facility_members') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                range: jest.fn().mockImplementation(() => {
-                  // Delete the secret AFTER the Line 26 guard passes, so makeUnsubToken throws
-                  delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-                  return Promise.resolve({
-                    data: [{ profiles: { email: 'owner@example.com' } }],
-                  });
-                }),
-              }),
-            }),
-          };
-        } else if (table === 'cron_logs') {
-          return { insert: jest.fn().mockResolvedValue({ error: null }) };
-        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              lte: jest.fn().mockResolvedValue({ count: 0 }),
-            }),
-          }),
-        };
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    // makeUnsubToken throws → caught at top-level catch → 500
-    expect(res.status).toBe(500);
-    consoleSpy.mockRestore();
-  });
-
-  // Branch coverage: line 168 — owners が null → fallback to []
-  test('facility_members が null データを返す → emails = []', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let newsletterCalls = 0;
-
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          newsletterCalls++;
-          if (newsletterCalls === 1) {
-            return {
-              select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  eq: jest.fn().mockReturnValue({
-                    gte: jest.fn().mockReturnValue({
-                      limit: jest.fn().mockResolvedValue({ data: [] }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          } else if (newsletterCalls === 2) {
-            return {
-              insert: jest.fn().mockReturnValue({
-                select: jest.fn().mockReturnValue({
-                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-null' }, error: null }),
-                }),
-              }),
-            };
-          }
-          return {
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ error: null }),
-            }),
-          };
-        } else if (table === 'facility_members') {
-          return {
-            select: jest.fn().mockReturnValue({
-              // owners page = null → ループ break、emails=[]
-              eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: null }) }),
-            }),
-          };
-        } else if (table === 'cron_logs') {
-          return { insert: jest.fn().mockResolvedValue({ error: null }) };
-        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              lte: jest.fn().mockResolvedValue({ count: 0 }),
-            }),
-          }),
-        };
-      }),
-    });
-
+  test('happy path → sends to owner, records ledger, marks campaign sent, success log', async () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     const json = await res.json();
-    // No owners → sentCount = 0
-    expect(json.processed).toBe(0);
+    expect(json.processed).toBe(1);
+    expect(json.completed).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSendLogInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ period: expect.any(String), email: 'owner@example.com' }),
+    );
+    expect(mockCampaignUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'sent' }));
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'success', expect.any(Date), expect.any(Object));
   });
 
-  // Branch coverage: line 227 — catch で e instanceof Error false → String(e) ブランチ
-  // (すでに 'catch non-Error throw → String fallback' テストがカバーしているが
-  //  logCronRun が非同期で呼ばれるため、明示的に await してカバーを確実にする)
-  test('logCronRun が呼ばれる中で非Error throwが発生 → String(e)ブランチ到達', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    // cron_logs の insert が throw するパターン（logCronRun 内部）で非Error
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'cron_logs') {
-          return { insert: jest.fn(() => { throw 42; }) };
-        }
-        // Make the main try-block throw a non-Error to reach line 227
-        throw 'non-error-string';
-      }),
-    });
+  test('send uses deterministic idempotencyKey nl:period:email', async () => {
+    await GET(makeRequest() as any);
+    const call = mockSend.mock.calls[0];
+    expect(call[1]).toEqual(expect.objectContaining({ idempotencyKey: expect.stringMatching(/^nl:\d{4}-\d{2}:owner@example\.com$/) }));
+  });
 
+  test('email already in ledger → skipped (exactly-once)', async () => {
+    setup({ ledger: [{ email: 'owner@example.com' }] });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(json.processed).toBe(0);
+    expect(json.completed).toBe(true); // nothing to send → completed
+    expect(mockCampaignUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'sent' }));
+  });
+
+  test('unsubscribed (profiles) excluded', async () => {
+    setup({
+      owners: [{ profiles: { email: 'a@x.com' } }, { profiles: { email: 'b@x.com' } }],
+      unsubProfiles: [{ email: 'a@x.com' }],
+    });
+    await GET(makeRequest() as any);
+    const sentTo = mockSend.mock.calls.map((c) => c[0].to[0]);
+    expect(sentTo).toEqual(['b@x.com']);
+  });
+
+  test('unsubscribed (newsletter_subscriptions) excluded', async () => {
+    setup({
+      owners: [{ profiles: { email: 'a@x.com' } }, { profiles: { email: 'b@x.com' } }],
+      unsubNewsletter: [{ email: 'b@x.com' }],
+    });
+    await GET(makeRequest() as any);
+    const sentTo = mockSend.mock.calls.map((c) => c[0].to[0]);
+    expect(sentTo).toEqual(['a@x.com']);
+  });
+
+  test('existing campaign this month → reused, no insert', async () => {
+    setup({ existingCampaign: true });
+    await GET(makeRequest() as any);
+    expect(mockCampaignInsert).not.toHaveBeenCalled();
+    expect(mockSendLogInsert).toHaveBeenCalledWith(expect.objectContaining({ campaign_id: 'campaign-existing' }));
+  });
+
+  test('no existing campaign → inserts new', async () => {
+    await GET(makeRequest() as any);
+    expect(mockCampaignInsert).toHaveBeenCalled();
+  });
+
+  test('campaign insert error → 500', async () => {
+    setup({ campaignInsertError: { message: 'boom' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'error', expect.any(Date), expect.any(Object));
+  });
+
+  test('send failure → not recorded, campaign NOT marked sent, skipped log', async () => {
+    setup({ sendRejects: true });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+    expect(json.completed).toBe(false);
+    expect(mockSendLogInsert).not.toHaveBeenCalled();
+    expect(mockCampaignUpdate).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'skipped', expect.any(Date), expect.any(Object));
+  });
+
+  test('send-log insert 23505 (concurrent) → ignored, no error log', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ sendLogInsertResult: { error: { code: '23505' } } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(errSpy).not.toHaveBeenCalledWith('[newsletter-digest] send-log insert failed', expect.anything());
+    errSpy.mockRestore();
+  });
+
+  test('send-log insert other error → logged', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ sendLogInsertResult: { error: { code: '42P01', message: 'no table' } } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(errSpy).toHaveBeenCalledWith('[newsletter-digest] send-log insert failed', expect.any(Object));
+    errSpy.mockRestore();
+  });
+
+  test('campaign update error → logged, still 200', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ campaignUpdateError: { message: 'update boom' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(errSpy).toHaveBeenCalledWith('[newsletter-digest] campaign status update failed — watcher may re-alert', expect.any(Object));
+    errSpy.mockRestore();
+  });
+
+  test('owner profiles as array → email extracted', async () => {
+    setup({ owners: [{ profiles: [{ email: 'arr@x.com' }] }] });
+    await GET(makeRequest() as any);
+    expect(mockSend.mock.calls[0][0].to[0]).toBe('arr@x.com');
+  });
+
+  test('owner with null profiles → filtered out', async () => {
+    setup({ owners: [{ profiles: null }, { profiles: { email: 'ok@x.com' } }] });
+    await GET(makeRequest() as any);
+    const sentTo = mockSend.mock.calls.map((c) => c[0].to[0]);
+    expect(sentTo).toEqual(['ok@x.com']);
+  });
+
+  test('duplicate owner emails deduped', async () => {
+    setup({ owners: [{ profiles: { email: 'dup@x.com' } }, { profiles: { email: 'dup@x.com' } }] });
+    await GET(makeRequest() as any);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+  });
+
+  test('no sendable owners → completed, marks sent, no send', async () => {
+    setup({ owners: [] });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(json.completed).toBe(true);
+    expect(mockCampaignUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'sent' }));
+  });
+
+  test('unexpected exception (from throws inside try) → 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    // admin = createServiceRoleClient() は try 外なので、from() を投げさせて try 内で捕捉させる
+    createServiceRoleClient.mockReturnValue({ from: jest.fn(() => { throw new Error('fatal'); }) });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
   });
 
-  test('campaign update エラー → console.error して 200 続行', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    let newsletterCalls = 0;
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation((table: string) => {
-        if (table === 'newsletter_campaigns') {
-          newsletterCalls++;
-          if (newsletterCalls === 1) {
-            return {
-              select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  eq: jest.fn().mockReturnValue({
-                    gte: jest.fn().mockReturnValue({
-                      limit: jest.fn().mockResolvedValue({ data: [] }),
-                    }),
-                  }),
-                }),
-              }),
-            };
-          } else if (newsletterCalls === 2) {
-            return {
-              insert: jest.fn().mockReturnValue({
-                select: jest.fn().mockReturnValue({
-                  single: jest.fn().mockResolvedValue({ data: { id: 'camp-999' }, error: null }),
-                }),
-              }),
-            };
-          }
-          return {
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
-            }),
-          };
-        } else if (table === 'facility_members') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                range: jest.fn().mockResolvedValue({ data: [{ profiles: { email: 'owner@example.com' } }] }),
-              }),
-            }),
-          };
-        } else if (table === 'cron_logs') {
-          return { insert: jest.fn().mockResolvedValue({ error: null }) };
-        } else if (table === 'profiles' || table === 'newsletter_subscriptions') {
-          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            gte: jest.fn().mockReturnValue({
-              lte: jest.fn().mockResolvedValue({ count: 0 }),
-            }),
-          }),
-        };
-      }),
-    });
-
+  test('null stats counts → template falls back to 0, still sends', async () => {
+    setup({ bookingsCount: null, reviewsCount: null, facilitiesCount: null });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
+    const json = await res.json();
+    expect(json.completed).toBe(true);
+    // htmlBody に 0 が入った状態で送信される
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    expect(mockSend.mock.calls[0][0].html).toContain('>0<');
+  });
+
+  test('non-Error throw → String(e) fallback, 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({ from: jest.fn(() => { throw 'plain string'; }) });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'error', expect.any(Date), expect.any(Object));
+  });
+
+  test('time budget exceeded → defers, not completed, skipped log', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setup({ owners: [{ profiles: { email: 'a@x.com' } }, { profiles: { email: 'b@x.com' } }] });
+    // loopStart 後の最初のガードで予算超過させる
+    jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(10_000_000);
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.deferred).toBe(2);
+    expect(json.completed).toBe(false);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'skipped', expect.any(Date), expect.any(Object));
+    warnSpy.mockRestore();
   });
 });

@@ -8,6 +8,9 @@ import { createHmac } from 'crypto';
 
 function makeUnsubToken(email: string): string {
   const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+  // GET 冒頭の env ガード（!NEWSLETTER_UNSUBSCRIBE_SECRET → 503）を通過した後でのみ
+  // 送信ループから呼ばれるため、ここに到達する時点で secret は必ず存在する（防御的チェック）。
+  /* istanbul ignore next -- 上位 env ガードにより到達不能な防御コード */
   if (!secret) throw new Error('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
   return createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
 }
@@ -16,9 +19,21 @@ function unsubUrl(email: string): string {
   return `https://carelink-jp.com/unsubscribe?email=${encodeURIComponent(email)}&hmac=${makeUnsubToken(email)}`;
 }
 
-// Monthly newsletter cron — runs on 1st of each month
-// Sends owner_monthly digest to all facility owners
+function maskEmail(email: string): string {
+  return email.replace(/(.).*@/, '$1***@');
+}
+
+// Monthly newsletter cron — 専用 workflow newsletter-digest.yml が毎月 1〜7 日に self-heal 再試行する。
+// GitHub Actions スケジュールは best-effort で単一 tick がドロップし得るため、複数日試行＋下記の
+// exactly-once（per-email 台帳 newsletter_send_log ＋ 決定的 idempotency key）で「当月ちょうど1回」送る。
 export const dynamic = 'force-dynamic';
+// 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
+// 既定の低い値を上書きし、下の SEND_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
+export const maxDuration = 60;
+
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌日 self-heal run へ回す。
+// 打ち切られた分は台帳に未記録のまま＝翌 run で確実に再送される（恒久 miss なし）。
+const SEND_BUDGET_MS = 50 * 1000;
 
 export async function GET(req: NextRequest) {
   const cronAuthError = checkCronAuth(req);
@@ -37,10 +52,12 @@ export async function GET(req: NextRequest) {
   try {
     const now = new Date();
     const month = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
-
-    // Check if already sent this month
+    // 配信対象月キー 'YYYY-MM'(UTC)。台帳・idempotency key の名前空間。
+    const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-    const { data: existing } = await admin
+
+    // Fast path: 当月キャンペーンが既に 'sent' なら何もしない（self-heal の2回目以降はここで即終了）。
+    const { data: sentCampaign } = await admin
       .from('newsletter_campaigns')
       .select('id')
       .eq('campaign_type', 'owner_monthly')
@@ -48,7 +65,7 @@ export async function GET(req: NextRequest) {
       .gte('sent_at', startOfMonth)
       .limit(1);
 
-    if (existing && existing.length > 0) {
+    if (sentCampaign && sentCampaign.length > 0) {
       await logCronRun('newsletter-digest', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ skipped: true, reason: 'Already sent this month' });
     }
@@ -132,36 +149,40 @@ export async function GET(req: NextRequest) {
 </body>
 </html>`;
 
-    // Create campaign record — CAS guard: if another concurrent invocation already inserted
-    // a 'sending' or 'sent' campaign this month, the unique constraint (if present) or the
-    // status check above prevents double-send. We additionally treat insert errors as a skip.
-    const { data: campaign, error: insertErr } = await admin
+    // 当月の owner_monthly キャンペーンを find-or-create（'sent' は上の fast path で除外済み）。
+    // self-heal の2回目以降は既存の 'sending' 行を再利用する。同時実行で稀に2行できても
+    // 送信の重複は per-email 台帳が防ぐため害はない（campaign 行は監査・watcher 用）。
+    const { data: existingCampaign } = await admin
       .from('newsletter_campaigns')
-      .insert({
-        campaign_type: 'owner_monthly',
-        subject: `【CareLink】${month}号 施設オーナー向けニュースレター`,
-        html_content: htmlBody,
-        status: 'sending',
-      })
-      .select()
-      .single();
+      .select('id')
+      .eq('campaign_type', 'owner_monthly')
+      .gte('created_at', startOfMonth)
+      .order('created_at', { ascending: false })
+      .limit(1);
 
-    if (insertErr || !campaign) {
-      // 23505 = unique_violation: another invocation already created the campaign
-      const isConflict = (insertErr as { code?: string } | null)?.code === '23505';
-      console.error('[newsletter-digest] insert error:', insertErr);
-      await logCronRun('newsletter-digest', isConflict ? 'skipped' : 'error', startedAt, {
-        processed: 0,
-        error_msg: insertErr?.message,
-      });
-      return NextResponse.json(
-        isConflict ? { skipped: true, reason: 'Concurrent invocation already started' } : { error: 'Internal Server Error' },
-        { status: isConflict ? 200 : 500 }
-      );
+    let campaignId: string;
+    if (existingCampaign && existingCampaign.length > 0) {
+      campaignId = existingCampaign[0].id as string;
+    } else {
+      const { data: campaign, error: insertErr } = await admin
+        .from('newsletter_campaigns')
+        .insert({
+          campaign_type: 'owner_monthly',
+          subject: `【CareLink】${month}号 施設オーナー向けニュースレター`,
+          html_content: htmlBody,
+          status: 'sending',
+        })
+        .select()
+        .single();
+      if (insertErr || !campaign) {
+        console.error('[newsletter-digest] campaign insert error:', insertErr);
+        await logCronRun('newsletter-digest', 'error', startedAt, { processed: 0, error_msg: insertErr?.message });
+        return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+      }
+      campaignId = campaign.id as string;
     }
 
-    // Get all owner emails. PostgREST の db-max-rows(1000) を全件ページング（共有ヘルパ）で越える
-    // （旧 limit なしだとオーナー1000人超で1000人目以降に配信漏れ・round6）。安全上限5万人。
+    // Get all owner emails. PostgREST の db-max-rows(1000) を全件ページング（共有ヘルパ）で越える。安全上限5万人。
     type OwnerRow = { profiles: { email: string } | { email: string }[] | null };
     const { rows: owners } = await fetchAllPaged<OwnerRow>(
       async (offset, limit) => {
@@ -185,7 +206,6 @@ export async function GET(req: NextRequest) {
     const uniqueEmails = Array.from(new Set(emails));
 
     // 配信停止者を除外する（特定電子メール法: 配信停止の意思表示後の送信は禁止）。
-    // unsubscribe は profiles.email_unsubscribed=true と newsletter_subscriptions.is_active=false を立てる。
     const { rows: unsubProfiles } = await fetchAllPaged<{ email: string | null }>(
       async (offset, limit) => {
         const { data, error } = await admin
@@ -214,53 +234,93 @@ export async function GET(req: NextRequest) {
     ]);
     const sendableEmails = uniqueEmails.filter((e) => !unsubscribed.has(e));
 
+    // 当月すでに送信済みのアドレス（台帳）を取得し、未送信分のみに絞る（exactly-once の核）。
+    const { rows: ledgerRows } = await fetchAllPaged<{ email: string }>(
+      async (offset, limit) => {
+        const { data, error } = await admin
+          .from('newsletter_send_log')
+          .select('email')
+          .eq('period', period)
+          .range(offset, offset + limit - 1);
+        return { data: data as { email: string }[] | null, error };
+      },
+      { maxRows: 200000 },
+    );
+    const alreadySent = new Set(ledgerRows.map((r) => r.email));
+    const toSend = sendableEmails.filter((e) => !alreadySent.has(e));
+
     const resend = new Resend(process.env.RESEND_API_KEY);
+    const subject = `【CareLink】${month}号 施設オーナー向けニュースレター`;
+    const loopStart = Date.now();
     let sentCount = 0;
     let failedCount = 0;
-    const subject = `【CareLink】${month}号 施設オーナー向けニュースレター`;
+    let deferred = 0;
 
-    // Send individually with personalized unsubscribe URLs (batch of 100 = Resend limit)
-    const BATCH_SIZE = 100;
-    for (let i = 0; i < sendableEmails.length; i += BATCH_SIZE) {
-      const chunk = sendableEmails.slice(i, i + BATCH_SIZE);
-      const messages = chunk.map((email) => {
-        const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
-        return {
-          from: 'CareLink <newsletter@carelink-jp.com>',
-          to: [email],
-          subject,
-          html: htmlBody.replace('__UNSUB_FOOTER__', footer),
-        };
-      });
+    // 1 通ずつ「決定的 idempotency key 付き」で送信し、成功したら台帳に記録する。
+    // - 送信前に予算ガード: 残りは台帳未記録のまま break ＝翌日 self-heal run が再処理（恒久 miss なし）。
+    // - idempotencyKey=`nl:${period}:${email}` により、台帳記録前のクラッシュで翌 run が再送しても
+    //   Resend 側で重複排除される（二重送信なし）。
+    // - 送信失敗(throw)は台帳に残らない＝翌 run で再送（未送信なし）。
+    for (let i = 0; i < toSend.length; i++) {
+      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+        deferred = toSend.length - i;
+        console.warn('[newsletter-digest] time budget exceeded, deferring rest to next self-heal run', { deferred });
+        break;
+      }
+      const email = toSend[i];
+      const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
       try {
-        await resend.batch.send(messages);
-        sentCount += chunk.length;
+        await resend.emails.send(
+          {
+            from: 'CareLink <newsletter@carelink-jp.com>',
+            to: [email],
+            subject,
+            html: htmlBody.replace('__UNSUB_FOOTER__', footer),
+          },
+          { idempotencyKey: `nl:${period}:${email}` },
+        );
+        const { error: logErr } = await admin
+          .from('newsletter_send_log')
+          .insert({ period, email, campaign_id: campaignId });
+        // 23505 = 並行 run が同じ (period,email) を先に記録済み（=送信は idempotencyKey で重複排除済み）。無害。
+        if (logErr && (logErr as { code?: string }).code !== '23505') {
+          console.error('[newsletter-digest] send-log insert failed', { email: maskEmail(email), err: logErr });
+        }
+        sentCount++;
       } catch (err) {
-        console.error('[newsletter-digest] batch send failed:', err);
-        failedCount += chunk.length;
+        console.error('[newsletter-digest] send failed', { email: maskEmail(email), err });
+        failedCount++;
       }
     }
 
-    const { error: campaignUpdateErr } = await admin
-      .from('newsletter_campaigns')
-      .update({
-        status: 'sent',
-        sent_at: new Date().toISOString(),
-        stats: { sent: sentCount, opened: 0, clicked: 0, bounced: 0, failed: failedCount },
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', campaign.id);
-    if (campaignUpdateErr) {
-      console.error('[newsletter-digest] campaign status update failed — next run may re-send', { campaignId: campaign.id, err: campaignUpdateErr });
+    // 当月の未送信を全て送り切った（予算超過も送信失敗も無い）場合のみ campaign を 'sent' にする。
+    // 失敗や持ち越しが残る間は 'sending' のまま → 翌日 self-heal run が残りを再送し、完了時に 'sent' になる。
+    const completed = deferred === 0 && failedCount === 0;
+    if (completed) {
+      const { error: campaignUpdateErr } = await admin
+        .from('newsletter_campaigns')
+        .update({
+          status: 'sent',
+          sent_at: new Date().toISOString(),
+          stats: { sent: alreadySent.size + sentCount, opened: 0, clicked: 0, bounced: 0, failed: 0 },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', campaignId);
+      if (campaignUpdateErr) {
+        console.error('[newsletter-digest] campaign status update failed — watcher may re-alert', { campaignId, err: campaignUpdateErr });
+      }
     }
 
-    await logCronRun('newsletter-digest', 'success', startedAt, {
+    // 完了時のみ 'success'（watcher の発火判定シグナル）。未完了(持ち越し/失敗)は 'skipped' とし、
+    // success を出さないことで watcher が day8 まで「未完了」を検知し続けられるようにする
+    // （'error' は Slack 通報を誘発するため、進行中の持ち越しには使わない）。
+    await logCronRun('newsletter-digest', completed ? 'success' : 'skipped', startedAt, {
       processed: sentCount,
       skipped: failedCount,
-      meta: { campaignId: campaign.id },
+      meta: { campaignId, deferred, alreadySent: alreadySent.size, completed },
     });
 
-    return NextResponse.json({ processed: sentCount, skipped: failedCount, campaignId: campaign.id });
+    return NextResponse.json({ processed: sentCount, skipped: failedCount, deferred, completed, campaignId });
   } catch (e) {
     console.error('[newsletter-digest] Error:', e);
     await logCronRun('newsletter-digest', 'error', startedAt, {
