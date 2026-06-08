@@ -53,6 +53,11 @@ src/
 | NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase anon key |
 | NEXT_PUBLIC_GA_ID | Google Analytics 4 測定ID（空なら無効） |
 | NEXT_PUBLIC_CLARITY_ID | Microsoft Clarity プロジェクトID（空なら無効） |
+| SUPABASE_SERVICE_ROLE_KEY | Supabase service_role キー（cron / 管理 API のサーバ側 DB 操作。RLS バイパス） |
+| CRON_SECRET | GitHub Actions cron → `/api/cron/*` 認証用 Bearer トークン（未設定で全 cron 401） |
+| CARELINK_BASE_URL | cron workflow が叩く本番ベース URL（例: https://carelink-jp.com） |
+| RESEND_API_KEY | Resend メール送信 API キー（未設定でメール系 cron は 503/送信スキップ） |
+| NEWSLETTER_UNSUBSCRIBE_SECRET | 月次ニュースレターの配信停止リンク HMAC 署名鍵。**newsletter-digest / unsubscribe で共通必須**（未設定で newsletter-digest は 503・送信不可）。一度設定したら変更しない（既存の配信停止リンク維持） |
 
 ## Supabaseテーブル設計
 
