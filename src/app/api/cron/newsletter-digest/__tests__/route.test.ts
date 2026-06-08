@@ -53,6 +53,7 @@ function setup(opts: any = {}) {
     unsubProfiles = [] as any[],
     unsubNewsletter = [] as any[],
     ledger = [] as any[],
+    ledgerQueryError = null,
     campaignInsertError = null,
     campaignInsertData = { id: 'campaign-new' },
     campaignUpdateError = null,
@@ -97,7 +98,7 @@ function setup(opts: any = {}) {
         case 'newsletter_subscriptions':
           return { select: jest.fn().mockReturnValue(makeChain({ data: unsubNewsletter })) };
         case 'newsletter_send_log':
-          return { select: jest.fn().mockReturnValue(makeChain({ data: ledger })), insert: mockSendLogInsert };
+          return { select: jest.fn().mockReturnValue(makeChain({ data: ledgerQueryError ? null : ledger, error: ledgerQueryError })), insert: mockSendLogInsert };
         case 'cron_logs':
           return { insert: jest.fn().mockResolvedValue({ error: null }) };
         default:
@@ -302,6 +303,23 @@ describe('GET /api/cron/newsletter-digest', () => {
     createServiceRoleClient.mockReturnValue({ from: jest.fn(() => { throw new Error('fatal'); }) });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
+  });
+
+  test('send-log query error → fail-safe abort (no send, skipped)', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ ledgerQueryError: { message: 'send_log unreadable' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.skipped).toBe(true);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockCampaignUpdate).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(
+      '[newsletter-digest] send-log query failed — aborting send to avoid un-deduplicated double-send',
+      expect.any(Object),
+    );
+    expect(logCronRun).toHaveBeenCalledWith('newsletter-digest', 'skipped', expect.any(Date), expect.any(Object));
+    errSpy.mockRestore();
   });
 
   test('null stats counts → template falls back to 0, still sends', async () => {

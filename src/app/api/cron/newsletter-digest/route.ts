@@ -235,7 +235,7 @@ export async function GET(req: NextRequest) {
     const sendableEmails = uniqueEmails.filter((e) => !unsubscribed.has(e));
 
     // 当月すでに送信済みのアドレス（台帳）を取得し、未送信分のみに絞る（exactly-once の核）。
-    const { rows: ledgerRows } = await fetchAllPaged<{ email: string }>(
+    const { rows: ledgerRows, error: ledgerError } = await fetchAllPaged<{ email: string }>(
       async (offset, limit) => {
         const { data, error } = await admin
           .from('newsletter_send_log')
@@ -246,6 +246,14 @@ export async function GET(req: NextRequest) {
       },
       { maxRows: 200000 },
     );
+    // fail-safe: 台帳（送信済み一覧）が読めない時に送信を続けると dedup できず全員へ二重送信し得る。
+    // 「送らない」方が安全（未送信は翌日 self-heal で回収・watcher が検知）ため、ここで中止する。
+    // これにより table 未適用・DB一時障害でも exactly-once が崩れない（fail-open → fail-safe）。
+    if (ledgerError) {
+      console.error('[newsletter-digest] send-log query failed — aborting send to avoid un-deduplicated double-send', { err: ledgerError });
+      await logCronRun('newsletter-digest', 'skipped', startedAt, { processed: 0, skipped: 0, meta: { aborted: 'send_log_query_failed' } });
+      return NextResponse.json({ skipped: true, reason: 'send_log query failed (fail-safe abort)' });
+    }
     const alreadySent = new Set(ledgerRows.map((r) => r.email));
     const toSend = sendableEmails.filter((e) => !alreadySent.has(e));
 
