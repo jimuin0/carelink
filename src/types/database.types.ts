@@ -3339,6 +3339,35 @@ export type Database = {
         }
         Relationships: []
       }
+      newsletter_send_log: {
+        Row: {
+          campaign_id: string | null
+          email: string
+          period: string
+          sent_at: string
+        }
+        Insert: {
+          campaign_id?: string | null
+          email: string
+          period: string
+          sent_at?: string
+        }
+        Update: {
+          campaign_id?: string | null
+          email?: string
+          period?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "newsletter_send_log_campaign_id_fkey"
+            columns: ["campaign_id"]
+            isOneToOne: false
+            referencedRelation: "newsletter_campaigns"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       newsletter_subscriptions: {
         Row: {
           created_at: string
