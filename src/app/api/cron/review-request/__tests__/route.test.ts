@@ -4,7 +4,7 @@
  * Tests for GET /api/cron/review-request
  * Key assertions:
  *   - CRON_SECRET validation
- *   - Finds completed bookings 24-48h old (not yet sent)
+ *   - Finds completed bookings 24h-7d old (not yet sent), oldest-first
  *   - CAS guard (is null check) prevents double-send
  *   - Fetches facility name/slug
  *   - Sends review request email via Resend
@@ -12,6 +12,8 @@
  *   - HTML escapes facility & customer names (XSS prevention)
  *   - Includes 50pt bonus mention
  *   - Handles missing email/LINE gracefully
+ *   - Time budget guard defers remaining work to next run (timeout-proof)
+ *   - Releases claim (sent_at→null) when every attempted channel fails (no permanent miss)
  *   - Logs cron execution
  */
 
@@ -42,6 +44,38 @@ let mockBookingsUpdate: jest.Mock;
 let mockFacilitiesSelect: jest.Mock;
 let mockLineLinkSelect: jest.Mock;
 
+// Build the bookings SELECT chain: .select().eq().gte().lte().is().order().limit() → { data }
+function bookingsSelectChain(data: any[]) {
+  return jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      gte: jest.fn().mockReturnValue({
+        lte: jest.fn().mockReturnValue({
+          is: jest.fn().mockReturnValue({
+            order: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({ data }),
+            }),
+          }),
+        }),
+      }),
+    }),
+  });
+}
+
+// Build the bookings UPDATE mock used for BOTH:
+//   claim:   .update({sent_at:now}).eq('id').is(null).select('id') → { data: claimedData }
+//   release: .update({sent_at:null}).eq('id')  (awaited directly) → returns the eq object; { error } destructured
+function bookingsUpdate(claimedData: any[] = [{ id: 'booking-1' }], releaseError: any = null) {
+  const eqReturn: any = {
+    is: jest.fn().mockReturnValue({
+      select: jest.fn().mockResolvedValue({ data: claimedData }),
+    }),
+    error: releaseError ?? undefined,
+  };
+  return jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue(eqReturn),
+  });
+}
+
 function setupDefaultMocks(
   bookingsFound: number = 1,
   facilityFound: boolean = true,
@@ -56,41 +90,21 @@ function setupDefaultMocks(
 
   const bookingsData =
     bookingsFound > 0
-      ? [
-          {
-            id: 'booking-1',
-            email: 'customer@example.com',
-            customer_name: 'John Doe',
-            user_id: 'user-123',
-            facility_id: 'fac-abc',
-            updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-          },
-        ]
+      ? Array.from({ length: bookingsFound }, (_, i) => ({
+          id: `booking-${i + 1}`,
+          email: 'customer@example.com',
+          customer_name: 'John Doe',
+          user_id: 'user-123',
+          facility_id: 'fac-abc',
+          updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+        }))
       : [];
   const facilitiesData = facilityFound ? { name: 'Salon ABC', slug: 'salon-abc' } : null;
   const lineLinkData = lineLinkFound ? { line_user_id: 'line-user-123' } : null;
 
-  mockBookingsSelect = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      gte: jest.fn().mockReturnValue({
-        lte: jest.fn().mockReturnValue({
-          is: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({ data: bookingsData }),
-          }),
-        }),
-      }),
-    }),
-  });
-
-  mockBookingsUpdate = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      is: jest.fn().mockReturnValue({
-        select: jest.fn().mockResolvedValue({
-          data: [{ id: 'booking-1' }],
-        }),
-      }),
-    }),
-  });
+  mockBookingsSelect = bookingsSelectChain(bookingsData);
+  // Claim returns the row whose id matches (each booking can be claimed).
+  mockBookingsUpdate = bookingsUpdate([{ id: 'booking-1' }]);
 
   mockFacilitiesSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -134,6 +148,7 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  jest.restoreAllMocks();
   setupDefaultMocks();
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -180,15 +195,35 @@ describe('GET /api/cron/review-request', () => {
     expect(json.processed).toBeGreaterThanOrEqual(0);
   });
 
-  test('filters status=completed', async () => {
+  test('applies oldest-first order on updated_at', async () => {
     setupDefaultMocks(1);
+    const orderSpy = jest.fn().mockReturnValue({
+      limit: jest.fn().mockResolvedValue({ data: [] }),
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              gte: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  is: jest.fn().mockReturnValue({ order: orderSpy }),
+                }),
+              }),
+            }),
+          }),
+          update: mockBookingsUpdate,
+        };
+      }
+      return {};
+    });
 
     await GET(makeRequest() as any);
 
-    expect(mockBookingsSelect).toHaveBeenCalled();
+    expect(orderSpy).toHaveBeenCalledWith('updated_at', { ascending: true });
   });
 
-  test('filters 24-48h window (h24ago ≤ updated_at ≤ h48ago)', async () => {
+  test('filters status=completed', async () => {
     setupDefaultMocks(1);
 
     await GET(makeRequest() as any);
@@ -213,14 +248,13 @@ describe('GET /api/cron/review-request', () => {
   });
 
   test('double-fire → already claimed → skips', async () => {
-    mockBookingsUpdate.mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        is: jest.fn().mockReturnValue({
-          select: jest.fn().mockResolvedValue({
-            data: [],
-          }),
-        }),
-      }),
+    setupDefaultMocks(1);
+    mockBookingsUpdate = bookingsUpdate([]); // claim returns no rows
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
+      if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
     });
 
     const res = await GET(makeRequest() as any);
@@ -280,8 +314,6 @@ describe('GET /api/cron/review-request', () => {
   test('email escapes facility name for XSS prevention', async () => {
     setupDefaultMocks(1);
 
-    const { Resend } = require('resend');
-
     await GET(makeRequest() as any);
 
     expect(esc).toHaveBeenCalledWith('Salon ABC');
@@ -289,8 +321,6 @@ describe('GET /api/cron/review-request', () => {
 
   test('email escapes customer name for XSS prevention', async () => {
     setupDefaultMocks(1);
-
-    const { Resend } = require('resend');
 
     await GET(makeRequest() as any);
 
@@ -308,49 +338,122 @@ describe('GET /api/cron/review-request', () => {
     expect(call[0].html).toContain('50ポイント');
   });
 
-  test('email send failure → logs and continues', async () => {
+  test('email send failure but LINE succeeds → delivered, no release', async () => {
     setupDefaultMocks(1, true, true, true);
 
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(1);
+    // no release call: only the claim update payload (a date), never null
+    const nullReleases = mockBookingsUpdate.mock.calls.filter(
+      (c: any[]) => c[0].review_request_sent_at === null
+    );
+    expect(nullReleases.length).toBe(0);
   });
 
-  test('skips email if booking.email missing', async () => {
+  test('all attempted channels fail → releases claim (sent_at→null) for retry', async () => {
+    // email present + fails, user_id present but no LINE link → both attempted, none delivered
+    const data = [{
+      id: 'booking-1',
+      email: 'c@example.com',
+      customer_name: 'A',
+      user_id: 'user-1',
+      facility_id: 'fac-abc',
+      updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+    }];
+    mockBookingsSelect = bookingsSelectChain(data);
+    mockBookingsUpdate = bookingsUpdate([{ id: 'booking-1' }]);
+    (sendLineText as jest.Mock).mockResolvedValue(undefined);
     mockFrom.mockImplementation((table: string) => {
-      if (table === 'bookings') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              gte: jest.fn().mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  is: jest.fn().mockReturnValue({
-                    limit: jest.fn().mockResolvedValue({
-                      data: [
-                        {
-                          id: 'booking-1',
-                          email: null,
-                          user_id: 'user-123',
-                          facility_id: 'fac-abc',
-                        },
-                      ],
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          }),
-          update: mockBookingsUpdate,
-        };
-      }
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
       if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      // LINE link missing → LINE not attempted
+      if (table === 'line_user_links') return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
+        }),
+      };
       return {};
     });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({
+      emails: { send: jest.fn().mockRejectedValue(new Error('fail')) },
+    }));
 
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
+    const nullReleases = mockBookingsUpdate.mock.calls.filter(
+      (c: any[]) => c[0].review_request_sent_at === null
+    );
+    expect(nullReleases.length).toBe(1);
+  });
+
+  test('claim release failure → logs error', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const data = [{
+      id: 'booking-1', email: 'c@example.com', customer_name: 'A',
+      user_id: null, facility_id: 'fac-abc',
+      updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+    }];
+    mockBookingsSelect = bookingsSelectChain(data);
+    // release returns an error
+    mockBookingsUpdate = bookingsUpdate([{ id: 'booking-1' }], { message: 'release boom' });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
+      if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+      return {};
+    });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({
+      emails: { send: jest.fn().mockRejectedValue(new Error('fail')) },
+    }));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(errSpy).toHaveBeenCalledWith(
+      '[review-request] claim release failed',
+      expect.objectContaining({ bookingId: 'booking-1' })
+    );
+    errSpy.mockRestore();
+  });
+
+  test('consider limit reached → warns', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setupDefaultMocks(2000); // length === CONSIDER_LIMIT
+
+    await GET(makeRequest() as any);
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[review-request] consider limit reached',
+      expect.objectContaining({ limit: 2000 })
+    );
+    warnSpy.mockRestore();
+  });
+
+  test('time budget exceeded → defers remaining to next run', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setupDefaultMocks(1);
+    // loopStart captured first, then guard sees a huge elapsed → defer immediately
+    jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(10_000_000);
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.deferred).toBe(1);
+    expect(json.processed).toBe(0);
+    expect(warnSpy).toHaveBeenCalledWith(
+      '[review-request] time budget exceeded, deferring rest to next run',
+      expect.objectContaining({ deferred: 1 })
+    );
+    warnSpy.mockRestore();
   });
 
   test('sends LINE notification when user_id exists', async () => {
@@ -388,6 +491,17 @@ describe('GET /api/cron/review-request', () => {
     expect(call[1]).toContain('50ポイント');
   });
 
+  test('LINE send failure but email succeeds → delivered, no release', async () => {
+    setupDefaultMocks(1, true, true, false);
+    (sendLineText as jest.Mock).mockRejectedValue(new Error('LINE down'));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(1);
+  });
+
   test('skips LINE if line_user_id not found', async () => {
     setupDefaultMocks(1, true, false);
 
@@ -413,14 +527,6 @@ describe('GET /api/cron/review-request', () => {
     );
   });
 
-  test('limits bookings to 500', async () => {
-    setupDefaultMocks(1);
-
-    await GET(makeRequest() as any);
-
-    expect(mockBookingsSelect).toHaveBeenCalled();
-  });
-
   test('exception during processing → 500', async () => {
     mockFrom.mockImplementation(() => {
       throw new Error('Fatal');
@@ -440,12 +546,24 @@ describe('GET /api/cron/review-request', () => {
     expect(call[0].review_request_sent_at).toBeDefined();
   });
 
-  test('constructs review URL correctly', async () => {
-    setupDefaultMocks(1);
+  test('skips email if booking.email missing', async () => {
+    const data = [{
+      id: 'booking-1', email: null, customer_name: 'A',
+      user_id: 'user-123', facility_id: 'fac-abc',
+      updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+    }];
+    mockBookingsSelect = bookingsSelectChain(data);
+    mockBookingsUpdate = bookingsUpdate([{ id: 'booking-1' }]);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
+      if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
+    });
 
-    await GET(makeRequest() as any);
+    const res = await GET(makeRequest() as any);
 
-    // URL should be https://carelink-jp.com/facility/{slug}#review
+    expect(res.status).toBe(200);
   });
 
   test('individual booking error → continues to next', async () => {
@@ -464,36 +582,19 @@ describe('GET /api/cron/review-request', () => {
 
     await GET(makeRequest() as any);
 
-    // Should not call sendLineText
+    expect(sendLineText).not.toHaveBeenCalled();
   });
 
   test('customer_name null → fallback to お客', async () => {
+    const data = [{
+      id: 'b-noname', email: 'c@example.com', customer_name: null,
+      user_id: null, facility_id: 'fac-abc',
+      updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+    }];
+    mockBookingsSelect = bookingsSelectChain(data);
+    mockBookingsUpdate = bookingsUpdate([{ id: 'b-noname' }]);
     mockFrom.mockImplementation((table: string) => {
-      if (table === 'bookings') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              gte: jest.fn().mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  is: jest.fn().mockReturnValue({
-                    limit: jest.fn().mockResolvedValue({
-                      data: [{
-                        id: 'b-noname',
-                        email: 'c@example.com',
-                        customer_name: null,
-                        user_id: null,
-                        facility_id: 'fac-abc',
-                        updated_at: new Date().toISOString(),
-                      }],
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          }),
-          update: mockBookingsUpdate,
-        };
-      }
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
       if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
       return {};
     });
@@ -503,32 +604,15 @@ describe('GET /api/cron/review-request', () => {
   });
 
   test('booking.user_id null → no LINE lookup', async () => {
+    const data = [{
+      id: 'b-no-uid', email: 'c@example.com', customer_name: 'A',
+      user_id: null, facility_id: 'fac-abc',
+      updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
+    }];
+    mockBookingsSelect = bookingsSelectChain(data);
+    mockBookingsUpdate = bookingsUpdate([{ id: 'b-no-uid' }]);
     mockFrom.mockImplementation((table: string) => {
-      if (table === 'bookings') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              gte: jest.fn().mockReturnValue({
-                lte: jest.fn().mockReturnValue({
-                  is: jest.fn().mockReturnValue({
-                    limit: jest.fn().mockResolvedValue({
-                      data: [{
-                        id: 'b-no-uid',
-                        email: 'c@example.com',
-                        customer_name: 'A',
-                        user_id: null,
-                        facility_id: 'fac-abc',
-                        updated_at: new Date().toISOString(),
-                      }],
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          }),
-          update: mockBookingsUpdate,
-        };
-      }
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
       if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
       if (table === 'line_user_links') return { select: mockLineLinkSelect };
       return {};
