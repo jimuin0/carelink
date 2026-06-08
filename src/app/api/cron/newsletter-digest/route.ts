@@ -182,26 +182,56 @@ export async function GET(req: NextRequest) {
       campaignId = campaign.id as string;
     }
 
-    // Get all owner emails. PostgREST の db-max-rows(1000) を全件ページング（共有ヘルパ）で越える。安全上限5万人。
-    type OwnerRow = { profiles: { email: string } | { email: string }[] | null };
-    const { rows: owners } = await fetchAllPaged<OwnerRow>(
+    // owner のメールを 2 段クエリで取得する。
+    // facility_members.user_id・profiles.id はどちらも auth.users(id) を参照するだけで
+    // facility_members → profiles の「直接 FK」が無いため、PostgREST 埋め込み
+    // `facility_members.select('profiles(email)')` は関係を解決できずエラーになる
+    // （旧実装はこのエラーを握り潰し owners=[] → 送信 0 → 誤って完了扱いになっていた）。
+    // onboarding-followup と同じく user_id を取得 → profiles を別クエリで引く確実な方式にする。
+    // db-max-rows(1000) は fetchAllPaged で全件ページング。
+    const { rows: ownerRows, error: ownersErr } = await fetchAllPaged<{ user_id: string }>(
       async (offset, limit) => {
         const { data, error } = await admin
           .from('facility_members')
-          .select('profiles(email)')
+          .select('user_id')
           .eq('role', 'owner')
           .range(offset, offset + limit - 1);
-        return { data: data as OwnerRow[] | null, error };
+        return { data: data as { user_id: string }[] | null, error };
       },
       { maxRows: 50000 },
     );
+    // fail-safe: owner 一覧が取れない時に送信を進めると配信漏れ／誤完了になるため中止する。
+    if (ownersErr) {
+      console.error('[newsletter-digest] owner query failed — aborting', { err: ownersErr });
+      await logCronRun('newsletter-digest', 'skipped', startedAt, { processed: 0, skipped: 0, meta: { aborted: 'owner_query_failed' } });
+      return NextResponse.json({ skipped: true, reason: 'owner query failed (fail-safe abort)' });
+    }
+    const ownerUserIds = Array.from(new Set(ownerRows.map((r) => r.user_id).filter(Boolean)));
 
-    const emails: string[] = owners
-      .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
-        const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
-        return p?.email;
-      })
-      .filter(Boolean) as string[];
+    // profiles から email を取得（.in() を 1000 件ずつ chunk・各 chunk も全件ページング）。
+    const emails: string[] = [];
+    const ID_CHUNK = 1000;
+    for (let i = 0; i < ownerUserIds.length; i += ID_CHUNK) {
+      const idChunk = ownerUserIds.slice(i, i + ID_CHUNK);
+      const { rows: profileRows, error: profilesErr } = await fetchAllPaged<{ email: string | null }>(
+        async (offset, limit) => {
+          const { data, error } = await admin
+            .from('profiles')
+            .select('email')
+            .in('id', idChunk)
+            .range(offset, offset + limit - 1);
+          return { data: data as { email: string | null }[] | null, error };
+        },
+        { maxRows: 50000 },
+      );
+      // fail-safe: profiles が取れない時も中止（配信漏れ／誤完了を防ぐ）。
+      if (profilesErr) {
+        console.error('[newsletter-digest] profiles query failed — aborting', { err: profilesErr });
+        await logCronRun('newsletter-digest', 'skipped', startedAt, { processed: 0, skipped: 0, meta: { aborted: 'profiles_query_failed' } });
+        return NextResponse.json({ skipped: true, reason: 'profiles query failed (fail-safe abort)' });
+      }
+      emails.push(...(profileRows.map((r) => r.email).filter(Boolean) as string[]));
+    }
 
     const uniqueEmails = Array.from(new Set(emails));
 
