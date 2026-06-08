@@ -72,14 +72,26 @@ jobs:
           SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
           DEPLOY_SHA: ${{ github.event.deployment.sha }}
         run: |
-          STATUS_CODE=$(curl -s -o /tmp/h.json -w "%{http_code}" --max-time 30 https://carelink-jp.com/api/health || echo "000")
-          BODY=$(cat /tmp/h.json 2>/dev/null || echo '{}')
-          STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
-          if [ "$STATUS_CODE" = "200" ] && [ "$STATUS" = "healthy" ]; then
+          # /api/health を複数回リトライして判定する（発症前予防）。
+          # 旧実装は 60s warm-up 後に「1 回だけ」叩いていたため、デプロイ直後の cold-start
+          # レイテンシスパイク（Supabase 接続の初期化等で dep が一時的に 1500ms 超 → 503）が
+          # 単発プローブに当たると、実際は数秒で回復するのに偽の STARTUP DEGRADED を通知していた。
+          # 最大 6 回・15s 間隔（最長 ~75s）で叩き、いずれかで healthy なら OK と判定する。
+          # 全試行が失敗した場合のみ DEGRADED とし、持続的な実障害は引き続き検知する。
+          EMOJI="🟡"; LEVEL="STARTUP DEGRADED"
+          for attempt in 1 2 3 4 5 6; do
+            STATUS_CODE=$(curl -s -o /tmp/h.json -w "%{http_code}" --max-time 30 https://carelink-jp.com/api/health || echo "000")
+            BODY=$(cat /tmp/h.json 2>/dev/null || echo '{}')
+            STATUS=$(echo "$BODY" | python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" 2>/dev/null || echo "unknown")
+            if [ "$STATUS_CODE" = "200" ] && [ "$STATUS" = "healthy" ]; then
               EMOJI="✅"; LEVEL="STARTUP OK"
-          else
-              EMOJI="🟡"; LEVEL="STARTUP DEGRADED"
-          fi
+              echo "attempt $attempt: healthy"
+              break
+            fi
+            echo "attempt $attempt: HTTP $STATUS_CODE / status $STATUS — cold-start の可能性、リトライ"
+            # set -e 下で最終試行時に false の && が exit 1 を返してステップを誤失敗させないよう if で書く
+            if [ "$attempt" -lt 6 ]; then sleep 15; fi
+          done
           export STATUS_CODE STATUS EMOJI LEVEL
           export HEALTH_BODY="$BODY"
 
