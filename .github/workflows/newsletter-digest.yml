@@ -1,0 +1,41 @@
+name: Monthly Newsletter (self-healing)
+
+# 月次オーナーニュースレターを「確実に当月1回」送るための専用 workflow。
+#
+# 背景: cron.yml に同居していた頃は、GitHub の best-effort スケジュールで高頻度 `*/15` と
+# 月1回 `0 16 1 * *` が衝突すると GitHub が run を単一 schedule に帰属させ、月次がドロップした
+# （2026-06 に実際に未送信）。本 workflow は単一スケジュールのみを持ち、毎月 1〜7 日に
+# 7 回 self-heal 再試行する。エンドポイント /api/cron/newsletter-digest は per-email 台帳
+# newsletter_send_log ＋ 決定的 idempotency key で exactly-once（当月ちょうど1回）を保証するため、
+# 何日に何回叩かれても二重送信・未送信は起きない。どこか1日でも tick が通れば送信完了する。
+
+on:
+  schedule:
+    - cron: '0 17 1-7 * *'   # 毎月 1〜7 日 17:00 UTC（JST 翌02:00）に self-heal 再試行
+  workflow_dispatch:          # 手動 catch-up 用（取りこぼし月の再送など）
+
+permissions:
+  contents: read
+
+jobs:
+  send:
+    name: Trigger newsletter-digest (idempotent)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call newsletter-digest endpoint
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          BASE_URL: ${{ secrets.CARELINK_BASE_URL }}
+        run: |
+          : "${BASE_URL:?CARELINK_BASE_URL secret not set}"
+          : "${CRON_SECRET:?CRON_SECRET secret not set}"
+          STATUS=$(curl -sS -o /tmp/body -w "%{http_code}" \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$BASE_URL/api/cron/newsletter-digest" \
+            --max-time 120)
+          echo "Status: $STATUS"
+          echo "--- body ---"
+          cat /tmp/body
+          if [ "$STATUS" -ge 400 ]; then
+            exit 1
+          fi
