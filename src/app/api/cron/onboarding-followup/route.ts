@@ -2,7 +2,7 @@ import { logCronRun } from '@/lib/cron-logger';
 /**
  * オンボーディング3日後フォローメール Cron（v8.15）
  * GET /api/cron/onboarding-followup
- * 登録から3〜4日経ったが未完了の施設オーナーへリマインドメール（1施設1回のみ）
+ * 登録から3〜7日経ったが未完了の施設オーナーへリマインドメール（1施設1回のみ）
  */
 
 import { NextResponse } from 'next/server';
@@ -11,6 +11,21 @@ import { sendOnboardingFollowEmail } from '@/lib/email';
 import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
+// 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
+// 既定の低い値を上書きし、下の SEND_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
+export const maxDuration = 60;
+
+// 登録からこの時間以上経過した施設のみ対象（登録直後の催促を避ける）。
+const MIN_AGE_MS = 3 * 24 * 60 * 60 * 1000;
+// 未送信のまま「retry 可能」として扱う上限（これを超えた古い登録には今さら送らない）。
+// 旧実装は下限 4 日の固定窓だったため、1 日の窓内で .limit(100) を超えた分が翌日 4 日を過ぎて
+// gte(d4ago) から外れ、永久に送られなかった（silent な恒久 miss）。下限を 7 日に広げ、
+// 未送信(onboarding_email_sent_at IS NULL)のまま日次 run で繰り返し対象に乗せ恒久 miss を無くす。
+const STALE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+// 1 回の run で「考慮」する最大行数（メモリ上限）。到達したら警告ログを出す（silent 根絶）。
+const CONSIDER_LIMIT = 2000;
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌 run へ回す。
+const SEND_BUDGET_MS = 50 * 1000;
 
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
@@ -27,38 +42,60 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   try {
     const now = new Date();
-    // 3〜4日前に作成された施設（日本時間考慮）
-    const d4ago = new Date(now.getTime() - 4 * 24 * 60 * 60 * 1000).toISOString();
-    const d3ago = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString();
+    // 3〜7日前に作成された施設（古い順 = staleness 期限が近いものから優先）
+    const staleAfter = new Date(now.getTime() - STALE_LOOKBACK_MS).toISOString();
+    const minAgeBefore = new Date(now.getTime() - MIN_AGE_MS).toISOString();
 
     const { data: facilities } = await supabase
       .from('facility_profiles')
       .select('id, name, status')
-      .gte('created_at', d4ago)
-      .lte('created_at', d3ago)
+      .gte('created_at', staleAfter)
+      .lte('created_at', minAgeBefore)
       .neq('status', 'published')       // 公開済みは対象外
       .is('onboarding_email_sent_at', null) // 未送信のみ
-      .limit(100);
+      .order('created_at', { ascending: true })
+      .limit(CONSIDER_LIMIT);
 
     if (!facilities || facilities.length === 0) {
       await logCronRun('onboarding-followup', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
 
+    if (facilities.length === CONSIDER_LIMIT) {
+      console.warn('[onboarding-followup] consider limit reached', { limit: CONSIDER_LIMIT });
+    }
+
+    const loopStart = Date.now();
     let sent = 0;
     let skipped = 0;
-    for (const facility of facilities) {
+    let deferred = 0;
+
+    for (let i = 0; i < facilities.length; i++) {
+      const facility = facilities[i];
+
+      // 実時間予算ガード: 残りは claim せず翌 run へ回す（onboarding_email_sent_at IS NULL のまま）。
+      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+        deferred = facilities.length - i;
+        console.warn('[onboarding-followup] time budget exceeded, deferring rest to next run', { deferred });
+        break;
+      }
+
+      // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
+      const { data: claimed } = await supabase
+        .from('facility_profiles')
+        .update({ onboarding_email_sent_at: new Date().toISOString() })
+        .eq('id', facility.id)
+        .is('onboarding_email_sent_at', null)
+        .select('id');
+
+      if (!claimed || claimed.length === 0) { skipped++; continue; }
+
+      // claim を先に立てる方式は二重送信を防ぐ一方、送信や前処理が一過性失敗すると
+      // sent_at が立ったまま二度と再送されない（silent な恒久 miss）。
+      // 「連絡先なし(noContact)」は再送しても無意味なので claim 維持、それ以外の失敗は claim を解放する。
+      let delivered = false;
+      let noContact = false;
       try {
-        // Claim before sending (CAS guard via .is('onboarding_email_sent_at', null))
-        const { data: claimed } = await supabase
-          .from('facility_profiles')
-          .update({ onboarding_email_sent_at: new Date().toISOString() })
-          .eq('id', facility.id)
-          .is('onboarding_email_sent_at', null)
-          .select('id');
-
-        if (!claimed || claimed.length === 0) { skipped++; continue; }
-
         // 未完了ステップを特定
         // staff_schedules has no facility_id column — query staff IDs first, then schedules
         const [
@@ -90,30 +127,48 @@ export async function GET(request: Request) {
         if (scheduleCount === 0) missingSteps.push('スケジュールの設定');
         missingSteps.push('施設を「公開」にする');
 
-        if (!member) { skipped++; continue; }
+        if (!member) { noContact = true; }
+        else {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('email')
+            .eq('id', member.user_id)
+            .maybeSingle();
 
-        const { data: profile } = await supabase
-          .from('profiles')
-          .select('email')
-          .eq('id', member.user_id)
-          .maybeSingle();
-
-        if (!profile?.email) { skipped++; continue; }
-
-        await sendOnboardingFollowEmail({
-          ownerEmail: profile.email,
-          facilityName: facility.name,
-          missingSteps,
-        });
-        sent++;
+          if (!profile?.email) { noContact = true; }
+          else {
+            await sendOnboardingFollowEmail({
+              ownerEmail: profile.email,
+              facilityName: facility.name,
+              missingSteps,
+            });
+            delivered = true;
+          }
+        }
       } catch (facilityErr) {
         console.error('[onboarding-followup] facility processing error', { facilityId: facility.id, err: facilityErr });
-        skipped++;
       }
+
+      if (!delivered) {
+        // 連絡先なし → claim 維持（再送無意味）。それ以外の失敗 → claim 解放して翌 run で再送。
+        if (!noContact) {
+          const { error: releaseErr } = await supabase
+            .from('facility_profiles')
+            .update({ onboarding_email_sent_at: null })
+            .eq('id', facility.id);
+          if (releaseErr) {
+            console.error('[onboarding-followup] claim release failed', { facilityId: facility.id, err: releaseErr });
+          }
+        }
+        skipped++;
+        continue;
+      }
+
+      sent++;
     }
 
-    await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped });
-    return NextResponse.json({ processed: sent, skipped });
+    await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
+    return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {
     console.error('[onboarding-followup] Error:', e);
     await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

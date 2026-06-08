@@ -13,6 +13,23 @@ import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 
 export const dynamic = 'force-dynamic';
+// 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
+// 既定の低い値（プランによっては 10s）を上書きして、下の SEND_BUDGET_MS による
+// 予算ガードが確実に発火する既知の上限を与える（タイムアウトをプラン非依存で不可能にする）。
+export const maxDuration = 60;
+
+// 完了からこの時間以上経過した予約のみ対象（直後の送信を避ける）。
+const MIN_AGE_MS = 24 * 60 * 60 * 1000;
+// 未送信のまま「retry 可能」として扱う上限（これを超えた古い予約には今さら送らない＝陳腐化防止）。
+// 旧実装は下限 48h の固定窓だったため、1 日の窓内で .limit(500) を超えた分が翌日 48h を過ぎて
+// gte(h48ago) から外れ、永久に送られなかった（silent な恒久 miss）。下限を 7 日に広げ、
+// 未送信(sent_at IS NULL)のまま日次 run で繰り返し対象に乗せることで恒久 miss を構造的に無くす。
+const STALE_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
+// 1 回の run で「考慮」する最大行数（メモリ上限・送信上限ではない）。到達したら警告ログを出す（silent 根絶）。
+const CONSIDER_LIMIT = 2000;
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら新規送信を止めて残りを翌 run へ回す。
+// 打ち切られた分は claim していない（=sent_at IS NULL のまま）ので次回必ず再処理される（恒久 miss なし）。
+const SEND_BUDGET_MS = 50 * 1000;
 
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
@@ -28,29 +45,48 @@ export async function GET(request: Request) {
 
   const startedAt = new Date();
   try {
-    // 24-48時間前に完了した予約を取得（重複送信防止のため review_request_sent_at IS NULL でフィルタ）
+    // 完了24時間〜7日前の予約を取得（重複送信防止のため review_request_sent_at IS NULL でフィルタ）。
+    // 古い順（updated_at 昇順）= staleness 期限が近いものから優先処理する。
     const now = new Date();
-    const h48ago = new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString();
-    const h24ago = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+    const staleAfter = new Date(now.getTime() - STALE_LOOKBACK_MS).toISOString();
+    const minAgeBefore = new Date(now.getTime() - MIN_AGE_MS).toISOString();
 
     const { data: bookings } = await supabase
       .from('bookings')
       .select('id, email, customer_name, user_id, facility_id, updated_at')
       .eq('status', 'completed')
-      .gte('updated_at', h48ago)
-      .lte('updated_at', h24ago)
+      .gte('updated_at', staleAfter)
+      .lte('updated_at', minAgeBefore)
       .is('review_request_sent_at', null)
-      .limit(500);
+      .order('updated_at', { ascending: true })
+      .limit(CONSIDER_LIMIT);
 
     if (!bookings || bookings.length === 0) {
       await logCronRun('review-request', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
 
+    if (bookings.length === CONSIDER_LIMIT) {
+      // 考慮上限に到達 = 未送信が大量。古い順に処理しているので今回分は最古から消化されるが、
+      // 残りが翌 run に持ち越されている可能性を可視化する（silent な取りこぼしを作らない）。
+      console.warn('[review-request] consider limit reached', { limit: CONSIDER_LIMIT });
+    }
+
+    const loopStart = Date.now();
     let sent = 0;
     let skipped = 0;
+    let deferred = 0;
 
-    for (const booking of bookings) {
+    for (let i = 0; i < bookings.length; i++) {
+      const booking = bookings[i];
+
+      // 実時間予算ガード: 残りは claim せず翌 run へ回す（sent_at IS NULL のままなので恒久 miss なし）。
+      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+        deferred = bookings.length - i;
+        console.warn('[review-request] time budget exceeded, deferring rest to next run', { deferred });
+        break;
+      }
+
       // Claim this booking before sending — prevents duplicate send on double-fire.
       // The .is('review_request_sent_at', null) condition acts as a CAS guard:
       // only one concurrent invocation can update a given row.
@@ -74,15 +110,28 @@ export async function GET(request: Request) {
 
       const reviewUrl = `https://carelink-jp.com/facility/${facility.slug}#review`;
 
+      // 送信を試みたチャネルと、実際に届いたチャネルを記録する。
+      // claim を先に立てる方式は二重送信を防ぐ一方、送信が一過性失敗すると sent_at が
+      // 立ったまま二度と再送されない（silent な恒久 miss）。そこで「試行したが 1 つも
+      // 届かなかった」場合は claim を解放（sent_at→null）し、翌 run で再送できるようにする。
+      let attempted = false;
+      let delivered = false;
+
       // メール送信
       if (booking.email && process.env.RESEND_API_KEY) {
+        attempted = true;
         const resend = new Resend(process.env.RESEND_API_KEY);
-        await resend.emails.send({
-          from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
-          to: booking.email,
-          subject: escSubject(`【${facility.name}】ご来店ありがとうございました`),
-          html: `<p>${esc(booking.customer_name || 'お客')}様</p><p>先日は<strong>${esc(facility.name)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
-        }).catch((err) => console.error('[review-request] email send failed', { bookingId: booking.id, err }));
+        try {
+          await resend.emails.send({
+            from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+            to: booking.email,
+            subject: escSubject(`【${facility.name}】ご来店ありがとうございました`),
+            html: `<p>${esc(booking.customer_name || 'お客')}様</p><p>先日は<strong>${esc(facility.name)}</strong>にご来店いただきありがとうございました。</p><p>よろしければ、口コミを投稿していただけると嬉しいです。</p><p><a href="${reviewUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">口コミを書く</a></p><p style="color:#999;font-size:12px;">口コミを投稿すると50ポイントがもらえます！</p>`,
+          });
+          delivered = true;
+        } catch (err) {
+          console.error('[review-request] email send failed', { bookingId: booking.id, err });
+        }
       }
 
       // LINE通知
@@ -94,18 +143,39 @@ export async function GET(request: Request) {
           .maybeSingle();
 
         if (lineLink?.line_user_id) {
-          await sendLineText(
-            lineLink.line_user_id,
-            `✨ ${facility.name}へのご来店ありがとうございました！\n\n口コミを投稿すると50ポイントプレゼント🎁\n\n👇 口コミを書く\n${reviewUrl}`
-          ).catch((err) => console.error('[review-request] LINE send failed', { bookingId: booking.id, err }));
+          attempted = true;
+          try {
+            await sendLineText(
+              lineLink.line_user_id,
+              `✨ ${facility.name}へのご来店ありがとうございました！\n\n口コミを投稿すると50ポイントプレゼント🎁\n\n👇 口コミを書く\n${reviewUrl}`
+            );
+            delivered = true;
+          } catch (err) {
+            console.error('[review-request] LINE send failed', { bookingId: booking.id, err });
+          }
         }
+      }
+
+      // 試行した全チャネルが失敗 → claim を解放して翌 run で再送（恒久 miss を防ぐ）。
+      // 連絡先が無い（attempted=false）場合は再送しても無意味なので claim 維持（done 扱い）。
+      if (attempted && !delivered) {
+        const { error: releaseErr } = await supabase
+          .from('bookings')
+          .update({ review_request_sent_at: null })
+          .eq('id', booking.id);
+        if (releaseErr) {
+          // 解放に失敗するとこの 1 件は claim されたまま残る（次回再送不可）。可視化のみ行う。
+          console.error('[review-request] claim release failed', { bookingId: booking.id, err: releaseErr });
+        }
+        skipped++;
+        continue;
       }
 
       sent++;
     }
 
-    await logCronRun('review-request', 'success', startedAt, { processed: sent, skipped });
-    return NextResponse.json({ processed: sent, skipped });
+    await logCronRun('review-request', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
+    return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {
     console.error('[review-request] Error:', e);
     await logCronRun('review-request', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
