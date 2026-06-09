@@ -97,7 +97,16 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // 時刻を固定する（発症前予防）。route の daysSinceLastVisit は実 now と fixture 日付の差で
+  // 算出されるため、固定しないと実日付の経過で classifySegment の分岐カバレッジが変動し
+  // （30/60/120日境界を跨ぐ）、ある日突然 global branch=100% ゲートが落ちる時限フレークになる。
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-05-15T00:00:00Z'));
   setupDefaultMocks();
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 function makeRequest() {
