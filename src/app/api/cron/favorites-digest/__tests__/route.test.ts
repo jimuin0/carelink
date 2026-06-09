@@ -160,42 +160,48 @@ function setupDefaultMocks(
     : [];
   const claimedData = alreadySentThisWeek ? [] : [{ id: 'user-1' }];
 
+  // fetchAllPaged 終端: 1ページ目(offset 0)に rows、2ページ目以降は空配列を返す。
+  const paged = (rows: any[]) =>
+    jest.fn().mockImplementation((from: number) => Promise.resolve({ data: from === 0 ? rows : [], error: null }));
+
+  const profilesData = [
+    {
+      id: 'user-1',
+      display_name: 'User 1',
+      email_unsubscribed: unsubscribed,
+      favorites_digest_sent_week: alreadySentThisWeek ? '2026-W17' : null,
+    },
+  ];
+  const facilitiesData = [
+    { id: 'fac-1', name: 'Salon A', slug: 'salon-a' },
+    { id: 'fac-2', name: 'Salon B', slug: 'salon-b' },
+  ];
+
   mockFavoritesSelect = jest.fn().mockReturnValue({
-    range: jest.fn().mockResolvedValue({ data: favoritesData }),
+    range: paged(favoritesData),
   });
+  // coupons/menus: .in().gte().eq().range() （FID_CHUNK ループ内で全件ページング）
   mockCouponsSelect = jest.fn().mockReturnValue({
     in: jest.fn().mockReturnValue({
       gte: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ data: couponsData }),
+        eq: jest.fn().mockReturnValue({ range: paged(couponsData) }),
       }),
     }),
   });
   mockMenusSelect = jest.fn().mockReturnValue({
     in: jest.fn().mockReturnValue({
       gte: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ data: menusData }),
+        eq: jest.fn().mockReturnValue({ range: paged(menusData) }),
       }),
     }),
   });
+  // facilities: .in().range()
   mockFacilitiesSelect = jest.fn().mockReturnValue({
-    in: jest.fn().mockResolvedValue({
-      data: [
-        { id: 'fac-1', name: 'Salon A', slug: 'salon-a' },
-        { id: 'fac-2', name: 'Salon B', slug: 'salon-b' },
-      ],
-    }),
+    in: jest.fn().mockReturnValue({ range: paged(facilitiesData) }),
   });
+  // profiles select: .in().range()
   mockProfilesSelect = jest.fn().mockReturnValue({
-    in: jest.fn().mockResolvedValue({
-      data: [
-        {
-          id: 'user-1',
-          display_name: 'User 1',
-          email_unsubscribed: unsubscribed,
-          favorites_digest_sent_week: alreadySentThisWeek ? '2026-W17' : null,
-        },
-      ],
-    }),
+    in: jest.fn().mockReturnValue({ range: paged(profilesData) }),
   });
   mockProfilesUpdate = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -521,14 +527,16 @@ describe('GET /api/cron/favorites-digest', () => {
     mockCouponsSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
-            data: [{ facility_id: 'fac-99', id: 'c1' }],
+          eq: jest.fn().mockReturnValue({
+            range: jest.fn((from: number) => Promise.resolve({
+              data: from === 0 ? [{ facility_id: 'fac-99', id: 'c1' }] : [], error: null,
+            })),
           }),
         }),
       }),
     });
     mockFacilitiesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({ data: [] }), // empty, no fac-99
+      in: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: [], error: null })) }), // empty, no fac-99
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
@@ -580,7 +588,7 @@ describe('GET /api/cron/favorites-digest', () => {
     mockCouponsSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: null }),
+          eq: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: null, error: null })) }),
         }),
       }),
     });
@@ -606,7 +614,7 @@ describe('GET /api/cron/favorites-digest', () => {
     mockMenusSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: null }),
+          eq: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: null, error: null })) }),
         }),
       }),
     });
@@ -630,7 +638,7 @@ describe('GET /api/cron/favorites-digest', () => {
   // Branch coverage: line 90 - facilityMap が null の場合（facilities query が null）
   test('facility_profiles query returns null → facilityMap が空のまま', async () => {
     mockFacilitiesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({ data: null }),
+      in: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: null, error: null })) }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
@@ -660,10 +668,56 @@ describe('GET /api/cron/favorites-digest', () => {
     expect(json.processed).toBe(0);
   });
 
+  // Branch coverage: listUsers が error を返したら break（その時点までの emailMap で続行）
+  test('listUsers error → break（emailMap 空・送信スキップ・200）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockListUsersDelegate.mockResolvedValue({ data: null, error: { message: 'listUsers boom' } });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(errSpy).toHaveBeenCalledWith('[favorites-digest] listUsers failed', expect.any(Object));
+    errSpy.mockRestore();
+  });
+
+  // Branch coverage: listUsers が 1000件返したら次ページへ継続（users.length < 1000 の false 分岐）
+  test('listUsers 1000件 → 次ページ取得を継続', async () => {
+    setupDefaultMocks();
+    const page1 = Array.from({ length: 1000 }, (_, i) => ({ id: `u${i}`, email: `u${i}@example.com` }));
+    mockListUsersDelegate.mockImplementation((opts: any) =>
+      Promise.resolve({ data: { users: opts.page === 1 ? page1 : [] } }));
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // page1(1000件) で継続→page2(空) で終了＝2回呼ばれる
+    expect(mockListUsersDelegate).toHaveBeenCalledTimes(2);
+  });
+
+  // Branch coverage: profile.display_name が null → userName undefined（?? の右辺）
+  test('display_name null → sendFavoritesDigest に userName undefined', async () => {
+    setupDefaultMocks();
+    // recipient profiles は .in('id').range() チェーンで取得される（display_name を null に差し替え）
+    mockProfilesSelect = jest.fn().mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        range: jest.fn((from: number) => Promise.resolve({
+          data: from === 0
+            ? [{ id: 'user-1', display_name: null, email_unsubscribed: false, favorites_digest_sent_week: null }]
+            : [],
+          error: null,
+        })),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(sendFavoritesDigest).toHaveBeenCalledWith(expect.objectContaining({ userName: undefined }));
+  });
+
   // Branch coverage: line 102/105 - profiles が null の場合 for-of が空ループ
   test('profiles query returns null → for-of ループをスキップ', async () => {
     mockProfilesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({ data: null }),
+      in: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: null, error: null })) }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
@@ -697,7 +751,7 @@ describe('GET /api/cron/favorites-digest', () => {
     mockCouponsSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
+          eq: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: [], error: null })) }),
         }),
       }),
     });
@@ -705,15 +759,15 @@ describe('GET /api/cron/favorites-digest', () => {
     mockMenusSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
-            data: [{ facility_id: 'fac-1' }],
+          eq: jest.fn().mockReturnValue({
+            range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ facility_id: 'fac-1' }] : [], error: null })),
           }),
         }),
       }),
     });
     mockFacilitiesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({
-        data: [{ id: 'fac-1', name: 'Salon A', slug: 'salon-a' }],
+      in: jest.fn().mockReturnValue({
+        range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ id: 'fac-1', name: 'Salon A', slug: 'salon-a' }] : [], error: null })),
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
@@ -752,13 +806,16 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     // profiles returns user-1 (not email_unsubscribed, not sent this week)
     mockProfilesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({
-        data: [{
-          id: 'user-1',
-          display_name: 'User 1',
-          email_unsubscribed: false,
-          favorites_digest_sent_week: null,
-        }],
+      in: jest.fn().mockReturnValue({
+        range: jest.fn((from: number) => Promise.resolve({
+          data: from === 0 ? [{
+            id: 'user-1',
+            display_name: 'User 1',
+            email_unsubscribed: false,
+            favorites_digest_sent_week: null,
+          }] : [],
+          error: null,
+        })),
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
@@ -786,13 +843,16 @@ describe('GET /api/cron/favorites-digest', () => {
   test('userFacilityMap にユーザーが存在しない場合 facilityIds = []', async () => {
     // profiles に user-1 とは別のユーザーが返ってくる（user-99 は favorites にいない）
     mockProfilesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({
-        data: [{
-          id: 'user-99',
-          display_name: 'Unknown',
-          email_unsubscribed: false,
-          favorites_digest_sent_week: null,
-        }],
+      in: jest.fn().mockReturnValue({
+        range: jest.fn((from: number) => Promise.resolve({
+          data: from === 0 ? [{
+            id: 'user-99',
+            display_name: 'Unknown',
+            email_unsubscribed: false,
+            favorites_digest_sent_week: null,
+          }] : [],
+          error: null,
+        })),
       }),
     });
     mockListUsersDelegate.mockResolvedValue({

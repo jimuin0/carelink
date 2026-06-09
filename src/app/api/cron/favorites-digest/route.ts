@@ -69,49 +69,102 @@ export async function GET(request: Request) {
     }
 
     const allFacilityIds = Array.from(new Set(favUsers.map((f) => f.facility_id)));
+    const FID_CHUNK = 1000;
 
-    // 各施設の新着情報（クーポン）を取得
-    const { data: newCoupons } = await supabase
-      .from('facility_coupons')
-      .select('facility_id, id')
-      .in('facility_id', allFacilityIds)
-      .gte('created_at', since)
-      .eq('is_active', true);
-
+    // 以下 3 つの .in('facility_id', allFacilityIds) は、お気に入りされた施設が 1000 件超だと
+    // (a) URL 長制限 / (b) db-max-rows(1000) の二重で頭打ちし、一部施設の新着・施設情報が欠落して
+    // 該当ユーザーのダイジェストから silent に抜け落ちる。施設 ID を 1000 件ずつ chunk し、
+    // 各 chunk を全件ページングで取得して取りこぼしを解消する。
     const couponCountMap = new Map<string, number>();
-    for (const c of newCoupons || []) {
-      couponCountMap.set(c.facility_id, (couponCountMap.get(c.facility_id) || 0) + 1);
+    const newMenuFacilities = new Set<string>();
+    const facilityMap = new Map<string, { id: string; name: string; slug: string }>();
+
+    for (let i = 0; i < allFacilityIds.length; i += FID_CHUNK) {
+      const idChunk = allFacilityIds.slice(i, i + FID_CHUNK);
+
+      // 各施設の新着情報（クーポン）
+      const { rows: newCoupons } = await fetchAllPaged<{ facility_id: string; id: string }>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('facility_coupons')
+            .select('facility_id, id')
+            .in('facility_id', idChunk)
+            .gte('created_at', since)
+            .eq('is_active', true)
+            .range(offset, offset + limit - 1);
+          return { data: data as { facility_id: string; id: string }[] | null, error };
+        },
+      );
+      for (const c of newCoupons) {
+        couponCountMap.set(c.facility_id, (couponCountMap.get(c.facility_id) || 0) + 1);
+      }
+
+      // 新メニュー追加された施設
+      const { rows: newMenus } = await fetchAllPaged<{ facility_id: string }>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('facility_menus')
+            .select('facility_id')
+            .in('facility_id', idChunk)
+            .gte('created_at', since)
+            .eq('is_active', true)
+            .range(offset, offset + limit - 1);
+          return { data: data as { facility_id: string }[] | null, error };
+        },
+      );
+      for (const m of newMenus) newMenuFacilities.add(m.facility_id);
+
+      // 施設情報
+      const { rows: facilities } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('facility_profiles')
+            .select('id, name, slug')
+            .in('id', idChunk)
+            .range(offset, offset + limit - 1);
+          return { data: data as { id: string; name: string; slug: string }[] | null, error };
+        },
+      );
+      for (const f of facilities) facilityMap.set(f.id, f);
     }
 
-    // 新メニュー追加された施設
-    const { data: newMenus } = await supabase
-      .from('facility_menus')
-      .select('facility_id')
-      .in('facility_id', allFacilityIds)
-      .gte('created_at', since)
-      .eq('is_active', true);
-
-    const newMenuFacilities = new Set((newMenus || []).map((m) => m.facility_id));
-
-    // 施設情報
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id, name, slug')
-      .in('id', allFacilityIds);
-
-    const facilityMap = new Map((facilities || []).map((f) => [f.id, f]));
-
     // ユーザー情報とメール送信
+    // .in('id', userIds) は db-max-rows(1000) で頭打ちになるため 1000 件ずつ chunk し、
+    // 各 chunk も全件ページングで取得する（お気に入りユーザーが 1000 人超でも全員分の profile を取得）。
     const userIds = Array.from(userFacilityMap.keys());
-    const { data: profiles } = await supabase
-      .from('profiles')
-      .select('id, display_name, email_unsubscribed, favorites_digest_sent_week')
-      .in('id', userIds);
+    const ID_CHUNK = 1000;
+    type ProfileRow = { id: string; display_name: string | null; email_unsubscribed: boolean | null; favorites_digest_sent_week: string | null };
+    const profiles: ProfileRow[] = [];
+    for (let i = 0; i < userIds.length; i += ID_CHUNK) {
+      const idChunk = userIds.slice(i, i + ID_CHUNK);
+      const { rows } = await fetchAllPaged<ProfileRow>(
+        async (offset, limit) => {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('id, display_name, email_unsubscribed, favorites_digest_sent_week')
+            .in('id', idChunk)
+            .range(offset, offset + limit - 1);
+          return { data: data as ProfileRow[] | null, error };
+        },
+      );
+      profiles.push(...rows);
+    }
 
-    const { data: authUsers } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-    const emailMap = new Map((authUsers?.users || []).map((u) => [u.id, u.email]));
+    // auth ユーザーのメールを全ページ取得（旧実装は perPage:1000 の1ページのみ取得で、
+    // ユーザー総数が 1000 を超えると 1001 件目以降の email が引けず該当ユーザーが silent に skip されていた）。
+    const emailMap = new Map<string, string | undefined>();
+    for (let page = 1; ; page++) {
+      const { data: authUsers, error: authErr } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+      if (authErr) {
+        console.error('[favorites-digest] listUsers failed', { page, err: authErr });
+        break;
+      }
+      const users = authUsers?.users || [];
+      for (const u of users) emailMap.set(u.id, u.email);
+      if (users.length < 1000) break; // 端数ページ＝最終ページ
+    }
 
-    for (const profile of profiles || []) {
+    for (const profile of profiles) {
       if (profile.email_unsubscribed) { skipped++; continue; }
       // Skip if already sent this week (idempotency for double-fire)
       if (profile.favorites_digest_sent_week === thisWeek) { skipped++; continue; }
@@ -158,7 +211,7 @@ export async function GET(request: Request) {
 
       await sendFavoritesDigest({
         userEmail: email,
-        userName: profile.display_name,
+        userName: profile.display_name ?? undefined,
         facilities: updatedFacilities,
         unsubscribeToken: token,
       }).catch((err) => console.error('[favorites-digest] email send failed', { userId: profile.id, err }));

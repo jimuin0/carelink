@@ -123,8 +123,13 @@ export async function getFeaturedFacilities(businessType?: string, area?: string
     .gte('ends_at', now)
     .limit(3);
 
-  if (businessType) query = query.or(`business_type.eq.${businessType},business_type.is.null`);
-  if (area) query = query.or(`area.eq.${area},area.is.null`);
+  // PostgREST の .or() フィルタ文字列はユーザー入力（searchParams.type / area）を
+  // そのまま埋め込むと "x),status.eq.draft" のようにフィルタ構文を注入できてしまう。
+  // 値をダブルクォートで囲み、内部の " と \ をエスケープして literal 化することで
+  // PostgREST 演算子・区切り文字の注入を無効化する（fail-safe）。
+  const orFilterValue = (v: string) => `"${v.slice(0, 100).replace(/[\\"]/g, '\\$&')}"`;
+  if (businessType) query = query.or(`business_type.eq.${orFilterValue(businessType)},business_type.is.null`);
+  if (area) query = query.or(`area.eq.${orFilterValue(area)},area.is.null`);
 
   const { data } = await query;
   return (data || [])

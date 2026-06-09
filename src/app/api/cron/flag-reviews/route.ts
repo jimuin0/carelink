@@ -12,6 +12,7 @@ import { logCronRun } from '@/lib/cron-logger';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -44,12 +45,21 @@ export async function GET(request: Request) {
 
     if (bulkSpam && Array.isArray(bulkSpam)) {
       for (const row of bulkSpam as { reviewer_ip: string }[]) {
-        const { data: reviews } = await supabase
-          .from('facility_reviews')
-          .select('id, is_flagged')
-          .eq('reviewer_ip', row.reviewer_ip)
-          .gte('created_at', since24h)
-          .eq('is_flagged', false);
+        // 同一 IP の未フラグレビューを全件ページング取得（大量スパム時は 1000 件超もあり得るため
+        // 無ページングだと db-max-rows(1000) で取りこぼし、フラグ漏れが起きる）。
+        const { rows: reviews } = await fetchAllPaged<{ id: string; is_flagged: boolean }>(
+          async (offset, limit) => {
+            const { data, error } = await supabase
+              .from('facility_reviews')
+              .select('id, is_flagged')
+              .eq('reviewer_ip', row.reviewer_ip)
+              .gte('created_at', since24h)
+              .eq('is_flagged', false)
+              .order('id', { ascending: true })
+              .range(offset, offset + limit - 1);
+            return { data: data as { id: string; is_flagged: boolean }[] | null, error };
+          },
+        );
 
         if (reviews && reviews.length > 0) {
           const { error: updateErr } = await supabase
@@ -66,14 +76,24 @@ export async function GET(request: Request) {
     }
 
     // 2. 同一IPから同一施設に複数投稿 → 自作自演疑い
-    const { data: dupFacility } = await supabase
-      .from('facility_reviews')
-      .select('id, reviewer_ip, facility_id')
-      .not('reviewer_ip', 'is', null)
-      .eq('is_flagged', false)
-      .eq('status', 'published');
+    // 全未フラグ公開レビューを全件ページング取得（無ページングだと db-max-rows(1000) で頭打ちし、
+    // 1000 件目以降が自作自演判定の対象から外れて永久にフラグ漏れする・順序不定で同じ先頭集合のみ評価）。
+    const { rows: dupFacility } = await fetchAllPaged<{ id: string; reviewer_ip: string; facility_id: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_reviews')
+          .select('id, reviewer_ip, facility_id')
+          .not('reviewer_ip', 'is', null)
+          .eq('is_flagged', false)
+          .eq('status', 'published')
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1);
+        return { data: data as { id: string; reviewer_ip: string; facility_id: string }[] | null, error };
+      },
+    );
 
-    if (dupFacility) {
+    {
+      // dupFacility は fetchAllPaged の rows（常に配列・空なら下の for が回らないだけ）。
       // IPとfacility_idの組み合わせでグループ化
       const ipFacilityMap = new Map<string, string[]>();
       for (const r of dupFacility) {
