@@ -51,7 +51,12 @@ function setupDefaultMocks(
   const bookingsMockEq = jest.fn();
   bookingsMockEq.mockReturnValue({
     eq: bookingsMockEq,
-    limit: jest.fn().mockResolvedValue({ data: bookingsData, error: null }),
+    // .select().eq(booking_date).eq(status).order('id').range() → fetchAllPaged
+    order: jest.fn().mockReturnValue({
+      // range(from,to) を尊重して slice（fetchAllPaged の正しいページング検証のため）
+      range: jest.fn().mockImplementation((from: number, to: number) =>
+        Promise.resolve({ data: bookingsData.slice(from, to + 1), error: null })),
+    }),
   });
   mockBookingsSelect = jest.fn().mockReturnValue({ eq: bookingsMockEq });
 
@@ -172,19 +177,22 @@ describe('GET /api/cron/booking-reminder', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 eq: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({
-                    data: [
-                      {
-                        id: 'booking-no-email',
-                        customer_name: 'No Email',
-                        email: null,
-                        booking_date: '2026-05-16',
-                        start_time: '09:00',
-                        end_time: '10:00',
-                        facility_id: 'fac-0',
-                        total_price: 5000,
-                      },
-                    ],
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({
+                      data: [
+                        {
+                          id: 'booking-no-email',
+                          customer_name: 'No Email',
+                          email: null,
+                          booking_date: '2026-05-16',
+                          start_time: '09:00',
+                          end_time: '10:00',
+                          facility_id: 'fac-0',
+                          total_price: 5000,
+                        },
+                      ],
+                      error: null,
+                    }),
                   }),
                 }),
               }),
@@ -345,7 +353,9 @@ describe('GET /api/cron/booking-reminder', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 eq: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({ data: null, error: null }),
+                  }),
                 }),
               }),
             }),
@@ -388,17 +398,20 @@ describe('GET /api/cron/booking-reminder', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 eq: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({
-                    data: [{
-                      id: 'b-1',
-                      customer_name: 'C',
-                      email: 'c@example.com',
-                      booking_date: '2026-05-16',
-                      start_time: '10:00',
-                      end_time: '11:00',
-                      facility_id: 'fac-0',
-                      total_price: null,
-                    }],
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({
+                      data: [{
+                        id: 'b-1',
+                        customer_name: 'C',
+                        email: 'c@example.com',
+                        booking_date: '2026-05-16',
+                        start_time: '10:00',
+                        end_time: '11:00',
+                        facility_id: 'fac-0',
+                        total_price: null,
+                      }],
+                      error: null,
+                    }),
                   }),
                 }),
               }),
@@ -456,5 +469,47 @@ describe('GET /api/cron/booking-reminder', () => {
 
     const emailCall = mockSendBookingReminder.mock.calls[0];
     expect(emailCall[0].facilityName).toBe('Salon A');
+  });
+
+  test('consider limit reached + time budget exceeded → warns and defers', async () => {
+    jest.useRealTimers();
+    setupDefaultMocks(5000); // length === CONSIDER_LIMIT
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // loopStart=1000、最初のガードで予算超過 → 1件も送らず全件 defer
+    jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(99_999_999);
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(json.deferred).toBe(5000);
+    expect(json.processed).toBe(0);
+    expect(mockSendBookingReminder).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith('[booking-reminder] consider limit reached', expect.objectContaining({ limit: 5000 }));
+    expect(warnSpy).toHaveBeenCalledWith('[booking-reminder] time budget exceeded, deferring rest to next run', expect.objectContaining({ deferred: 5000 }));
+    warnSpy.mockRestore();
+  });
+
+  test('bookings query error → 500 (fail-safe)', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn().mockResolvedValue({ data: null, error: { message: 'boom' } }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
   });
 });
