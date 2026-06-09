@@ -6,6 +6,16 @@ import { checkCronAuth } from '@/lib/cron-auth';
 
 // Vercel Cron: runs every Sunday at 3:00 JST (18:00 UTC Saturday)
 export const dynamic = 'force-dynamic';
+// 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
+// 既定の低い値を上書きし、下の SYNC_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
+export const maxDuration = 60;
+
+// Places API は 1 QPM が安全なため 1 件あたり 1.1s sleep する。
+const RATE_LIMIT_MS = 1100;
+// 1 回の run の実時間予算。maxDuration(60s) 未満。~50s / 1.1s ≒ 45 件/run を上限に rotation する。
+const SYNC_BUDGET_MS = 50 * 1000;
+// 1 回でロードする施設数（予算で処理できる件数より少し多めに取り、残りは翌週へ）。
+const LOAD_LIMIT = 100;
 
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
@@ -14,53 +24,82 @@ export async function GET(request: Request) {
   const supabase = createServiceRoleClient();
   const startedAt = new Date();
 
-  // gbp_place_id が設定された公開施設を取得（最大200件/実行）
+  // gbp_place_id が設定された公開施設を「最終同期が古い順（未同期=NULLS FIRST 優先）」で取得。
+  // 旧実装は ORDER BY 無し .limit(200) で、200件×1.1s=220s がタイムアウトし、毎回非決定的な
+  // 先頭集合だけ同期 → GBP 連携施設が一定数を超えると一部が永久に未同期だった（silent miss）。
+  // gbp_synced_at 昇順 + 予算ガード + 処理ごとに gbp_synced_at 更新で、全施設を週次で順繰りに同期する。
   const { data: facilities, error } = await supabase
     .from('facility_profiles')
     .select('id, gbp_place_id')
     .eq('status', 'published')
     .not('gbp_place_id', 'is', null)
-    .limit(200);
+    .order('gbp_synced_at', { ascending: true, nullsFirst: true })
+    .limit(LOAD_LIMIT);
 
   if (error) {
     await logCronRun('sync-google-ratings', 'error', startedAt, { error_msg: error.message });
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 
-  const results = { updated: 0, skipped: 0, errors: 0 };
+  const list = facilities ?? [];
+  const results = { updated: 0, skipped: 0, errors: 0, deferred: 0 };
+  const loopStart = Date.now();
 
-  for (const facility of facilities ?? []) {
+  for (let i = 0; i < list.length; i++) {
+    // 実時間予算ガード: 残りは gbp_synced_at 未更新のまま翌週 run が古い順で拾う（恒久 miss なし）。
+    if (Date.now() - loopStart > SYNC_BUDGET_MS) {
+      results.deferred = list.length - i;
+      console.warn('[sync-google-ratings] time budget exceeded, deferring rest to next run', { deferred: results.deferred });
+      break;
+    }
+
+    const facility = list[i];
+    // クエリで .not('gbp_place_id','is',null) 済みだが、念のための防御（null が紛れたら skip）。
     if (!facility.gbp_place_id) { results.skipped++; continue; }
+
+    // 処理ごとに gbp_synced_at を必ず更新して rotation を進める（成功/スキップ/失敗いずれも）。
+    // これにより、取得失敗が続く施設が先頭に居座って他施設の同期を阻害しない。
+    const nowIso = new Date().toISOString();
+    const payload: { gbp_synced_at: string; google_rating?: number | null; google_review_count?: number } = { gbp_synced_at: nowIso };
+    let outcome: 'updated' | 'skipped' | 'error' = 'skipped';
 
     try {
       const placeData = await fetchPlaceDetails(facility.gbp_place_id);
       if (!placeData || (placeData.rating == null && placeData.user_ratings_total == null)) {
-        results.skipped++;
-        continue;
+        outcome = 'skipped';
+      } else {
+        payload.google_rating = placeData.rating ?? null;
+        payload.google_review_count = placeData.user_ratings_total ?? 0;
+        outcome = 'updated';
       }
-
-      const { error: updateError } = await supabase
-        .from('facility_profiles')
-        .update({
-          google_rating: placeData.rating ?? null,
-          google_review_count: placeData.user_ratings_total ?? 0,
-        })
-        .eq('id', facility.id);
-
-      if (updateError) { results.errors++; continue; }
-      results.updated++;
     } catch {
+      outcome = 'error';
+    }
+
+    const { error: updateError } = await supabase
+      .from('facility_profiles')
+      .update(payload)
+      .eq('id', facility.id);
+    if (updateError) {
+      // gbp_synced_at を更新できないと rotation が進まない（次回も先頭に残る）→ error 計上＋可視化。
+      console.error('[sync-google-ratings] sync timestamp update failed', { facilityId: facility.id, err: updateError });
       results.errors++;
+    } else if (outcome === 'updated') {
+      results.updated++;
+    } else if (outcome === 'error') {
+      results.errors++;
+    } else {
+      results.skipped++;
     }
 
     // Rate limit: Places API は 1 QPM が安全
-    await new Promise((r) => setTimeout(r, 1100));
+    await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
   }
 
   await logCronRun('sync-google-ratings', 'success', startedAt, {
     processed: results.updated,
     skipped: results.skipped,
-    meta: { errors: results.errors },
+    meta: { errors: results.errors, deferred: results.deferred },
   });
-  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors });
+  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, deferred: results.deferred });
 }
