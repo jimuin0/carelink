@@ -60,7 +60,7 @@ function bookingQueryChain(data: unknown[], error: unknown = null) {
   chain.order = jest.fn(self);
   chain.gte = jest.fn(self);
   chain.lte = jest.fn(self);
-  chain.limit = jest.fn(() => Promise.resolve({ data, error }));
+  chain.range = jest.fn(() => Promise.resolve({ data, error }));
   return chain;
 }
 
