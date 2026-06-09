@@ -14,6 +14,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { fetchAllPaged } from '@/lib/paginate';
 
 async function requirePlatformAdmin() {
   const supabase = await createServerSupabaseAuthClient();
@@ -89,18 +90,26 @@ export async function POST(request: NextRequest) {
 
   const serviceSupabase = createServiceRoleClient();
 
-  // 最大10,000件のCSVエクスポート
-  const { data, error } = await serviceSupabase
-    .from(table)
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(10000);
+  // 全件を CSV エクスポートする（バックアップは完全性が必須）。
+  // 旧実装は .limit(10000) で、bookings/profiles 等が1万件を超えるとバックアップが
+  // 黙って欠損していた。fetchAllPaged で created_at desc 順に全件ページング取得する。
+  const { rows: data, error } = await fetchAllPaged<Record<string, unknown>>(
+    async (offset, limit) => {
+      const { data, error } = await serviceSupabase
+        .from(table)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .range(offset, offset + limit - 1);
+      return { data: data as Record<string, unknown>[] | null, error };
+    },
+    { maxRows: 1000000 },
+  );
 
   if (error) {
     console.error('[backup] export query failed', { table, err: error });
     return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
   }
-  if (!data || data.length === 0) {
+  if (data.length === 0) {
     return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
   }
 
