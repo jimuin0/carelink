@@ -53,9 +53,15 @@ function setupDefaultMocks(
     .mockReturnValue({
       eq: jest.fn((col: string, val: any) => {
         if (col === 'status' && val === 'published') {
+          // facilities は fetchAllPaged 化され .order('id').range() で取得する。
+          // 1ページ目に全件、2ページ目(offset>0)は空配列を返して終了させる。
           return {
-            data: facilitiesData,
-            error: null,
+            order: jest.fn(() => ({
+              range: jest.fn((from: number) => Promise.resolve({
+                data: from === 0 ? facilitiesData : [],
+                error: null,
+              })),
+            })),
           };
         }
         return {
@@ -150,6 +156,29 @@ describe('GET /api/cron/daily-summary', () => {
     const json = await res.json();
     // facilities が空配列の場合は通常パスで {processed: 0, skipped: 0, date: ...}
     expect(json.processed).toBe(0);
+  });
+
+  test('facilities query error → 500 (fail-safe)', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_profiles') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                order: jest.fn(() => ({
+                  range: jest.fn(() => Promise.resolve({ data: null, error: { message: 'boom' } })),
+                })),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
   });
 
   test('facilities with no bookings → skipped', async () => {
@@ -350,10 +379,15 @@ describe('GET /api/cron/daily-summary', () => {
   test('facilities クエリが null → count 0 で早期リターン', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     (checkCronAuth as jest.Mock).mockReturnValue(null);
+    // fetchAllPaged の .order().range() が data:null を返す → rows:[] → length 0 で skipped・count 0。
     createServiceRoleClient.mockReturnValue({
       from: jest.fn(() => ({
         select: jest.fn(() => ({
-          eq: jest.fn(() => ({ data: null, error: null })),
+          eq: jest.fn(() => ({
+            order: jest.fn(() => ({
+              range: jest.fn(() => Promise.resolve({ data: null, error: null })),
+            })),
+          })),
         })),
       })),
     });
@@ -380,7 +414,11 @@ describe('GET /api/cron/daily-summary', () => {
         if (table === 'facility_profiles') {
           return {
             select: jest.fn(() => ({
-              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+              eq: jest.fn(() => ({
+                order: jest.fn(() => ({
+                  range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ id: 'fac-1' }] : [], error: null })),
+                })),
+              })),
             })),
           };
         }
@@ -418,7 +456,11 @@ describe('GET /api/cron/daily-summary', () => {
         if (table === 'facility_profiles') {
           return {
             select: jest.fn(() => ({
-              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+              eq: jest.fn(() => ({
+                order: jest.fn(() => ({
+                  range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ id: 'fac-1' }] : [], error: null })),
+                })),
+              })),
             })),
           };
         }
@@ -466,7 +508,11 @@ describe('GET /api/cron/daily-summary', () => {
         if (table === 'facility_profiles') {
           return {
             select: jest.fn(() => ({
-              eq: jest.fn(() => ({ data: [{ id: 'fac-1' }], error: null })),
+              eq: jest.fn(() => ({
+                order: jest.fn(() => ({
+                  range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ id: 'fac-1' }] : [], error: null })),
+                })),
+              })),
             })),
           };
         }
@@ -521,7 +567,11 @@ describe('GET /api/cron/daily-summary', () => {
             // First call returns facility list
             return {
               select: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({ data: [{ id: 'fac-1' }, { id: 'fac-2' }], error: null }),
+                eq: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({
+                    range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ id: 'fac-1' }, { id: 'fac-2' }] : [], error: null })),
+                  }),
+                }),
               }),
             };
           }

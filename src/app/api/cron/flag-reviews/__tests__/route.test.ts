@@ -31,6 +31,34 @@ let mockRpc: jest.Mock;
 let mockSelectReviews: jest.Mock;
 let mockUpdateReviews: jest.Mock;
 
+// fetchAllPaged 化で両クエリ末尾に .order().range() が付く。1ページ目に rows、
+// 2ページ目以降(offset>0)は空配列を返して終了させる terminal。
+function pagedTerminal(rows: any[] | null) {
+  return {
+    order: jest.fn().mockReturnValue({
+      range: jest.fn().mockImplementation((from: number) =>
+        // data:null（dupFacility null テスト）は from===0 でそのまま返し、fetchAllPaged は rows:[] になる
+        Promise.resolve({ data: from === 0 ? rows : [], error: null })),
+    }),
+  };
+}
+
+// 両チェイン（bulk: eq→gte→eq, self-dealing: not→eq→eq）を pagedTerminal で終端する select モック。
+function makeSelectMock(bulkRows: any[] | null, selfDealingRows: any[] | null) {
+  return jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      gte: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue(pagedTerminal(bulkRows)),
+      }),
+    }),
+    not: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue(pagedTerminal(selfDealingRows)),
+      }),
+    }),
+  });
+}
+
 function setupDefaultMocks(
   bulkSpamCount: number = 1,
   reviewsPerIp: number = 3,
@@ -54,20 +82,9 @@ function setupDefaultMocks(
     is_flagged: false,
   }));
 
-  mockSelectReviews = jest.fn().mockReturnValue({
-    // bulk spam chain: .select().eq('reviewer_ip',...).gte().eq('is_flagged',false)
-    eq: jest.fn().mockReturnValue({
-      gte: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ data: reviewsData }),
-      }),
-    }),
-    // self-dealing chain: .select().not().eq('is_flagged',false).eq('status','published')
-    not: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ data: [] }),
-      }),
-    }),
-  });
+  // bulk: reviewsData / self-dealing: 既定は空（selfDealingExists 引数は既存呼び出しと互換のため温存）
+  void selfDealingExists;
+  mockSelectReviews = makeSelectMock(reviewsData, []);
 
   mockUpdateReviews = jest.fn().mockReturnValue({
     in: jest.fn().mockResolvedValue({ error: null }),
@@ -142,18 +159,7 @@ describe('GET /api/cron/flag-reviews', () => {
       { id: 'review-2', reviewer_ip: '192.168.1.1', facility_id: 'fac-1', is_flagged: false, status: 'published' },
     ];
 
-    mockSelectReviews = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
-        }),
-      }),
-      not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: selfDealingData }),
-        }),
-      }),
-    });
+    mockSelectReviews = makeSelectMock([], selfDealingData);
 
     const res = await GET(makeRequest() as any);
 
@@ -175,18 +181,7 @@ describe('GET /api/cron/flag-reviews', () => {
   });
 
   test('no reviews found for bulk spam IP → skipped', async () => {
-    mockSelectReviews = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
-        }),
-      }),
-      not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
-        }),
-      }),
-    });
+    mockSelectReviews = makeSelectMock([], []);
 
     const res = await GET(makeRequest() as any);
 
@@ -284,18 +279,7 @@ describe('GET /api/cron/flag-reviews', () => {
   });
 
   test('dupFacility null → skip self-dealing check', async () => {
-    mockSelectReviews = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
-        }),
-      }),
-      not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: null }),
-        }),
-      }),
-    });
+    mockSelectReviews = makeSelectMock([], null);
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_reviews') {
         return {
@@ -311,23 +295,10 @@ describe('GET /api/cron/flag-reviews', () => {
   });
 
   test('self-dealing with only 1 review per IP-facility → not flagged', async () => {
-    mockSelectReviews = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
-        }),
-      }),
-      not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
-            data: [
-              { id: 'r1', reviewer_ip: '1.1.1.1', facility_id: 'fac-a' },
-              { id: 'r2', reviewer_ip: '1.1.1.1', facility_id: 'fac-b' },
-            ],
-          }),
-        }),
-      }),
-    });
+    mockSelectReviews = makeSelectMock([], [
+      { id: 'r1', reviewer_ip: '1.1.1.1', facility_id: 'fac-a' },
+      { id: 'r2', reviewer_ip: '1.1.1.1', facility_id: 'fac-b' },
+    ]);
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_reviews') {
         return {
@@ -346,23 +317,10 @@ describe('GET /api/cron/flag-reviews', () => {
 
   test('self-dealing update error → logs', async () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    mockSelectReviews = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({ data: [] }),
-        }),
-      }),
-      not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockResolvedValue({
-            data: [
-              { id: 'r1', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
-              { id: 'r2', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
-            ],
-          }),
-        }),
-      }),
-    });
+    mockSelectReviews = makeSelectMock([], [
+      { id: 'r1', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
+      { id: 'r2', reviewer_ip: '2.2.2.2', facility_id: 'fac-x' },
+    ]);
     mockUpdateReviews = jest.fn().mockReturnValue({
       in: jest.fn().mockResolvedValue({ error: { message: 'self-dealing update failed' } }),
     });

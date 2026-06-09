@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,13 +26,29 @@ export async function GET(request: Request) {
     yesterday.setDate(yesterday.getDate() - 1);
     const dateStr = yesterday.toISOString().split('T')[0];
 
-    // 全施設取得
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id')
-      .eq('status', 'published');
+    // 全公開施設を全件ページング取得。
+    // 旧実装は無ページングの単一 select で、PostgREST の db-max-rows(既定1000) により
+    // 公開施設が 1000 を超えると 1001 件目以降が当日集計から漏れていた。日次集計は
+    // 過去日を再処理しないため、漏れた施設のその日の売上サマリは永久欠落（silent miss）になる。
+    const { rows: facilities, error: facilitiesErr } = await fetchAllPaged<{ id: string }>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_profiles')
+          .select('id')
+          .eq('status', 'published')
+          .order('id', { ascending: true })
+          .range(offset, offset + limit - 1);
+        return { data: data as { id: string }[] | null, error };
+      },
+    );
 
-    if (!facilities) {
+    // fail-safe: 施設一覧が取れない時は中止（部分集計での誤完了を避ける）。
+    if (facilitiesErr) {
+      console.error('[daily-summary] facilities query failed', { err: facilitiesErr });
+      await logCronRun('daily-summary', 'error', startedAt, { error_msg: 'facilities query failed' });
+      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    }
+    if (facilities.length === 0) {
       await logCronRun('daily-summary', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', count: 0 });
     }
