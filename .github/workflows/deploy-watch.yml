@@ -57,8 +57,9 @@ jobs:
 
   notify-deploy-success:
     name: Notify Deploy Success + Startup Check
-    # 品質スタック L7-D: 起動時 (= deploy 成功直後) に全依存系の OK/NG を Slack 通知
-    # Production deploy 成功時のみ。5分待ってから /api/health を叩いて結果を投稿。
+    # 品質スタック L7-D: 起動時 (= deploy 成功直後) に全依存系を /api/health で確認。
+    # 正常(STARTUP OK)時は CI ログ記録のみ（OK 連投のノイズ抑制）、DEGRADED 時のみ Slack 警報。
+    # Production deploy 成功時のみ。warm-up 後にリトライ付きで /api/health を叩いて判定する。
     # folded scalar による常時 true を回避（単一行・${{ }} なし）。
     if: github.event_name == 'deployment_status' && github.event.deployment_status.state == 'success' && (github.event.deployment.environment == 'Production' || github.event.deployment.environment == 'production')
     runs-on: ubuntu-latest
@@ -94,6 +95,14 @@ jobs:
           done
           export STATUS_CODE STATUS EMOJI LEVEL
           export HEALTH_BODY="$BODY"
+
+          # 正常起動(STARTUP OK)時は Slack 通知を抑制し、本ジョブの実行ログ記録のみとする
+          # （デプロイ毎の OK 連投がノイズになるため）。DEGRADED（依存NG）時のみ Slack に警報する。
+          # OK の事実は GitHub Actions の本ジョブログに残るため L7-D の起動確認自体は維持される。
+          if [ "$LEVEL" != "STARTUP DEGRADED" ]; then
+            echo "✅ STARTUP OK (commit ${DEPLOY_SHA:0:7}) — Slack 通知は抑制（正常起動・CIログに記録）"
+            exit 0
+          fi
 
           python3 <<'PY'
           import json, os, urllib.request
