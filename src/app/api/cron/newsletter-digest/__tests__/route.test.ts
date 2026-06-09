@@ -49,7 +49,10 @@ function setup(opts: any = {}) {
   const {
     alreadySent = false,
     existingCampaign = false,
-    owners = [{ profiles: { email: 'owner@example.com' } }],
+    ownerUserIds = ['u1'],
+    ownerEmails = ['owner@example.com'],
+    ownersQueryError = null,
+    profilesQueryError = null,
     unsubProfiles = [] as any[],
     unsubNewsletter = [] as any[],
     ledger = [] as any[],
@@ -92,9 +95,16 @@ function setup(opts: any = {}) {
         case 'facility_profiles':
           return { select: jest.fn().mockReturnValue(makeChain({ count: facilitiesCount })) };
         case 'facility_members':
-          return { select: jest.fn().mockReturnValue(makeChain({ data: owners })) };
+          // .select('user_id').eq('role','owner').range() → owner の user_id 行
+          return { select: jest.fn().mockReturnValue(makeChain({ data: ownerUserIds.map((id) => ({ user_id: id })), error: ownersQueryError })) };
         case 'profiles':
-          return { select: jest.fn().mockReturnValue(makeChain({ data: unsubProfiles })) };
+          // 2 用途: .in('id',...)=owner email 取得 / .eq('email_unsubscribed',true)=配信停止
+          return {
+            select: jest.fn().mockReturnValue({
+              in: jest.fn().mockReturnValue(makeChain({ data: profilesQueryError ? null : ownerEmails.map((e) => ({ email: e })), error: profilesQueryError })),
+              eq: jest.fn().mockReturnValue(makeChain({ data: unsubProfiles })),
+            }),
+          };
         case 'newsletter_subscriptions':
           return { select: jest.fn().mockReturnValue(makeChain({ data: unsubNewsletter })) };
         case 'newsletter_send_log':
@@ -192,7 +202,8 @@ describe('GET /api/cron/newsletter-digest', () => {
 
   test('unsubscribed (profiles) excluded', async () => {
     setup({
-      owners: [{ profiles: { email: 'a@x.com' } }, { profiles: { email: 'b@x.com' } }],
+      ownerUserIds: ['u1', 'u2'],
+      ownerEmails: ['a@x.com', 'b@x.com'],
       unsubProfiles: [{ email: 'a@x.com' }],
     });
     await GET(makeRequest() as any);
@@ -202,7 +213,8 @@ describe('GET /api/cron/newsletter-digest', () => {
 
   test('unsubscribed (newsletter_subscriptions) excluded', async () => {
     setup({
-      owners: [{ profiles: { email: 'a@x.com' } }, { profiles: { email: 'b@x.com' } }],
+      ownerUserIds: ['u1', 'u2'],
+      ownerEmails: ['a@x.com', 'b@x.com'],
       unsubNewsletter: [{ email: 'b@x.com' }],
     });
     await GET(makeRequest() as any);
@@ -269,27 +281,46 @@ describe('GET /api/cron/newsletter-digest', () => {
     errSpy.mockRestore();
   });
 
-  test('owner profiles as array → email extracted', async () => {
-    setup({ owners: [{ profiles: [{ email: 'arr@x.com' }] }] });
-    await GET(makeRequest() as any);
-    expect(mockSend.mock.calls[0][0].to[0]).toBe('arr@x.com');
+  test('owner query error → fail-safe abort (no send, skipped)', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ ownersQueryError: { message: 'facility_members unreadable' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.skipped).toBe(true);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(mockCampaignUpdate).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith('[newsletter-digest] owner query failed — aborting', expect.any(Object));
+    errSpy.mockRestore();
   });
 
-  test('owner with null profiles → filtered out', async () => {
-    setup({ owners: [{ profiles: null }, { profiles: { email: 'ok@x.com' } }] });
+  test('profiles query error → fail-safe abort (no send, skipped)', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setup({ profilesQueryError: { message: 'profiles unreadable' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.skipped).toBe(true);
+    expect(mockSend).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith('[newsletter-digest] profiles query failed — aborting', expect.any(Object));
+    errSpy.mockRestore();
+  });
+
+  test('owner with null email → filtered out', async () => {
+    setup({ ownerUserIds: ['u1', 'u2'], ownerEmails: [null, 'ok@x.com'] });
     await GET(makeRequest() as any);
     const sentTo = mockSend.mock.calls.map((c) => c[0].to[0]);
     expect(sentTo).toEqual(['ok@x.com']);
   });
 
   test('duplicate owner emails deduped', async () => {
-    setup({ owners: [{ profiles: { email: 'dup@x.com' } }, { profiles: { email: 'dup@x.com' } }] });
+    setup({ ownerUserIds: ['u1', 'u2'], ownerEmails: ['dup@x.com', 'dup@x.com'] });
     await GET(makeRequest() as any);
     expect(mockSend).toHaveBeenCalledTimes(1);
   });
 
   test('no sendable owners → completed, marks sent, no send', async () => {
-    setup({ owners: [] });
+    setup({ ownerUserIds: [] });
     const res = await GET(makeRequest() as any);
     const json = await res.json();
     expect(mockSend).not.toHaveBeenCalled();
@@ -343,7 +374,7 @@ describe('GET /api/cron/newsletter-digest', () => {
 
   test('time budget exceeded → defers, not completed, skipped log', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    setup({ owners: [{ profiles: { email: 'a@x.com' } }, { profiles: { email: 'b@x.com' } }] });
+    setup({ ownerUserIds: ['u1', 'u2'], ownerEmails: ['a@x.com', 'b@x.com'] });
     // loopStart 後の最初のガードで予算超過させる
     jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(10_000_000);
     const res = await GET(makeRequest() as any);
