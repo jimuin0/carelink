@@ -44,9 +44,12 @@ function setupDefaultMocks(
         not: jest
           .fn()
           .mockReturnValue({
-            limit: jest.fn().mockResolvedValue({
-              data: facilitiesData,
-              error: null,
+            // .order('gbp_synced_at', {ascending,nullsFirst}).limit() で rotation
+            order: jest.fn().mockReturnValue({
+              limit: jest.fn().mockResolvedValue({
+                data: facilitiesData,
+                error: null,
+              }),
             }),
           }),
       }),
@@ -143,10 +146,12 @@ describe('GET /api/cron/sync-google-ratings', () => {
     await GET(makeRequest() as any);
 
     const updateCall = mockUpdate.mock.calls[0];
-    expect(updateCall[0]).toEqual({
+    expect(updateCall[0]).toEqual(expect.objectContaining({
       google_rating: 4.8,
       google_review_count: 125,
-    });
+    }));
+    // rotation: 必ず gbp_synced_at も更新される
+    expect(updateCall[0].gbp_synced_at).toEqual(expect.any(String));
   });
 
   test('no valid place data → skipped', async () => {
@@ -201,7 +206,7 @@ describe('GET /api/cron/sync-google-ratings', () => {
   });
 
   test('facility lookup error → logs error', async () => {
-    mockSelect().eq().not().limit.mockResolvedValue({
+    mockSelect().eq().not().order().limit.mockResolvedValue({
       data: null,
       error: { message: 'Query error' },
     });
@@ -217,12 +222,29 @@ describe('GET /api/cron/sync-google-ratings', () => {
     );
   });
 
-  test('processes max 200 facilities per run', async () => {
-    setupDefaultMocks(200);
+  test('rotation: orders by gbp_synced_at asc nullsFirst', async () => {
+    setupDefaultMocks(2);
 
     await GET(makeRequest() as any);
 
-    expect(fetchPlaceDetails).toHaveBeenCalledTimes(200);
+    const orderFn = mockSelect().eq().not().order;
+    expect(orderFn).toHaveBeenCalledWith('gbp_synced_at', { ascending: true, nullsFirst: true });
+  });
+
+  test('time budget exceeded → defers rest, no processing', async () => {
+    setupDefaultMocks(3);
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // loopStart=1000、最初のガードで予算超過 → 1件も処理せず全件 defer
+    jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(99_999_999);
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(json.deferred).toBe(3);
+    expect(json.processed).toBe(0);
+    expect(fetchPlaceDetails).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledWith('[sync-google-ratings] time budget exceeded, deferring rest to next run', expect.objectContaining({ deferred: 3 }));
+    warnSpy.mockRestore();
   });
 
   test('logs success with processed count', async () => {
@@ -300,7 +322,9 @@ describe('GET /api/cron/sync-google-ratings', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 not: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+                  order: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({ data: null, error: null }),
+                  }),
                 }),
               }),
             }),
@@ -325,9 +349,11 @@ describe('GET /api/cron/sync-google-ratings', () => {
             select: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
                 not: jest.fn().mockReturnValue({
-                  limit: jest.fn().mockResolvedValue({
-                    data: [{ id: 'fac-x', gbp_place_id: null }],
-                    error: null,
+                  order: jest.fn().mockReturnValue({
+                    limit: jest.fn().mockResolvedValue({
+                      data: [{ id: 'fac-x', gbp_place_id: null }],
+                      error: null,
+                    }),
                   }),
                 }),
               }),
