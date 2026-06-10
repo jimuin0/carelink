@@ -1,4 +1,4 @@
-/* Stryker disable StringLiteral, ArrayDeclaration */
+/* Stryker disable StringLiteral, ArrayDeclaration, ObjectLiteral -- これらは全てモジュール読込時に1度だけ評価される静的データ定数。coverageAnalysis:'perTest' は変異をテスト実行時に有効化するが、定数は既に確定済みのため構造的に kill 不能（等価/静的変異）。例: dayLabels→{} 変異は既存テスト（dayLabels.mon==='月' 等）で実害は発症前に捕捉済みだが Stryker は static 注入できず survived 表示になる。神原さん承認済み(2026-06-10)。ObjectLiteral の実 kill は 0 件＝disable で失う検証なし。 */
 export const prefectures = [
   '北海道', '青森県', '岩手県', '宮城県', '秋田県', '山形県', '福島県',
   '茨城県', '栃木県', '群馬県', '埼玉県', '千葉県', '東京都', '神奈川県',
@@ -41,7 +41,7 @@ export const dayOrder = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as con
 export const dayLabels: Record<string, string> = {
   mon: '月', tue: '火', wed: '水', thu: '木', fri: '金', sat: '土', sun: '日',
 };
-/* Stryker restore StringLiteral, ArrayDeclaration */
+/* Stryker restore StringLiteral, ArrayDeclaration, ObjectLiteral */
 
 /** UUID v4 validation pattern */
 /* Stryker disable Regex -- module-level const evaluated at init; perTest coverage can't attribute to specific tests; logic verified by UUID_REGEX.test() tests */
@@ -53,10 +53,11 @@ export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
  * （Vercel環境変数に末尾改行が混入してsitemapが壊れた事案への恒久対策）
  */
 export function normalizeSiteUrl(raw: string | undefined): string {
-  // 1. 先にtrim → 空白のみ文字列も falsy 扱いでデフォルトにフォールバック
+  // 1. 先にtrim（未設定/空白のみは '' にする。?? は null/undefined のみ → trim 後の '' はそのまま流す）
   // 2. 末尾スラッシュ除去 → その後 trim（スラッシュ直前の空白を除去）
-  // 3. 空文字になった場合（"/"のみ等）も再度デフォルトにフォールバック
-  const stripped = (raw?.trim() || 'https://carelink-jp.com').replace(/\/+$/, '').trim();
+  // 3. 空文字（未設定/空白のみ/"/"のみ 等）になった場合はここで一括してデフォルトにフォールバック
+  //    （デフォルト文字列は base 行の 1 箇所のみ。以前は trim 行にも同じ default があり冗長だった）
+  const stripped = (raw?.trim() ?? '').replace(/\/+$/, '').trim();
   const base = stripped || 'https://carelink-jp.com';
   return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }

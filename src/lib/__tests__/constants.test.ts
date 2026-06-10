@@ -217,4 +217,12 @@ describe('normalizeSiteUrl', () => {
   test('www + 末尾スラッシュの組み合わせ', () => {
     expect(normalizeSiteUrl('https://www.carelink-jp.com/')).toBe('https://carelink-jp.com');
   });
+
+  test('前後空白＋末尾スラッシュ → 先に外側 trim してからスラッシュ除去する（L59 先頭 .trim() 必須）', () => {
+    // L59 MethodExpression mutation: 先頭の raw?.trim() を省略（raw のまま）すると、
+    // .replace(/\/+$/,'') が末尾の空白にマッチせずスラッシュが残り、最後の .trim() 後も
+    // "https://carelink-jp.com/" となって失敗する（Vercel 環境変数に空白＋末尾スラッシュが
+    // 混入した実シナリオ＝防御対象）。先に外側 trim する原本のみ "https://carelink-jp.com" を返す。
+    expect(normalizeSiteUrl(' https://carelink-jp.com/ ')).toBe('https://carelink-jp.com');
+  });
 });
