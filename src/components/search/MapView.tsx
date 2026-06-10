@@ -7,6 +7,15 @@ interface Props {
   facilities: FacilityCardData[];
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export default function MapView({ facilities }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -58,9 +67,9 @@ export default function MapView({ facilities }: Props) {
         const rating = f.rating_avg ? `★${f.rating_avg}` : '';
         marker.bindPopup(
           `<div style="min-width:180px">` +
-          `<a href="/facility/${f.slug}" style="font-weight:bold;color:#0ea5e9;text-decoration:none">${f.name}</a>` +
-          `<div style="font-size:12px;color:#666;margin-top:4px">${f.prefecture || ''}${f.city || ''}</div>` +
-          `<div style="font-size:12px;margin-top:2px">${rating} ${price}</div>` +
+          `<a href="/facility/${encodeURIComponent(f.slug)}" style="font-weight:bold;color:#0ea5e9;text-decoration:none">${escapeHtml(f.name)}</a>` +
+          `<div style="font-size:12px;color:#666;margin-top:4px">${escapeHtml(f.prefecture || '')}${escapeHtml(f.city || '')}</div>` +
+          `<div style="font-size:12px;margin-top:2px">${escapeHtml(rating)} ${escapeHtml(price)}</div>` +
           `</div>`
         );
       }
