@@ -4,7 +4,12 @@ const config = {
   testRunner: 'jest',
   reporters: ['progress', 'clear-text', 'json'],
   checkers: ['typescript'],
-  tsconfigFile: 'tsconfig.json',
+  // tsconfig.json ではなく Stryker 専用 tsconfig を使う。tsconfig.json は include に
+  // .next/types/**/*.ts を含むため、Next.js が build/dev 時に生成するルート型（ブランチ依存で
+  // stale 化し、main 不在ルートを参照して TS2307 を出す）に TS チェッカーが巻き込まれてクラッシュし、
+  // ミューテーション実測前に異常終了していた（過去に「100%確定」と誤報告した直接原因）。
+  // tsconfig.stryker.json は .next を一切 include しないため .next の状態に依存せず再現性100%。
+  tsconfigFile: 'tsconfig.stryker.json',
   jest: {
     // src/lib/__tests__/ のみ実行・testEnvironment が @stryker-mutator/jest-runner/jest-env/node の専用コンフィグ
     configFile: 'jest.stryker-lib.config.js',
