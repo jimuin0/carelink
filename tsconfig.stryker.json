@@ -1,0 +1,23 @@
+{
+  "//": "Stryker (L4 ミューテーション) 専用 tsconfig。tsconfig.json を継承するが include から .next/types を外し、Next.js の build/dev 生成型（ブランチ依存で stale 化しルート不在 TS2307 を出す）に一切依存させない。これにより Stryker の TS チェッカーが .next の状態に関わらず再現性100%で動く（恒久的根本解決）。incremental:false で本体の .tsbuildinfo を汚さない（副作用防止）。本体 tsconfig.json は無変更＝build/dev/通常 tsc に影響なし。",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "incremental": false
+  },
+  "include": [
+    "next-env.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "e2e",
+    "playwright.config.ts",
+    "**/__tests__/**",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "jest.config.js",
+    "jest.setup.ts",
+    ".next"
+  ]
+}
