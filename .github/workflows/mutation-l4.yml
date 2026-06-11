@@ -1,0 +1,110 @@
+name: L4 Mutation Testing (weekly)
+
+# L4（Stryker ミューテーションテスト）を継続的な発症前予防として CI 化する。
+# 背景: L4 は手動スナップショットだったため、コード変更で取りこぼし（Survived）が
+# 生まれても手動再実行まで気づけなかった。本 workflow で週次＋手動実行し、回帰を自動検知する。
+#
+# 設計:
+# - 純粋関数10モジュールを matrix で「別ランナー」並列実行（1マシン並行ではないので OOM 無し）。
+# - 各ランナーは新規で低負荷なため jest 起動由来の偽の時間切れが起きにくい。
+# - 合否判定は二重: (1) stryker の break:100 で Survived>0 を fail、
+#   (2) mutation.json を解析し Timeout>0 でも fail（純粋関数はループ無し＝時間切れは偽陽性で
+#   取りこぼしをマスクし得るため、「Survived=0 かつ Timeout=0」を最高品質ゲートとして強制）。
+# - いずれかのモジュールが落ちたら Slack（carelinkBot）へ通知。
+#
+# 必要な secrets: SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL（既存 workflow と共通）。
+
+on:
+  schedule:
+    - cron: '0 18 * * 6'   # JST 日曜 03:00（週次）
+  workflow_dispatch: {}
+
+# 同時実行を抑止（長時間ジョブの多重起動防止）
+concurrency:
+  group: mutation-l4
+  cancel-in-progress: false
+
+jobs:
+  mutation:
+    name: mutate ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - i18n
+          - seo-constants
+          - seo-snippets
+          - constants
+          - safe
+          - image-utils
+          - jobs
+          - validations
+          - validations-booking
+          - validations-auth
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+
+      - name: Run Stryker on ${{ matrix.module }}
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://fake.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
+        # break:100 により Survived>0 なら非ゼロ終了でこのステップが失敗する。
+        run: npx stryker run stryker.config.mjs --mutate "src/lib/${{ matrix.module }}.ts" --concurrency 2
+
+      - name: Assert no masked timeouts (Timeout=0)
+        # Stryker は Timeout を kill 扱いにするため break:100 では時間切れマスクを検知できない。
+        # 純粋関数はループ無し＝時間切れは偽陽性で取りこぼしを隠し得るので、Timeout>0 は明示的に fail。
+        run: |
+          node -e '
+            const r = require("./reports/mutation/mutation.json");
+            const f = r.files["src/lib/${{ matrix.module }}.ts"];
+            if (!f) { console.error("module not found in report"); process.exit(1); }
+            const c = {};
+            for (const m of f.mutants) c[m.status] = (c[m.status] || 0) + 1;
+            console.log("counts:", JSON.stringify(c));
+            const survived = c.Survived || 0;
+            const timeout = c.Timeout || 0;
+            if (survived > 0) { console.error("Survived=" + survived); process.exit(1); }
+            if (timeout > 0) { console.error("Timeout=" + timeout + "（偽の時間切れ＝マスク疑い。再実行 or timeoutMS 見直し）"); process.exit(1); }
+            console.log("OK: Survived=0 / Timeout=0");
+          '
+
+  notify:
+    name: Slack notify on failure
+    needs: mutation
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify Slack
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_DEFAULT_CHANNEL: ${{ secrets.SLACK_DEFAULT_CHANNEL }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 <<PY
+          import json, os, urllib.request
+          token = os.environ['SLACK_BOT_TOKEN']
+          channel = os.environ['SLACK_DEFAULT_CHANNEL']
+          run_url = os.environ['RUN_URL']
+          text = f"🔴 *L4 ミューテーションテスト失敗*\n> どこかのモジュールで Survived>0 または Timeout>0（取りこぼし/時間切れマスク）。\n> Run: {run_url}"
+          req = urllib.request.Request(
+              'https://slack.com/api/chat.postMessage',
+              data=json.dumps({'channel': channel, 'text': text}).encode('utf-8'),
+              headers={
+                  'Authorization': f'Bearer {token}',
+                  'Content-Type': 'application/json; charset=utf-8',
+              },
+          )
+          try:
+              urllib.request.urlopen(req, timeout=10)
+              print("✅ Slack notified")
+          except Exception as e:
+              print(f"⚠️ Slack post failed: {e}")
+          PY
