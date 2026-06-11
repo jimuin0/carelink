@@ -53,11 +53,14 @@ export const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9
  * （Vercel環境変数に末尾改行が混入してsitemapが壊れた事案への恒久対策）
  */
 export function normalizeSiteUrl(raw: string | undefined): string {
-  // 1. 先にtrim（未設定/空白のみは '' にする。?? は null/undefined のみ → trim 後の '' はそのまま流す）
-  // 2. 末尾スラッシュ除去 → その後 trim（スラッシュ直前の空白を除去）
-  // 3. 空文字（未設定/空白のみ/"/"のみ 等）になった場合はここで一括してデフォルトにフォールバック
-  //    （デフォルト文字列は base 行の 1 箇所のみ。以前は trim 行にも同じ default があり冗長だった）
-  const stripped = (raw?.trim() ?? '').replace(/\/+$/, '').trim();
+  // 1. 未設定/null は '' に（?? は null/undefined のみ）→ trim で前後空白除去
+  // 2. 末尾の「空白・スラッシュの連続」を /[\s/]+$/ で一括除去（順序非依存・冪等）。
+  //    旧実装は .replace(/\/+$/,'').trim() の順で、"a/ "（スラッシュの後ろに空白）や
+  //    "https://carelink-jp.com/ " のように末尾スラッシュの後に空白がある入力を取りこぼし、
+  //    末尾 "/" 追加で結果が変わる不変条件違反があった（fast-check が検出）。空白とスラッシュを
+  //    まとめて落とすことで「末尾 / 追加は結果に影響しない」を全入力で保証する。
+  // 3. 空文字（未設定/空白のみ/"/"のみ 等）はここで一括してデフォルトにフォールバック（default は1箇所）
+  const stripped = (raw ?? '').trim().replace(/[\s/]+$/, '');
   const base = stripped || 'https://carelink-jp.com';
   return base.replace(/^https?:\/\/www\.carelink-jp\.com/i, 'https://carelink-jp.com');
 }
