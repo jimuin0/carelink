@@ -97,6 +97,18 @@ describe('getTransformUrl', () => {
     const result = getTransformUrl(supabaseUrl, { quality: 0 });
     expect(result).toContain('quality=0');
   });
+
+  test('width 未指定なら width パラメータを付けない（L27 条件 if(true) 化を kill）', () => {
+    // options.width が undefined のとき、条件が常時 true 化すると width=undefined が付く。
+    const result = getTransformUrl(supabaseUrl, { height: 300 });
+    expect(result).not.toContain('width=');
+  });
+
+  test('quality 未指定なら quality パラメータを付けない（L29 条件 if(true) 化を kill）', () => {
+    // options.quality が undefined のとき、条件が常時 true 化すると quality=undefined が付く。
+    const result = getTransformUrl(supabaseUrl, { width: 400 });
+    expect(result).not.toContain('quality=');
+  });
 });
 
 describe('thumbUrl', () => {
