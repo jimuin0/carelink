@@ -19,7 +19,8 @@ export type AuditAction =
   | 'reject'
   | 'cancel'
   | 'confirm'
-  | 'export';
+  | 'export'
+  | 'booking_adjust_request';
 
 export interface AuditLogEntry {
   userId?: string | null;

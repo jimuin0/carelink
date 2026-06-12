@@ -1,21 +1,22 @@
 /**
  * @jest-environment node
  *
- * Tests for GET /api/cron/booking-reminder
+ * Tests for GET /api/cron/booking-reminder（多段リマインダー版）
  * Key assertions:
  *   - CRON_SECRET validation
- *   - JST date calculation (UTC+9)
- *   - Tomorrow's confirmed bookings query
- *   - Idempotency via sent_reminders upsert
+ *   - JST 対象日算出（1日後/3日後/7日後）
+ *   - 設定（facility_reminder_settings）・エンタイトルメント（facility_entitlements）による送信ゲート
+ *   - メール（1d 無料無条件 / 7d 無料設定 / 3d 有料）・LINE（3d/7d 有料）
+ *   - Idempotency via sent_reminders (booking_id, reminder_date, kind)
  *   - Race condition handling (30-second window)
- *   - Email sending (fire-and-forget)
- *   - Facility name lookup
+ *   - 実時間予算ガード（deferred）
  */
 
 jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/email');
+jest.mock('@/lib/line');
 jest.mock('@sentry/nextjs', () => ({
   captureException: jest.fn(),
 }), { virtual: true });
@@ -24,96 +25,150 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { GET } from '../route';
 
-let mockBookingsSelect: jest.Mock;
-let mockFacilitiesSelect: jest.Mock;
-let mockRemindersUpsert: jest.Mock;
-let mockRemindersSelect: jest.Mock;
-let mockSendBookingReminder: jest.Mock;
+// システム時刻 2026-05-15T00:00:00Z = JST 2026-05-15 09:00 → 対象日:
+const D1 = '2026-05-16'; // 前日リマインド対象（明日）
+const D3 = '2026-05-18'; // 3日前リマインド対象
+const D7 = '2026-05-22'; // 7日前リマインド対象
 
-function setupDefaultMocks(
-  bookingsCount: number = 2,
-  upsertSucceeds: boolean = true,
-  reminderClaimed: boolean = true
-) {
+type Booking = {
+  id: string; customer_name: string | null; email: string | null;
+  booking_date: string; start_time: string; end_time: string;
+  facility_id: string; total_price: number | null;
+  user_id: string | null; menu_id: string | null;
+};
+
+function booking(over: Partial<Booking> = {}): Booking {
+  return {
+    id: `bk-${Math.abs(JSON.stringify(over).split('').reduce((a, c) => a + c.charCodeAt(0), 0))}-${over.id ?? ''}`,
+    customer_name: 'Customer',
+    email: 'customer@example.com',
+    booking_date: D1,
+    start_time: '10:00',
+    end_time: '11:00',
+    facility_id: 'fac-0',
+    total_price: 5000,
+    user_id: null,
+    menu_id: null,
+    ...over,
+  };
+}
+
+type Cfg = {
+  bookings?: { data: Booking[]; error?: unknown };
+  facilities?: { data: { id: string; name: string | null }[] | null };
+  settings?: { data: Record<string, unknown>[] | null; error?: unknown };
+  entitlements?: { data: { facility_id: string; option_key: string }[] | null; error?: unknown };
+  lineLinks?: { data: { user_id: string | null; line_user_id: string }[] | null; error?: unknown };
+  menus?: { data: { id: string; name: string }[] | null; error?: unknown };
+  upsertError?: unknown;
+  /** claim 検証 select の戻り（既定: 直近 sent_at=now-5s で勝ち） */
+  claimedAt?: () => string | null;
+};
+
+let mockUpsert: jest.Mock;
+let mockEmailReminder: jest.Mock;
+let mockLineReminder: jest.Mock;
+let bookingsInMock: jest.Mock;
+
+function setup(cfg: Cfg = {}) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
+  (logCronRun as jest.Mock).mockResolvedValue(undefined);
 
-  const bookingsData = Array.from({ length: bookingsCount }, (_, i) => ({
-    id: `booking-${i}`,
-    customer_name: `Customer ${i}`,
-    email: `customer${i}@example.com`,
-    booking_date: '2026-05-16',
-    start_time: `${9 + i}:00`,
-    end_time: `${10 + i}:00`,
-    facility_id: `fac-${i % 2}`,
-    total_price: 5000 + i * 1000,
-  }));
+  const bookingsData = cfg.bookings?.data ?? [booking({ id: 'a' }), booking({ id: 'b', facility_id: 'fac-1' })];
+  const bookingsError = cfg.bookings?.error ?? null;
 
-  const bookingsMockEq = jest.fn();
-  bookingsMockEq.mockReturnValue({
-    eq: bookingsMockEq,
-    // .select().eq(booking_date).eq(status).order('id').range() → fetchAllPaged
-    order: jest.fn().mockReturnValue({
-      // range(from,to) を尊重して slice（fetchAllPaged の正しいページング検証のため）
-      range: jest.fn().mockImplementation((from: number, to: number) =>
-        Promise.resolve({ data: bookingsData.slice(from, to + 1), error: null })),
-    }),
-  });
-  mockBookingsSelect = jest.fn().mockReturnValue({ eq: bookingsMockEq });
-
-  const facilitiesData = [
-    { id: 'fac-0', name: 'Salon A' },
-    { id: 'fac-1', name: 'Salon B' },
-  ];
-
-  mockFacilitiesSelect = jest.fn().mockReturnValue({
-    in: jest.fn().mockResolvedValue({
-      data: facilitiesData,
-      error: null,
-    }),
-  });
-
-  mockRemindersUpsert = jest.fn().mockResolvedValue({
-    error: upsertSucceeds ? null : { message: 'Upsert failed' },
-  });
-
-  mockRemindersSelect = jest.fn().mockReturnValue({
+  bookingsInMock = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        single: jest.fn().mockResolvedValue({
-          data: reminderClaimed
-            ? { sent_at: '2026-05-14T23:59:55.000Z' }
-            : null,
-        }),
+      order: jest.fn().mockReturnValue({
+        range: jest.fn().mockImplementation((from: number, to: number) =>
+          Promise.resolve(bookingsError
+            ? { data: null, error: bookingsError }
+            : { data: bookingsData.slice(from, to + 1), error: null })),
       }),
     }),
   });
+
+  mockUpsert = jest.fn().mockImplementation(() => Promise.resolve({ error: cfg.upsertError ?? null }));
+  const claimedAt = cfg.claimedAt ?? (() => new Date(Date.now() - 5_000).toISOString());
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn((table: string) => {
       if (table === 'bookings') {
-        return { select: mockBookingsSelect };
-      } else if (table === 'facility_profiles') {
-        return { select: mockFacilitiesSelect };
-      } else if (table === 'sent_reminders') {
+        return { select: jest.fn().mockReturnValue({ in: bookingsInMock }) };
+      }
+      if (table === 'facility_profiles') {
         return {
-          upsert: mockRemindersUpsert,
-          select: mockRemindersSelect,
+          select: jest.fn().mockReturnValue({
+            in: jest.fn().mockResolvedValue({ data: cfg.facilities?.data === undefined ? [{ id: 'fac-0', name: 'Salon A' }, { id: 'fac-1', name: 'Salon B' }] : cfg.facilities.data, error: null }),
+          }),
         };
       }
+      if (table === 'facility_reminder_settings') {
+        return {
+          select: jest.fn().mockReturnValue({
+            // cfg.settings 未指定時のみ既定 []。data:null 指定はそのまま null を返す
+            // （route 側の ?? [] フォールバック分岐を実際に踏ませるため）。
+            in: jest.fn().mockResolvedValue({ data: cfg.settings === undefined ? [] : cfg.settings.data, error: cfg.settings?.error ?? null }),
+          }),
+        };
+      }
+      if (table === 'facility_entitlements') {
+        return {
+          select: jest.fn().mockReturnValue({
+            in: jest.fn().mockReturnValue({
+              eq: jest.fn().mockResolvedValue({ data: cfg.entitlements?.data ?? [], error: cfg.entitlements?.error ?? null }),
+            }),
+          }),
+        };
+      }
+      if (table === 'line_user_links') {
+        return {
+          select: jest.fn().mockReturnValue({
+            in: jest.fn().mockResolvedValue({ data: cfg.lineLinks === undefined ? [] : cfg.lineLinks.data, error: cfg.lineLinks?.error ?? null }),
+          }),
+        };
+      }
+      if (table === 'facility_menus') {
+        return {
+          select: jest.fn().mockReturnValue({
+            in: jest.fn().mockResolvedValue({ data: cfg.menus === undefined ? [] : cfg.menus.data, error: cfg.menus?.error ?? null }),
+          }),
+        };
+      }
+      if (table === 'sent_reminders') {
+        return {
+          upsert: mockUpsert,
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  single: jest.fn().mockImplementation(() => {
+                    const at = claimedAt();
+                    return Promise.resolve({ data: at === null ? null : { sent_at: at } });
+                  }),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
     }),
   });
 
-  mockSendBookingReminder = jest.fn().mockResolvedValue(undefined);
   const emailModule = require('@/lib/email');
-  emailModule.sendBookingReminder = mockSendBookingReminder;
+  mockEmailReminder = jest.fn().mockResolvedValue(undefined);
+  emailModule.sendBookingReminder = mockEmailReminder;
 
-  (logCronRun as jest.Mock).mockResolvedValue(undefined);
+  const lineModule = require('@/lib/line');
+  mockLineReminder = jest.fn().mockResolvedValue(true);
+  lineModule.sendBookingReminder = mockLineReminder;
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
-  setupDefaultMocks();
+  setup();
   jest.useFakeTimers();
   jest.setSystemTime(new Date('2026-05-15T00:00:00Z'));
 });
@@ -125,7 +180,7 @@ afterEach(() => {
 function makeRequest() {
   return new Request('http://localhost/api/cron/booking-reminder', {
     method: 'GET',
-    headers: { 'Authorization': 'Bearer cron-secret' },
+    headers: { Authorization: 'Bearer cron-secret' },
   });
 }
 
@@ -133,383 +188,434 @@ describe('GET /api/cron/booking-reminder', () => {
   test('CRON_SECRET check failed → returns error', async () => {
     const errorResponse = new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
     (checkCronAuth as jest.Mock).mockReturnValue(errorResponse);
-
     const res = await GET(makeRequest() as any);
-
     expect(res.status).toBe(401);
   });
 
-  test('valid cron request → 200 with sent count', async () => {
-    const res = await GET(makeRequest() as any);
+  test('対象日は JST の 1/3/7 日後（.in に3日付）', async () => {
+    await GET(makeRequest() as any);
+    expect(bookingsInMock).toHaveBeenCalledWith('booking_date', [D1, D3, D7]);
+  });
 
+  test('前日（1d）メールは設定なしでも無条件送信（従来挙動・無料）', async () => {
+    const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(typeof json.processed).toBe('number');
-    expect(typeof json.skipped).toBe('number');
-    expect(typeof json.total).toBe('number');
-  });
-
-  test("calculates tomorrow's date in JST", async () => {
-    // Mock time: 2026-05-15T00:00:00Z = 2026-05-15T09:00:00 JST
-    // Tomorrow JST = 2026-05-16
-
-    await GET(makeRequest() as any);
-
-    const call = mockBookingsSelect().eq.mock.calls[0];
-    expect(call[1]).toBe('2026-05-16');
-  });
-
-  test('no bookings for tomorrow → skipped with 0', async () => {
-    setupDefaultMocks(0);
-
-    const res = await GET(makeRequest() as any);
-
-    const json = await res.json();
-    expect(json.sent).toBe(0);
-  });
-
-  test('booking without email → skipped', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({
-                      data: [
-                        {
-                          id: 'booking-no-email',
-                          customer_name: 'No Email',
-                          email: null,
-                          booking_date: '2026-05-16',
-                          start_time: '09:00',
-                          end_time: '10:00',
-                          facility_id: 'fac-0',
-                          total_price: 5000,
-                        },
-                      ],
-                      error: null,
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          };
-        } else if (table === 'facility_profiles') {
-          return {
-            select: jest.fn().mockReturnValue({
-              in: jest.fn().mockResolvedValue({
-                data: [{ id: 'fac-0', name: 'Salon A' }],
-              }),
-            }),
-          };
-        } else if (table === 'sent_reminders') {
-          return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
-        }
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-
-    const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
-  });
-
-  test('sends reminder email for claimed bookings', async () => {
-    await GET(makeRequest() as any);
-
-    expect(mockSendBookingReminder).toHaveBeenCalled();
-    const call = mockSendBookingReminder.mock.calls[0];
-    expect(call[0]).toEqual(
-      expect.objectContaining({
-        customerName: expect.any(String),
-        customerEmail: expect.any(String),
-        facilityName: expect.any(String),
-        bookingDate: '2026-05-16',
-        totalPrice: expect.any(Number),
-      })
+    expect(json.processed).toBe(2);
+    // daysBefore=1 が渡る
+    expect(mockEmailReminder).toHaveBeenCalledWith(
+      expect.objectContaining({ bookingDate: D1, customerEmail: 'customer@example.com' }),
+      1,
     );
   });
 
-  test('upsert sent_reminders for idempotency', async () => {
-    setupDefaultMocks(1);
-
-    await GET(makeRequest() as any);
-
-    expect(mockRemindersUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        booking_id: 'booking-0',
-        reminder_date: '2026-05-16',
-      }),
-      { onConflict: 'booking_id,reminder_date', ignoreDuplicates: true }
-    );
-  });
-
-  test('upsert error → skipped', async () => {
-    setupDefaultMocks(1, false);
-
-    const res = await GET(makeRequest() as any);
-
-    const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
-  });
-
-  test('race condition: reminder claimed >30s ago → skipped', async () => {
-    mockRemindersSelect = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({
-            data: { sent_at: new Date(Date.now() - 40000).toISOString() },
-          }),
-        }),
-      }),
-    });
-
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') return { select: mockBookingsSelect };
-        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-        if (table === 'sent_reminders') {
-          return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
-        }
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-
-    const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
-  });
-
-  test('facility name lookup by facility_id', async () => {
-    setupDefaultMocks(2);
-
-    await GET(makeRequest() as any);
-
-    const facilityCall = mockFacilitiesSelect().in.mock.calls[0];
-    expect(facilityCall[0]).toBe('id');
-    expect(facilityCall[1]).toContain('fac-0');
-    expect(facilityCall[1]).toContain('fac-1');
-  });
-
-  test('booking lookup filters by tomorrow and confirmed status', async () => {
-    await GET(makeRequest() as any);
-
-    const firstCall = mockBookingsSelect().eq.mock.calls[0];
-    expect(firstCall[0]).toBe('booking_date');
-    expect(firstCall[1]).toBe('2026-05-16');
-
-    const secondCall = mockBookingsSelect().eq.mock.calls[1];
-    expect(secondCall[0]).toBe('status');
-    expect(secondCall[1]).toBe('confirmed');
-  });
-
-  test('logs success with processed count', async () => {
-    setupDefaultMocks(3);
-
-    await GET(makeRequest() as any);
-
-    expect(logCronRun).toHaveBeenCalledWith(
-      'booking-reminder',
-      'success',
-      expect.any(Date),
-      expect.objectContaining({
-        processed: expect.any(Number),
-        skipped: expect.any(Number),
-      })
-    );
-  });
-
-  test('email send exception → skipped', async () => {
-    mockSendBookingReminder.mockRejectedValue(new Error('Email API error'));
-
-    const res = await GET(makeRequest() as any);
-
-    const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
-  });
-
-  test('database error during booking lookup → 500', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation(() => { throw new Error('Database error'); }),
-    });
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(500);
-  });
-
-  test('bookings query returns null → sent=0 early return', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({ data: null, error: null }),
-                  }),
-                }),
-              }),
-            }),
-          };
-        }
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    const json = await res.json();
-    expect(json.sent).toBe(0);
-  });
-
-  test('facilities lookup returns null → empty facilityMap, empty facilityName', async () => {
-    setupDefaultMocks(1);
-    mockFacilitiesSelect = jest.fn().mockReturnValue({
-      in: jest.fn().mockResolvedValue({ data: null, error: null }),
-    });
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') return { select: mockBookingsSelect };
-        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
-      }),
-    });
-
-    await GET(makeRequest() as any);
-    expect(mockSendBookingReminder).toHaveBeenCalledWith(
-      expect.objectContaining({ facilityName: '' })
-    );
-  });
-
-  test('total_price null → totalPrice undefined', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({
-                      data: [{
-                        id: 'b-1',
-                        customer_name: 'C',
-                        email: 'c@example.com',
-                        booking_date: '2026-05-16',
-                        start_time: '10:00',
-                        end_time: '11:00',
-                        facility_id: 'fac-0',
-                        total_price: null,
-                      }],
-                      error: null,
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          };
-        }
-        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
-      }),
-    });
-
-    await GET(makeRequest() as any);
-    expect(mockSendBookingReminder).toHaveBeenCalledWith(
-      expect.objectContaining({ totalPrice: undefined })
-    );
-  });
-
-  test('claim not found in re-read (null claimed) → skipped', async () => {
-    setupDefaultMocks(1);
-    mockRemindersSelect = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          single: jest.fn().mockResolvedValue({ data: null }),
-        }),
-      }),
-    });
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') return { select: mockBookingsSelect };
-        if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-        if (table === 'sent_reminders') return { upsert: mockRemindersUpsert, select: mockRemindersSelect };
-      }),
-    });
-
-    const res = await GET(makeRequest() as any);
-    const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
-  });
-
-  test('non-Error throw → String fallback in error path', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn().mockImplementation(() => { throw 'plain string'; }),
-    });
-
+  test('bookings クエリエラー → 500', async () => {
+    setup({ bookings: { data: [], error: { message: 'db down' } } });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
   });
 
-  test('includes facility name in email params', async () => {
-    setupDefaultMocks(1);
-
-    await GET(makeRequest() as any);
-
-    const emailCall = mockSendBookingReminder.mock.calls[0];
-    expect(emailCall[0].facilityName).toBe('Salon A');
+  test('対象予約なし → skipped 0 件で 200', async () => {
+    setup({ bookings: { data: [] } });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.sent).toBe(0);
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'skipped', expect.any(Date), expect.any(Object));
   });
 
-  test('consider limit reached + time budget exceeded → warns and defers', async () => {
-    jest.useRealTimers();
-    setupDefaultMocks(5000); // length === CONSIDER_LIMIT
+  test('CONSIDER_LIMIT 到達で警告ログ', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    // loopStart=1000、最初のガードで予算超過 → 1件も送らず全件 defer
-    jest.spyOn(Date, 'now').mockReturnValueOnce(1000).mockReturnValue(99_999_999);
-
-    const res = await GET(makeRequest() as any);
-    const json = await res.json();
-
-    expect(json.deferred).toBe(5000);
-    expect(json.processed).toBe(0);
-    expect(mockSendBookingReminder).not.toHaveBeenCalled();
-    expect(warnSpy).toHaveBeenCalledWith('[booking-reminder] consider limit reached', expect.objectContaining({ limit: 5000 }));
-    expect(warnSpy).toHaveBeenCalledWith('[booking-reminder] time budget exceeded, deferring rest to next run', expect.objectContaining({ deferred: 5000 }));
+    const many = Array.from({ length: 5000 }, (_, i) => booking({ id: String(i), email: null }));
+    setup({ bookings: { data: many } });
+    await GET(makeRequest() as any);
+    expect(warnSpy).toHaveBeenCalledWith('[booking-reminder] consider limit reached', { limit: 5000 });
     warnSpy.mockRestore();
   });
 
-  test('bookings query error → 500 (fail-safe)', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({ data: null, error: { message: 'boom' } }),
-                  }),
-                }),
-              }),
-            }),
-          };
-        }
-      }),
-    });
+  test('1d で email なし → 送信プラン対象外（processed 0）', async () => {
+    setup({ bookings: { data: [booking({ email: null })] } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+    expect(json.processed).toBe(0);
+  });
 
+  test('7d メール: 設定 ON で送信（無料・エンタイトルメント不要）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7 })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: true, remind_3d_email: false, remind_7d_line: false, remind_3d_line: false }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockEmailReminder).toHaveBeenCalledWith(expect.objectContaining({ bookingDate: D7 }), 7);
+  });
+
+  test('7d メール: 設定なし（行なし）→ 送らない', async () => {
+    setup({ bookings: { data: [booking({ booking_date: D7 })] } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('3d メール: 設定 ON でもエンタイトルメント無しなら送らない（有料ゲート）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3 })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: true, remind_7d_line: false, remind_3d_line: false }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('3d メール: 設定 ON ＋ reminder_email_3d 購入済み → 送信', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3 })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: true, remind_7d_line: false, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_email_3d' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockEmailReminder).toHaveBeenCalledWith(expect.objectContaining({ bookingDate: D3 }), 3);
+  });
+
+  test('7d LINE: 設定＋reminder_line 購入＋LINE連携あり → LINE送信（メニュー名解決）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', menu_id: 'm1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      menus: { data: [{ id: 'm1', name: 'カット' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({
+      facilityName: 'Salon A', menuName: 'カット', date: D7, daysBefore: 7,
+    }));
+  });
+
+  test('3d LINE: 設定＋購入＋連携 → LINE送信（daysBefore 3）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: false, remind_3d_line: true }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    // menu_id null → フォールバック「ご予約」
+    expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({ menuName: 'ご予約', daysBefore: 3 }));
+  });
+
+  test('LINE: 送信 false → skipped にカウント', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    mockLineReminder.mockResolvedValue(false);
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(0);
+  });
+
+  test('LINE: user_id なし予約は購入済みでも対象外', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: null })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('LINE: エンタイトルメント無し（reminder_line 未購入）は設定 ON でも対象外', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_email_3d' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('LINE: 連携（line_user_links）が無いユーザーは対象外', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('line_user_links の user_id null 行は無視（マッピングしない）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: null, line_user_id: 'LINE-X' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('設定取得エラー → fail-safe（1d メールは送る・任意リマインドは送らない）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D1 }), booking({ booking_date: D7, id: 'x' })] },
+      settings: { data: null, error: { message: 'settings down' } },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1); // 1d のみ
+  });
+
+  test('設定 data null（エラーなし）→ ?? [] で安全', async () => {
+    setup({ settings: { data: null } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(2);
+  });
+
+  test('エンタイトルメント取得エラー → fail-safe（未購入扱い・有料リマインドを送らない）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3 })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: true, remind_7d_line: false, remind_3d_line: false }] },
+      entitlements: { data: null, error: { message: 'ent down' } },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    // 設定 ON でもエンタイトルメント取得失敗 → 未購入扱い（誤って無料開放しない安全側）
+    expect(json.planned).toBe(0);
+    expect(json.processed).toBe(0);
+  });
+
+  test('line_user_links 取得エラー → fail-safe（LINE 送らない）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: null, error: { message: 'links down' } },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('facility_menus 取得エラー → fail-safe（「ご予約」表記で送る）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', menu_id: 'm1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      menus: { data: null, error: { message: 'menus down' } },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({ menuName: 'ご予約' }));
+  });
+
+  test('施設名が引けない場合は空文字で送る（facilities data null）', async () => {
+    setup({ bookings: { data: [booking()] }, facilities: { data: null } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockEmailReminder).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }), 1);
+  });
+
+  test('claim は (booking_id, reminder_date, kind) で upsert される', async () => {
+    setup({ bookings: { data: [booking({ id: 'one' })] } });
+    await GET(makeRequest() as any);
+    expect(mockUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({ reminder_date: D1, kind: 'email_1d' }),
+      { onConflict: 'booking_id,reminder_date,kind', ignoreDuplicates: true },
+    );
+  });
+
+  test('claim upsert エラー → skipped（重複送信より安全側）', async () => {
+    setup({ bookings: { data: [booking()] }, upsertError: { message: 'upsert failed' } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(0);
+  });
+
+  test('race: 30秒より古い claim → 他 invocation の勝ち → skipped', async () => {
+    setup({ bookings: { data: [booking()] }, claimedAt: () => new Date(Date.now() - 40_000).toISOString() });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+  });
+
+  test('race: claim 行が読めない（null）→ skipped', async () => {
+    setup({ bookings: { data: [booking()] }, claimedAt: () => null });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+  });
+
+  test('メール送信 throw → skipped（バッチ全体は止めない）', async () => {
+    setup({ bookings: { data: [booking()] } });
+    mockEmailReminder.mockRejectedValue(new Error('resend down'));
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(0);
+  });
+
+  test('実時間予算超過 → 残りを deferred して打ち切り', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setup({ bookings: { data: [booking({ id: 'p1' }), booking({ id: 'p2' }), booking({ id: 'p3' })] } });
+    // 1件目の claim 中に時計を 60 秒進める → 2件目のループ先頭で予算超過
+    mockUpsert.mockImplementation(() => {
+      jest.advanceTimersByTime(60_000);
+      return Promise.resolve({ error: null });
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.deferred).toBe(2);
+    expect(json.processed).toBe(1);
+    warnSpy.mockRestore();
+  });
+
+  test('予期しない例外 → 500 + cron error ログ', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockImplementation(() => { throw new Error('boom'); });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'boom' }));
+  });
+
+  test('Error 以外の throw も文字列化して 500', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockImplementation(() => { throw 'string-error'; });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'string-error' }));
+  });
+
+  test('line_user_links data null（エラーなし）→ ?? [] で安全', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: null },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('facility_menus data null（エラーなし）→ ?? [] で安全（フォールバック表記）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1', menu_id: 'm1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      menus: { data: null },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({ menuName: 'ご予約' }));
+  });
+
+  test('total_price null → totalPrice undefined で送信', async () => {
+    setup({ bookings: { data: [booking({ total_price: null })] } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockEmailReminder).toHaveBeenCalledWith(expect.objectContaining({ totalPrice: undefined }), 1);
+  });
+
+  test('7d メール: 設定 ON でも email なし → 送らない', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, email: null })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: true, remind_3d_email: false, remind_7d_line: false, remind_3d_line: false }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('3d メール: 設定＋購入済みでも email なし → 送らない', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3, email: null })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: true, remind_7d_line: false, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_email_3d' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('7d LINE: 設定 OFF（remind_7d_line=false）は購入済み＋連携ありでも送らない', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: false, remind_3d_line: true }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('3d LINE: 設定 OFF（remind_3d_line=false）は購入済みでも送らない', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('対象3日付以外の booking_date が混じっても安全に無視（防御的分岐）', async () => {
+    setup({ bookings: { data: [booking({ booking_date: '2026-05-20' })] } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+    expect(json.processed).toBe(0);
+  });
+
+  test('7d LINE: 設定 ON だがエンタイトルメント行ゼロ（ent undefined）→ 送らない', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('3d LINE: 設定 ON だがエンタイトルメント行ゼロ → 送らない', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D3, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: false, remind_3d_line: true }] },
+      entitlements: { data: [] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('3d: 設定行なし（s undefined）→ 何も送らない', async () => {
+    setup({ bookings: { data: [booking({ booking_date: D3, user_id: 'u1' })] } });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('対象外日付＋LINE条件が揃った予約も filter 段階で安全に無視', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: '2026-05-20', user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: true, remind_3d_email: true, remind_7d_line: true, remind_3d_line: true }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }, { facility_id: 'fac-0', option_key: 'reminder_email_3d' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  test('LINE 送信時も施設名が引けなければ空文字で送る', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      facilities: { data: null },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.processed).toBe(1);
+    expect(mockLineReminder).toHaveBeenCalledWith('LINE-1', expect.objectContaining({ facilityName: '' }));
+  });
+
+  test('成功時 logCronRun に planned/deferred メタを記録', async () => {
+    await GET(makeRequest() as any);
+    expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'success', expect.any(Date), expect.objectContaining({
+      processed: 2,
+      meta: expect.objectContaining({ total_bookings: 2, planned: 2, deferred: 0 }),
+    }));
   });
 });

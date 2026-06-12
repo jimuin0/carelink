@@ -181,10 +181,14 @@ export async function sendBookingReminder(
     date: string;
     time: string;
     staffName?: string;
+    /** 何日前リマインドか（1=明日・既定 / 3=3日後 / 7=7日後 の文言） */
+    daysBefore?: number;
   }
 ): Promise<boolean> {
   const staffLine = booking.staffName ? `\n担当: ${booking.staffName}` : '';
-  const text = `🔔 明日のご予約リマインド\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}${staffLine}\n\nお気をつけてお越しください。`;
+  const days = booking.daysBefore ?? 1;
+  const when = days === 1 ? '明日' : `${days}日後`;
+  const text = `🔔 ${when}のご予約リマインド\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}${staffLine}\n\nお気をつけてお越しください。`;
   return sendLineText(lineUserId, text);
 }
 

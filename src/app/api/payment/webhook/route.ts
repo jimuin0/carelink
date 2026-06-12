@@ -69,6 +69,29 @@ export async function POST(request: Request) {
       const bookingId = session.metadata?.booking_id;
       const amountTotal = session.amount_total;
 
+      // 有料オプション（施設向け月額サブスク）の購入完了 → エンタイトルメント自動有効化。
+      // /api/options/checkout が metadata に facility_id + option_key を載せる。
+      const optionKey = session.metadata?.option_key;
+      const facilityId = session.metadata?.facility_id;
+      if (optionKey && facilityId) {
+        const { error } = await supabase
+          .from('facility_entitlements')
+          .upsert({
+            facility_id: facilityId,
+            option_key: optionKey,
+            status: 'active',
+            stripe_subscription_id: (session.subscription as string) ?? null,
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'facility_id,option_key' });
+        if (error) {
+          console.error('[payment/webhook] CRITICAL: failed to activate entitlement', { facilityId, optionKey, eventId: event.id, error });
+          // 500 で Stripe にリトライさせる（stripe_events 冪等ガード済み…ではなく
+          // 冪等行は挿入済みのためリトライは duplicate になる。手動照合が必要な旨をログで残す）
+          return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+        }
+        break;
+      }
+
       if (bookingId) {
         const { error } = await supabase
           .from('bookings')
@@ -156,12 +179,25 @@ export async function POST(request: Request) {
       break;
     }
 
+    case 'customer.subscription.deleted': {
+      // 有料オプションの解約 → エンタイトルメント自動無効化（有料機能の使い続け防止）
+      const sub = event.data.object as Stripe.Subscription;
+      const { error } = await supabase
+        .from('facility_entitlements')
+        .update({ status: 'canceled', updated_at: new Date().toISOString() })
+        .eq('stripe_subscription_id', sub.id);
+      if (error) {
+        console.error('[payment/webhook] CRITICAL: failed to cancel entitlement', { subscriptionId: sub.id, eventId: event.id, error });
+        return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+      }
+      break;
+    }
+
     case 'customer.subscription.created':
     case 'customer.subscription.updated':
-    case 'customer.subscription.deleted':
     case 'invoice.payment_succeeded':
     case 'invoice.payment_failed':
-      // subscription機能は将来実装予定。stripe_eventsテーブルで記録済み。
+      // 上記以外の subscription イベントは現状処理不要。stripe_eventsテーブルで記録済み。
       break;
 
     default:

@@ -429,10 +429,18 @@ describe('POST /api/payment/webhook', () => {
     expect(res.status).toBe(200);
   });
 
-  test('customer.subscription.deleted → 200', async () => {
-    mockConstructEvent.mockReturnValue({ id: 'evt_sub_deleted', type: 'customer.subscription.deleted', data: { object: {} } });
+  test('customer.subscription.deleted → エンタイトルメント無効化して 200', async () => {
+    // v: オプション課金導入で no-op から「facility_entitlements を canceled に更新」へ変更
+    mockConstructEvent.mockReturnValue({ id: 'evt_sub_deleted', type: 'customer.subscription.deleted', data: { object: { id: 'sub_old' } } });
+    const entUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+    mockFromDelegate.mockImplementation((table: string) => {
+      if (table === 'stripe_events') return { insert: mockInsert };
+      if (table === 'bookings') return { update: mockUpdate };
+      if (table === 'facility_entitlements') return { update: entUpdate };
+    });
     const res = await POST(makeRequest('{}', 'sig') as any);
     expect(res.status).toBe(200);
+    expect(entUpdate).toHaveBeenCalledWith(expect.objectContaining({ status: 'canceled' }));
   });
 
   test('invoice.payment_succeeded → 200', async () => {
@@ -635,6 +643,90 @@ describe('POST /api/payment/webhook', () => {
       });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(200);
+    });
+
+    // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───
+
+    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown } = {}) {
+      const entUpsert = jest.fn().mockResolvedValue({ error: opts.upsertError ?? null });
+      const entUpdate = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: opts.updateError ?? null }),
+      });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'stripe_events') return { insert: mockInsert };
+        if (table === 'bookings') return { update: mockUpdate };
+        if (table === 'facility_entitlements') return { upsert: entUpsert, update: entUpdate };
+      });
+      return { entUpsert, entUpdate };
+    }
+
+    test('checkout.session.completed（option metadata）→ エンタイトルメント有効化', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_123',
+      });
+      const { entUpsert } = setupEntitlementTables();
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(entUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          facility_id: 'fac-1',
+          option_key: 'reminder_line',
+          status: 'active',
+          stripe_subscription_id: 'sub_123',
+        }),
+        { onConflict: 'facility_id,option_key' },
+      );
+    });
+
+    test('checkout.session.completed（option, subscription なし）→ null で保存', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+      });
+      const { entUpsert } = setupEntitlementTables();
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(entUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ stripe_subscription_id: null }),
+        expect.any(Object),
+      );
+    });
+
+    test('option エンタイトルメント有効化失敗 → 500（Stripe リトライ）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_123',
+      });
+      setupEntitlementTables({ upsertError: { message: 'db down' } });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(500);
+    });
+
+    test('option_key のみ（facility_id 欠落）→ option 分岐に入らず 200', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { option_key: 'reminder_line' },
+      });
+      const { entUpsert } = setupEntitlementTables();
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(entUpsert).not.toHaveBeenCalled();
+    });
+
+    test('customer.subscription.deleted → エンタイトルメント無効化（canceled）', async () => {
+      setupEventMock('customer.subscription.deleted', { id: 'sub_123' });
+      const { entUpdate } = setupEntitlementTables();
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(entUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'canceled' }),
+      );
+    });
+
+    test('customer.subscription.deleted 更新失敗 → 500（Stripe リトライ）', async () => {
+      setupEventMock('customer.subscription.deleted', { id: 'sub_123' });
+      setupEntitlementTables({ updateError: { message: 'db down' } });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(500);
     });
   });
 });

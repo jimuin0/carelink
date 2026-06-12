@@ -212,6 +212,44 @@ describe('sendBookingReminder', () => {
     const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
     expect(JSON.parse(opts.body).messages[0].text).toContain('Yamada');
   });
+
+  test('daysBefore 省略時は「明日」文言（従来挙動）', async () => {
+    mockFetchOk();
+    await sendBookingReminder('user-1', {
+      facilityName: 'Salon',
+      menuName: 'Perm',
+      date: '2024-01-15',
+      time: '11:00',
+    });
+    const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(JSON.parse(opts.body).messages[0].text).toContain('明日のご予約リマインド');
+  });
+
+  test('daysBefore=7 は「7日後」文言', async () => {
+    mockFetchOk();
+    await sendBookingReminder('user-1', {
+      facilityName: 'Salon',
+      menuName: 'Perm',
+      date: '2024-01-22',
+      time: '11:00',
+      daysBefore: 7,
+    });
+    const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(JSON.parse(opts.body).messages[0].text).toContain('7日後のご予約リマインド');
+  });
+
+  test('daysBefore=3 は「3日後」文言', async () => {
+    mockFetchOk();
+    await sendBookingReminder('user-1', {
+      facilityName: 'Salon',
+      menuName: 'Perm',
+      date: '2024-01-18',
+      time: '11:00',
+      daysBefore: 3,
+    });
+    const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(JSON.parse(opts.body).messages[0].text).toContain('3日後のご予約リマインド');
+  });
 });
 
 describe('verifyLineSignature', () => {
