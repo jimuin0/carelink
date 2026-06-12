@@ -4,6 +4,7 @@ import { useEffect, useState, use } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
 
 const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
@@ -213,6 +214,9 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           </div>
         )}
       </div>
+
+      {/* 時間調整のお願い（メール無料/LINE有料オプション） */}
+      <AdjustRequestButtons bookingId={booking.id} status={booking.status} />
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>

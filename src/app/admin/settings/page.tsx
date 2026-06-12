@@ -10,6 +10,7 @@ import dynamic from 'next/dynamic';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
+const ReminderUpsellSettings = dynamic(() => import('@/components/admin/ReminderUpsellSettings'), { ssr: false });
 
 interface BusinessHours {
   [key: string]: { open: string; close: string } | null;
@@ -503,6 +504,9 @@ export default function AdminSettingsPage() {
 
       {/* 通知設定（v8.1） */}
       {facilityId && <NotificationSettings facilityId={facilityId} />}
+
+      {/* リマインダー設定＋有料オプション（アップセル） */}
+      {facilityId && <ReminderUpsellSettings facilityId={facilityId} />}
 
       {/* GBP連携（Googleビジネスプロフィール） */}
       <section className="bg-white rounded-xl shadow-sm p-6 mt-6">

@@ -113,8 +113,35 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
   }, 'booking_confirmation');
 }
 
-/** 予約リマインド通知（前日） */
-export async function sendBookingReminder(data: BookingEmailData) {
+/**
+ * 予約リマインド通知（前日/3日前/7日前）
+ * daysBefore: 1=明日（既定・従来挙動）/ 3=3日後 / 7=7日後 の文言で送る。
+ */
+export async function sendBookingReminder(data: BookingEmailData, daysBefore: number = 1) {
+  const resend = getResend();
+  if (!resend) return;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
+  const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
+  await safeSend(resend, {
+    from: FROM,
+    to: data.customerEmail,
+    subject: escSubject(`【CareLink】${when}のご予約リマインド - ${data.facilityName}`),
+    html: wrapHtml(`
+      <p>${name} 様</p>
+      <p>${when}、${facility}のご予約がございます。</p>
+      ${bookingDetailHtml(data)}
+      <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+    `),
+  }, 'booking_reminder');
+}
+
+/**
+ * 予約時間調整のお願い（施設→顧客）
+ * SB の予約詳細から送信する。メール送信は無料（LINE 送信は有料オプション）。
+ */
+export async function sendTimeAdjustRequest(data: BookingEmailData) {
   const resend = getResend();
   if (!resend) return;
   const name = esc(data.customerName);
@@ -122,15 +149,15 @@ export async function sendBookingReminder(data: BookingEmailData) {
   await safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
-    subject: escSubject(`【CareLink】明日のご予約リマインド - ${data.facilityName}`),
+    subject: escSubject(`【CareLink】ご予約時間調整のお願い - ${data.facilityName}`),
     html: wrapHtml(`
       <p>${name} 様</p>
-      <p>明日、${facility}のご予約がございます。</p>
+      <p>${facility}より、ご予約のお時間について調整のお願いがございます。</p>
       ${bookingDetailHtml(data)}
-      <p>お忘れなく、お時間に余裕を持ってご来店ください。</p>
-      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約詳細を見る</a></p>
+      <p>恐れ入りますが、マイページの予約変更または施設へのご連絡にて、ご都合の良いお時間をお知らせください。</p>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を変更する</a></p>
     `),
-  }, 'booking_reminder');
+  }, 'time_adjust_request');
 }
 
 /** 予約確定通知（顧客向け） */

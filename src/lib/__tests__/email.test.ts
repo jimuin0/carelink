@@ -61,6 +61,41 @@ describe('sendBookingReminder', () => {
     const args = mockSend.mock.calls[0][0];
     expect(args.subject).toContain('リマインド');
   });
+
+  test('daysBefore 省略時は「明日」文言（従来挙動）', async () => {
+    await sendBookingReminder(baseData);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.subject).toContain('明日');
+    expect(args.html).toContain('明日');
+  });
+
+  test('daysBefore=3 は「3日後」文言', async () => {
+    await sendBookingReminder(baseData, 3);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.subject).toContain('3日後');
+    expect(args.html).toContain('3日後');
+    expect(args.subject).not.toContain('明日');
+  });
+
+  test('daysBefore=7 は「7日後」文言', async () => {
+    await sendBookingReminder(baseData, 7);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.subject).toContain('7日後');
+  });
+});
+
+describe('sendTimeAdjustRequest', () => {
+  test('時間調整のお願いメールを送信する（件名・顧客名・施設名）', async () => {
+    const { sendTimeAdjustRequest } = require('../email');
+    await sendTimeAdjustRequest(baseData);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('test@example.com');
+    expect(args.subject).toContain('時間調整のお願い');
+    expect(args.subject).toContain('テストサロン');
+    expect(args.html).toContain('テスト太郎');
+    expect(args.html).toContain('調整のお願い');
+  });
 });
 
 describe('sendBookingConfirmed', () => {
@@ -281,6 +316,7 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     };
     await mod.sendBookingConfirmation(minData);
     await mod.sendBookingReminder(minData);
+    await mod.sendTimeAdjustRequest(minData);
     await mod.sendBookingConfirmed(minData);
     await mod.sendBookingCancelled(minData);
     await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });

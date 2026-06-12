@@ -4,6 +4,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
+import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
 
 // Vercel Cron: runs daily at 9:00 JST (0:00 UTC)
 export const dynamic = 'force-dynamic';
@@ -15,8 +16,27 @@ export const maxDuration = 60;
 const CONSIDER_LIMIT = 5000;
 // 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌 run へ回す。
 const SEND_BUDGET_MS = 50 * 1000;
-// facility 名取得の .in() を chunk するサイズ（PostgREST の URL 長制限回避）。
+// .in() を chunk するサイズ（PostgREST の URL 長制限回避）。
 const IN_CHUNK = 500;
+
+// リマインド対象（予約日まで何日か）。1=前日（無料・無条件、従来挙動）。
+// 7=7日前（無料・施設設定で ON）。3=3日前（有料オプション）。LINE は 3/7 とも有料オプション。
+const REMINDER_DAYS = [1, 3, 7] as const;
+
+type ReminderKind = 'email_1d' | 'email_3d' | 'email_7d' | 'line_3d' | 'line_7d';
+
+type BookingRow = {
+  id: string; customer_name: string | null; email: string | null;
+  booking_date: string; start_time: string; end_time: string;
+  facility_id: string; total_price: number | null;
+  user_id: string | null; menu_id: string | null;
+};
+
+type ReminderSettings = {
+  facility_id: string;
+  remind_7d_email: boolean; remind_3d_email: boolean;
+  remind_7d_line: boolean; remind_3d_line: boolean;
+};
 
 export async function GET(request: Request) {
   // Verify cron secret (timing-safe)
@@ -28,27 +48,24 @@ export async function GET(request: Request) {
     // Use service role client to bypass RLS (cron has no auth context)
     const supabase = createServiceRoleClient();
 
-    // Get tomorrow's date in JST (UTC+9)
+    // JST（UTC+9）基準で対象日を算出（1日後/3日後/7日後）
     const now = new Date();
     const jstNow = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const tomorrow = new Date(jstNow.getTime() + 24 * 60 * 60 * 1000);
-    const tomorrowStr = tomorrow.toISOString().split('T')[0];
+    const dateToDays = new Map<string, (typeof REMINDER_DAYS)[number]>();
+    for (const d of REMINDER_DAYS) {
+      const target = new Date(jstNow.getTime() + d * 24 * 60 * 60 * 1000);
+      dateToDays.set(target.toISOString().split('T')[0], d);
+    }
+    const targetDates = Array.from(dateToDays.keys());
 
-    // Find confirmed bookings for tomorrow（全件取得）。
-    // 旧実装は .limit(200) で、翌日の確定予約が 200 件を超えると 201 件目以降がリマインド未送信
-    // のまま翌日には窓（booking_date=明日）から外れ永久に送られなかった（silent な恒久 miss）。
-    // fetchAllPaged で全件・id 昇順（決定的）に取得し、送信は実時間予算ガードで打ち切る。
-    type BookingRow = {
-      id: string; customer_name: string | null; email: string | null;
-      booking_date: string; start_time: string; end_time: string;
-      facility_id: string; total_price: number | null;
-    };
+    // 対象3日付の confirmed 予約を全件取得（id 昇順・決定的）。
+    // 旧実装は .limit(200) silent miss の教訓から fetchAllPaged + 実時間予算ガード。
     const { rows: bookings, error: bookingsErr } = await fetchAllPaged<BookingRow>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('bookings')
-          .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price')
-          .eq('booking_date', tomorrowStr)
+          .select('id, customer_name, email, booking_date, start_time, end_time, facility_id, total_price, user_id, menu_id')
+          .in('booking_date', targetDates)
           .eq('status', 'confirmed')
           .order('id', { ascending: true })
           .range(offset, offset + limit - 1);
@@ -71,8 +88,9 @@ export async function GET(request: Request) {
       console.warn('[booking-reminder] consider limit reached', { limit: CONSIDER_LIMIT });
     }
 
-    // Get facility names（.in() を chunk して URL 長制限を回避）。
     const facilityIds = Array.from(new Set(bookings.map((b) => b.facility_id)));
+
+    // 施設名（chunked .in）
     const facilityMap = new Map<string, string | null>();
     for (let i = 0; i < facilityIds.length; i += IN_CHUNK) {
       const idChunk = facilityIds.slice(i, i + IN_CHUNK);
@@ -83,31 +101,114 @@ export async function GET(request: Request) {
       for (const f of facilities ?? []) facilityMap.set(f.id, f.name);
     }
 
-    // Dynamic import to avoid loading Resend unnecessarily
-    const { sendBookingReminder } = await import('@/lib/email');
+    // リマインダー設定（chunked .in）。取得エラーは fail-safe（設定なし=任意リマインド送らない・
+    // 前日メールは従来どおり送る）。silent にしない（Sentry 可視化）。
+    const settingsMap = new Map<string, ReminderSettings>();
+    for (let i = 0; i < facilityIds.length; i += IN_CHUNK) {
+      const idChunk = facilityIds.slice(i, i + IN_CHUNK);
+      const { data: settingsRows, error: settingsErr } = await supabase
+        .from('facility_reminder_settings')
+        .select('facility_id, remind_7d_email, remind_3d_email, remind_7d_line, remind_3d_line')
+        .in('facility_id', idChunk);
+      if (settingsErr) {
+        safeCaptureException(settingsErr, 'booking-reminder-settings');
+        continue;
+      }
+      for (const s of (settingsRows ?? []) as ReminderSettings[]) settingsMap.set(s.facility_id, s);
+    }
+
+    // エンタイトルメント（有料オプション購入状態）。エラーは fail-safe=未購入扱い（安全側）。
+    // 完全型付きクライアントを構造的型へ明示キャストし TS2589（深い型インスタンス化）を回避（実体同一）。
+    const { map: entMap, errors: entErrors } = await getEntitlementsByFacility(supabase as unknown as EntitlementsClient, facilityIds);
+    for (const e of entErrors) safeCaptureException(e, 'booking-reminder-entitlements');
+
+    // LINE 連携（user_id → line_user_id）。LINE 送信が有効になり得る予約の user_id のみ解決。
+    const lineCandidateUserIds = Array.from(new Set(
+      bookings
+        .filter((b) => {
+          if (!b.user_id) return false;
+          const days = dateToDays.get(b.booking_date);
+          const s = settingsMap.get(b.facility_id);
+          const ent = entMap.get(b.facility_id);
+          if (!s || !ent || !ent.has('reminder_line')) return false;
+          return (days === 7 && s.remind_7d_line) || (days === 3 && s.remind_3d_line);
+        })
+        .map((b) => b.user_id as string),
+    ));
+    const lineMap = new Map<string, string>();
+    for (let i = 0; i < lineCandidateUserIds.length; i += IN_CHUNK) {
+      const idChunk = lineCandidateUserIds.slice(i, i + IN_CHUNK);
+      const { data: links, error: linksErr } = await supabase
+        .from('line_user_links')
+        .select('user_id, line_user_id')
+        .in('user_id', idChunk);
+      if (linksErr) {
+        safeCaptureException(linksErr, 'booking-reminder-line-links');
+        continue;
+      }
+      for (const l of links ?? []) {
+        if (l.user_id) lineMap.set(l.user_id, l.line_user_id);
+      }
+    }
+
+    // メニュー名（LINE 文面用・chunked .in）。エラーは fail-safe=「ご予約」表記。
+    const menuIds = Array.from(new Set(bookings.map((b) => b.menu_id).filter((m): m is string => !!m)));
+    const menuMap = new Map<string, string>();
+    for (let i = 0; i < menuIds.length; i += IN_CHUNK) {
+      const idChunk = menuIds.slice(i, i + IN_CHUNK);
+      const { data: menus, error: menusErr } = await supabase
+        .from('facility_menus')
+        .select('id, name')
+        .in('id', idChunk);
+      if (menusErr) {
+        safeCaptureException(menusErr, 'booking-reminder-menus');
+        continue;
+      }
+      for (const m of menus ?? []) menuMap.set(m.id, m.name);
+    }
+
+    // 送信プランを組み立て（booking × kind）。
+    const plan: { booking: BookingRow; kind: ReminderKind; days: number }[] = [];
+    for (const booking of bookings) {
+      const days = dateToDays.get(booking.booking_date);
+      const s = settingsMap.get(booking.facility_id);
+      const ent = entMap.get(booking.facility_id);
+      const lineId = booking.user_id ? lineMap.get(booking.user_id) : undefined;
+
+      if (days === 1) {
+        // 前日メール: 従来挙動（無料・無条件）
+        if (booking.email) plan.push({ booking, kind: 'email_1d', days: 1 });
+      } else if (days === 7) {
+        if (s?.remind_7d_email && booking.email) plan.push({ booking, kind: 'email_7d', days: 7 });
+        if (s?.remind_7d_line && ent?.has('reminder_line') && lineId) plan.push({ booking, kind: 'line_7d', days: 7 });
+      } else if (days === 3) {
+        if (s?.remind_3d_email && ent?.has('reminder_email_3d') && booking.email) plan.push({ booking, kind: 'email_3d', days: 3 });
+        if (s?.remind_3d_line && ent?.has('reminder_line') && lineId) plan.push({ booking, kind: 'line_3d', days: 3 });
+      }
+    }
+
+    // Dynamic import to avoid loading Resend/LINE unnecessarily
+    const { sendBookingReminder: sendEmailReminder } = await import('@/lib/email');
+    const { sendBookingReminder: sendLineReminder } = await import('@/lib/line');
 
     let sent = 0;
     let skipped = 0;
     let deferred = 0;
     const loopStart = Date.now();
-    for (let bi = 0; bi < bookings.length; bi++) {
-      const booking = bookings[bi];
+    for (let pi = 0; pi < plan.length; pi++) {
+      const { booking, kind, days } = plan[pi];
       // 実時間予算ガード: 残りは未処理（sent_reminders 未 claim）のまま翌 run へ。
-      // 打ち切り分は logCronRun/warn で可視化する（silent 打ち切りを作らない）。
       if (Date.now() - loopStart > SEND_BUDGET_MS) {
-        deferred = bookings.length - bi;
+        deferred = plan.length - pi;
         console.warn('[booking-reminder] time budget exceeded, deferring rest to next run', { deferred });
         break;
       }
-      if (!booking.email) { skipped++; continue; }
 
-      // Idempotency: claim this (booking_id, reminder_date) slot atomically.
-      // If another cron invocation already inserted this row, ignoreDuplicates
-      // returns no error but also inserts nothing — we detect that via re-read.
+      // Idempotency: claim this (booking_id, reminder_date, kind) slot atomically.
       const { error: claimError } = await supabase
         .from('sent_reminders')
-        .upsert({ booking_id: booking.id, reminder_date: tomorrowStr }, {
-          onConflict: 'booking_id,reminder_date',
+        .upsert({ booking_id: booking.id, reminder_date: booking.booking_date, kind }, {
+          onConflict: 'booking_id,reminder_date,kind',
           ignoreDuplicates: true,
         });
 
@@ -123,7 +224,8 @@ export async function GET(request: Request) {
         .from('sent_reminders')
         .select('sent_at')
         .eq('booking_id', booking.id)
-        .eq('reminder_date', tomorrowStr)
+        .eq('reminder_date', booking.booking_date)
+        .eq('kind', kind)
         .single();
 
       // If row was inserted more than 30 seconds ago it belongs to another invocation
@@ -133,17 +235,33 @@ export async function GET(request: Request) {
       }
 
       try {
-        await sendBookingReminder({
-          customerName: booking.customer_name as string,
-          customerEmail: booking.email,
-          facilityName: facilityMap.get(booking.facility_id) || '',
-          bookingDate: booking.booking_date,
-          startTime: booking.start_time,
-          endTime: booking.end_time,
-          totalPrice: booking.total_price ?? undefined,
-          bookingId: booking.id,
-        });
-        sent++;
+        if (kind === 'email_1d' || kind === 'email_3d' || kind === 'email_7d') {
+          await sendEmailReminder({
+            customerName: booking.customer_name as string,
+            customerEmail: booking.email as string,
+            facilityName: facilityMap.get(booking.facility_id) || '',
+            bookingDate: booking.booking_date,
+            startTime: booking.start_time,
+            endTime: booking.end_time,
+            totalPrice: booking.total_price ?? undefined,
+            bookingId: booking.id,
+          }, days);
+          sent++;
+        } else {
+          const lineId = lineMap.get(booking.user_id as string) as string;
+          const ok = await sendLineReminder(lineId, {
+            facilityName: facilityMap.get(booking.facility_id) || '',
+            menuName: (booking.menu_id && menuMap.get(booking.menu_id)) || 'ご予約',
+            date: booking.booking_date,
+            time: booking.start_time,
+            daysBefore: days,
+          });
+          if (ok) {
+            sent++;
+          } else {
+            skipped++;
+          }
+        }
       } catch (e) {
         safeCaptureException(e, 'booking-reminder');
         skipped++;
@@ -153,9 +271,9 @@ export async function GET(request: Request) {
     await logCronRun('booking-reminder', 'success', startedAt, {
       processed: sent,
       skipped,
-      meta: { total_bookings: bookings.length, deferred },
+      meta: { total_bookings: bookings.length, planned: plan.length, deferred },
     });
-    return NextResponse.json({ processed: sent, skipped, total: bookings.length, deferred });
+    return NextResponse.json({ processed: sent, skipped, total: bookings.length, planned: plan.length, deferred });
   } catch (e) {
     safeCaptureException(e, 'booking-reminder-cron');
     await logCronRun('booking-reminder', 'error', startedAt, {
