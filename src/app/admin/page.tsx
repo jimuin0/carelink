@@ -64,7 +64,7 @@ export default async function AdminDashboard() {
       <SbPageHeader
         title="ダッシュボード"
         description="本日の予約状況と店舗セットアップの概要"
-        actions={<SbButtonLink href="/admin/schedule">スケジュールを見る</SbButtonLink>}
+        actions={<SbButtonLink href="/admin/schedule">サロンボードを見る</SbButtonLink>}
       />
 
       {/* オンボーディング進捗 */}

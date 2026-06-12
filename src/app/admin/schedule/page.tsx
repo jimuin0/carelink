@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { statusGanttClass, bookingStatusLabel } from '@/lib/booking-status';
 
 /**
- * スケジュール（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
+ * サロンボード（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
  *
  * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）
  * - 列: 時間軸 OPEN_HOUR〜CLOSE_HOUR（30分グリッド）
