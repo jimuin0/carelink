@@ -546,12 +546,15 @@ export type Database = {
           created_at: string | null
           customer_name: string
           email: string | null
+          email_canonical: string | null
           end_time: string
           facility_id: string
           id: string
           menu_id: string | null
+          menu_ids: string[] | null
           note: string | null
           paid_amount: number | null
+          payjp_charge_id: string | null
           payment_status: string | null
           phone: string | null
           points_used: number | null
@@ -570,12 +573,15 @@ export type Database = {
           created_at?: string | null
           customer_name: string
           email?: string | null
+          email_canonical?: string | null
           end_time: string
           facility_id: string
           id?: string
           menu_id?: string | null
+          menu_ids?: string[] | null
           note?: string | null
           paid_amount?: number | null
+          payjp_charge_id?: string | null
           payment_status?: string | null
           phone?: string | null
           points_used?: number | null
@@ -594,12 +600,15 @@ export type Database = {
           created_at?: string | null
           customer_name?: string
           email?: string | null
+          email_canonical?: string | null
           end_time?: string
           facility_id?: string
           id?: string
           menu_id?: string | null
+          menu_ids?: string[] | null
           note?: string | null
           paid_amount?: number | null
+          payjp_charge_id?: string | null
           payment_status?: string | null
           phone?: string | null
           points_used?: number | null
@@ -1152,6 +1161,7 @@ export type Database = {
           created_at: string | null
           customer_email: string
           customer_name: string
+          email_canonical: string | null
           facility_id: string
           id: string
           menu_name: string | null
@@ -1165,6 +1175,7 @@ export type Database = {
           created_at?: string | null
           customer_email: string
           customer_name: string
+          email_canonical?: string | null
           facility_id: string
           id?: string
           menu_name?: string | null
@@ -1178,6 +1189,7 @@ export type Database = {
           created_at?: string | null
           customer_email?: string
           customer_name?: string
+          email_canonical?: string | null
           facility_id?: string
           id?: string
           menu_name?: string | null
@@ -1514,6 +1526,61 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "facility_profiles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_entitlements: {
+        Row: {
+          created_at: string
+          current_period_end: string | null
+          facility_id: string
+          id: string
+          option_key: string
+          status: string
+          stripe_subscription_id: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_period_end?: string | null
+          facility_id: string
+          id?: string
+          option_key: string
+          status?: string
+          stripe_subscription_id?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_period_end?: string | null
+          facility_id?: string
+          id?: string
+          option_key?: string
+          status?: string
+          stripe_subscription_id?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_entitlements_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_entitlements_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_entitlements_option_key_fkey"
+            columns: ["option_key"]
+            isOneToOne: false
+            referencedRelation: "option_catalog"
+            referencedColumns: ["key"]
           },
         ]
       }
@@ -1932,13 +1999,13 @@ export type Database = {
       facility_profiles: {
         Row: {
           access_info: string | null
-          address: string
+          address: string | null
           building: string | null
           business_hours: Json | null
           business_hours_text: string | null
           business_type: string
           catch_copy: string | null
-          city: string
+          city: string | null
           created_at: string | null
           credit_card: boolean | null
           deposit_amount: number | null
@@ -1952,6 +2019,7 @@ export type Database = {
           gbp_cid: string | null
           gbp_connected_at: string | null
           gbp_place_id: string | null
+          gbp_synced_at: string | null
           genres: string[] | null
           google_rating: number | null
           google_review_count: number | null
@@ -1974,7 +2042,7 @@ export type Database = {
           payment_other: string | null
           phone: string | null
           postal_code: string | null
-          prefecture: string
+          prefecture: string | null
           rating_avg: number | null
           rating_count: number | null
           regular_holiday: string | null
@@ -1992,13 +2060,13 @@ export type Database = {
         }
         Insert: {
           access_info?: string | null
-          address: string
+          address?: string | null
           building?: string | null
           business_hours?: Json | null
           business_hours_text?: string | null
           business_type: string
           catch_copy?: string | null
-          city: string
+          city?: string | null
           created_at?: string | null
           credit_card?: boolean | null
           deposit_amount?: number | null
@@ -2012,6 +2080,7 @@ export type Database = {
           gbp_cid?: string | null
           gbp_connected_at?: string | null
           gbp_place_id?: string | null
+          gbp_synced_at?: string | null
           genres?: string[] | null
           google_rating?: number | null
           google_review_count?: number | null
@@ -2034,7 +2103,7 @@ export type Database = {
           payment_other?: string | null
           phone?: string | null
           postal_code?: string | null
-          prefecture: string
+          prefecture?: string | null
           rating_avg?: number | null
           rating_count?: number | null
           regular_holiday?: string | null
@@ -2052,13 +2121,13 @@ export type Database = {
         }
         Update: {
           access_info?: string | null
-          address?: string
+          address?: string | null
           building?: string | null
           business_hours?: Json | null
           business_hours_text?: string | null
           business_type?: string
           catch_copy?: string | null
-          city?: string
+          city?: string | null
           created_at?: string | null
           credit_card?: boolean | null
           deposit_amount?: number | null
@@ -2072,6 +2141,7 @@ export type Database = {
           gbp_cid?: string | null
           gbp_connected_at?: string | null
           gbp_place_id?: string | null
+          gbp_synced_at?: string | null
           genres?: string[] | null
           google_rating?: number | null
           google_review_count?: number | null
@@ -2094,7 +2164,7 @@ export type Database = {
           payment_other?: string | null
           phone?: string | null
           postal_code?: string | null
-          prefecture?: string
+          prefecture?: string | null
           rating_avg?: number | null
           rating_count?: number | null
           regular_holiday?: string | null
@@ -2161,6 +2231,48 @@ export type Database = {
             foreignKeyName: "facility_qa_facility_id_fkey"
             columns: ["facility_id"]
             isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      facility_reminder_settings: {
+        Row: {
+          facility_id: string
+          remind_3d_email: boolean
+          remind_3d_line: boolean
+          remind_7d_email: boolean
+          remind_7d_line: boolean
+          updated_at: string
+        }
+        Insert: {
+          facility_id: string
+          remind_3d_email?: boolean
+          remind_3d_line?: boolean
+          remind_7d_email?: boolean
+          remind_7d_line?: boolean
+          updated_at?: string
+        }
+        Update: {
+          facility_id?: string
+          remind_3d_email?: boolean
+          remind_3d_line?: boolean
+          remind_7d_email?: boolean
+          remind_7d_line?: boolean
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_reminder_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_reminder_settings_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: true
             referencedRelation: "facility_profiles"
             referencedColumns: ["id"]
           },
@@ -3459,6 +3571,39 @@ export type Database = {
           },
         ]
       }
+      option_catalog: {
+        Row: {
+          contact_only: boolean
+          created_at: string
+          description: string | null
+          is_active: boolean
+          key: string
+          monthly_price: number
+          name: string
+          sort_order: number
+        }
+        Insert: {
+          contact_only?: boolean
+          created_at?: string
+          description?: string | null
+          is_active?: boolean
+          key: string
+          monthly_price?: number
+          name: string
+          sort_order?: number
+        }
+        Update: {
+          contact_only?: boolean
+          created_at?: string
+          description?: string | null
+          is_active?: boolean
+          key?: string
+          monthly_price?: number
+          name?: string
+          sort_order?: number
+        }
+        Relationships: []
+      }
       package_usage_logs: {
         Row: {
           booking_id: string | null
@@ -4077,18 +4222,21 @@ export type Database = {
         Row: {
           booking_id: string
           id: string
+          kind: string
           reminder_date: string
           sent_at: string
         }
         Insert: {
           booking_id: string
           id?: string
+          kind?: string
           reminder_date: string
           sent_at?: string
         }
         Update: {
           booking_id?: string
           id?: string
+          kind?: string
           reminder_date?: string
           sent_at?: string
         }
@@ -5180,7 +5328,9 @@ export type Database = {
       webhook_retry_queue: {
         Row: {
           attempt_count: number
+          claimed_at: string | null
           created_at: string
+          delivered_at: string | null
           facility_id: string | null
           id: string
           last_error: string | null
@@ -5194,7 +5344,9 @@ export type Database = {
         }
         Insert: {
           attempt_count?: number
+          claimed_at?: string | null
           created_at?: string
+          delivered_at?: string | null
           facility_id?: string | null
           id?: string
           last_error?: string | null
@@ -5208,7 +5360,9 @@ export type Database = {
         }
         Update: {
           attempt_count?: number
+          claimed_at?: string | null
           created_at?: string
+          delivered_at?: string | null
           facility_id?: string | null
           id?: string
           last_error?: string | null
@@ -5549,6 +5703,7 @@ export type Database = {
             }
             Returns: string
           }
+      booking_status_occupies: { Args: { p_status: string }; Returns: boolean }
       check_rate_limit: {
         Args: { p_key: string; p_limit: number; p_window_ms: number }
         Returns: boolean
@@ -5746,6 +5901,17 @@ export type Database = {
           slot_start: string
         }[]
       }
+      get_facility_customers: {
+        Args: { p_facility_id: string }
+        Returns: {
+          customer_key: string
+          email: string
+          last_visit: string
+          name: string
+          phone: string
+          visit_count: number
+        }[]
+      }
       get_incident_thread: {
         Args: { p_key: string }
         Returns: {
@@ -5753,6 +5919,19 @@ export type Database = {
           thread_ts: string
         }[]
       }
+      get_month_availability: {
+        Args: {
+          p_dates: string[]
+          p_duration_minutes: number
+          p_facility_id: string
+          p_staff_ids: string[]
+        }
+        Returns: {
+          d: string
+          slots: number
+        }[]
+      }
+      get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
         Args: { facility_uuid: string }
@@ -5848,6 +6027,10 @@ export type Database = {
           seat_count: number
           slug: string
         }[]
+      }
+      set_review_pickup_atomic: {
+        Args: { p_facility_id: string; p_review_id: string }
+        Returns: undefined
       }
       st_3dclosestpoint: {
         Args: { geom1: unknown; geom2: unknown }
