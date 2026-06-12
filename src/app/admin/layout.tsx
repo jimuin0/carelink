@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
+import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
 import FacilitySelector from '@/components/admin/FacilitySelector';
 import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 
@@ -65,6 +66,103 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
 
 export { navItems };
 
+/**
+ * SB 上部タブのグループ定義（HPB サロンボード型・全 navItems を網羅して到達可能性を維持）。
+ * 並びはサロンボードのタブ順（予約管理/お客様管理/掲載管理/メッセージ管理/売上・分析/販促・連携/設定/運営）を踏襲。
+ */
+const navGroups: NavGroup[] = [
+  {
+    key: 'booking', label: '予約管理',
+    items: [
+      { href: '/admin/schedule', label: 'スケジュール' },
+      { href: '/admin/bookings', label: '予約一覧' },
+      { href: '/admin', label: 'ダッシュボード' },
+      { href: '/admin/group-bookings', label: 'グループ予約' },
+      { href: '/admin/telehealth', label: 'オンライン相談' },
+      { href: '/admin/treatment-records', label: '施術記録' },
+      { href: '/admin/treatment-plans', label: '治療計画' },
+    ],
+  },
+  {
+    key: 'customers', label: 'お客様管理',
+    items: [
+      { href: '/admin/customers', label: '顧客一覧' },
+      { href: '/admin/chat', label: 'チャット' },
+      { href: '/admin/inquiries', label: '問い合わせ' },
+      { href: '/admin/medical-docs', label: '医療書類' },
+      { href: '/admin/community', label: 'コミュニティ' },
+    ],
+  },
+  {
+    key: 'listing', label: '掲載管理',
+    items: [
+      { href: '/admin/photos', label: '写真' },
+      { href: '/admin/menus', label: 'メニュー' },
+      { href: '/admin/coupons', label: 'クーポン' },
+      { href: '/admin/packages', label: '回数券' },
+      { href: '/admin/subscription-plans', label: '月額プラン' },
+      { href: '/admin/reviews', label: '口コミ' },
+      { href: '/admin/features', label: '特集' },
+      { href: '/admin/catalog', label: 'カタログ' },
+      { href: '/admin/blog', label: 'ブログ' },
+      { href: '/admin/qa', label: 'Q&A' },
+      { href: '/admin/jobs', label: '求人' },
+      { href: '/admin/jobs/applications', label: '求人応募' },
+    ],
+  },
+  {
+    key: 'message', label: 'メッセージ管理',
+    items: [
+      { href: '/admin/newsletters', label: 'ニュースレター' },
+      { href: '/admin/email-setup', label: 'メール配信設定' },
+      { href: '/admin/line-richmenu', label: 'LINEリッチメニュー' },
+    ],
+  },
+  {
+    key: 'sales', label: '売上・分析',
+    items: [
+      { href: '/admin/payments', label: '決済管理' },
+      { href: '/admin/analytics', label: '分析' },
+      { href: '/admin/funnel', label: 'ファネル' },
+      { href: '/admin/usage-stats', label: '利用状況' },
+      { href: '/admin/accounting', label: '会計連携' },
+    ],
+  },
+  {
+    key: 'promo', label: '販促・連携',
+    items: [
+      { href: '/admin/featured-ads', label: '広告・上位表示' },
+      { href: '/admin/gbp', label: 'GBP管理' },
+      { href: '/admin/qrcode', label: 'QRコード' },
+      { href: '/admin/api-keys', label: '外部API連携' },
+      { href: '/admin/white-label', label: 'ホワイトラベル' },
+      { href: '/admin/chain', label: 'チェーン管理' },
+    ],
+  },
+  {
+    key: 'settings', label: '設定',
+    items: [
+      { href: '/admin/settings', label: '基本設定' },
+      { href: '/admin/staff', label: 'スタッフ' },
+      { href: '/admin/manual', label: '操作マニュアル' },
+      { href: '/admin/tutorials', label: 'チュートリアル' },
+      { href: '/admin/help', label: 'ヘルプ' },
+    ],
+  },
+  {
+    key: 'platform', label: '運営', platformAdmin: true,
+    items: [
+      { href: '/admin/registrations', label: '施設登録' },
+      { href: '/admin/moderation', label: 'モデレーション' },
+      { href: '/admin/feature-flags', label: 'Feature Flags' },
+      { href: '/admin/ab-tests', label: 'A/Bテスト' },
+      { href: '/admin/platform-blog', label: 'コラム' },
+      { href: '/admin/uptime', label: 'Uptime監視' },
+      { href: '/admin/cron-monitor', label: 'Cron監視' },
+    ],
+  },
+];
+
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -95,6 +193,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const isPlatformAdmin = profile?.is_platform_admin === true;
 
   const visibleNavItems = navItems.filter((item) => !item.platformAdmin || isPlatformAdmin);
+  const visibleNavGroups = navGroups.filter((g) => !g.platformAdmin || isPlatformAdmin);
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -104,57 +203,46 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <Link href="/search" className="text-sm text-gray-500">サイトへ</Link>
       </div>
 
-      <div className="flex">
-        {/* Sidebar (desktop) */}
-        <aside className="hidden lg:block w-60 bg-white border-r min-h-screen sticky top-0 overflow-y-auto">
-          <div className="p-4 border-b">
-            <Link href="/admin" className="text-lg font-bold text-primary">CareLink 管理</Link>
-            {memberships.length > 1 && (
-              <div className="mt-2">
-                <FacilitySelector
-                  memberships={memberships.map((m) => ({
-                    facility_id: m.facility_id,
-                    name: (m.facility_profiles as unknown as { name: string } | null)?.name || m.facility_id,
-                  }))}
-                  currentFacilityId={membership.facility_id}
-                />
-              </div>
-            )}
-          </div>
-          <nav className="p-2">
-            {visibleNavItems.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 rounded-lg hover:bg-sky-50 hover:text-primary transition-colors"
-              >
-                <svg className="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
-                </svg>
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-          <div className="p-4 border-t mt-2">
-            <Link href="/search" className="text-sm text-gray-600 hover:text-primary">
-              サイトに戻る
-            </Link>
-          </div>
-        </aside>
-
-        {/* Mobile bottom nav */}
-        <AdminMobileNav items={visibleNavItems} />
-
-        {/* Main */}
-        <main className="flex-1 p-4 lg:p-8 pb-20 lg:pb-8">
-          {children}
-        </main>
-
-        {/* リアルタイム予約通知 */}
-        <RealtimeBookingListener facilityId={membership.facility_id} />
-        {/* AIサポートウィジェット */}
-        <AiSupportWidget />
+      {/* ブランドバー（HPB サロンボード型・desktop） */}
+      <div className="hidden lg:flex items-center justify-between bg-white border-b px-4 py-2">
+        <div className="flex items-center gap-4">
+          <Link href="/admin" className="flex items-center gap-2">
+            <span className="inline-flex items-center justify-center w-8 h-8 rounded bg-sky-600 text-white text-sm font-black">CL</span>
+            <span className="text-base font-extrabold text-sky-700 tracking-wide leading-none">
+              CareLink<br /><span className="text-[10px] font-bold text-gray-500 tracking-widest">SALON BOARD</span>
+            </span>
+          </Link>
+          {memberships.length > 1 && (
+            <FacilitySelector
+              memberships={memberships.map((m) => ({
+                facility_id: m.facility_id,
+                name: (m.facility_profiles as unknown as { name: string } | null)?.name || m.facility_id,
+              }))}
+              currentFacilityId={membership.facility_id}
+            />
+          )}
+        </div>
+        <div className="flex items-center gap-4 text-sm">
+          <Link href="/admin/help" className="text-gray-500 hover:text-sky-600">ヘルプ</Link>
+          <Link href="/search" className="text-gray-500 hover:text-sky-600">サイトへ</Link>
+        </div>
       </div>
+
+      {/* 上部タブナビ（2段・desktop） */}
+      <AdminTopNav groups={visibleNavGroups} />
+
+      {/* Mobile bottom nav */}
+      <AdminMobileNav items={visibleNavItems} />
+
+      {/* Main */}
+      <main className="p-4 lg:p-6 pb-20 lg:pb-8 max-w-[1400px] mx-auto">
+        {children}
+      </main>
+
+      {/* リアルタイム予約通知 */}
+      <RealtimeBookingListener facilityId={membership.facility_id} />
+      {/* AIサポートウィジェット */}
+      <AiSupportWidget />
     </div>
   );
 }
