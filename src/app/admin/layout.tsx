@@ -74,9 +74,9 @@ const navGroups: NavGroup[] = [
   {
     key: 'booking', label: '予約管理',
     items: [
-      { href: '/admin/schedule', label: 'スケジュール' },
-      { href: '/admin/bookings', label: '予約一覧' },
       { href: '/admin', label: 'ダッシュボード' },
+      { href: '/admin/schedule', label: 'サロンボード' },
+      { href: '/admin/bookings', label: '予約一覧' },
       { href: '/admin/group-bookings', label: 'グループ予約' },
       { href: '/admin/telehealth', label: 'オンライン相談' },
       { href: '/admin/treatment-records', label: '施術記録' },
