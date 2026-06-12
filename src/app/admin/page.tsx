@@ -1,6 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { SbPageHeader, SbStatCard, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
 
 export default async function AdminDashboard() {
   const supabase = await createServerSupabaseAuthClient();
@@ -58,15 +59,13 @@ export default async function AdminDashboard() {
     supabase.from('customer_visits').select('customer_email', { count: 'exact', head: true }).eq('facility_id', facilityId),
   ]);
 
-  const stats = [
-    { label: '今日の予約', value: todayBookings ?? 0, href: '/admin/bookings', color: 'bg-sky-50 text-sky-700' },
-    { label: '確認待ち', value: pendingBookings ?? 0, href: '/admin/bookings?status=pending', color: 'bg-yellow-50 text-yellow-700' },
-    { label: '来店数', value: totalCustomers ?? 0, href: '/admin/customers', color: 'bg-green-50 text-green-700' },
-  ];
-
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">ダッシュボード</h1>
+      <SbPageHeader
+        title="ダッシュボード"
+        description="本日の予約状況と店舗セットアップの概要"
+        actions={<SbButtonLink href="/admin/schedule">スケジュールを見る</SbButtonLink>}
+      />
 
       {/* オンボーディング進捗 */}
       {showOnboarding && (
@@ -111,42 +110,36 @@ export default async function AdminDashboard() {
         </Link>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        {stats.map((stat) => (
-          <Link
-            key={stat.label}
-            href={stat.href}
-            className={`rounded-xl p-6 ${stat.color} hover:shadow-md transition-shadow`}
-          >
-            <p className="text-sm font-medium opacity-80">{stat.label}</p>
-            <p className="text-3xl font-bold mt-1">{stat.value}</p>
-          </Link>
-        ))}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <SbStatCard label="今日の予約" value={todayBookings ?? 0} unit="件" href="/admin/bookings" accent="sky" />
+        <SbStatCard label="確認待ち" value={pendingBookings ?? 0} unit="件" href="/admin/bookings?status=pending" accent="amber" />
+        <SbStatCard label="来店数" value={totalCustomers ?? 0} unit="人" href="/admin/customers" accent="emerald" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <h2 className="font-bold mb-4">クイックアクション</h2>
-          <div className="space-y-2">
-            <Link href="/admin/bookings" className="block p-3 rounded-lg hover:bg-gray-50 text-sm">
+        <SbCard title="クイックアクション">
+          <div className="space-y-1">
+            <Link href="/admin/bookings" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               予約を確認する →
             </Link>
-            <Link href="/admin/menus" className="block p-3 rounded-lg hover:bg-gray-50 text-sm">
+            <Link href="/admin/menus" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               メニューを管理する →
             </Link>
-            <Link href="/admin/settings" className="block p-3 rounded-lg hover:bg-gray-50 text-sm">
+            <Link href="/admin/settings" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               施設情報を編集する →
             </Link>
-            <Link href="/admin/analytics" className="block p-3 rounded-lg hover:bg-gray-50 text-sm">
+            <Link href="/admin/analytics" className="block p-2.5 rounded-md hover:bg-sky-50 text-sm text-gray-700">
               売上を分析する →
             </Link>
           </div>
-        </div>
+        </SbCard>
 
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <h2 className="font-bold mb-4">最近の予約</h2>
+        <SbCard
+          title="最近の予約"
+          action={<Link href="/admin/bookings" className="text-xs font-bold text-sky-600 hover:underline">すべて見る →</Link>}
+        >
           <RecentBookings facilityId={facilityId} />
-        </div>
+        </SbCard>
       </div>
     </div>
   );
@@ -161,36 +154,23 @@ async function RecentBookings({ facilityId }: { facilityId: string }) {
     .order('created_at', { ascending: false })
     .limit(5);
 
-  const statusColors: Record<string, string> = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    confirmed: 'bg-green-100 text-green-800',
-    completed: 'bg-gray-100 text-gray-800',
-    cancelled: 'bg-red-100 text-red-800',
-    no_show: 'bg-red-100 text-red-800',
-  };
-  const statusLabels: Record<string, string> = {
-    pending: '確認待ち', confirmed: '確定', completed: '完了', cancelled: 'キャンセル', no_show: '無断',
-  };
-
   if (!data || data.length === 0) {
     return <p className="text-sm text-gray-400">まだ予約がありません</p>;
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-1">
       {data.map((b) => (
         <Link
           key={b.id}
           href={`/admin/bookings/${b.id}`}
-          className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50"
+          className="flex items-center justify-between p-2 rounded-md hover:bg-sky-50"
         >
           <div>
-            <p className="text-sm font-medium">{b.customer_name}</p>
+            <p className="text-sm font-medium text-gray-800">{b.customer_name}</p>
             <p className="text-xs text-gray-500">{b.booking_date} {b.start_time?.slice(0, 5)}</p>
           </div>
-          <span className={`text-micro px-2 py-0.5 rounded-full font-bold ${statusColors[b.status] ?? ''}`}>
-            {statusLabels[b.status] ?? b.status}
-          </span>
+          <SbStatusChip status={b.status} />
         </Link>
       ))}
     </div>
