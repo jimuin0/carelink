@@ -38,17 +38,22 @@ export async function POST(request: NextRequest) {
 
     const adminSupabase = createServiceRoleClient();
 
-    // 既に施設を持っているか確認
-    const { data: existingMember } = await adminSupabase
+    // 既に施設を持っているか確認（1アカウント1施設の自己登録ガード）。
+    // 注意: .maybeSingle() は複数行で error+data=null を返すため、既に 2 件以上
+    // 所属している状態だとガードを素通りして 3 件目を作れてしまう。
+    // limit(1) で「1 件でも存在すれば拒否」とし、複数行でも壊れないようにする。
+    // 複数施設（チェーン）は運営が手動で facility_members を付与した場合のみ成立する。
+    const { data: existingMembers } = await adminSupabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
-      .maybeSingle();
+      .order('created_at', { ascending: true })
+      .limit(1);
 
-    if (existingMember) {
+    if (existingMembers && existingMembers.length > 0) {
       return NextResponse.json({
         success: true,
-        facilityId: existingMember.facility_id,
+        facilityId: existingMembers[0].facility_id,
         message: '既に施設が登録されています',
       });
     }

@@ -34,7 +34,6 @@ let mockFacilityInsert: jest.Mock;
 let mockMemberInsert: jest.Mock;
 let mockSalonSelect: jest.Mock;
 let mockFacilityDelete: jest.Mock;
-let mockFacilityMemberSelect: jest.Mock;
 
 function setupDefaultMocks(
   userExists: boolean = true,
@@ -47,14 +46,6 @@ function setupDefaultMocks(
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (sendWelcomeEmail as jest.Mock).mockResolvedValue(undefined);
-
-  mockFacilityMemberSelect = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn().mockResolvedValue({
-        data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
-      }),
-    }),
-  });
 
   mockSalonSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -118,8 +109,10 @@ function setupDefaultMocks(
         return {
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: alreadyOwner ? { facility_id: 'fac-existing' } : null,
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({
+                  data: alreadyOwner ? [{ facility_id: 'fac-existing' }] : [],
+                }),
               }),
             }),
           }),
@@ -207,6 +200,43 @@ describe('POST /api/facility/setup', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.facilityId).toBe('fac-existing');
+  });
+
+  // 堅牢化: 既に複数施設に所属していても、ガードが壊れず新規作成せず最古の施設を返す。
+  // 旧実装 .maybeSingle() は複数行で error+data=null を返しガードを素通りしていた（脆弱性）。
+  test('user already in MULTIPLE facilities → 新規作成せず最古施設を返す（ガード堅牢性）', async () => {
+    setupDefaultMocks();
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'facility_members') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                order: jest.fn().mockReturnValue({
+                  // created_at 昇順 + limit(1) で最古の1件のみ返る想定
+                  limit: jest.fn().mockResolvedValue({
+                    data: [{ facility_id: 'fac-oldest' }],
+                  }),
+                }),
+              }),
+            }),
+            insert: mockMemberInsert,
+          };
+        }
+        return {};
+      }),
+    });
+
+    const res = await POST(
+      makeRequest({ facility_name: 'New Store', business_type: 'nail' }) as any
+    );
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.facilityId).toBe('fac-oldest');
+    // 新規 facility_members insert は呼ばれない（＝施設が増えない）
+    expect(mockMemberInsert).not.toHaveBeenCalled();
   });
 
   test('missing facility_name → 400', async () => {
