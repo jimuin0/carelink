@@ -75,6 +75,18 @@ export async function POST(request: NextRequest) {
 
   const admin = createServiceRoleClient();
 
+  // menu_id を指定する場合は、自施設の facility_menus に属することを検証する
+  // （他施設の menu_id を関連付ける越境参照を防止）
+  if (parsed.data.menu_id) {
+    const { data: menu } = await admin
+      .from('facility_menus')
+      .select('id')
+      .eq('id', parsed.data.menu_id)
+      .eq('facility_id', facilityId)
+      .single();
+    if (!menu) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+  }
+
   const { data, error } = await admin.from('service_packages').insert({
     facility_id: facilityId,
     ...parsed.data,

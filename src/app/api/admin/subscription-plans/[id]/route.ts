@@ -100,7 +100,7 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     return NextResponse.json({ message: '契約中ユーザーがいるため非公開にしました' });
   }
 
-  const { error } = await admin.from('subscription_plans').delete().eq('id', params.id);
+  const { error } = await admin.from('subscription_plans').delete().eq('id', params.id).eq('facility_id', facilityId);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   void writeAuditLog({
