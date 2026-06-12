@@ -6,15 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import type { Booking } from '@/types';
-
-const statusLabels: Record<string, { label: string; color: string }> = {
-  pending: { label: '確認待ち', color: 'bg-yellow-100 text-yellow-800' },
-  confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
-  completed: { label: '完了', color: 'bg-gray-100 text-gray-800' },
-  cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
-  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'bg-orange-100 text-orange-800' },
-  no_show: { label: '無断キャンセル', color: 'bg-red-100 text-red-800' },
-};
+import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -89,7 +81,6 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
     );
   }
 
-  const status = statusLabels[booking.status] ?? statusLabels.pending;
   const canCancel = booking.status === 'pending' || booking.status === 'confirmed';
 
   return (
@@ -98,8 +89,8 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       <div className="bg-white rounded-2xl shadow-sm p-6 space-y-4">
         <div className="flex items-center justify-between">
           <span className="text-sm text-gray-500">ステータス</span>
-          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${status.color}`}>
-            {status.label}
+          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusChipClass(booking.status)}`}>
+            {bookingStatusLabel(booking.status)}
           </span>
         </div>
         <div className="flex justify-between text-sm">

@@ -1,5 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { bookingStatusLabel, statusChipClass } from '@/lib/booking-status';
 
 /**
  * SB 共通 UI 部品（HotPepper サロンボード型・CareLink 色）
@@ -87,24 +88,11 @@ export function SbCard({
   );
 }
 
-const STATUS_STYLE: Record<string, string> = {
-  pending: 'bg-amber-100 text-amber-800 border border-amber-300',
-  confirmed: 'bg-pink-100 text-pink-800 border border-pink-300',
-  completed: 'bg-gray-100 text-gray-700 border border-gray-300',
-  cancelled: 'bg-red-100 text-red-800 border border-red-300',
-  cancel_fee_paid: 'bg-orange-100 text-orange-800 border border-orange-300',
-  no_show: 'bg-red-100 text-red-800 border border-red-300',
-};
-const STATUS_LABEL: Record<string, string> = {
-  pending: '確認待ち', confirmed: '確定', completed: '完了',
-  cancelled: 'キャンセル', cancel_fee_paid: 'ｷｬﾝｾﾙ料済', no_show: '無断',
-};
-
-/** 予約ステータスのチップ（色・ラベルを全画面で統一） */
+/** 予約ステータスのチップ（色・ラベルは @/lib/booking-status に集約・全画面で統一） */
 export function SbStatusChip({ status }: { status: string }) {
   return (
-    <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_STYLE[status] ?? 'bg-gray-100 text-gray-600 border border-gray-300'}`}>
-      {STATUS_LABEL[status] ?? status}
+    <span className={`inline-block text-[11px] font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${statusChipClass(status)}`}>
+      {bookingStatusLabel(status)}
     </span>
   );
 }
@@ -128,5 +116,3 @@ export function SbButtonLink({
     </Link>
   );
 }
-
-export { STATUS_LABEL, STATUS_STYLE };

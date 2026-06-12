@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { statusSolidClass } from '@/lib/booking-status';
 
 interface CalendarBooking {
   id: string;
@@ -15,12 +16,6 @@ interface CalendarBooking {
 }
 
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 9); // 9:00 - 22:00
-const STATUS_COLORS: Record<string, string> = {
-  confirmed: 'bg-sky-500 text-white',
-  pending: 'bg-amber-400 text-white',
-  completed: 'bg-green-500 text-white',
-  cancelled: 'bg-gray-300 text-gray-600',
-};
 
 export default function BookingCalendarPage() {
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -140,7 +135,7 @@ export default function BookingCalendarPage() {
                       return (
                         <div
                           key={b.id}
-                          className={`absolute top-1 bottom-1 rounded px-1.5 text-micro overflow-hidden cursor-pointer hover:opacity-90 ${STATUS_COLORS[b.status] || 'bg-gray-200'}`}
+                          className={`absolute top-1 bottom-1 rounded px-1.5 text-micro overflow-hidden cursor-pointer hover:opacity-90 ${statusSolidClass(b.status)}`}
                           style={{ left, width }}
                           title={`${b.customer_name} - ${b.menu_name} (${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)})`}
                         >

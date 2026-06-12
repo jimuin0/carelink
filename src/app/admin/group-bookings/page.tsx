@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
+import { SbStatusChip } from '@/components/admin/SbUi';
 
 interface GroupBooking {
   id: string;
@@ -17,13 +18,6 @@ interface GroupBooking {
   notes: string | null;
   created_at: string;
 }
-
-const statusLabels: Record<string, { label: string; color: string }> = {
-  pending: { label: '確認待ち', color: 'bg-yellow-100 text-yellow-800' },
-  confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
-  completed: { label: '完了', color: 'bg-gray-100 text-gray-800' },
-  cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
-};
 
 export default function AdminGroupBookingsPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -102,7 +96,6 @@ export default function AdminGroupBookingsPage() {
       ) : (
         <div className="space-y-4">
           {bookings.map((b) => {
-            const status = statusLabels[b.status] ?? statusLabels.pending;
             const spotsLeft = b.total_members - b.confirmed_members;
 
             return (
@@ -110,9 +103,7 @@ export default function AdminGroupBookingsPage() {
                 <div className="flex items-start justify-between gap-4 flex-wrap">
                   <div className="space-y-1 flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${status.color}`}>
-                        {status.label}
-                      </span>
+                      <SbStatusChip status={b.status} />
                       <span className="text-xs text-gray-400">#{b.share_code}</span>
                     </div>
                     <p className="font-bold text-gray-900">
