@@ -222,7 +222,9 @@ test('DELETE: 契約中ユーザーなし → 正常削除 (200 deleted)', async
     }
     return {
       delete: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: null })),
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: null })),
+        }),
       }),
     };
   });
@@ -312,7 +314,9 @@ test('DELETE: count=null → ハード削除 (200 deleted)', async () => {
     }
     return {
       delete: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: null })),
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: null })),
+        }),
       }),
     };
   });
@@ -364,7 +368,9 @@ test('DELETE: ハード削除 失敗 → 500', async () => {
     }
     return {
       delete: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: { message: 'fail' } })),
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn(() => Promise.resolve({ error: { message: 'fail' } })),
+        }),
       }),
     };
   });

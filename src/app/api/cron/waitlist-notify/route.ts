@@ -25,9 +25,11 @@ export async function GET(request: Request) {
     const now = new Date();
 
     // 1. 通知から48時間以上経過した waiting→expired 遷移
+    // 更新件数を得るには count オプションを .update() 側に渡す（指定しないと count は null）。
+    // 旧実装は .select('id') のみで count を取り出していたため expired メタが常に null→0 だった。
     const { count: expiredCount } = await supabase
       .from('booking_waitlist')
-      .update({ status: 'expired' })
+      .update({ status: 'expired' }, { count: 'exact' })
       .eq('status', 'notified')
       .lt('notified_at', new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString())
       .select('id');

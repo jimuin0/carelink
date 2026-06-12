@@ -53,6 +53,14 @@ const salonInsertSchema = z.object({
   desired_start_date: z.string().max(50).optional().nullable(),
 });
 
+// GET（匿名・認証なし）で返してよい公開安全カラムのみ。
+// email / phone / contact_phone / contact_name / representative_name（登録者PII）と
+// is_public / status / desired_start_date（内部情報）は select('*') だと匿名露出するため除外。
+const PUBLIC_SALON_COLUMNS =
+  'id, facility_name, business_type, address, building_name, nearest_station, ' +
+  'business_hours, regular_holiday, seat_count, staff_count, has_parking, ' +
+  'features, pr_text, photo_url, photo_urls, website, postal_code, created_at';
+
 // Supabase Storage 公開バケットの自プレフィックスのみ許可（任意URL混入を拒否）。
 function isAllowedPhotoUrl(url: string): boolean {
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -140,7 +148,7 @@ export async function GET(req: NextRequest) {
   if (id && /^[0-9a-f-]{36}$/i.test(id)) {
     const { data, error } = await supabase
       .from('salons')
-      .select('*')
+      .select(PUBLIC_SALON_COLUMNS)
       .eq('id', id)
       .eq('is_public', true)
       .single();
@@ -150,7 +158,7 @@ export async function GET(req: NextRequest) {
 
   let query = supabase
     .from('salons')
-    .select('*')
+    .select(PUBLIC_SALON_COLUMNS)
     .eq('is_public', true)
     .order('created_at', { ascending: false });
 

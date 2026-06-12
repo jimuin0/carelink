@@ -88,6 +88,17 @@ function insertSingle(data: unknown, error: unknown = null) {
   };
 }
 
+// facility_menus 所属検証用（.select('id').eq().eq().single()）。data=null で他施設扱い
+function menuSingle(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
+const MENU_UUID = '44444444-4444-4444-8444-444444444444';
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -189,6 +200,32 @@ test('POST: CSRF エラー → 403', async () => {
   (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
   const res = await POST(makePostRequest(validPostBody()));
   expect(res.status).toBe(403);
+});
+
+// menu_id 越境参照防止（IDOR）の分岐網羅。
+// POST の admin.from 呼び出し順: 1回目=facility_menus 検証, 2回目=service_packages insert
+test('POST: menu_id が自施設のメニュー → 201', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return menuSingle({ id: 'menu-1' });
+    return insertSingle({ id: 'aaa' });
+  });
+  const res = await POST(makePostRequest(validPostBody({ menu_id: MENU_UUID })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: menu_id が他施設のメニュー → 400 (IDOR防止)', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return menuSingle(null);
+    return insertSingle({ id: 'aaa' });
+  });
+  const res = await POST(makePostRequest(validPostBody({ menu_id: MENU_UUID })));
+  expect(res.status).toBe(400);
 });
 
 test('POST: session_count が 1 → 201', async () => {

@@ -58,6 +58,19 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
+
+  // menu_id を指定する場合は、自施設の facility_menus に属することを検証する
+  // （他施設の menu_id を関連付ける越境参照を防止）
+  if (parsed.data.menu_id) {
+    const { data: menu } = await admin
+      .from('facility_menus')
+      .select('id')
+      .eq('id', parsed.data.menu_id)
+      .eq('facility_id', auth.facilityId)
+      .single();
+    if (!menu) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+  }
+
   const { data, error } = await admin.from('service_packages').update(parsed.data).eq('id', params.id).eq('facility_id', auth.facilityId).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

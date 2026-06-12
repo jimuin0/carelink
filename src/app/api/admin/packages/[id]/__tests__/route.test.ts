@@ -17,6 +17,7 @@ jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 const PKG_UUID = '11111111-1111-1111-1111-111111111111';
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
+const MENU_UUID = '44444444-4444-4444-8444-444444444444';
 
 const mockAdminFrom = jest.fn();
 const mockAnonFrom = jest.fn();
@@ -149,6 +150,34 @@ test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
   expect(firstEq).toHaveBeenCalledWith('id', PKG_UUID);
   const secondEq = firstEq.mock.results[0].value.eq;
   expect(secondEq).toHaveBeenCalledWith('facility_id', FACILITY_UUID);
+});
+
+// ─── PATCH: menu_id 越境参照防止（IDOR）の分岐網羅 ──────────────────────────────
+
+test('PATCH: menu_id が自施設のメニュー → 200', async () => {
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return singleChain({ facility_id: FACILITY_UUID }); // ownership(service_packages)
+    if (n === 2) return singleChain({ id: 'menu-1' });               // menu check(facility_menus)
+    return baseUpdateChain();                                         // update
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { menu_id: MENU_UUID }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: menu_id が他施設のメニュー → 400 (IDOR防止)', async () => {
+  let n = 0;
+  mockAdminFrom.mockImplementation(() => {
+    n++;
+    if (n === 1) return singleChain({ facility_id: FACILITY_UUID }); // ownership
+    if (n === 2) return singleChain(null);                           // menu not found / cross-facility
+    return baseUpdateChain();
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { menu_id: MENU_UUID }), makeProps());
+  expect(res.status).toBe(400);
 });
 
 // ─── DELETE: security guards ──────────────────────────────────────────────────
