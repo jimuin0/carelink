@@ -1,15 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-
-const statusLabels: Record<string, { label: string; color: string }> = {
-  pending: { label: '確認待ち', color: 'bg-yellow-100 text-yellow-800' },
-  confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
-  completed: { label: '完了', color: 'bg-gray-100 text-gray-800' },
-  cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
-  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'bg-orange-100 text-orange-800' },
-  no_show: { label: '無断キャンセル', color: 'bg-red-100 text-red-800' },
-};
+import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
 
 export default async function BookingsPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -53,7 +45,6 @@ export default async function BookingsPage() {
       ) : (
         <div className="space-y-3">
           {bookings.map((booking) => {
-            const status = statusLabels[booking.status] ?? statusLabels.pending;
             const facilitySlug = slugMap.get(booking.facility_id);
             const rebookUrl = facilitySlug
               ? `/facility/${facilitySlug}?${booking.menu_id ? `menu_id=${booking.menu_id}&` : ''}${booking.staff_id ? `staff_id=${booking.staff_id}` : ''}`
@@ -64,8 +55,8 @@ export default async function BookingsPage() {
                 <Link href={`/mypage/bookings/${booking.id}`} className="block">
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-sm font-bold">{booking.booking_date}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${status.color}`}>
-                      {status.label}
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusChipClass(booking.status)}`}>
+                      {bookingStatusLabel(booking.status)}
                     </span>
                   </div>
                   <p className="text-sm text-gray-600">

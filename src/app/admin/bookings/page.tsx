@@ -2,17 +2,9 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import type { Booking } from '@/types';
+import { SbStatusChip } from '@/components/admin/SbUi';
 
 const PER_PAGE = 20;
-
-const statusLabels: Record<string, { label: string; color: string }> = {
-  pending: { label: '確認待ち', color: 'bg-yellow-100 text-yellow-800' },
-  confirmed: { label: '確定', color: 'bg-green-100 text-green-800' },
-  completed: { label: '完了', color: 'bg-gray-100 text-gray-800' },
-  cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-800' },
-  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'bg-orange-100 text-orange-800' },
-  no_show: { label: '無断キャンセル', color: 'bg-red-100 text-red-800' },
-};
 
 interface Props {
   searchParams: Promise<{ status?: string; date?: string; page?: string }>;
@@ -97,7 +89,6 @@ export default async function AdminBookingsPage(props: Props) {
               </thead>
               <tbody>
                 {bookings.map((booking) => {
-                  const status = statusLabels[booking.status] ?? statusLabels.pending;
                   return (
                     <tr key={booking.id} className="border-b last:border-0 hover:bg-gray-50">
                       <td className="px-4 py-3">
@@ -111,9 +102,7 @@ export default async function AdminBookingsPage(props: Props) {
                         <p className="text-xs text-gray-400">{booking.email}</p>
                       </td>
                       <td className="px-4 py-3">
-                        <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${status.color}`}>
-                          {status.label}
-                        </span>
+                        <SbStatusChip status={booking.status} />
                       </td>
                       <td className="px-4 py-3 text-right">
                         {booking.total_price !== null ? `¥${booking.total_price.toLocaleString()}` : '-'}

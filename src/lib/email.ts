@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { safeCaptureException } from '@/lib/safe';
+import { bookingStatusLabel } from '@/lib/booking-status';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -274,13 +275,7 @@ export async function sendBookingStatusUpdate(data: BookingEmailData & { newStat
   const resend = getResend();
   if (!resend) return;
 
-  const statusLabels: Record<string, string> = {
-    confirmed: '確定',
-    completed: '完了',
-    cancelled: 'キャンセル',
-    no_show: 'キャンセル（無断）',
-  };
-  const statusLabel = statusLabels[data.newStatus] || data.newStatus;
+  const statusLabel = bookingStatusLabel(data.newStatus);
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
 

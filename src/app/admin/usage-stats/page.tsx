@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { bookingStatusLabel } from '@/lib/booking-status';
 
 export const metadata: Metadata = { title: '利用状況分析' };
 export const dynamic = 'force-dynamic';
@@ -99,14 +100,6 @@ export default async function UsageStatsPage() {
 
   const maxMau = Math.max(...monthlyData.map((m) => m.mau), 1);
 
-  const STATUS_LABELS: Record<string, string> = {
-    confirmed: '確定',
-    pending: '保留',
-    cancelled: 'キャンセル',
-    completed: '完了',
-    no_show: '無断キャンセル',
-  };
-
   return (
     <div className="space-y-6 max-w-4xl">
       <div>
@@ -184,7 +177,7 @@ export default async function UsageStatsPage() {
               <div className="space-y-1.5">
                 {Object.entries(statusCount).sort((a, b) => b[1] - a[1]).map(([status, count]) => (
                   <div key={status} className="flex items-center justify-between text-sm">
-                    <span className="text-gray-600">{STATUS_LABELS[status] ?? status}</span>
+                    <span className="text-gray-600">{bookingStatusLabel(status)}</span>
                     <span className="font-medium text-gray-800">{count}件</span>
                   </div>
                 ))}

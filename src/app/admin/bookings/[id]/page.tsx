@@ -6,15 +6,10 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
+import { statusBannerClass, bookingStatusLabel } from '@/lib/booking-status';
 
-const statusConfig: Record<string, { label: string; color: string; bg: string }> = {
-  pending: { label: '確認待ち', color: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
-  confirmed: { label: '確定', color: 'text-green-700', bg: 'bg-green-50 border-green-200' },
-  completed: { label: '完了', color: 'text-blue-700', bg: 'bg-blue-50 border-blue-200' },
-  cancelled: { label: 'キャンセル', color: 'text-gray-500', bg: 'bg-gray-50 border-gray-200' },
-  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
-  no_show: { label: '無断キャンセル', color: 'text-red-700', bg: 'bg-red-50 border-red-200' },
-};
+// ステータス変更ボタンに表示する選択肢（既存挙動を維持。遷移可否は API 側で検証）
+const STATUS_OPTIONS = ['pending', 'confirmed', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'] as const;
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00+09:00');
@@ -84,7 +79,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         setToast({ type: 'error', message: data.error || '更新に失敗しました' });
       } else {
         setBooking((prev) => prev ? { ...prev, status: newStatus as Booking['status'] } : null);
-        const label = statusConfig[newStatus]?.label || newStatus;
+        const label = bookingStatusLabel(newStatus);
         setToast({ type: 'success', message: `ステータスを「${label}」に変更し、お客様に通知しました` });
       }
     } catch {
@@ -102,7 +97,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
     return <div className="bg-white rounded-xl p-8 text-center"><p className="text-gray-400">予約が見つかりません</p></div>;
   }
 
-  const sc = statusConfig[booking.status] || statusConfig.pending;
+  const banner = statusBannerClass(booking.status);
 
   return (
     <div>
@@ -111,7 +106,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
         </Link>
         <h1 className="text-2xl font-bold">予約詳細</h1>
-        <span className={`ml-auto text-xs font-bold px-3 py-1 rounded-full border ${sc.bg} ${sc.color}`}>{sc.label}</span>
+        <span className={`ml-auto text-xs font-bold px-3 py-1 rounded-full border ${banner.bg} ${banner.text}`}>{bookingStatusLabel(booking.status)}</span>
       </div>
 
       {/* 承認アクション（pending時） */}
@@ -194,21 +189,24 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           <div className="border-t pt-4">
             <p className="text-sm text-gray-500 mb-2">ステータス変更</p>
             <div className="flex flex-wrap gap-2">
-              {Object.entries(statusConfig).map(([value, cfg]) => (
-                <button
-                  type="button"
-                  key={value}
-                  onClick={() => handleStatusChange(value)}
-                  disabled={updating || booking.status === value}
-                  className={`text-xs px-4 py-2 rounded-full font-bold transition-colors ${
-                    booking.status === value
-                      ? `${cfg.bg} ${cfg.color} border`
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                  }`}
-                >
-                  {cfg.label}
-                </button>
-              ))}
+              {STATUS_OPTIONS.map((value) => {
+                const cfg = statusBannerClass(value);
+                return (
+                  <button
+                    type="button"
+                    key={value}
+                    onClick={() => handleStatusChange(value)}
+                    disabled={updating || booking.status === value}
+                    className={`text-xs px-4 py-2 rounded-full font-bold transition-colors ${
+                      booking.status === value
+                        ? `${cfg.bg} ${cfg.text} border`
+                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                    }`}
+                  >
+                    {bookingStatusLabel(value)}
+                  </button>
+                );
+              })}
             </div>
             <p className="text-xs text-gray-400 mt-2">※変更時にお客様へメール通知されます</p>
           </div>

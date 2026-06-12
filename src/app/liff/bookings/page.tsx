@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLiff } from '@/hooks/useLiff';
+import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
 
 type Booking = {
   id: string;
@@ -13,14 +14,6 @@ type Booking = {
   menu_name: string | null;
   total_price: number | null;
   facility_profiles?: { name: string } | null;
-};
-
-const statusLabel: Record<string, { label: string; color: string }> = {
-  pending: { label: '確認待ち', color: 'text-yellow-600 bg-yellow-50' },
-  confirmed: { label: '確定', color: 'text-green-600 bg-green-50' },
-  completed: { label: '完了', color: 'text-gray-500 bg-gray-50' },
-  cancelled: { label: 'キャンセル', color: 'text-red-500 bg-red-50' },
-  cancel_fee_paid: { label: 'キャンセル料支払済', color: 'text-orange-600 bg-orange-50' },
 };
 
 export default function LiffBookingsPage() {
@@ -68,13 +61,12 @@ export default function LiffBookingsPage() {
       ) : (
         <div className="space-y-3">
           {bookings.map((b) => {
-            const s = statusLabel[b.status] ?? statusLabel.pending;
             const facilityName = b.facility_profiles?.name ?? '';
             return (
               <div key={b.id} className="bg-white rounded-2xl shadow-sm p-4">
                 <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${s.color}`}>
-                    {s.label}
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${statusChipClass(b.status)}`}>
+                    {bookingStatusLabel(b.status)}
                   </span>
                   <span className="text-xs text-gray-400">{b.booking_date}</span>
                 </div>

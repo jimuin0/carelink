@@ -1,13 +1,14 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
+import { statusGanttClass, bookingStatusLabel } from '@/lib/booking-status';
 
 /**
  * スケジュール（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
  *
  * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）
  * - 列: 時間軸 OPEN_HOUR〜CLOSE_HOUR（30分グリッド）
- * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=ピンク / 完了=グレー）で帯表示、クリックで予約詳細へ
+ * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=sky / 完了=グレー、@/lib/booking-status に集約）で帯表示、クリックで予約詳細へ
  * - 上部: 日付送り（◀ 当日 ▶・今日）、下部: 月内日付ストリップ
  */
 
@@ -17,12 +18,8 @@ const OPEN_HOUR = 8;
 const CLOSE_HOUR = 22;
 const TOTAL_MIN = (CLOSE_HOUR - OPEN_HOUR) * 60;
 
-const STATUS_CHIP: Record<string, { label: string; cls: string }> = {
-  pending: { label: '確認待ち', cls: 'bg-amber-100 border-amber-400 text-amber-900' },
-  confirmed: { label: '確定', cls: 'bg-pink-100 border-pink-400 text-pink-900' },
-  completed: { label: '完了', cls: 'bg-gray-200 border-gray-400 text-gray-700' },
-  no_show: { label: '無断', cls: 'bg-red-100 border-red-400 text-red-800' },
-};
+// ガント上に現れるステータスのみ凡例に出す（cancelled / cancel_fee_paid は帯に出ない）
+const LEGEND_STATUSES = ['pending', 'confirmed', 'completed', 'no_show'] as const;
 
 function toMin(t: string): number {
   const [h, m] = t.split(':').map(Number);
@@ -124,8 +121,8 @@ export default async function AdminSchedulePage(props: Props) {
         </div>
         <div className="ml-auto flex items-center gap-2 text-xs">
           {/* 凡例 */}
-          {Object.entries(STATUS_CHIP).map(([k, v]) => (
-            <span key={k} className={`px-2 py-0.5 rounded border ${v.cls}`}>{v.label}</span>
+          {LEGEND_STATUSES.map((k) => (
+            <span key={k} className={`px-2 py-0.5 rounded border ${statusGanttClass(k)}`}>{bookingStatusLabel(k)}</span>
           ))}
           <Link href={`/admin/bookings?date=${date}`} className="ml-2 px-3 py-1.5 rounded border border-sky-300 text-sky-700 font-bold hover:bg-sky-50">予約一覧</Link>
         </div>
@@ -171,13 +168,12 @@ export default async function AdminSchedulePage(props: Props) {
                     if (end <= 0 || start >= TOTAL_MIN) return null; // 営業時間帯の外は非表示
                     const left = (start / TOTAL_MIN) * 100;
                     const width = Math.max(((end - start) / TOTAL_MIN) * 100, 2);
-                    const sc = STATUS_CHIP[b.status] ?? STATUS_CHIP.pending;
                     const menu = Array.isArray(b.menu) ? b.menu[0] : b.menu;
                     return (
                       <Link
                         key={b.id}
                         href={`/admin/bookings/${b.id}`}
-                        className={`absolute top-1.5 bottom-1.5 rounded border-l-4 px-1.5 py-0.5 overflow-hidden shadow-sm hover:shadow transition-shadow ${sc.cls}`}
+                        className={`absolute top-1.5 bottom-1.5 rounded border-l-4 px-1.5 py-0.5 overflow-hidden shadow-sm hover:shadow transition-shadow ${statusGanttClass(b.status)}`}
                         style={{ left: `${left}%`, width: `${width}%` }}
                         title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${menu?.name ? ` / ${menu.name}` : ''}`}
                       >
