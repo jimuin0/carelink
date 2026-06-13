@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface ModerationItem {
   id: string;
@@ -35,6 +36,7 @@ const STATUS_CONFIG = {
 export default function ModerationPage() {
   const [items, setItems] = useState<ModerationItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
@@ -48,8 +50,10 @@ export default function ModerationPage() {
       .order('created_at', { ascending: false })
       .limit(100);
     if (statusFilter) query = query.eq('status', statusFilter);
-    const { data } = await query;
-    if (data) setItems(data);
+    setLoadError(false);
+    const { data, error } = await query;
+    if (error) { setLoadError(true); setLoading(false); return; }
+    setItems(data ?? []);
     setLoading(false);
   }, [statusFilter]);
 
@@ -113,6 +117,8 @@ export default function ModerationPage() {
         <div className="py-12 text-center">
           <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
+      ) : loadError ? (
+        <LoadError onRetry={load} message="審査キューの読み込みに失敗しました" />
       ) : items.length === 0 ? (
         <div className="py-12 text-center text-gray-400 text-sm">
           {statusFilter === 'pending' ? '未審査のコンテンツはありません' : 'コンテンツがありません'}

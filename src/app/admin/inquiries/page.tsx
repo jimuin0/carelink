@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface Contact {
   id: string;
@@ -36,6 +37,7 @@ const PRIORITY_CONFIG = {
 export default function AdminInquiriesPage() {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('open');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
@@ -49,8 +51,10 @@ export default function AdminInquiriesPage() {
       .order('created_at', { ascending: false })
       .limit(100);
     if (statusFilter) query = query.eq('ticket_status', statusFilter);
-    const { data } = await query;
-    if (data) setContacts(data as Contact[]);
+    setLoadError(false);
+    const { data, error } = await query;
+    if (error) { setLoadError(true); setLoading(false); return; }
+    setContacts((data ?? []) as Contact[]);
     setLoading(false);
   }, [statusFilter]);
 
@@ -112,6 +116,8 @@ export default function AdminInquiriesPage() {
         <div className="py-12 text-center">
           <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
+      ) : loadError ? (
+        <LoadError onRetry={load} message="問い合わせの読み込みに失敗しました" />
       ) : contacts.length === 0 ? (
         <div className="py-12 text-center text-gray-400 text-sm">
           {statusFilter === 'open' ? '新着の問い合わせはありません' : '問い合わせがありません'}
