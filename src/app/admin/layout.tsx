@@ -4,7 +4,6 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
 import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
-import FacilitySelector from '@/components/admin/FacilitySelector';
 import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 
 export const metadata: Metadata = {
@@ -183,8 +182,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect('/mypage');
   }
 
-  // 現在の施設（クエリパラメータ or 最初の施設）
+  // 現在の施設（1アカウント1施設の方針につき所属施設）
   const membership = memberships[0];
+  const facilityName = (membership.facility_profiles as unknown as { name: string } | null)?.name ?? null;
 
   const { data: profile } = await supabase
     .from('profiles')
@@ -213,14 +213,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
               CareLink<br /><span className="text-[10px] font-bold text-gray-500 tracking-widest">SALON BOARD</span>
             </span>
           </Link>
-          {memberships.length > 1 && (
-            <FacilitySelector
-              memberships={memberships.map((m) => ({
-                facility_id: m.facility_id,
-                name: (m.facility_profiles as unknown as { name: string } | null)?.name || m.facility_id,
-              }))}
-              currentFacilityId={membership.facility_id}
-            />
+          {facilityName && (
+            <span className="text-sm font-bold text-gray-700 border-l border-gray-200 pl-4 truncate max-w-[240px]">
+              {facilityName}
+            </span>
           )}
         </div>
         <div className="flex items-center gap-4 text-sm">
