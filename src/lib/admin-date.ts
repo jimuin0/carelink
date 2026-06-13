@@ -60,3 +60,37 @@ export function diffDays(fromYmd: string, toYmd: string): number {
   const to = new Date(`${toYmd}T00:00:00Z`).getTime();
   return Math.round((to - from) / 86_400_000);
 }
+
+/** JST(UTC+9) の現在時刻を構成要素に分解（y, m=0-11, d）。内部用。 */
+function jstNowParts(): { y: number; m: number; d: number } {
+  const j = new Date(Date.now() + 9 * 3_600_000);
+  return { y: j.getUTCFullYear(), m: j.getUTCMonth(), d: j.getUTCDate() };
+}
+
+/**
+ * JST の「今日 + offsetDays」00:00 を UTC ISO 文字列で返す。
+ * created_at 等の UTC タイムスタンプと `>=` 比較する日次境界に使う。
+ * サーバ(UTC)で `new Date().getDate()` を使うと JST 0:00〜8:59 帯で前日になり集計が
+ * 1 日ズレるため、本関数で JST 暦日の境界に統一する。
+ */
+export function jstDayStartIso(offsetDays: number): string {
+  const { y, m, d } = jstNowParts();
+  return new Date(Date.UTC(y, m, d + offsetDays, -9, 0, 0)).toISOString();
+}
+
+/**
+ * JST の「今月 + offsetMonths」1日 00:00 を UTC ISO 文字列で返す。
+ * 月次集計（MAU・月別推移・今月予約数）の境界に使う。サーバ(UTC)で月初を作ると
+ * JST 月初の早朝に前月へズレるため、本関数で JST 月境界に統一する。
+ */
+export function jstMonthStartIso(offsetMonths: number): string {
+  const { y, m } = jstNowParts();
+  return new Date(Date.UTC(y, m + offsetMonths, 1, -9, 0, 0)).toISOString();
+}
+
+/** JST の「今月 + offsetMonths」の year と month(1-12) を返す（グラフ月ラベル用・年跨ぎ対応）。 */
+export function jstMonthInfo(offsetMonths: number): { year: number; month: number } {
+  const { y, m } = jstNowParts();
+  const dt = new Date(Date.UTC(y, m + offsetMonths, 1));
+  return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1 };
+}

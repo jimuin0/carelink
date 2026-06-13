@@ -17,6 +17,13 @@ jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-logger');
 jest.mock('resend');
+// admin-date は内部で Date.now() を呼ぶ。本テストは送信/defer/idempotency ロジックの検証が目的で、
+// JST 月境界の正しさは admin-date 単体テスト（setSystemTime）で担保済みのため、ここでは固定値にモックし
+// Date.now() の呼び出し順序（time-budget テストが依存）を安定させる。
+jest.mock('@/lib/admin-date', () => ({
+  jstMonthStartIso: (off: number) => (off === 0 ? '2026-06-01T00:00:00.000Z' : '2026-05-01T00:00:00.000Z'),
+  jstMonthInfo: () => ({ year: 2026, month: 6 }),
+}));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';

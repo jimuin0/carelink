@@ -1,4 +1,4 @@
-import { todayJst, isValidIsoDate, clampPage, addDays, diffDays } from '../admin-date';
+import { todayJst, isValidIsoDate, clampPage, addDays, diffDays, jstDayStartIso, jstMonthStartIso, jstMonthInfo } from '../admin-date';
 
 describe('todayJst', () => {
   it('JST の今日を YYYY-MM-DD 形式で返す', () => {
@@ -131,5 +131,48 @@ describe('diffDays', () => {
     const base = '2026-06-13';
     expect(diffDays(base, addDays(base, 3))).toBe(3);
     expect(diffDays(base, addDays(base, -5))).toBe(-5);
+  });
+});
+
+describe('JST 境界ヘルパ（setSystemTime で決定的に検証）', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  // UTC 2026-05-31 16:00 = JST 2026-06-01 01:00（月初の早朝＝旧実装が前月にズレる帯）
+  function freezeAtJstJun1Early() {
+    jest.useFakeTimers().setSystemTime(new Date('2026-05-31T16:00:00Z'));
+  }
+
+  it('jstMonthStartIso(0): JST 6/1 01:00 でも当月=6月の月初(JST)を返す（旧実装の前月ズレを解消）', () => {
+    freezeAtJstJun1Early();
+    // JST 2026-06-01 00:00 = UTC 2026-05-31 15:00
+    expect(jstMonthStartIso(0)).toBe('2026-05-31T15:00:00.000Z');
+  });
+
+  it('jstMonthStartIso(-1): 前月(5月)の月初(JST)', () => {
+    freezeAtJstJun1Early();
+    // JST 2026-05-01 00:00 = UTC 2026-04-30 15:00
+    expect(jstMonthStartIso(-1)).toBe('2026-04-30T15:00:00.000Z');
+  });
+
+  it('jstMonthInfo: JST 6/1 01:00 で当月=6月・前月=5月・年跨ぎ(-6→去年12月)', () => {
+    freezeAtJstJun1Early();
+    expect(jstMonthInfo(0)).toEqual({ year: 2026, month: 6 });
+    expect(jstMonthInfo(-1)).toEqual({ year: 2026, month: 5 });
+    expect(jstMonthInfo(-6)).toEqual({ year: 2025, month: 12 });
+  });
+
+  it('jstDayStartIso(0): JST 6/1 01:00 で当日=JST 6/1 00:00（旧 UTC midnight の前日ズレを解消）', () => {
+    freezeAtJstJun1Early();
+    expect(jstDayStartIso(0)).toBe('2026-05-31T15:00:00.000Z');
+  });
+
+  it('jstDayStartIso(-7): 7日前の JST 0:00（差は厳密に7日）', () => {
+    freezeAtJstJun1Early();
+    // JST 2026-05-25 00:00 = UTC 2026-05-24 15:00
+    expect(jstDayStartIso(-7)).toBe('2026-05-24T15:00:00.000Z');
+    const diff = new Date(jstDayStartIso(0)).getTime() - new Date(jstDayStartIso(-7)).getTime();
+    expect(diff).toBe(7 * 86_400_000);
   });
 });

@@ -5,6 +5,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { fetchAllPaged } from '@/lib/paginate';
 import { createHmac } from 'crypto';
+import { jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
 
 function makeUnsubToken(email: string): string {
   const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
@@ -50,11 +51,12 @@ export async function GET(req: NextRequest) {
   const admin = createServiceRoleClient();
 
   try {
-    const now = new Date();
-    const month = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long' });
-    // 配信対象月キー 'YYYY-MM'(UTC)。台帳・idempotency key の名前空間。
-    const period = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+    // 当月（JST）。サーバ(UTC)の月境界だと JST 月初の早朝に前月へズレるため JST に統一。
+    const { year: jstYear, month: jstMonth } = jstMonthInfo(0);
+    const month = `${jstYear}年${jstMonth}月`;
+    // 配信対象月キー 'YYYY-MM'(JST)。台帳・idempotency key の名前空間。
+    const period = `${jstYear}-${String(jstMonth).padStart(2, '0')}`;
+    const startOfMonth = jstMonthStartIso(0);
 
     // Fast path: 当月キャンペーンが既に 'sent' なら何もしない（self-heal の2回目以降はここで即終了）。
     const { data: sentCampaign } = await admin
@@ -70,27 +72,26 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'Already sent this month' });
     }
 
-    // Get booking stats for last month
-    const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
-    const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59).toISOString();
+    // Get booking stats for last month（JST 月境界で [先月初, 今月初) を厳密に範囲指定）
+    const startOfLastMonth = jstMonthStartIso(-1);
 
     const { count: newBookings } = await admin
       .from('bookings')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfLastMonth)
-      .lte('created_at', endOfLastMonth);
+      .lt('created_at', startOfMonth);
 
     const { count: newReviews } = await admin
       .from('reviews')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfLastMonth)
-      .lte('created_at', endOfLastMonth);
+      .lt('created_at', startOfMonth);
 
     const { count: newFacilities } = await admin
       .from('facility_profiles')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfLastMonth)
-      .lte('created_at', endOfLastMonth);
+      .lt('created_at', startOfMonth);
 
     // Build HTML body (unsubscribe URL is per-recipient, appended at send time)
     const htmlBody = `
