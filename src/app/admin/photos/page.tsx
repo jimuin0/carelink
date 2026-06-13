@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import type { FacilityPhoto } from '@/types';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
@@ -19,6 +20,7 @@ const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
 export default function AdminPhotosPage() {
   const [photos, setPhotos] = useState<FacilityPhoto[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -31,12 +33,14 @@ export default function AdminPhotosPage() {
 
   const loadPhotos = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from('facility_photos')
       .select('*')
       .eq('facility_id', fId)
       .order('sort_order', { ascending: true })
       .limit(100);
+    if (error) { setLoadError(true); return; }
     setPhotos((data ?? []) as FacilityPhoto[]);
   }, []);
 
@@ -51,7 +55,7 @@ export default function AdminPhotosPage() {
       await loadPhotos(membership.facility_id);
       setLoading(false);
     };
-    init().catch(() => setLoading(false));
+    init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadPhotos]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -194,7 +198,9 @@ export default function AdminPhotosPage() {
       </div>
 
       {/* 写真一覧 */}
-      {photos.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={() => { if (facilityId) loadPhotos(facilityId); }} message="写真の読み込みに失敗しました" />
+      ) : photos.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">写真がまだ登録されていません</p>
         </div>

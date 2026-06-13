@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface ApiKey {
   id: string;
@@ -26,6 +27,7 @@ export default function ApiKeysPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newKeyName, setNewKeyName] = useState('');
   const [selectedScopes, setSelectedScopes] = useState<string[]>(['bookings:read']);
@@ -35,18 +37,21 @@ export default function ApiKeysPage() {
   const [confirmRevokeId, setConfirmRevokeId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { setLoading(false); return; }
-      const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!mem) { setLoading(false); return; }
-      setFacilityId(mem.facility_id);
-      const { data } = await supabase.from('api_keys').select('*').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
-      setKeys((data ?? []) as ApiKey[]);
-      setLoading(false);
-    });
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (!mem) { setLoading(false); return; }
+    setFacilityId(mem.facility_id);
+    const { data, error } = await supabase.from('api_keys').select('*').eq('facility_id', mem.facility_id).order('created_at', { ascending: false });
+    if (error) { setLoadError(true); setLoading(false); return; }
+    setKeys((data ?? []) as ApiKey[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleCreate = async () => {
     if (!facilityId || !newKeyName.trim() || selectedScopes.length === 0) return;
@@ -177,7 +182,9 @@ export default function ApiKeysPage() {
         <div className="px-5 py-4 border-b border-gray-100">
           <h2 className="font-bold text-gray-800">発行済みAPIキー（{keys.length}件）</h2>
         </div>
-        {keys.length === 0 ? (
+        {loadError ? (
+          <div className="p-4"><LoadError onRetry={load} message="APIキーの読み込みに失敗しました" /></div>
+        ) : keys.length === 0 ? (
           <p className="text-sm text-gray-400 p-6 text-center">APIキーはまだありません</p>
         ) : (
           <div className="divide-y divide-gray-50">

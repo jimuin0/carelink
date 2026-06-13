@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
 
@@ -29,6 +30,7 @@ const emptyForm: MenuForm = {
 export default function AdminMenusPage() {
   const [menus, setMenus] = useState<FacilityMenu[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [editForm, setEditForm] = useState<MenuForm | null>(null);
@@ -38,11 +40,13 @@ export default function AdminMenusPage() {
 
   const loadMenus = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from('facility_menus')
       .select('*')
       .eq('facility_id', fId)
       .order('sort_order', { ascending: true });
+    if (error) { setLoadError(true); return; }
     setMenus((data ?? []) as FacilityMenu[]);
   }, []);
 
@@ -57,7 +61,7 @@ export default function AdminMenusPage() {
       await loadMenus(membership.facility_id);
       setLoading(false);
     };
-    init().catch(() => setLoading(false));
+    init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadMenus]);
 
   const handleSave = async () => {
@@ -231,7 +235,9 @@ export default function AdminMenusPage() {
       )}
 
       {/* Menu List */}
-      {menus.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={() => { if (facilityId) loadMenus(facilityId); }} message="メニューの読み込みに失敗しました" />
+      ) : menus.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-2">メニューがまだ登録されていません</p>
           <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初のメニューを追加する</button>

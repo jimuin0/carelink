@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 interface ServicePackage {
   id: string;
@@ -36,6 +37,7 @@ export default function PackagesPage() {
   const [menus, setMenus] = useState<{ id: string; name: string }[]>([]);
   const [tab, setTab] = useState<'packages' | 'users'>('packages');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -66,25 +68,30 @@ export default function PackagesPage() {
   }, []);
 
   const loadPackages = useCallback(async (fId: string) => {
-    const [pkgRes, upRes, menuRes] = await Promise.all([
-      fetch(`/api/admin/packages?facility_id=${fId}`),
-      fetch(`/api/admin/user-packages?facility_id=${fId}`),
-      (async () => {
-        const supabase = createBrowserSupabaseClient();
-        return supabase.from('facility_menus').select('id, name').eq('facility_id', fId).order('sort_order');
-      })(),
-    ]);
+    setLoadError(false);
+    try {
+      const [pkgRes, upRes, menuRes] = await Promise.all([
+        fetch(`/api/admin/packages?facility_id=${fId}`),
+        fetch(`/api/admin/user-packages?facility_id=${fId}`),
+        (async () => {
+          const supabase = createBrowserSupabaseClient();
+          return supabase.from('facility_menus').select('id, name').eq('facility_id', fId).order('sort_order');
+        })(),
+      ]);
 
-    if (pkgRes.ok) {
+      // パッケージ・購入履歴は本画面の主データ。取得失敗を空（0件）に偽装せず明示する
+      if (!pkgRes.ok || !upRes.ok) { setLoadError(true); return; }
       const d = await pkgRes.json();
       setPackages(d.packages ?? []);
+      const upD = await upRes.json();
+      setUserPackages(upD.user_packages ?? []);
+      // メニューはフォーム補助。取得失敗時は空のままにし主データの表示は妨げない
+      if (menuRes.data) setMenus(menuRes.data);
+    } catch {
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
-    if (upRes.ok) {
-      const d = await upRes.json();
-      setUserPackages(d.user_packages ?? []);
-    }
-    if (menuRes.data) setMenus(menuRes.data);
-    setLoading(false);
   }, []);
 
   useEffect(() => { loadFacility(); }, [loadFacility]);
@@ -239,6 +246,10 @@ export default function PackagesPage() {
         </div>
       )}
 
+      {loadError ? (
+        <LoadError onRetry={() => { if (facilityId) loadPackages(facilityId); }} message="パッケージの読み込みに失敗しました" />
+      ) : (
+      <>
       {/* パッケージ一覧 */}
       {tab === 'packages' && (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
@@ -322,6 +333,8 @@ export default function PackagesPage() {
             </table>
           )}
         </div>
+      )}
+      </>
       )}
       <ConfirmDialog
         open={confirmDelete}

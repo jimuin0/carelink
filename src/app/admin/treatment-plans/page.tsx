@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface TreatmentPlan {
   id: string;
@@ -45,6 +46,7 @@ export default function TreatmentPlansPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [plans, setPlans] = useState<TreatmentPlan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -54,24 +56,26 @@ export default function TreatmentPlansPage() {
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
 
     const { data: mem } = await supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .limit(1).single();
-    if (!mem?.facility_id) return;
+    if (!mem?.facility_id) { setLoading(false); return; }
     setFacilityId(mem.facility_id);
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('treatment_plans')
       .select('id, title, diagnosis, goal, total_sessions, completed_sessions, frequency, duration_weeks, status, started_at, ended_at, notes, profiles(display_name, email), staff_profiles(name)')
       .eq('facility_id', mem.facility_id)
       .order('created_at', { ascending: false })
       .limit(200);
 
+    if (error) { setLoadError(true); setLoading(false); return; }
     setPlans((data ?? []) as unknown as TreatmentPlan[]);
 
     const { data: bookings } = await supabase
@@ -91,7 +95,7 @@ export default function TreatmentPlansPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleCreate = async () => {
     if (!facilityId || saving || !form.title) return;
@@ -244,7 +248,9 @@ export default function TreatmentPlansPage() {
 
       {/* 計画一覧 */}
       <div className="space-y-3">
-        {filtered.length === 0 ? (
+        {loadError ? (
+          <LoadError onRetry={load} message="治療計画の読み込みに失敗しました" />
+        ) : filtered.length === 0 ? (
           <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">
             {statusFilter === 'active' ? '進行中の治療計画がありません' : '治療計画がありません'}
           </div>

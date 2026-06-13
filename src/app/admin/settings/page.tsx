@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 
@@ -19,6 +20,7 @@ interface BusinessHours {
 
 export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -62,16 +64,17 @@ export default function AdminSettingsPage() {
   });
   const [closedDays, setClosedDays] = useState<string[]>([]);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
       const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
 
-      const { data } = await supabase.from('facility_profiles').select('*').eq('id', membership.facility_id).single();
+      const { data, error } = await supabase.from('facility_profiles').select('*').eq('id', membership.facility_id).single();
+      if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
         setName(data.name || '');
         setBusinessType(data.business_type || '');
@@ -105,10 +108,11 @@ export default function AdminSettingsPage() {
         }
       }
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    load().catch(() => { setLoadError(true); setLoading(false); });
+  }, [load]);
 
   const toggleFeature = (f: string) => {
     setSelectedFeatures((prev) =>
@@ -197,6 +201,16 @@ export default function AdminSettingsPage() {
         <div className="bg-white rounded-xl p-6 space-y-4">
           {[...Array(6)].map((_, i) => <div key={i} className="h-10 bg-gray-200 rounded" />)}
         </div>
+      </div>
+    );
+  }
+
+  // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <SbPageHeader title="施設設定" />
+        <LoadError onRetry={load} message="施設情報の読み込みに失敗しました" />
       </div>
     );
   }

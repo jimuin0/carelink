@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
 import { statusBannerClass, bookingStatusLabel } from '@/lib/booking-status';
@@ -23,12 +24,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const [menuName, setMenuName] = useState<string | null>(null);
   const [staffName, setStaffName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
@@ -40,13 +42,16 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         .single();
       if (!membership) { setLoading(false); return; }
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('bookings')
         .select('*')
         .eq('id', params.id)
         .eq('facility_id', membership.facility_id)
         .single();
 
+      // PGRST116（行なし）は真の「見つからない」として下の not-found 表示に委ねる。
+      // それ以外（通信/権限エラー）は「見つかりません」に偽装せず失敗として明示する。
+      if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (data) {
         setBooking(data as Booking);
         if (data.menu_id) {
@@ -59,9 +64,11 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         }
       }
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
   }, [params.id]);
+
+  useEffect(() => {
+    load().catch(() => { setLoadError(true); setLoading(false); });
+  }, [load]);
 
   const handleStatusChange = async (newStatus: string) => {
     if (updating || !booking) return;
@@ -91,6 +98,20 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
 
   if (loading) {
     return <div className="bg-white rounded-xl p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
+  }
+
+  if (loadError) {
+    return (
+      <div>
+        <div className="flex items-center gap-3 mb-6">
+          <Link href="/admin/bookings" className="text-gray-400 hover:text-gray-600">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
+          </Link>
+          <h1 className="text-2xl font-bold">予約詳細</h1>
+        </div>
+        <LoadError onRetry={load} message="予約の読み込みに失敗しました" />
+      </div>
+    );
   }
 
   if (!booking) {

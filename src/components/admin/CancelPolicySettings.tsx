@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import LoadError from '@/components/admin/LoadError';
 
 interface Policy {
   free_cancel_hours: number;
@@ -20,18 +21,20 @@ const DEFAULT: Policy = {
 export default function CancelPolicySettings({ facilityId }: { facilityId: string }) {
   const [policy, setPolicy] = useState<Policy>(DEFAULT);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
-      const { data } = await supabase
+      setLoadError(false);
+      const { data, error } = await supabase
         .from('facility_cancel_policies')
         .select('*')
         .eq('facility_id', facilityId)
         .maybeSingle();
 
+      if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
         setPolicy({
           free_cancel_hours: data.free_cancel_hours,
@@ -41,9 +44,9 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
         });
       }
       setLoading(false);
-    };
-    load();
   }, [facilityId]);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -57,6 +60,16 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
   };
 
   if (loading) return <div className="h-40 bg-gray-50 rounded-lg animate-pulse" />;
+
+  // 取得失敗時はフォームを描画しない（DEFAULT値を upsert で保存して実ポリシーを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div className="bg-white rounded-xl p-6 mt-6">
+        <h3 className="text-sm font-bold text-gray-800 mb-4">キャンセルポリシー</h3>
+        <LoadError onRetry={load} message="キャンセルポリシーの読み込みに失敗しました" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl p-6 mt-6">

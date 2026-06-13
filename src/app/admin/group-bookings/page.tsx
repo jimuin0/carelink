@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 import { SbStatusChip } from '@/components/admin/SbUi';
 
 interface GroupBooking {
@@ -23,30 +24,34 @@ export default function AdminGroupBookingsPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [bookings, setBookings] = useState<GroupBooking[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { setLoading(false); return; }
-      const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!mem) { setLoading(false); return; }
-      setFacilityId(mem.facility_id);
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (!mem) { setLoading(false); return; }
+    setFacilityId(mem.facility_id);
 
-      const { data } = await supabase
-        .from('group_bookings')
-        .select('*')
-        .eq('facility_id', mem.facility_id)
-        .order('booking_date', { ascending: false })
-        .limit(50);
+    const { data, error } = await supabase
+      .from('group_bookings')
+      .select('*')
+      .eq('facility_id', mem.facility_id)
+      .order('booking_date', { ascending: false })
+      .limit(50);
 
-      setBookings((data ?? []) as GroupBooking[]);
-      setLoading(false);
-    });
+    if (error) { setLoadError(true); setLoading(false); return; }
+    setBookings((data ?? []) as GroupBooking[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const copyShareUrl = (code: string) => {
     const url = `${window.location.origin}/group-booking/join/${code}`;
@@ -87,7 +92,9 @@ export default function AdminGroupBookingsPage() {
         <p className="text-xs text-gray-400 mt-0.5">複数人同時予約の管理・シェアリンク発行</p>
       </div>
 
-      {bookings.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={load} message="グループ予約の読み込みに失敗しました" />
+      ) : bookings.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-100 p-10 text-center">
           <p className="text-4xl mb-3">👥</p>
           <p className="font-bold text-gray-700 mb-1">グループ予約はまだありません</p>

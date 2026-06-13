@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface ChatRoom {
   id: string;
@@ -29,13 +30,15 @@ export default function AdminChatPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [, setFacilityId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [messagesError, setMessagesError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const supabaseRef = useRef(createBrowserSupabaseClient());
 
-  useEffect(() => {
-    const init = async () => {
+  const loadRooms = useCallback(async () => {
       const supabase = supabaseRef.current;
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
       setUserId(user.id);
@@ -44,12 +47,13 @@ export default function AdminChatPage() {
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
 
-      const { data: roomsData } = await supabase
+      const { data: roomsData, error: roomsError } = await supabase
         .from('chat_rooms')
         .select('id, user_id, last_message_at')
         .eq('facility_id', membership.facility_id)
         .order('last_message_at', { ascending: false });
 
+      if (roomsError) { setLoadError(true); setLoading(false); return; }
       if (roomsData && roomsData.length > 0) {
         const userIds = roomsData.map((r) => r.user_id);
         const { data: profiles } = await supabase
@@ -76,18 +80,22 @@ export default function AdminChatPage() {
         setRooms(roomsList);
       }
       setLoading(false);
-    };
-    init().catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    loadRooms().catch(() => { setLoadError(true); setLoading(false); });
+  }, [loadRooms]);
 
   const loadMessages = useCallback(async (roomId: string) => {
     const supabase = supabaseRef.current;
-    const { data } = await supabase
+    setMessagesError(false);
+    const { data, error } = await supabase
       .from('chat_messages')
       .select('*')
       .eq('room_id', roomId)
       .order('created_at')
       .limit(100);
+    if (error) { setMessagesError(true); return; }
     setMessages((data || []) as ChatMessage[]);
 
     if (userId) {
@@ -148,7 +156,9 @@ export default function AdminChatPage() {
         <div className="flex h-full">
           {/* Room list */}
           <div className="w-1/3 border-r overflow-y-auto">
-            {rooms.length === 0 ? (
+            {loadError ? (
+              <div className="p-4"><LoadError onRetry={loadRooms} message="メッセージの読み込みに失敗しました" /></div>
+            ) : rooms.length === 0 ? (
               <p className="text-gray-400 text-sm p-4 text-center">メッセージはありません</p>
             ) : rooms.map((room) => (
               <button
@@ -177,6 +187,10 @@ export default function AdminChatPage() {
             {!selectedRoom ? (
               <div className="flex-1 flex items-center justify-center text-gray-400 text-sm">
                 トークを選択してください
+              </div>
+            ) : messagesError ? (
+              <div className="flex-1 flex items-center justify-center p-4">
+                <LoadError onRetry={() => loadMessages(selectedRoom)} message="メッセージの読み込みに失敗しました" />
               </div>
             ) : (
               <>

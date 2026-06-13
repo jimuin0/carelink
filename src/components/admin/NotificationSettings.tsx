@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import LoadError from '@/components/admin/LoadError';
 
 interface Settings {
   push_on_new_booking: boolean;
@@ -30,17 +31,19 @@ const LABELS: Record<keyof Settings, string> = {
 export default function NotificationSettings({ facilityId }: { facilityId: string }) {
   const [settings, setSettings] = useState<Settings>(DEFAULT);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
-      const { data } = await supabase
+      setLoadError(false);
+      const { data, error } = await supabase
         .from('facility_notification_settings')
         .select('*')
         .eq('facility_id', facilityId)
         .maybeSingle();
 
+      if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
         setSettings({
           push_on_new_booking: data.push_on_new_booking,
@@ -51,9 +54,9 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
         });
       }
       setLoading(false);
-    };
-    load();
   }, [facilityId]);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleToggle = async (key: keyof Settings) => {
     const newSettings = { ...settings, [key]: !settings[key] };
@@ -72,6 +75,16 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
   };
 
   if (loading) return <div className="h-40 bg-gray-50 rounded-lg animate-pulse" />;
+
+  // 取得失敗時はトグルを描画しない（DEFAULT値を upsert で保存して実設定を上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div className="bg-white rounded-xl p-6">
+        <h3 className="text-sm font-bold text-gray-800 mb-4">通知設定</h3>
+        <LoadError onRetry={load} message="通知設定の読み込みに失敗しました" />
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-xl p-6">

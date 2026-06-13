@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 const SECTION_TEMPLATES = {
   paragraph: '{"type":"paragraph","text":"テキストをここに入力"}',
@@ -29,6 +30,7 @@ export default function EditPlatformBlogPage(props: Props) {
   const [contentJson, setContentJson] = useState('[]');
   const [isPublished, setIsPublished] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [jsonError, setJsonError] = useState('');
@@ -37,12 +39,14 @@ export default function EditPlatformBlogPage(props: Props) {
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from('platform_blog_posts')
       .select('*')
       .eq('id', params.id)
       .single();
 
+    if (error) { setLoadError(true); setLoading(false); return; }
     if (data) {
       setTitle(data.title);
       setSlug(data.slug);
@@ -56,7 +60,7 @@ export default function EditPlatformBlogPage(props: Props) {
     setLoading(false);
   }, [params.id]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const validateJson = (value: string) => {
     try {
@@ -123,6 +127,16 @@ export default function EditPlatformBlogPage(props: Props) {
     return (
       <div className="py-12 text-center">
         <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
+      </div>
+    );
+  }
+
+  // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div className="max-w-3xl">
+        <h1 className="text-xl font-bold mb-6">コラム記事を編集</h1>
+        <LoadError onRetry={load} message="記事の読み込みに失敗しました" />
       </div>
     );
   }
