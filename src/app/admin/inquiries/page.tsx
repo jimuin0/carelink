@@ -41,6 +41,7 @@ export default function AdminInquiriesPage() {
   const [statusFilter, setStatusFilter] = useState<string>('open');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const load = useCallback(async () => {
@@ -64,17 +65,23 @@ export default function AdminInquiriesPage() {
     id: string,
     updates: Partial<Pick<Contact, 'ticket_status' | 'priority' | 'ticket_notes'>>
   ) => {
-    const res = await fetch(`/api/admin/inquiries/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates),
-    });
-    if (!res.ok) {
-      setToast({ type: 'error', message: '更新に失敗しました' });
-      return;
+    if (savingId) return; // 二重送信ガード（select 連続変更による順不同 PATCH 競合を防止）
+    setSavingId(id);
+    try {
+      const res = await fetch(`/api/admin/inquiries/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) {
+        setToast({ type: 'error', message: '更新に失敗しました' });
+        return;
+      }
+      setToast({ type: 'success', message: '更新しました' });
+      load();
+    } finally {
+      setSavingId(null);
     }
-    setToast({ type: 'success', message: '更新しました' });
-    load();
   };
 
   const openCount = contacts.filter(c => c.ticket_status === 'open').length;
@@ -166,8 +173,9 @@ export default function AdminInquiriesPage() {
                   <div className="flex flex-wrap gap-2">
                     <select
                       value={c.ticket_status}
+                      disabled={savingId !== null}
                       onChange={(e) => updateTicket(c.id, { ticket_status: e.target.value as Contact['ticket_status'] })}
-                      className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white"
+                      className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {Object.entries(TICKET_STATUS_CONFIG).map(([val, { label }]) => (
                         <option key={val} value={val}>{label}</option>
@@ -175,8 +183,9 @@ export default function AdminInquiriesPage() {
                     </select>
                     <select
                       value={c.priority}
+                      disabled={savingId !== null}
                       onChange={(e) => updateTicket(c.id, { priority: e.target.value as Contact['priority'] })}
-                      className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white"
+                      className="text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {Object.entries(PRIORITY_CONFIG).map(([val, { label }]) => (
                         <option key={val} value={val}>優先度: {label}</option>
@@ -197,8 +206,9 @@ export default function AdminInquiriesPage() {
                     />
                     <button
                       type="button"
+                      disabled={savingId !== null}
                       onClick={() => updateTicket(c.id, { ticket_notes: editingNotes[c.id] ?? c.ticket_notes ?? '' })}
-                      className="mt-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium"
+                      className="mt-1 text-xs px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       メモを保存
                     </button>
