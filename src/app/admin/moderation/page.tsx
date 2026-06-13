@@ -40,6 +40,7 @@ export default function ModerationPage() {
   const [statusFilter, setStatusFilter] = useState<string>('pending');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState('');
 
   const load = useCallback(async () => {
@@ -60,22 +61,28 @@ export default function ModerationPage() {
   useEffect(() => { load(); }, [load]);
 
   const handleDecision = async (id: string, decision: 'approved' | 'rejected' | 'escalated') => {
-    const res = await fetch(`/api/admin/moderation/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ decision, review_note: reviewNote || null }),
-    });
+    if (processingId) return; // 二重送信ガード（連打抑止）
+    setProcessingId(id);
+    try {
+      const res = await fetch(`/api/admin/moderation/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, review_note: reviewNote || null }),
+      });
 
-    if (!res.ok) {
-      setToast({ type: 'error', message: '更新に失敗しました' });
-      return;
+      if (!res.ok) {
+        setToast({ type: 'error', message: '更新に失敗しました' });
+        return;
+      }
+
+      const labels = { approved: '承認', rejected: '却下', escalated: 'エスカレーション' };
+      setToast({ type: 'success', message: `${labels[decision]}しました` });
+      setReviewingId(null);
+      setReviewNote('');
+      load();
+    } finally {
+      setProcessingId(null);
     }
-
-    const labels = { approved: '承認', rejected: '却下', escalated: 'エスカレーション' };
-    setToast({ type: 'success', message: `${labels[decision]}しました` });
-    setReviewingId(null);
-    setReviewNote('');
-    load();
   };
 
   const pendingCount = items.filter(i => i.status === 'pending').length;
@@ -169,22 +176,25 @@ export default function ModerationPage() {
                       <div className="flex gap-2">
                         <button
                           type="button"
+                          disabled={processingId !== null}
                           onClick={() => handleDecision(item.id, 'approved')}
-                          className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-sm font-bold hover:bg-emerald-600"
+                          className="flex-1 py-2 bg-emerald-500 text-white rounded-lg text-sm font-bold hover:bg-emerald-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           承認
                         </button>
                         <button
                           type="button"
+                          disabled={processingId !== null}
                           onClick={() => handleDecision(item.id, 'rejected')}
-                          className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600"
+                          className="flex-1 py-2 bg-red-500 text-white rounded-lg text-sm font-bold hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           却下
                         </button>
                         <button
                           type="button"
+                          disabled={processingId !== null}
                           onClick={() => handleDecision(item.id, 'escalated')}
-                          className="flex-1 py-2 bg-purple-500 text-white rounded-lg text-sm font-bold hover:bg-purple-600"
+                          className="flex-1 py-2 bg-purple-500 text-white rounded-lg text-sm font-bold hover:bg-purple-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           エスカレ
                         </button>

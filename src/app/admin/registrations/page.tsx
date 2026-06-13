@@ -18,6 +18,7 @@ export default function AdminRegistrationsPage() {
   const [salons, setSalons] = useState<Salon[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [processingId, setProcessingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
@@ -42,6 +43,8 @@ export default function AdminRegistrationsPage() {
   useEffect(() => { loadSalons(); }, [loadSalons]);
 
   const updateStatus = async (salon: Salon, status: 'approved' | 'rejected') => {
+    if (processingId) return; // 二重送信ガード（連打・処理中の別操作を抑止）
+    setProcessingId(salon.id);
     try {
       const res = await fetch(`/api/admin/registrations/${salon.id}`, {
         method: 'PATCH',
@@ -58,6 +61,8 @@ export default function AdminRegistrationsPage() {
       loadSalons();
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setProcessingId(null);
     }
   };
 
@@ -118,8 +123,8 @@ export default function AdminRegistrationsPage() {
                   </div>
                   {salon.status === 'pending' && (
                     <div className="flex gap-2">
-                      <button type="button" onClick={() => handleApprove(salon)} className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600">承認</button>
-                      <button type="button" onClick={() => handleReject(salon)} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200">却下</button>
+                      <button type="button" disabled={processingId !== null} onClick={() => handleApprove(salon)} className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed">承認</button>
+                      <button type="button" disabled={processingId !== null} onClick={() => handleReject(salon)} className="text-xs bg-red-100 text-red-600 px-3 py-1 rounded-lg hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed">却下</button>
                     </div>
                   )}
                 </div>
