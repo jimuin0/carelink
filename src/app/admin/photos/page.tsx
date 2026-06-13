@@ -44,19 +44,23 @@ export default function AdminPhotosPage() {
     setPhotos((data ?? []) as FacilityPhoto[]);
   }, []);
 
-  useEffect(() => {
-    const init = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      await loadPhotos(membership.facility_id);
-      setLoading(false);
-    };
-    init().catch(() => { setLoadError(true); setLoading(false); });
+  // user→membership→facilityId→一覧取得 の全工程。リトライ時も facilityId を再導出するため
+  // 完全再取得をこの単一関数に集約する（facilityId 未確定の失敗でもリトライが機能する）
+  const reload = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (!membership) { setLoading(false); return; }
+    setFacilityId(membership.facility_id);
+    await loadPhotos(membership.facility_id);
+    setLoading(false);
   }, [loadPhotos]);
+
+  useEffect(() => {
+    reload().catch(() => { setLoadError(true); setLoading(false); });
+  }, [reload]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -199,7 +203,7 @@ export default function AdminPhotosPage() {
 
       {/* 写真一覧 */}
       {loadError ? (
-        <LoadError onRetry={() => { if (facilityId) loadPhotos(facilityId); }} message="写真の読み込みに失敗しました" />
+        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="写真の読み込みに失敗しました" />
       ) : photos.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">写真がまだ登録されていません</p>

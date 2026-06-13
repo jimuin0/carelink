@@ -45,20 +45,24 @@ export default function AdminQAPage() {
     setQaList((data ?? []) as QAItem[]);
   }, []);
 
-  useEffect(() => {
-    const init = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      setUserId(user.id);
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      await loadQA(membership.facility_id);
-      setLoading(false);
-    };
-    init().catch(() => { setLoadError(true); setLoading(false); });
+  // user→membership→facilityId→一覧取得 の全工程。リトライ時も facilityId を再導出するため
+  // 完全再取得をこの単一関数に集約する（facilityId 未確定の失敗でもリトライが機能する）
+  const reload = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    setUserId(user.id);
+    const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (!membership) { setLoading(false); return; }
+    setFacilityId(membership.facility_id);
+    await loadQA(membership.facility_id);
+    setLoading(false);
   }, [loadQA]);
+
+  useEffect(() => {
+    reload().catch(() => { setLoadError(true); setLoading(false); });
+  }, [reload]);
 
   const handleAnswer = async () => {
     if (!answeringId || !answerText.trim() || !facilityId || !userId || saving) return;
@@ -204,7 +208,7 @@ export default function AdminQAPage() {
 
       {/* Q&A List */}
       {loadError ? (
-        <LoadError onRetry={() => { if (facilityId) loadQA(facilityId); }} message="Q&Aの読み込みに失敗しました" />
+        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="Q&Aの読み込みに失敗しました" />
       ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">
