@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { statusGanttClass } from '@/lib/booking-status';
+import { timeToMinutes, minutesToTime, snapToSlot, computeEndMinutes, endExceedsClose } from '@/lib/board-time';
 
 export type BoardChip = {
   id: string;
@@ -25,17 +26,6 @@ export type BoardMenu = {
   price: number | null;
   duration_minutes: number | null;
 };
-
-function toMin(t: string): number {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + (m || 0);
-}
-function pad(n: number): string {
-  return String(n).padStart(2, '0');
-}
-function minToTime(min: number): string {
-  return `${pad(Math.floor(min / 60))}:${pad(min % 60)}`;
-}
 
 /**
  * サロンボードのスタッフ×時間軸グリッド（クライアント）。
@@ -64,7 +54,7 @@ export default function BoardScheduleGrid({
   const [preset, setPreset] = useState<{ staffKey: string; staffName: string; start: string }>({
     staffKey: '__unassigned__',
     staffName: '指名なし',
-    start: `${pad(openHour)}:00`,
+    start: minutesToTime(openHour * 60),
   });
 
   function handleTrackClick(e: React.MouseEvent<HTMLDivElement>, row: BoardRow) {
@@ -73,8 +63,8 @@ export default function BoardScheduleGrid({
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
     const rawMin = openHour * 60 + ratio * totalMin;
-    const snapped = Math.floor(rawMin / 30) * 30; // 30分グリッドにスナップ
-    setPreset({ staffKey: row.key, staffName: row.name, start: minToTime(snapped) });
+    const snapped = snapToSlot(rawMin); // 30分グリッドにスナップ
+    setPreset({ staffKey: row.key, staffName: row.name, start: minutesToTime(snapped) });
     setModalOpen(true);
   }
 
@@ -95,8 +85,8 @@ export default function BoardScheduleGrid({
               <div key={h} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(i / hours.length) * 100}%` }} />
             ))}
             {row.chips.map((b) => {
-              const start = Math.max(toMin(b.start_time) - openHour * 60, 0);
-              const end = Math.min(toMin(b.end_time) - openHour * 60, totalMin);
+              const start = Math.max(timeToMinutes(b.start_time) - openHour * 60, 0);
+              const end = Math.min(timeToMinutes(b.end_time) - openHour * 60, totalMin);
               if (end <= 0 || start >= totalMin) return null;
               const left = (start / totalMin) * 100;
               const width = Math.max(((end - start) / totalMin) * 100, 2);
@@ -124,6 +114,7 @@ export default function BoardScheduleGrid({
         <BoardBookingModal
           facilityId={facilityId}
           date={date}
+          closeHour={closeHour}
           menus={menus}
           preset={preset}
           onClose={() => setModalOpen(false)}
@@ -140,6 +131,7 @@ export default function BoardScheduleGrid({
 function BoardBookingModal({
   facilityId,
   date,
+  closeHour,
   menus,
   preset,
   onClose,
@@ -147,6 +139,7 @@ function BoardBookingModal({
 }: {
   facilityId: string;
   date: string;
+  closeHour: number;
   menus: BoardMenu[];
   preset: { staffKey: string; staffName: string; start: string };
   onClose: () => void;
@@ -164,7 +157,10 @@ function BoardBookingModal({
   const totalDuration = menus
     .filter((m) => selectedMenus.includes(m.id))
     .reduce((s, m) => s + (m.duration_minutes || 0), 0);
-  const endTime = minToTime(toMin(startTime) + Math.max(totalDuration, 30));
+  const endMin = computeEndMinutes(timeToMinutes(startTime), totalDuration);
+  const endTime = minutesToTime(endMin);
+  // 終了が営業終了（closeHour）を超える＝不正時刻(24:00超含む)になる前にブロックする（API 400 を予防）
+  const tooLate = endExceedsClose(endMin, closeHour);
 
   const totalPrice = menus
     .filter((m) => selectedMenus.includes(m.id))
@@ -182,6 +178,10 @@ function BoardBookingModal({
     }
     if (selectedMenus.length === 0) {
       setError('メニューを1つ以上選択してください');
+      return;
+    }
+    if (tooLate) {
+      setError(`終了時刻（${endTime}）が営業終了（${minutesToTime(closeHour * 60)}）を超えます。開始時刻かメニューを調整してください。`);
       return;
     }
     setSubmitting(true);
@@ -229,6 +229,11 @@ function BoardBookingModal({
           <div className="text-xs text-gray-500">
             {date}　{startTime}〜{endTime}　/　担当: {preset.staffName}
           </div>
+          {tooLate && (
+            <p className="text-xs text-red-600">
+              終了時刻（{endTime}）が営業終了（{minutesToTime(closeHour * 60)}）を超えます。開始時刻かメニューを調整してください。
+            </p>
+          )}
 
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">お客様名 <span className="text-red-500">必須</span></label>
@@ -305,7 +310,7 @@ function BoardBookingModal({
           <button
             type="button"
             onClick={submit}
-            disabled={submitting}
+            disabled={submitting || tooLate}
             className="px-4 py-1.5 rounded-md text-sm font-bold bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
           >
             {submitting ? '作成中…' : '予約を確定'}
