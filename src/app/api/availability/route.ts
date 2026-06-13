@@ -91,12 +91,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ dates });
     }
 
-    // 集約関数の未デプロイ以外（通信/権限/SQL エラー）は異常として扱い 500 を返す（空状態に偽装しない）。
-    if (monthErr.code !== 'PGRST202') {
-      throw monthErr;
-    }
+    // 集約RPCが失敗した場合（未デプロイ / PostgREST schema cache 未反映 / ランタイムエラーの
+    // いずれでも）500 にせず従来の日次ループにフォールバックする。フォールバックは実データを
+    // 再計算するため「空状態偽装」にはならず、公開導線（施設ページのバッジ）を止めない。
+    // 原因可視化のため Sentry に記録する（cache 反映＆関数正常後は到達しないため恒常ノイズにならない）。
+    safeCaptureException(monthErr, 'availability:get_month_availability_fallback');
 
-    // ---- フォールバック（get_month_availability 適用前の互換経路。適用・cache 反映後は到達しない）----
+    // ---- フォールバック（集約RPCが使えない間の互換経路。cache 反映＆関数正常後は到達しない）----
     const futureDates: string[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = dateStrFor(day);
