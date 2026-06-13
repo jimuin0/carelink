@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import type { Booking } from '@/types';
-import { SbStatusChip } from '@/components/admin/SbUi';
+import { SbStatusChip, SbPageHeader } from '@/components/admin/SbUi';
 
 const PER_PAGE = 20;
 
@@ -61,10 +61,10 @@ export default async function AdminBookingsPage(props: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">予約管理</h1>
-        <p className="text-sm text-gray-500">{total}件</p>
-      </div>
+      <SbPageHeader
+        title="予約管理"
+        actions={<p className="text-sm text-gray-500">{total}件</p>}
+      />
 
       {/* Filters */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2">

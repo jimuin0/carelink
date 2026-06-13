@@ -2,6 +2,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getStaffByFacility } from '@/lib/staff';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default async function AdminStaffPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -20,10 +21,10 @@ export default async function AdminStaffPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">スタッフ管理</h1>
-        <Link href="/admin/staff/new" className="btn-primary text-sm !py-2 !px-4">追加</Link>
-      </div>
+      <SbPageHeader
+        title="スタッフ管理"
+        actions={<Link href="/admin/staff/new" className="btn-primary text-sm !py-2 !px-4">追加</Link>}
+      />
 
       {staff.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">

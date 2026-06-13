@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
@@ -202,10 +203,10 @@ export default function AdminSettingsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-bold">施設設定</h1>
-          <div className="flex items-center gap-3">
+      <SbPageHeader
+        title="施設設定"
+        actions={
+          <>
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${facilityStatus === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
               {facilityStatus === 'published' ? '公開中' : '非公開'}
             </span>
@@ -233,12 +234,12 @@ export default function AdminSettingsPage() {
             >
               {publishToggling ? '処理中...' : facilityStatus === 'published' ? '非公開にする' : '公開する'}
             </button>
-          </div>
-        </div>
-        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 !py-2.5">
-          {saving ? '保存中...' : '保存する'}
-        </button>
-      </div>
+            <button type="button" onClick={handleSave} disabled={saving} className="btn-primary px-6 !py-2.5">
+              {saving ? '保存中...' : '保存する'}
+            </button>
+          </>
+        }
+      />
 
       {/* 基本情報 */}
       <section className="bg-white rounded-xl shadow-sm p-6 mb-6">

@@ -2,6 +2,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getUniqueCustomers } from '@/lib/admin';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default async function AdminCustomersPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -20,7 +21,7 @@ export default async function AdminCustomersPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">顧客管理</h1>
+      <SbPageHeader title="顧客管理" />
 
       {customers.length > 0 && (
         <div className="mb-4 flex justify-end">
