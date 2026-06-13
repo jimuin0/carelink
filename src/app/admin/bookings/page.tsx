@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import type { Booking } from '@/types';
 import { SbStatusChip, SbPageHeader } from '@/components/admin/SbUi';
+import { isValidIsoDate, clampPage } from '@/lib/admin-date';
 
 const PER_PAGE = 20;
 
@@ -24,38 +25,50 @@ export default async function AdminBookingsPage(props: Props) {
     .single();
   if (!membership) notFound();
 
-  const page = Math.max(1, parseInt(searchParams.page || '1') || 1);
+  // 検証済みフィルタのみ採用（不正な status / 暦不正な date は無視し、ページURLにも伝播させない）
+  const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
+  const statusFilter = searchParams.status && validStatuses.includes(searchParams.status) ? searchParams.status : null;
+  const dateFilter = searchParams.date && isValidIsoDate(searchParams.date) ? searchParams.date : null;
+
+  // 1) 件数のみ先に取得 → 総ページ数から page を [1, totalPages] にクランプ（?page=999 等の範囲外を最終ページへ丸め、偽の空ページを防ぐ）
+  let countQuery = supabase
+    .from('bookings')
+    .select('id', { count: 'exact', head: true })
+    .eq('facility_id', membership.facility_id);
+  if (statusFilter) countQuery = countQuery.eq('status', statusFilter);
+  if (dateFilter) countQuery = countQuery.eq('booking_date', dateFilter);
+
+  const { count, error: countError } = await countQuery;
+  // 取得失敗を「予約がありません」に偽装しない（error.tsx に委ねる）
+  if (countError) {
+    throw new Error(`予約件数の取得に失敗しました: ${countError.message}`);
+  }
+  const total = count ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / PER_PAGE));
+  const page = clampPage(searchParams.page, totalPages);
   const from = (page - 1) * PER_PAGE;
   const to = from + PER_PAGE - 1;
 
-  let query = supabase
+  // 2) クランプ後の page でデータ取得
+  let dataQuery = supabase
     .from('bookings')
-    .select('*', { count: 'exact' })
+    .select('*')
     .eq('facility_id', membership.facility_id)
     .order('booking_date', { ascending: false })
     .range(from, to);
+  if (statusFilter) dataQuery = dataQuery.eq('status', statusFilter);
+  if (dateFilter) dataQuery = dataQuery.eq('booking_date', dateFilter);
 
-  const validStatuses = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
-  if (searchParams.status && validStatuses.includes(searchParams.status)) {
-    query = query.eq('status', searchParams.status);
-  }
-  if (searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)) {
-    query = query.eq('booking_date', searchParams.date);
-  }
-
-  const { data, count, error } = await query;
-  // 取得失敗を「予約がありません」に偽装しない（error.tsx に委ねる）
+  const { data, error } = await dataQuery;
   if (error) {
     throw new Error(`予約一覧の取得に失敗しました: ${error.message}`);
   }
   const bookings = (data ?? []) as Booking[];
-  const total = count ?? 0;
-  const totalPages = Math.ceil(total / PER_PAGE);
 
-  // Build pagination base URL
+  // Build pagination base URL（検証済みフィルタのみ伝播）
   const baseParams = new URLSearchParams();
-  if (searchParams.status) baseParams.set('status', searchParams.status);
-  if (searchParams.date) baseParams.set('date', searchParams.date);
+  if (statusFilter) baseParams.set('status', statusFilter);
+  if (dateFilter) baseParams.set('date', dateFilter);
   const paramStr = baseParams.toString();
   const baseUrl = paramStr ? `/admin/bookings?${paramStr}` : '/admin/bookings';
 

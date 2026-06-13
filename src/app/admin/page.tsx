@@ -2,6 +2,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader, SbStatCard, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
+import { todayJst } from '@/lib/admin-date';
 
 export default async function AdminDashboard() {
   const supabase = await createServerSupabaseAuthClient();
@@ -18,7 +19,7 @@ export default async function AdminDashboard() {
 
   const facilityId = membership.facility_id;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = todayJst();
 
   // オンボーディング進捗チェック
   // staff_profiles IDs are fetched with data (not head-only) so we can reuse

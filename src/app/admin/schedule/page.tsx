@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import { statusGanttClass, bookingStatusLabel } from '@/lib/booking-status';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
+import { todayJst, isValidIsoDate } from '@/lib/admin-date';
 
 /**
  * サロンボード（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
@@ -20,11 +21,6 @@ const CLOSE_HOUR = 22;
 
 // ガント上に現れるステータスのみ凡例に出す（cancelled / cancel_fee_paid は帯に出ない）
 const LEGEND_STATUSES = ['pending', 'confirmed', 'completed', 'no_show'] as const;
-
-/** JST の今日 (YYYY-MM-DD) */
-function todayJst(): string {
-  return new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().split('T')[0];
-}
 
 function addDays(dateStr: string, days: number): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -58,7 +54,7 @@ export default async function AdminSchedulePage(props: Props) {
     .single();
   if (!membership) notFound();
 
-  const date = searchParams.date && /^\d{4}-\d{2}-\d{2}$/.test(searchParams.date)
+  const date = searchParams.date && isValidIsoDate(searchParams.date)
     ? searchParams.date
     : todayJst();
 

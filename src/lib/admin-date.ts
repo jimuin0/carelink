@@ -1,0 +1,40 @@
+import { getTodayString } from './validations-booking';
+
+/**
+ * 管理画面の日付ユーティリティ（純粋関数・単一ソース）。
+ *
+ * 「JST の今日」は CareLink 全体で getTodayString（validations-booking）に集約済みのため、
+ * ここから委譲して管理画面側の参照先を一本化する。
+ * 過去に admin/page.tsx が UTC 独自実装（new Date().toISOString()）で前日を表示する不具合が
+ * あった（JST 0:00〜8:59 はサーバ UTC ではまだ前日）。独自実装を禁止しこの関数へ統一する。
+ */
+
+/** JST(UTC+9) の今日 YYYY-MM-DD。実装は getTodayString に集約（単一ソース）。 */
+export function todayJst(): string {
+  return getTodayString();
+}
+
+/**
+ * YYYY-MM-DD が「形式が正しく、かつ実在する暦日」であれば true。
+ * 正規表現は形式しか見ず 2026-02-30 等の不正日を通してしまう（JS の ISO パースは
+ * 2026-02-30 を 2026-03-02 に黙ってロールオーバーする）ため、round-trip で実在性を検証する。
+ */
+export function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
+/**
+ * ページ番号を [1, max(1, totalPages)] にクランプする。
+ * ?page=999 等の範囲外を最終ページに丸め、取得0件の偽の空ページ表示を防ぐ。
+ * 不正値・未指定は 1。
+ */
+export function clampPage(rawPage: string | undefined, totalPages: number): number {
+  const parsed = parseInt(rawPage ?? '1', 10);
+  const page = Number.isNaN(parsed) ? 1 : parsed;
+  const max = Math.max(1, totalPages);
+  if (page < 1) return 1;
+  if (page > max) return max;
+  return page;
+}
