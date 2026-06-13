@@ -318,10 +318,16 @@ describe('GET /api/availability', () => {
     expect(nonFull).toHaveLength(0);
   });
 
-  test('集約関数以外のエラー（PGRST202 以外）→ 500（空状態に偽装しない）', async () => {
-    setupDefaultMocks({ monthError: { code: '42883' } });
+  test('集約RPCがランタイムエラー（PGRST202 以外）→ 500 にせず従来ループにフォールバック', async () => {
+    // 関数が schema cache 未反映や実データでランタイムエラーを返しても公開導線を止めない。
+    // フォールバックは実データ再計算（legacySlotsPerStaff=5）→ available。
+    setupDefaultMocks({ monthError: { code: '42883' }, staffCount: 1, legacySlotsPerStaff: 5 });
     const res = await GET(makeRequest() as any);
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(mockRpc.mock.calls.some((c) => c[0] === 'get_available_slots')).toBe(true);
+    const available = Object.values(json.dates).find((d: any) => d.status === 'available');
+    expect(available).toBeDefined();
   });
 
   test('returns status available/few/full for each date', async () => {
