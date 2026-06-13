@@ -62,7 +62,7 @@ export default async function AdminSchedulePage(props: Props) {
     ? searchParams.date
     : todayJst();
 
-  const [{ data: staffRows }, { data: bookingRows }, { data: menuRows }] = await Promise.all([
+  const [{ data: staffRows, error: staffErr }, { data: bookingRows, error: bookingErr }, { data: menuRows, error: menuErr }] = await Promise.all([
     supabase
       .from('staff_profiles')
       .select('id, name, position')
@@ -83,6 +83,12 @@ export default async function AdminSchedulePage(props: Props) {
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
   ]);
+
+  // 取得失敗を「空状態」に偽装しない（error を握り潰さず error.tsx に委ねる）。
+  // 0件（空）と取得失敗を必ず区別する。
+  if (staffErr || bookingErr || menuErr) {
+    throw new Error(`サロンボードのデータ取得に失敗しました: ${staffErr?.message ?? bookingErr?.message ?? menuErr?.message}`);
+  }
 
   const staff = staffRows ?? [];
   type BookingChip = {

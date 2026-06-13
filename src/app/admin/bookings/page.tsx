@@ -43,7 +43,11 @@ export default async function AdminBookingsPage(props: Props) {
     query = query.eq('booking_date', searchParams.date);
   }
 
-  const { data, count } = await query;
+  const { data, count, error } = await query;
+  // 取得失敗を「予約がありません」に偽装しない（error.tsx に委ねる）
+  if (error) {
+    throw new Error(`予約一覧の取得に失敗しました: ${error.message}`);
+  }
   const bookings = (data ?? []) as Booking[];
   const total = count ?? 0;
   const totalPages = Math.ceil(total / PER_PAGE);

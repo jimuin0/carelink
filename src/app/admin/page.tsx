@@ -24,16 +24,20 @@ export default async function AdminDashboard() {
   // staff_profiles IDs are fetched with data (not head-only) so we can reuse
   // them for the staff_schedules query without a second sequential round-trip.
   const [
-    { count: menuCount },
-    { data: staffData },
-    { count: photoCount },
-    { data: facilityData },
+    { count: menuCount, error: menuErr },
+    { data: staffData, error: staffErr },
+    { count: photoCount, error: photoErr },
+    { data: facilityData, error: facilityErr },
   ] = await Promise.all([
     supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
     supabase.from('staff_profiles').select('id').eq('facility_id', facilityId),
     supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId),
     supabase.from('facility_profiles').select('status').eq('id', facilityId).single(),
   ]);
+  // 取得失敗を 0/未完了 に偽装しない（error.tsx に委ねる）
+  if (menuErr || staffErr || photoErr || facilityErr) {
+    throw new Error(`ダッシュボードの取得に失敗しました: ${(menuErr ?? staffErr ?? photoErr ?? facilityErr)?.message}`);
+  }
 
   const staffIds = staffData?.map((s: { id: string }) => s.id) ?? [];
   const staffCount = staffIds.length;
@@ -53,11 +57,19 @@ export default async function AdminDashboard() {
   const completedSteps = onboardingSteps.filter(s => s.done).length;
   const showOnboarding = completedSteps < 5;
 
-  const [{ count: todayBookings }, { count: pendingBookings }, { count: totalCustomers }] = await Promise.all([
+  const [
+    { count: todayBookings, error: todayErr },
+    { count: pendingBookings, error: pendingErr },
+    { count: totalCustomers, error: customerErr },
+  ] = await Promise.all([
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
     supabase.from('customer_visits').select('customer_email', { count: 'exact', head: true }).eq('facility_id', facilityId),
   ]);
+  // KPI の取得失敗を 0 に偽装しない（error.tsx に委ねる）
+  if (todayErr || pendingErr || customerErr) {
+    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? customerErr)?.message}`);
+  }
 
   return (
     <div>
