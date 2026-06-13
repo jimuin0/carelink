@@ -376,7 +376,7 @@ export default function AdminSettingsPage() {
           <div>
             <p className="text-sm font-medium text-gray-800">予約を即時確定する</p>
             <p className="text-xs text-gray-500 mt-0.5">
-              ONにすると、ユーザーが予約した際に自動で「確定」状態になります。OFFの場合は「承認待ち」として管理画面で手動確定が必要です。
+              ONにすると、ユーザーが予約した際に自動で「確定」状態になります。OFFの場合は「確認待ち」として管理画面で手動確定が必要です。
             </p>
           </div>
         </label>

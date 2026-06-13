@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
-import { statusSolidClass } from '@/lib/booking-status';
+import { statusSolidClass, bookingStatusLabel } from '@/lib/booking-status';
 
 interface CalendarBooking {
   id: string;
@@ -156,11 +156,14 @@ export default function BookingCalendarPage() {
         </div>
       )}
 
-      {/* Legend */}
+      {/* Legend（色・ラベルはチップと同じ @/lib/booking-status から生成し、表示と一致させる） */}
       <div className="flex gap-4 mt-4 text-xs text-gray-500">
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-sky-500" />確定</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-amber-400" />仮予約</span>
-        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-green-500" />完了</span>
+        {(['confirmed', 'pending', 'completed'] as const).map((s) => (
+          <span key={s} className="flex items-center gap-1">
+            <span className={`w-3 h-3 rounded ${statusSolidClass(s)}`} />
+            {bookingStatusLabel(s)}
+          </span>
+        ))}
       </div>
     </div>
   );
