@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface PaymentSession {
   id: string;
@@ -34,34 +35,42 @@ export default function AdminPaymentsPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<PaymentSession[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [depositAmount, setDepositAmount] = useState(0);
   const [depositType, setDepositType] = useState<'none' | 'fixed' | 'percent'>('none');
   const [stripeEnabled, setStripeEnabled] = useState(false);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) { setLoading(false); return; }
-      const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!mem) { setLoading(false); return; }
-      setFacilityId(mem.facility_id);
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!mem) { setLoading(false); return; }
+    setFacilityId(mem.facility_id);
 
-      const [{ data: facility }, { data: payData }] = await Promise.all([
-        supabase.from('facility_profiles').select('stripe_enabled, deposit_amount, deposit_type').eq('id', mem.facility_id).single(),
-        supabase.from('stripe_sessions').select('id, stripe_session_id, amount, status, payment_type, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false }).limit(50),
-      ]);
+    const [facRes, payRes] = await Promise.all([
+      supabase.from('facility_profiles').select('stripe_enabled, deposit_amount, deposit_type').eq('id', mem.facility_id).single(),
+      supabase.from('stripe_sessions').select('id, stripe_session_id, amount, status, payment_type, created_at').eq('facility_id', mem.facility_id).order('created_at', { ascending: false }).limit(50),
+    ]);
 
-      if (facility) {
-        setStripeEnabled(facility.stripe_enabled ?? false);
-        setDepositAmount(facility.deposit_amount ?? 0);
-        setDepositType(facility.deposit_type ?? 'none');
-      }
-      setSessions((payData ?? []) as PaymentSession[]);
-      setLoading(false);
-    });
+    // 入金設定はフォーム値の初期化に使う。取得失敗を握り潰すと既定値(0/none)を保存して
+    // 実際の入金設定を上書きする金銭事故になるため、失敗時はフォームを描画しない。
+    if (facRes.error || payRes.error) { setLoadError(true); setLoading(false); return; }
+    const facility = facRes.data;
+    if (facility) {
+      setStripeEnabled(facility.stripe_enabled ?? false);
+      setDepositAmount(facility.deposit_amount ?? 0);
+      setDepositType(facility.deposit_type ?? 'none');
+    }
+    setSessions((payRes.data ?? []) as PaymentSession[]);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleSave = async () => {
     if (!facilityId) return;
@@ -84,6 +93,16 @@ export default function AdminPaymentsPage() {
   const totalRefunded = sessions.filter((s) => s.status === 'refunded').reduce((sum, s) => sum + s.amount, 0);
 
   if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-40 bg-gray-200 rounded-xl" /></div>;
+
+  // 取得失敗時はフォームを描画しない（既定値で実入金設定を上書きする金銭事故を防ぐ）
+  if (loadError) {
+    return (
+      <div className="space-y-6 max-w-4xl">
+        <h1 className="text-xl font-bold">決済・入金設定</h1>
+        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="決済情報の読み込みに失敗しました" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 max-w-4xl">

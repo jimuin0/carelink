@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 import type { AvailableSlot } from '@/types';
 
 export default function BookingChangePage() {
@@ -17,6 +18,7 @@ export default function BookingChangePage() {
     facility_name: string; menu_name: string; staff_name: string; duration: number;
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
   const [slots, setSlots] = useState<AvailableSlot[]>([]);
@@ -24,20 +26,24 @@ export default function BookingChangePage() {
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.push('/auth/login'); return; }
 
-      const { data: b } = await supabase
+      const { data: b, error: bErr } = await supabase
         .from('bookings')
         .select('id, facility_id, staff_id, menu_id, booking_date, start_time, end_time, total_price, status')
         .eq('id', bookingId)
         .eq('user_id', user.id)
         .single();
+      // 通信/権限エラーは一覧へ戻さず失敗として明示（PGRST116=行なし・無効ステータスは従来どおり一覧へ）
+      if (bErr && bErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!b || !['pending', 'confirmed'].includes(b.status)) { router.push('/mypage/bookings'); return; }
 
+      // 施設名は補助表示。取得失敗時は空表示で本体は継続。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', b.facility_id).single();
       const { data: menu } = b.menu_id
         ? await supabase.from('facility_menus').select('name, duration_minutes').eq('id', b.menu_id).single()
@@ -54,9 +60,9 @@ export default function BookingChangePage() {
         duration: menu?.duration_minutes || 60,
       });
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
   }, [bookingId, router]);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const slotsAbortRef = useRef<AbortController | null>(null);
 
@@ -117,6 +123,7 @@ export default function BookingChangePage() {
   });
 
   if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-64 bg-gray-200 rounded-xl" /></div>;
+  if (loadError) return <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="予約情報の読み込みに失敗しました" />;
   if (!booking) return null;
 
   return (

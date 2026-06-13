@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 type TabId = 'setup' | 'audit' | 'reviews' | 'posts';
 
@@ -47,6 +48,7 @@ const POST_TEMPLATES = [
 export default function AdminGbpPage() {
   const [tab, setTab] = useState<TabId>('setup');
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // Setup
@@ -66,23 +68,26 @@ export default function AdminGbpPage() {
   const [newPost, setNewPost] = useState({ title: '', body: '', post_type: 'STANDARD', cta_type: '', cta_url: '' });
   const [savingPost, setSavingPost] = useState(false);
 
-  useEffect(() => {
-    const init = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      const { data: fp } = await supabase.from('facility_profiles').select('gbp_place_id,gbp_cid').eq('id', membership.facility_id).single();
-      if (fp) {
-        setPlaceId(fp.gbp_place_id ?? '');
-        setGbpCid(fp.gbp_cid ?? '');
-      }
-      setLoading(false);
-    };
-    init().catch(() => setLoading(false));
+  const init = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!membership) { setLoading(false); return; }
+    setFacilityId(membership.facility_id);
+    // GBP設定（placeId/gbpCid）はフォーム初期値。取得失敗を握り潰すと空値で実設定を上書きしうるため明示する
+    const { data: fp, error: fpErr } = await supabase.from('facility_profiles').select('gbp_place_id,gbp_cid').eq('id', membership.facility_id).single();
+    if (fpErr) { setLoadError(true); setLoading(false); return; }
+    if (fp) {
+      setPlaceId(fp.gbp_place_id ?? '');
+      setGbpCid(fp.gbp_cid ?? '');
+    }
+    setLoading(false);
   }, []);
+
+  useEffect(() => { init().catch(() => { setLoadError(true); setLoading(false); }); }, [init]);
 
   const saveSetup = async () => {
     setSavingSetup(true);
@@ -182,6 +187,16 @@ export default function AdminGbpPage() {
   };
 
   if (loading) return <div className="animate-pulse space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-24 bg-gray-200 rounded-xl" />)}</div>;
+
+  // 取得失敗時は設定フォームを描画しない（空値で実GBP設定を上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">GBP管理（Googleビジネスプロフィール）</h1>
+        <LoadError onRetry={() => { init().catch(() => { setLoadError(true); setLoading(false); }); }} message="GBP設定の読み込みに失敗しました" />
+      </div>
+    );
+  }
 
   const audit = auditData?.audit;
   const place = auditData?.placeData;

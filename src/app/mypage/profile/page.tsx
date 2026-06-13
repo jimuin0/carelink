@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Image from 'next/image';
 import { useForm } from 'react-hook-form';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 interface ProfileForm {
   display_name: string;
@@ -20,6 +21,7 @@ interface ProfileForm {
 export default function ProfileEditPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [lineLinked, setLineLinked] = useState(false);
@@ -34,18 +36,21 @@ export default function ProfileEditPage() {
 
   const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<ProfileForm>();
 
-  useEffect(() => {
-    const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) { setLoading(false); return; }
 
-      const { data } = await supabase
+      // プロフィールはフォーム初期値。取得失敗を握り潰すと空フォームを保存して実データを
+      // 上書きする事故になるため、失敗時はフォームを描画しない（PGRST116=未作成は新規入力を許可）。
+      const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
         .single();
 
+      if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (data) {
         reset({
           display_name: data.display_name || '',
@@ -59,7 +64,8 @@ export default function ProfileEditPage() {
         setEmailUnsubscribed(data.email_unsubscribed ?? false);
       }
 
-      // LINE連携状態チェック
+      // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: lineLink } = await supabase
         .from('line_user_links')
         .select('display_name')
@@ -71,9 +77,9 @@ export default function ProfileEditPage() {
       }
 
       setLoading(false);
-    };
-    loadProfile().catch(() => setLoading(false));
   }, [reset]);
+
+  useEffect(() => { loadProfile().catch(() => { setLoadError(true); setLoading(false); }); }, [loadProfile]);
 
   const onSubmit = async (data: ProfileForm) => {
     try {
@@ -110,6 +116,16 @@ export default function ProfileEditPage() {
             <div key={i} className="h-10 bg-gray-200 rounded" />
           ))}
         </div>
+      </div>
+    );
+  }
+
+  // 取得失敗時はフォームを描画しない（空フォームを保存して実プロフィールを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-xl font-bold mb-4">プロフィール編集</h1>
+        <LoadError onRetry={() => { loadProfile().catch(() => { setLoadError(true); setLoading(false); }); }} message="プロフィールの読み込みに失敗しました" />
       </div>
     );
   }

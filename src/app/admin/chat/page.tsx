@@ -43,7 +43,8 @@ export default function AdminChatPage() {
       if (!user) { setLoading(false); return; }
       setUserId(user.id);
 
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
 
@@ -56,6 +57,8 @@ export default function AdminChatPage() {
       if (roomsError) { setLoadError(true); setLoading(false); return; }
       if (roomsData && roomsData.length > 0) {
         const userIds = roomsData.map((r) => r.user_id);
+        // 表示名は補助情報。取得失敗時は既定表示「ユーザー」にフォールバックし、ルーム一覧本体は継続表示する。
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
         const { data: profiles } = await supabase
           .from('profiles')
           .select('id, display_name')

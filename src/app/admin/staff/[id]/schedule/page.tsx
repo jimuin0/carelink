@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -37,24 +38,33 @@ export default function StaffSchedulePage() {
   const [newOverrideStart, setNewOverrideStart] = useState('09:00');
   const [newOverrideEnd, setNewOverrideEnd] = useState('19:00');
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const loadData = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (mem) setFacilityId(mem.facility_id);
     }
+    // スタッフ名は補助表示。取得失敗時は名称未表示で本体は継続する。
+    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', staffId).single();
     if (staff) setStaffName(staff.name);
 
-    const { data: schData } = await supabase
+    // 週間スケジュールはフォーム初期値。取得失敗を握り潰すと既定値(09:00-19:00全曜日)で
+    // 実シフトを上書きする事故になるため、失敗時はフォームを描画しない。
+    const { data: schData, error: schErr } = await supabase
       .from('staff_schedules')
       .select('day_of_week, start_time, end_time')
       .eq('staff_id', staffId)
       .order('day_of_week');
 
+    if (schErr) { setLoadError(true); setLoading(false); return; }
     if (schData && schData.length > 0) {
       const newSchedules = DAY_LABELS.map((_, i) => {
         const existing = schData.find((s) => s.day_of_week === i);
@@ -64,16 +74,18 @@ export default function StaffSchedulePage() {
       setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
     }
 
-    const { data: ovData } = await supabase
+    const { data: ovData, error: ovErr } = await supabase
       .from('schedule_overrides')
       .select('id, date, is_holiday, start_time, end_time')
       .eq('staff_id', staffId)
       .gte('date', new Date().toISOString().split('T')[0])
       .order('date');
+    if (ovErr) { setLoadError(true); setLoading(false); return; }
     if (ovData) setOverrides(ovData);
+    setLoading(false);
   }, [staffId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData().catch(() => { setLoadError(true); setLoading(false); }); }, [loadData]);
 
   const handleSaveSchedules = async () => {
     if (!facilityId) return;
@@ -143,6 +155,23 @@ export default function StaffSchedulePage() {
       setToast({ type: 'error', message: '削除に失敗しました' });
     }
   };
+
+  if (loading) {
+    return <div className="bg-white rounded-xl p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
+  }
+
+  // 取得失敗時はフォームを描画しない（既定シフトで実スケジュールを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <div className="flex items-center gap-3 mb-6">
+          <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
+          <h1 className="text-2xl font-bold">スケジュール</h1>
+        </div>
+        <LoadError onRetry={() => { loadData().catch(() => { setLoadError(true); setLoading(false); }); }} message="スケジュールの読み込みに失敗しました" />
+      </div>
+    );
+  }
 
   return (
     <div>

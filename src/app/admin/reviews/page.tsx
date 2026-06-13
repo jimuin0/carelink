@@ -40,11 +40,14 @@ export default function AdminReviewsPage() {
     setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
-    const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
     if (!membership) { setLoading(false); return; }
     setFacilityId(membership.facility_id);
     await loadReviews(membership.facility_id);
-    // Load replies
+    // 返信は補助情報（無ければ非表示）。主表示の口コミは loadReviews 側で error 処理済みのため
+    // ここでの失敗は致命的でなく、取得できた分のみ表示する。
+    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data: replies } = await supabase
       .from('review_replies')
       .select('id, review_id, content, created_at')

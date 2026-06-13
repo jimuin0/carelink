@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
@@ -14,27 +14,36 @@ interface DayData {
 export default function BookingTrendChart({ facilityId }: { facilityId: string }) {
   const [data, setData] = useState<DayData[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const load = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-      const { data: rows } = await supabase
-        .from('daily_revenue_summary')
-        .select('date, booking_count, completed_count, cancelled_count')
-        .eq('facility_id', facilityId)
-        .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
-        .order('date', { ascending: true });
+    const { data: rows, error } = await supabase
+      .from('daily_revenue_summary')
+      .select('date, booking_count, completed_count, cancelled_count')
+      .eq('facility_id', facilityId)
+      .gte('date', thirtyDaysAgo.toISOString().split('T')[0])
+      .order('date', { ascending: true });
 
-      setData(rows || []);
-      setLoading(false);
-    };
-    load();
+    if (error) { setLoadError(true); setLoading(false); return; }
+    setData(rows || []);
+    setLoading(false);
   }, [facilityId]);
 
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+
   if (loading) return <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />;
+  // 取得失敗時は「データがありません」に偽装せず失敗として明示する
+  if (loadError) return (
+    <div className="text-center py-8" role="alert">
+      <p className="text-sm text-rose-600 font-bold">予約数推移の読み込みに失敗しました</p>
+      <button type="button" onClick={() => load()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+    </div>
+  );
   if (data.length === 0) return <p className="text-sm text-gray-400 text-center py-8">データがありません</p>;
 
   return (

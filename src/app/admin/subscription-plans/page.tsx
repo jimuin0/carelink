@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 interface Plan {
@@ -44,28 +45,35 @@ export default function SubscriptionPlansPage() {
   const [form, setForm] = useState(EMPTY_PLAN);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState<Plan | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-    if (!mem?.facility_id) return;
+    if (!user) { setLoading(false); return; }
+    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!mem?.facility_id) { setLoading(false); return; }
     setFacilityId(mem.facility_id);
 
-    const [p, s] = await Promise.all([
-      fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-      fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
-    ]);
-    setPlans(p.plans ?? []);
-    setSubs((s.subscriptions ?? []) as Subscription[]);
+    try {
+      const [p, s] = await Promise.all([
+        fetch(`/api/admin/subscription-plans?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+        fetch(`/api/admin/user-subscriptions?facility_id=${mem.facility_id}`).then((r) => { if (!r.ok) throw new Error(); return r.json(); }),
+      ]);
+      setPlans(p.plans ?? []);
+      setSubs((s.subscriptions ?? []) as Subscription[]);
+    } catch {
+      setLoadError(true); setLoading(false); return;
+    }
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleCreate = async () => {
     if (!facilityId || saving) return;
@@ -161,6 +169,10 @@ export default function SubscriptionPlansPage() {
         ))}
       </div>
 
+      {loadError ? (
+        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="月額プランの読み込みに失敗しました" />
+      ) : (
+      <>
       {tab === 'plans' && (
         <>
           {showForm && (
@@ -282,6 +294,8 @@ export default function SubscriptionPlansPage() {
             );
           })}
         </div>
+      )}
+      </>
       )}
 
       <ConfirmDialog

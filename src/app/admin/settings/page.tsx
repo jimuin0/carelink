@@ -69,7 +69,8 @@ export default function AdminSettingsPage() {
       setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
 
@@ -468,12 +469,16 @@ export default function AdminSettingsPage() {
           onClick={async () => {
             if (!facilityId) return;
             const supabase = createBrowserSupabaseClient();
-            const { data } = await supabase
+            const { data, error } = await supabase
               .from('bookings')
               .select('id, booking_date, start_time, end_time, customer_name, email, phone, status, total_price, note, created_at')
               .eq('facility_id', facilityId)
               .order('booking_date', { ascending: false })
               .limit(5000);
+            if (error) {
+              setToast({ type: 'error', message: '予約データの取得に失敗しました。再度お試しください' });
+              return;
+            }
             if (!data || data.length === 0) {
               setToast({ type: 'error', message: 'エクスポートする予約データがありません' });
               return;

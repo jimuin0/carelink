@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 /** javascript:/data:/vbscript: などの危険なスキームを弾く */
 function safeMeetingUrl(url: string | null): string | null {
@@ -47,6 +48,7 @@ export default function TelehealthPage() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [customers, setCustomers] = useState<{ id: string; display_name: string; email: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [saving, setSaving] = useState(false);
@@ -55,20 +57,25 @@ export default function TelehealthPage() {
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-    if (!mem?.facility_id) return;
+    if (!user) { setLoading(false); return; }
+    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!mem?.facility_id) { setLoading(false); return; }
     setFacilityId(mem.facility_id);
 
-    const { data: s } = await supabase
+    const { data: s, error: sErr } = await supabase
       .from('telehealth_sessions')
       .select('id, status, scheduled_at, duration_minutes, meeting_url, platform, patient_notes, session_notes, fee, profiles(display_name, email), staff_profiles(name)')
       .eq('facility_id', mem.facility_id)
       .order('scheduled_at', { ascending: false })
       .limit(100);
+    if (sErr) { setLoadError(true); setLoading(false); return; }
     setSessions((s ?? []) as unknown as Session[]);
 
+    // 新規作成フォームの患者候補（補助）。取得失敗時は候補空のままにし一覧本体は表示継続。
+    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data: bookings } = await supabase
       .from('bookings')
       .select('user_id, profiles(id, display_name, email)')
@@ -85,7 +92,7 @@ export default function TelehealthPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleCreate = async () => {
     if (!facilityId || saving) return;
@@ -222,7 +229,9 @@ export default function TelehealthPage() {
 
       {/* 一覧 */}
       <div className="space-y-3">
-        {filtered.length === 0 ? (
+        {loadError ? (
+          <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="オンライン相談の読み込みに失敗しました" />
+        ) : filtered.length === 0 ? (
           <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">オンライン相談がありません</div>
         ) : filtered.map((s) => {
           const st = STATUS_LABEL[s.status] ?? { label: s.status, cls: 'bg-gray-100 text-gray-500' };

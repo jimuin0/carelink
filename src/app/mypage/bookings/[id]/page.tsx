@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
 import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
 
@@ -13,24 +14,28 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const router = useRouter();
   const [booking, setBooking] = useState<Booking | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [gcalConnected, setGcalConnected] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('bookings')
         .select('*')
         .eq('id', params.id)
         .eq('user_id', user.id)
         .single();
+      // PGRST116（行なし）は真の「見つからない」として下の not-found 表示に委ね、
+      // 通信/権限エラーは「見つかりません」に偽装せず失敗として明示する。
+      if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       setBooking(data as Booking | null);
       setLoading(false);
       // Check Google Calendar connection
@@ -38,9 +43,9 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((d) => setGcalConnected(d.connected && !d.isExpired))
         .catch(() => {});
-    };
-    load().catch(() => setLoading(false));
   }, [params.id]);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleCancel = async () => {
     if (cancelling) return;
@@ -70,6 +75,12 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           {[...Array(4)].map((_, i) => <div key={i} className="h-4 bg-gray-200 rounded" />)}
         </div>
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="予約の読み込みに失敗しました" />
     );
   }
 

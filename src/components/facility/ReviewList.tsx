@@ -50,7 +50,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       const supabase = createBrowserSupabaseClient();
       const reviewIds = reviews.map((r) => r.id);
 
-      // Load replies
+      // Load replies（補助エンリッチ：口コミ一覧は props 表示済み。失敗時も一覧本体は維持）
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: replies } = await supabase
         .from('review_replies')
         .select('id, review_id, content, created_at')
@@ -65,7 +66,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
         setRepliesMap(map);
       }
 
-      // Load helpful counts
+      // Load helpful counts（補助エンリッチ：失敗時も一覧本体は維持）
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: helpfulCounts } = await supabase
         .from('review_helpful')
         .select('review_id')
@@ -81,6 +83,8 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       // Load my helpful
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
+        // 自分の「参考になった」状態（補助）。失敗時も一覧本体は維持
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
         const { data: myH } = await supabase
           .from('review_helpful')
           .select('review_id')

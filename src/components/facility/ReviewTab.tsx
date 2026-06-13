@@ -33,6 +33,9 @@ export default function ReviewTab({ facilityId, facilitySlug, facilityName, init
   const [reviews, setReviews] = useState(initialReviews);
 
   const refreshReviews = async () => {
+    // 投稿後の再取得（補助）。失敗時も既存の表示を維持し、サーバ保存済みのため再読込で反映される
+    // （空状態への偽装は起きない＝initialReviews を保持）。
+    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data } = await supabase
       .from('public_reviews' as 'facility_reviews')
       .select('*')

@@ -16,6 +16,7 @@ interface QAItem {
 export default function QASection({ facilityId }: { facilityId: string }) {
   const [qaList, setQaList] = useState<QAItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [question, setQuestion] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -24,13 +25,15 @@ export default function QASection({ facilityId }: { facilityId: string }) {
 
   const loadQA = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from('facility_qa')
       .select('id, question, answer, status, is_public, created_at, answered_at')
       .eq('facility_id', facilityId)
       .eq('status', 'answered')
       .eq('is_public', true)
       .order('answered_at', { ascending: false });
+    if (error) { setLoadError(true); return; }
     setQaList((data ?? []) as QAItem[]);
   }, [facilityId]);
 
@@ -42,7 +45,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
       await loadQA();
       setLoading(false);
     };
-    init().catch(() => setLoading(false));
+    init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadQA]);
 
   const handleSubmit = async () => {
@@ -120,7 +123,12 @@ export default function QASection({ facilityId }: { facilityId: string }) {
       )}
 
       {/* Q&A List */}
-      {qaList.length === 0 ? (
+      {loadError ? (
+        <div className="text-center py-8" role="alert">
+          <p className="text-sm text-rose-600 font-bold">Q&Aの読み込みに失敗しました</p>
+          <button type="button" onClick={() => loadQA()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+        </div>
+      ) : qaList.length === 0 ? (
         <p className="text-gray-400 text-center py-8">Q&Aはまだありません。</p>
       ) : (
         <div className="space-y-3">
