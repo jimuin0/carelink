@@ -12,6 +12,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { todayJst, diffDays } from '@/lib/admin-date';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-03-25.dahlia',
@@ -54,10 +55,11 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
     .eq('facility_id', booking.facility_id)
     .single();
 
-  // Calculate cancellation fee
-  const daysUntil = Math.ceil(
-    (new Date(booking.booking_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
-  );
+  // Calculate cancellation fee.
+  // 予約日（date-only）と JST の今日の「暦日差」で残り日数を出す。
+  // 実時刻 Date.now() と date-only を UTC 0:00 解釈で引くと JST 0:00〜8:59 帯で
+  // 1 日ズレ、料率（同日50%/前日30%/3日前0%）が変わる金銭バグになるため diffDays に統一。
+  const daysUntil = diffDays(todayJst(), booking.booking_date);
 
   let feePercent = 0;
   if (policy) {
