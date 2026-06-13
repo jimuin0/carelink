@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import { statusGanttClass, bookingStatusLabel } from '@/lib/booking-status';
+import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
 
 /**
  * サロンボード（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
@@ -16,15 +17,9 @@ export const dynamic = 'force-dynamic';
 
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 22;
-const TOTAL_MIN = (CLOSE_HOUR - OPEN_HOUR) * 60;
 
 // ガント上に現れるステータスのみ凡例に出す（cancelled / cancel_fee_paid は帯に出ない）
 const LEGEND_STATUSES = ['pending', 'confirmed', 'completed', 'no_show'] as const;
-
-function toMin(t: string): number {
-  const [h, m] = t.split(':').map(Number);
-  return h * 60 + (m || 0);
-}
 
 /** JST の今日 (YYYY-MM-DD) */
 function todayJst(): string {
@@ -67,7 +62,7 @@ export default async function AdminSchedulePage(props: Props) {
     ? searchParams.date
     : todayJst();
 
-  const [{ data: staffRows }, { data: bookingRows }] = await Promise.all([
+  const [{ data: staffRows }, { data: bookingRows }, { data: menuRows }] = await Promise.all([
     supabase
       .from('staff_profiles')
       .select('id, name, position')
@@ -81,6 +76,12 @@ export default async function AdminSchedulePage(props: Props) {
       .eq('booking_date', date)
       .neq('status', 'cancelled')
       .order('start_time', { ascending: true }),
+    supabase
+      .from('facility_menus')
+      .select('id, name, price, duration_minutes')
+      .eq('facility_id', membership.facility_id)
+      .eq('is_active', true)
+      .order('sort_order', { ascending: true }),
   ]);
 
   const staff = staffRows ?? [];
@@ -89,15 +90,25 @@ export default async function AdminSchedulePage(props: Props) {
     status: string; staff_id: string | null; menu: { name: string } | { name: string }[] | null;
   };
   const bookings = (bookingRows ?? []) as BookingChip[];
+  const boardMenus: BoardMenu[] = (menuRows ?? []) as BoardMenu[];
 
   // 行 = スタッフ + 「指名なし」（staff_id null か、スタッフ一覧に居ない id）
   const staffIds = new Set(staff.map((s) => s.id));
-  const rows: { key: string; name: string; position: string | null }[] = [
-    ...staff.map((s) => ({ key: s.id, name: s.name, position: s.position })),
-    { key: '__unassigned__', name: '指名なし', position: null },
+  const menuNameOf = (b: BookingChip): string | null => {
+    const menu = Array.isArray(b.menu) ? b.menu[0] : b.menu;
+    return menu?.name ?? null;
+  };
+  const chipsFor = (key: string) =>
+    bookings
+      .filter((b) => (key === '__unassigned__' ? !b.staff_id || !staffIds.has(b.staff_id) : b.staff_id === key))
+      .map((b) => ({
+        id: b.id, customer_name: b.customer_name, start_time: b.start_time,
+        end_time: b.end_time, status: b.status, menuName: menuNameOf(b),
+      }));
+  const boardRows: BoardRow[] = [
+    ...staff.map((s) => ({ key: s.id, name: s.name, position: s.position, chips: chipsFor(s.id) })),
+    { key: '__unassigned__', name: '指名なし', position: null, chips: chipsFor('__unassigned__') },
   ];
-  const rowBookings = (key: string) =>
-    bookings.filter((b) => (key === '__unassigned__' ? !b.staff_id || !staffIds.has(b.staff_id) : b.staff_id === key));
 
   // 時間軸ヘッダ（1時間刻み）
   const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
@@ -147,48 +158,15 @@ export default async function AdminSchedulePage(props: Props) {
             </div>
           </div>
 
-          {/* スタッフ行 */}
-          {rows.map((row) => {
-            const chips = rowBookings(row.key);
-            return (
-              <div key={row.key} className="flex border-b last:border-b-0 hover:bg-sky-50/30">
-                <div className="w-36 shrink-0 px-3 py-2 border-r">
-                  <p className="text-sm font-bold text-gray-800 truncate">{row.name}</p>
-                  {row.position && <p className="text-[10px] text-gray-400 truncate">{row.position}</p>}
-                </div>
-                <div className="flex-1 relative h-14">
-                  {/* 30分グリッド線 */}
-                  {hours.map((h, i) => (
-                    <div key={h} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(i / hours.length) * 100}%` }} />
-                  ))}
-                  {/* 予約チップ */}
-                  {chips.map((b) => {
-                    const start = Math.max(toMin(b.start_time) - OPEN_HOUR * 60, 0);
-                    const end = Math.min(toMin(b.end_time) - OPEN_HOUR * 60, TOTAL_MIN);
-                    if (end <= 0 || start >= TOTAL_MIN) return null; // 営業時間帯の外は非表示
-                    const left = (start / TOTAL_MIN) * 100;
-                    const width = Math.max(((end - start) / TOTAL_MIN) * 100, 2);
-                    const menu = Array.isArray(b.menu) ? b.menu[0] : b.menu;
-                    return (
-                      <Link
-                        key={b.id}
-                        href={`/admin/bookings/${b.id}`}
-                        className={`absolute top-1.5 bottom-1.5 rounded border-l-4 px-1.5 py-0.5 overflow-hidden shadow-sm hover:shadow transition-shadow ${statusGanttClass(b.status)}`}
-                        style={{ left: `${left}%`, width: `${width}%` }}
-                        title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${menu?.name ? ` / ${menu.name}` : ''}`}
-                      >
-                        <p className="text-[11px] font-bold truncate leading-tight">{b.customer_name} 様</p>
-                        <p className="text-[10px] truncate leading-tight">{b.start_time.slice(0, 5)}〜{b.end_time.slice(0, 5)}{menu?.name ? ` ${menu.name}` : ''}</p>
-                      </Link>
-                    );
-                  })}
-                  {chips.length === 0 && (
-                    <p className="absolute inset-0 flex items-center justify-center text-[11px] text-gray-300 select-none">予約なし</p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+          {/* スタッフ行（クライアント: 空き帯クリックで新規予約モーダル） */}
+          <BoardScheduleGrid
+            facilityId={membership.facility_id}
+            date={date}
+            openHour={OPEN_HOUR}
+            closeHour={CLOSE_HOUR}
+            rows={boardRows}
+            menus={boardMenus}
+          />
 
           {staff.length === 0 && (
             <div className="px-4 py-6 text-sm text-gray-400">
