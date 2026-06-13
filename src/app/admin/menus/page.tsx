@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
 
 const categories = ['カット', 'カラー', 'パーマ', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'ネイル', 'まつげ', 'エステ', 'リラクゼーション', '鍼灸', '整体', '介護', 'その他'];
@@ -164,12 +165,14 @@ export default function AdminMenusPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">メニュー管理</h1>
-        <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 !py-2.5">
-          メニュー追加
-        </button>
-      </div>
+      <SbPageHeader
+        title="メニュー管理"
+        actions={
+          <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="btn-primary px-5 !py-2.5">
+            メニュー追加
+          </button>
+        }
+      />
 
       {/* Edit/Add Form Modal */}
       {editForm && (
