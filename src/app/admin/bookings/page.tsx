@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { Booking } from '@/types';
 import { SbStatusChip, SbPageHeader } from '@/components/admin/SbUi';
 import { isValidIsoDate, clampPage } from '@/lib/admin-date';
+import { bookingsHref } from '@/lib/admin-bookings-url';
 
 const PER_PAGE = 20;
 
@@ -65,13 +66,6 @@ export default async function AdminBookingsPage(props: Props) {
   }
   const bookings = (data ?? []) as Booking[];
 
-  // Build pagination base URL（検証済みフィルタのみ伝播）
-  const baseParams = new URLSearchParams();
-  if (statusFilter) baseParams.set('status', statusFilter);
-  if (dateFilter) baseParams.set('date', dateFilter);
-  const paramStr = baseParams.toString();
-  const baseUrl = paramStr ? `/admin/bookings?${paramStr}` : '/admin/bookings';
-
   return (
     <div>
       <SbPageHeader
@@ -79,13 +73,13 @@ export default async function AdminBookingsPage(props: Props) {
         actions={<p className="text-sm text-gray-500">{total}件</p>}
       />
 
-      {/* Filters */}
+      {/* Filters（現在の date 絞り込みを保持したままステータスを切り替える） */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
-        <FilterLink label="全て" href="/admin/bookings" active={!searchParams.status} />
-        <FilterLink label="確認待ち" href="/admin/bookings?status=pending" active={searchParams.status === 'pending'} />
-        <FilterLink label="確定" href="/admin/bookings?status=confirmed" active={searchParams.status === 'confirmed'} />
-        <FilterLink label="完了" href="/admin/bookings?status=completed" active={searchParams.status === 'completed'} />
-        <FilterLink label="キャンセル" href="/admin/bookings?status=cancelled" active={searchParams.status === 'cancelled'} />
+        <FilterLink label="全て" href={bookingsHref({ date: dateFilter })} active={!statusFilter} />
+        <FilterLink label="確認待ち" href={bookingsHref({ status: 'pending', date: dateFilter })} active={statusFilter === 'pending'} />
+        <FilterLink label="確定" href={bookingsHref({ status: 'confirmed', date: dateFilter })} active={statusFilter === 'confirmed'} />
+        <FilterLink label="完了" href={bookingsHref({ status: 'completed', date: dateFilter })} active={statusFilter === 'completed'} />
+        <FilterLink label="キャンセル" href={bookingsHref({ status: 'cancelled', date: dateFilter })} active={statusFilter === 'cancelled'} />
       </div>
 
       {bookings.length === 0 ? (
@@ -137,11 +131,11 @@ export default async function AdminBookingsPage(props: Props) {
       {totalPages > 1 && (
         <div className="flex items-center justify-center gap-2 mt-6">
           {page > 1 && (
-            <Link href={`${baseUrl}${paramStr ? '&' : '?'}page=${page - 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">前へ</Link>
+            <Link href={bookingsHref({ status: statusFilter, date: dateFilter, page: page - 1 })} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">前へ</Link>
           )}
           <span className="text-sm text-gray-500">{page} / {totalPages}</span>
           {page < totalPages && (
-            <Link href={`${baseUrl}${paramStr ? '&' : '?'}page=${page + 1}`} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">次へ</Link>
+            <Link href={bookingsHref({ status: statusFilter, date: dateFilter, page: page + 1 })} className="px-3 py-2 text-sm bg-white border rounded-lg hover:bg-gray-50">次へ</Link>
           )}
         </div>
       )}
