@@ -1,50 +1,54 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import QRCode from 'qrcode';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 export default function AdminQrCodePage() {
   const [facilitySlug, setFacilitySlug] = useState<string | null>(null);
   const [facilityName, setFacilityName] = useState('');
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  useEffect(() => {
-    const init = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: member } = await supabase
-        .from('facility_members')
-        .select('facility_id')
-        .eq('user_id', user.id)
-        .limit(1)
-        .single();
-      if (!member) { setLoading(false); return; }
-      const { data: facility } = await supabase
-        .from('facility_profiles')
-        .select('slug, name')
-        .eq('id', member.facility_id)
-        .single();
-      if (!facility) { setLoading(false); return; }
-      setFacilitySlug(facility.slug);
-      setFacilityName(facility.name);
+  const load = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: member, error: memErr } = await supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .limit(1)
+      .single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!member) { setLoading(false); return; }
+    const { data: facility, error: facErr } = await supabase
+      .from('facility_profiles')
+      .select('slug, name')
+      .eq('id', member.facility_id)
+      .single();
+    if (facErr && facErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!facility) { setLoading(false); return; }
+    setFacilitySlug(facility.slug);
+    setFacilityName(facility.name);
 
-      const url = `https://carelink-jp.com/facility/${facility.slug}`;
-      const dataUrl = await QRCode.toDataURL(url, {
-        width: 300,
-        margin: 2,
-        color: { dark: '#0c4a6e', light: '#ffffff' },
-      });
-      setQrDataUrl(dataUrl);
-      setLoading(false);
-    };
-    init().catch(() => setLoading(false));
+    const url = `https://carelink-jp.com/facility/${facility.slug}`;
+    const dataUrl = await QRCode.toDataURL(url, {
+      width: 300,
+      margin: 2,
+      color: { dark: '#0c4a6e', light: '#ffffff' },
+    });
+    setQrDataUrl(dataUrl);
+    setLoading(false);
   }, []);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleDownload = () => {
     if (!qrDataUrl || !facilitySlug) return;
@@ -64,6 +68,15 @@ export default function AdminQrCodePage() {
       <div className="animate-pulse space-y-4">
         <div className="h-8 bg-gray-200 rounded w-1/3" />
         <div className="h-64 bg-gray-200 rounded-xl" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">QRコード</h1>
+        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="施設情報の読み込みに失敗しました" />
       </div>
     );
   }

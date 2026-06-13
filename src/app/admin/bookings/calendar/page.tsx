@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import LoadError from '@/components/admin/LoadError';
 import { statusSolidClass, bookingStatusLabel } from '@/lib/booking-status';
 
 interface CalendarBooking {
@@ -22,15 +23,18 @@ export default function BookingCalendarPage() {
   const [bookings, setBookings] = useState<CalendarBooking[]>([]);
   const [staffList, setStaffList] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
+    setLoadError(false);
     const supabase = createBrowserSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
 
-    const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-    if (!membership) return;
+    const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!membership) { setLoading(false); return; }
 
     const [staffRes, bookingRes] = await Promise.all([
       supabase.from('staff_profiles').select('id, name').eq('facility_id', membership.facility_id).eq('is_active', true).order('sort_order'),
@@ -38,6 +42,8 @@ export default function BookingCalendarPage() {
         .eq('facility_id', membership.facility_id).eq('booking_date', date).neq('status', 'cancelled'),
     ]);
 
+    // スタッフ・予約は台帳の主データ。取得失敗を空台帳に偽装せず明示する
+    if (staffRes.error || bookingRes.error) { setLoadError(true); setLoading(false); return; }
     const staffData = staffRes.data || [];
     const bookingsData = bookingRes.data || [];
 
@@ -45,6 +51,8 @@ export default function BookingCalendarPage() {
     const menuIds = Array.from(new Set(bookingsData.filter((b) => b.menu_id).map((b) => b.menu_id)));
     let menuMap: Record<string, string> = {};
     if (menuIds.length > 0) {
+      // メニュー名は補助表示。取得失敗時は名称未表示で台帳本体は継続表示する。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: menus } = await supabase.from('facility_menus').select('id, name').in('id', menuIds);
       menuMap = Object.fromEntries((menus || []).map((m) => [m.id, m.name]));
     }
@@ -101,6 +109,8 @@ export default function BookingCalendarPage() {
 
       {loading ? (
         <div className="animate-pulse"><div className="h-96 bg-gray-200 rounded-xl" /></div>
+      ) : loadError ? (
+        <LoadError onRetry={() => { loadData().catch(() => setLoading(false)); }} message="予約台帳の読み込みに失敗しました" />
       ) : (
         <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
           <div className="min-w-[800px]">

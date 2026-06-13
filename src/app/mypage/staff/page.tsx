@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Link from 'next/link';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface PreferredStaff {
   id: string;
@@ -19,28 +20,34 @@ interface PreferredStaff {
 export default function PreferredStaffPage() {
   const [staff, setStaff] = useState<PreferredStaff[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-      const { data: prefs } = await supabase
+      const { data: prefs, error: prefsErr } = await supabase
         .from('user_preferred_staff')
         .select('id, staff_id')
         .eq('user_id', user.id);
 
+      if (prefsErr) { setLoadError(true); setLoading(false); return; }
       if (!prefs || prefs.length === 0) { setLoading(false); return; }
 
       const staffIds = prefs.map((p) => p.staff_id);
+      // スタッフ詳細は補助（失敗時は名称「不明」表示で本体は継続）。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: staffData } = await supabase
         .from('staff_profiles')
         .select('id, name, photo_url, position, facility_id')
         .in('id', staffIds);
 
       const facilityIds = Array.from(new Set((staffData || []).map((s) => s.facility_id)));
+      // 施設名は補助（失敗時は空表示で本体は継続）。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: facilities } = await supabase
         .from('facility_profiles')
         .select('id, name, slug')
@@ -61,9 +68,9 @@ export default function PreferredStaffPage() {
         };
       }));
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
   }, []);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleRemove = async (id: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -84,7 +91,9 @@ export default function PreferredStaffPage() {
         <p className="text-sm text-gray-500 mt-1">お気に入りのスタッフを管理できます。</p>
       </div>
 
-      {staff.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="指名スタッフの読み込みに失敗しました" />
+      ) : staff.length === 0 ? (
         <div className="bg-white rounded-2xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-4">指名スタッフが登録されていません</p>
           <p className="text-sm text-gray-500 mb-6">施設のスタッフページから「指名登録」できます。</p>

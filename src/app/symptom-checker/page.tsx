@@ -28,6 +28,7 @@ export default function SymptomCheckerPage() {
   const [results, setResults] = useState<SymptomMatch[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
+  const [searchError, setSearchError] = useState(false);
 
   const toggleSymptom = (s: string) => {
     setSelected(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
@@ -36,12 +37,15 @@ export default function SymptomCheckerPage() {
   const handleSearch = async () => {
     if (selected.length === 0) return;
     setSearching(true);
+    setSearchError(false);
 
-    const { data: symptoms } = await supabase
+    const { data: symptoms, error } = await supabase
       .from('symptoms')
       .select('id, name, slug, category')
       .in('name', selected);
 
+    // 取得失敗を「対応店舗なし」に偽装せず、検索失敗として明示する
+    if (error) { setSearchError(true); setSearching(false); setSearched(true); return; }
     if (symptoms) {
       const withCounts = await Promise.all(
         symptoms.map(async (s) => {
@@ -104,7 +108,13 @@ export default function SymptomCheckerPage() {
         {searched && (
           <div className="mt-8">
             <h2 className="text-lg font-bold mb-4">対応可能な症状</h2>
-            {results.length > 0 ? (
+            {searchError ? (
+              <div className="text-center py-10 bg-gray-50 rounded-xl" role="alert">
+                <p className="text-rose-600 text-sm font-bold">検索に失敗しました</p>
+                <p className="text-xs text-gray-500 mt-1 mb-3">通信状況をご確認のうえ、再試行してください。</p>
+                <button type="button" onClick={handleSearch} className="text-sky-600 text-sm hover:underline">再試行</button>
+              </div>
+            ) : results.length > 0 ? (
               <div className="space-y-3">
                 {results.map((r) => (
                   <Link

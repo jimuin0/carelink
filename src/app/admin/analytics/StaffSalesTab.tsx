@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import LoadError from '@/components/admin/LoadError';
 
 interface StaffSales {
   staff_id: string;
@@ -13,20 +14,25 @@ interface StaffSales {
 export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
   const [data, setData] = useState<StaffSales[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const now = new Date();
       const startDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
 
-      const { data: bookings } = await supabase
+      const { data: bookings, error: bErr } = await supabase
         .from('bookings')
         .select('staff_id, total_price')
         .eq('facility_id', facilityId)
         .eq('status', 'completed')
         .gte('booking_date', startDate);
 
+      if (bErr) { setLoadError(true); setLoading(false); return; }
+
+      // スタッフ名は補助表示。取得失敗時は「不明」にフォールバックし売上集計本体は表示継続。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: staffList } = await supabase
         .from('staff_profiles')
         .select('id, name')
@@ -49,9 +55,9 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
 
       setData(result);
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
   }, [facilityId]);
+
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const maxRevenue = Math.max(...data.map((d) => d.revenue), 1);
 
@@ -60,7 +66,9 @@ export default function StaffSalesTab({ facilityId }: { facilityId: string }) {
   return (
     <div className="bg-white rounded-xl p-6 shadow-sm mt-6">
       <h2 className="font-bold mb-4">スタッフ別売上（今月）</h2>
-      {data.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="スタッフ別売上の読み込みに失敗しました" />
+      ) : data.length === 0 ? (
         <p className="text-gray-400 text-sm text-center py-4">データがありません</p>
       ) : (
         <div className="space-y-3">

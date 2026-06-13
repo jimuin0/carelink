@@ -30,8 +30,8 @@ export default function NewStaffPage() {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!membership) return;
+      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      if (memErr || !membership) return;
 
       const res = await fetch(`/api/admin/staff?facility_id=${membership.facility_id}`, {
         method: 'POST',

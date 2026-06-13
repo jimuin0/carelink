@@ -24,11 +24,18 @@ function OnboardingContent() {
       }
 
       // 既にfacility_membersに登録済みか確認
-      const { data: existing } = await supabase
+      const { data: existing, error: existErr } = await supabase
         .from('facility_members')
         .select('facility_id')
         .eq('user_id', user.id)
         .maybeSingle();
+
+      // 取得失敗を「未登録」と誤認すると既存ユーザーで重複セットアップを試みうるため、失敗として明示する
+      if (existErr) {
+        setError('施設情報の確認に失敗しました。通信環境を確認して再読み込みしてください');
+        setStatus('error');
+        return;
+      }
 
       if (existing) {
         setFacilityId(existing.facility_id);

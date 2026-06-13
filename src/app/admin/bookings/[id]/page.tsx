@@ -34,12 +34,13 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
 
-      const { data: membership } = await supabase
+      const { data: membership, error: memErr } = await supabase
         .from('facility_members')
         .select('facility_id')
         .eq('user_id', user.id)
         .limit(1)
         .single();
+      if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!membership) { setLoading(false); return; }
 
       const { data, error } = await supabase
@@ -55,10 +56,14 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       if (data) {
         setBooking(data as Booking);
         if (data.menu_id) {
+          // メニュー名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
+          // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
           const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', data.menu_id).single();
           if (menu) setMenuName(menu.name);
         }
         if (data.staff_id) {
+          // 担当スタッフ名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
+          // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
           const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', data.staff_id).single();
           if (staff) setStaffName(staff.name);
         }

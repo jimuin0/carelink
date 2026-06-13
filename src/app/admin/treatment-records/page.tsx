@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 interface TreatmentRecord {
   id: string;
@@ -35,6 +36,7 @@ export default function TreatmentRecordsPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [records, setRecords] = useState<TreatmentRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [editRecord, setEditRecord] = useState<TreatmentRecord | null>(null);
@@ -45,28 +47,32 @@ export default function TreatmentRecordsPage() {
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) { setLoading(false); return; }
 
-    const { data: mem } = await supabase
+    const { data: mem, error: memErr } = await supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .limit(1).single();
 
-    if (!mem?.facility_id) return;
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
+    if (!mem?.facility_id) { setLoading(false); return; }
     setFacilityId(mem.facility_id);
 
-    const { data: recs } = await supabase
+    const { data: recs, error: recsErr } = await supabase
       .from('treatment_records')
       .select('id, treated_at, menu_name, subjective, objective, assessment, plan, notes, next_visit_note, profiles(display_name, email), staff_profiles(name)')
       .eq('facility_id', mem.facility_id)
       .order('treated_at', { ascending: false })
       .limit(200);
 
+    if (recsErr) { setLoadError(true); setLoading(false); return; }
     setRecords((recs ?? []) as unknown as TreatmentRecord[]);
 
-    // 顧客一覧（オートコンプリート用）
+    // 顧客一覧（オートコンプリート用・補助）。取得失敗時は候補空のままにし記録一覧本体は表示継続。
+    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data: bookings } = await supabase
       .from('bookings')
       .select('user_id, profiles(id, display_name, email)')
@@ -87,7 +93,7 @@ export default function TreatmentRecordsPage() {
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleSave = async () => {
     if (!facilityId || saving) return;
@@ -283,7 +289,9 @@ export default function TreatmentRecordsPage() {
 
       {/* 記録一覧 */}
       <div className="space-y-3">
-        {filtered.length === 0 ? (
+        {loadError ? (
+          <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="施術記録の読み込みに失敗しました" />
+        ) : filtered.length === 0 ? (
           <div className="bg-white rounded-xl p-8 text-center text-gray-400 text-sm">
             {search ? '検索結果がありません' : '施術記録がありません'}
           </div>

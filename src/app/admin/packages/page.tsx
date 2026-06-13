@@ -58,13 +58,17 @@ export default function PackagesPage() {
   const loadFacility = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    const { data } = await supabase
+    if (!user) { setLoading(false); return; }
+    const { data, error } = await supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .limit(1).single();
+    // facility 解決失敗を握り潰すと facilityId 未設定のまま loadPackages が走らず無限スピナーになる。
+    // DB エラーは LoadError で明示、no-row（施設未所属）はスピナーを止めて空状態に委ねる。
+    if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
     if (data?.facility_id) setFacilityId(data.facility_id);
+    else setLoading(false);
   }, []);
 
   const loadPackages = useCallback(async (fId: string) => {
@@ -94,7 +98,7 @@ export default function PackagesPage() {
     }
   }, []);
 
-  useEffect(() => { loadFacility(); }, [loadFacility]);
+  useEffect(() => { loadFacility().catch(() => { setLoadError(true); setLoading(false); }); }, [loadFacility]);
   useEffect(() => { if (facilityId) loadPackages(facilityId); }, [facilityId, loadPackages]);
 
   const handleCreate = async () => {

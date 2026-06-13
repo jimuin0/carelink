@@ -35,7 +35,8 @@ export default function AdminGroupBookingsPage() {
     setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
-    const { data: mem } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    const { data: mem, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
     if (!mem) { setLoading(false); return; }
     setFacilityId(mem.facility_id);
 

@@ -24,6 +24,9 @@ export default function FavoriteButton({ facilityId }: { facilityId: string }) {
 
       setIsLoggedIn(true);
 
+      // お気に入り状態の初期判定（補助）。失敗時は未登録表示にフォールバックし、
+      // トグルはサーバ権威の /api/favorites 応答で正しい状態に補正されるため致命的でない。
+      // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data } = await supabase
         .from('favorites')
         .select('id')

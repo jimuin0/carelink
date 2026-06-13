@@ -60,11 +60,12 @@ export default function TreatmentPlansPage() {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoading(false); return; }
 
-    const { data: mem } = await supabase
+    const { data: mem, error: memErr } = await supabase
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
       .limit(1).single();
+    if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
     if (!mem?.facility_id) { setLoading(false); return; }
     setFacilityId(mem.facility_id);
 
@@ -78,6 +79,8 @@ export default function TreatmentPlansPage() {
     if (error) { setLoadError(true); setLoading(false); return; }
     setPlans((data ?? []) as unknown as TreatmentPlan[]);
 
+    // 新規計画フォームの患者候補リスト（補助）。取得失敗時は候補空のままにし計画一覧本体は表示継続。
+    // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
     const { data: bookings } = await supabase
       .from('bookings')
       .select('user_id, profiles(id, display_name, email)')

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 
@@ -23,16 +23,18 @@ const SEGMENT_COLORS: Record<string, string> = {
 export default function CustomerSegmentChart({ facilityId }: { facilityId: string }) {
   const [data, setData] = useState<{ name: string; value: number; color: string }[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [total, setTotal] = useState(0);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
-      const { data: segments } = await supabase
+      setLoadError(false);
+      const { data: segments, error } = await supabase
         .from('customer_segments')
         .select('segment')
         .eq('facility_id', facilityId);
 
+      if (error) { setLoadError(true); setLoading(false); return; }
       if (segments) {
         const counts: Record<string, number> = {};
         for (const s of segments) {
@@ -47,11 +49,18 @@ export default function CustomerSegmentChart({ facilityId }: { facilityId: strin
         setTotal(segments.length);
       }
       setLoading(false);
-    };
-    load();
   }, [facilityId]);
 
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+
   if (loading) return <div className="h-64 bg-gray-50 rounded-lg animate-pulse" />;
+  // 取得失敗時は「顧客データがありません」に偽装せず失敗として明示する
+  if (loadError) return (
+    <div className="text-center py-8" role="alert">
+      <p className="text-sm text-rose-600 font-bold">顧客セグメントの読み込みに失敗しました</p>
+      <button type="button" onClick={() => load()} className="text-xs text-sky-600 underline mt-1">再試行</button>
+    </div>
+  );
   if (data.length === 0) return <p className="text-sm text-gray-400 text-center py-8">顧客データがありません</p>;
 
   return (

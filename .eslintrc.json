@@ -4,6 +4,7 @@
   "rules": {
     "carelink-safety/no-await-fire-and-forget": "error",
     "carelink-safety/no-bare-sentry-capture": "error",
+    "carelink-safety/no-discarded-supabase-error": "error",
     "no-restricted-imports": [
       "error",
       {

@@ -7,6 +7,8 @@
  * Rules:
  *   - no-await-fire-and-forget: `await writeAuditLog(...)` / `await postAlert(...)` を禁止
  *   - no-bare-sentry-capture: `Sentry.captureException(...)` 直書きを禁止、`safeCaptureException` 経由
+ *   - no-discarded-supabase-error: 'use client' ファイルで Supabase DB クエリの error を捨てる
+ *       `const { data } = await supabase.from(...)...` を禁止（取得失敗を空状態に偽装する事故の予防）
  */
 
 'use strict';
@@ -18,6 +20,34 @@ const FIRE_AND_FORGET_FNS = new Set([
   'alertWarning',
   'safeCaptureException',
 ]);
+
+/**
+ * await された式が Supabase の DB クエリ（PostgREST `.from(...)` または `.rpc(...)`）か判定。
+ * `.from`/`.rpc` を含むメンバチェーンのみ true。`supabase.auth.getUser()` や
+ * `await res.json()` 等は `.from`/`.rpc` を含まないため false（＝誤検知しない）。
+ */
+function awaitedExprIsSupabaseQuery(awaitArg) {
+  let node = awaitArg;
+  let depth = 0;
+  while (node && depth < 100) {
+    depth++;
+    if (node.type === 'CallExpression') {
+      node = node.callee;
+    } else if (node.type === 'MemberExpression') {
+      if (
+        node.property &&
+        node.property.type === 'Identifier' &&
+        (node.property.name === 'from' || node.property.name === 'rpc')
+      ) {
+        return true;
+      }
+      node = node.object;
+    } else {
+      break;
+    }
+  }
+  return false;
+}
 
 module.exports = {
   rules: {
@@ -79,6 +109,55 @@ module.exports = {
               callee.property.type === 'Identifier' &&
               callee.property.name === 'captureException'
             ) {
+              context.report({ node, messageId: 'forbidden' });
+            }
+          },
+        };
+      },
+    },
+    'no-discarded-supabase-error': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            "'use client' コンポーネントで Supabase DB クエリの error を捨てる分割代入を禁止。" +
+            '取得失敗を空配列のまま「空状態」「0件」「見つかりません」に偽装すると、管理者/ユーザーが' +
+            'データ未取得を「無し」と誤認して見落とす事故につながる（共通 LoadError パターンで明示する）。',
+        },
+        schema: [],
+        messages: {
+          forbidden:
+            'Supabase クエリの error を捨てています。data だけを分割代入せず error も受け取り、' +
+            '失敗時は空状態に偽装せず LoadError 等で明示してください（取得失敗の空状態偽装の予防）。' +
+            'mutation 等で意図的に error 不要な場合は eslint-disable-next-line で理由を明記。',
+        },
+      },
+      create(context) {
+        const sourceCode = context.getSourceCode();
+        const body = sourceCode.ast.body;
+        const first = body && body[0];
+        const isClient =
+          first &&
+          first.type === 'ExpressionStatement' &&
+          first.expression &&
+          first.expression.type === 'Literal' &&
+          first.expression.value === 'use client';
+        if (!isClient) return {};
+        return {
+          VariableDeclarator(node) {
+            if (!node.id || node.id.type !== 'ObjectPattern') return;
+            if (!node.init || node.init.type !== 'AwaitExpression') return;
+            let hasData = false;
+            let hasError = false;
+            for (const p of node.id.properties) {
+              // ...rest は error を拾える可能性があるため保守的に「error あり」とみなす（誤検知回避）
+              if (p.type !== 'Property') { hasError = true; continue; }
+              if (p.key && p.key.type === 'Identifier') {
+                if (p.key.name === 'data') hasData = true;
+                if (p.key.name === 'error') hasError = true;
+              }
+            }
+            if (hasData && !hasError && awaitedExprIsSupabaseQuery(node.init.argument)) {
               context.report({ node, messageId: 'forbidden' });
             }
           },

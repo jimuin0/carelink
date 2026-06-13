@@ -47,14 +47,14 @@ export default function NewCouponPage() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setSaving(false); return; }
 
-      const { data: membership } = await supabase
+      const { data: membership, error: memErr } = await supabase
         .from('facility_members')
         .select('facility_id')
         .eq('user_id', user.id)
         .limit(1)
         .single();
 
-      if (!membership) { setSaving(false); return; }
+      if (memErr || !membership) { setSaving(false); return; }
 
       const res = await fetch(`/api/admin/coupons?facility_id=${membership.facility_id}`, {
         method: 'POST',
