@@ -18,8 +18,10 @@ export type BoardRow = {
   key: string; // staff_id または '__unassigned__'
   name: string;
   position: string | null;
+  nominationFee: number; // 指名料（'__unassigned__' は 0）
   chips: BoardChip[];
 };
+export type StaffOption = { key: string; name: string; nominationFee: number };
 export type BoardMenu = {
   id: string;
   name: string;
@@ -49,16 +51,17 @@ export default function BoardScheduleGrid({
   const router = useRouter();
   const totalMin = (closeHour - openHour) * 60;
   const hours = Array.from({ length: closeHour - openHour }, (_, i) => openHour + i);
+  // 担当変更(M3)・指名料(M1)用にスタッフ選択肢を行から導出
+  const staffOptions: StaffOption[] = rows.map((r) => ({ key: r.key, name: r.name, nominationFee: r.nominationFee }));
 
   const [modalOpen, setModalOpen] = useState(false);
-  const [preset, setPreset] = useState<{ staffKey: string; staffName: string; start: string }>({
+  const [preset, setPreset] = useState<{ staffKey: string; start: string }>({
     staffKey: '__unassigned__',
-    staffName: '指名なし',
     start: minutesToTime(openHour * 60),
   });
 
   function openModal(row: BoardRow, startMin: number) {
-    setPreset({ staffKey: row.key, staffName: row.name, start: minutesToTime(snapToSlot(startMin)) });
+    setPreset({ staffKey: row.key, start: minutesToTime(snapToSlot(startMin)) });
     setModalOpen(true);
   }
 
@@ -158,8 +161,10 @@ export default function BoardScheduleGrid({
           date={date}
           closeHour={closeHour}
           menus={menus}
+          staffOptions={staffOptions}
           preset={preset}
           onClose={() => setModalOpen(false)}
+          onRefresh={() => router.refresh()}
           onCreated={() => {
             setModalOpen(false);
             router.refresh();
@@ -175,16 +180,20 @@ function BoardBookingModal({
   date,
   closeHour,
   menus,
+  staffOptions,
   preset,
   onClose,
+  onRefresh,
   onCreated,
 }: {
   facilityId: string;
   date: string;
   closeHour: number;
   menus: BoardMenu[];
-  preset: { staffKey: string; staffName: string; start: string };
+  staffOptions: StaffOption[];
+  preset: { staffKey: string; start: string };
   onClose: () => void;
+  onRefresh: () => void;
   onCreated: () => void;
 }) {
   const [customerName, setCustomerName] = useState('');
@@ -192,8 +201,13 @@ function BoardBookingModal({
   const [phone, setPhone] = useState('');
   const [selectedMenus, setSelectedMenus] = useState<string[]>([]);
   const [startTime, setStartTime] = useState(preset.start);
+  const [staffKey, setStaffKey] = useState(preset.staffKey); // M3: 担当をモーダル内で変更可能
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedStaff = staffOptions.find((s) => s.key === staffKey);
+  const staffName = selectedStaff?.name ?? '指名なし';
+  const nominationFee = staffKey === '__unassigned__' ? 0 : (selectedStaff?.nominationFee ?? 0);
 
   const dialogRef = useRef<HTMLDivElement>(null);
   const firstFieldRef = useRef<HTMLInputElement>(null);
@@ -244,23 +258,25 @@ function BoardBookingModal({
   }, []);
 
   // 選択メニューの合計時間（分）から終了時刻を算出（最低30分）
-  const totalDuration = menus
-    .filter((m) => selectedMenus.includes(m.id))
-    .reduce((s, m) => s + (m.duration_minutes || 0), 0);
+  const pickedMenus = menus.filter((m) => selectedMenus.includes(m.id));
+  const totalDuration = pickedMenus.reduce((s, m) => s + (m.duration_minutes || 0), 0);
+  // M2: 所要時間が未設定のメニューがあると終了時刻が不正確になるため警告する
+  const hasUnknownDuration = pickedMenus.some((m) => !m.duration_minutes);
   const endMin = computeEndMinutes(timeToMinutes(startTime), totalDuration);
   const endTime = minutesToTime(endMin);
   // 終了が営業終了（closeHour）を超える＝不正時刻(24:00超含む)になる前にブロックする（API 400 を予防）
   const tooLate = endExceedsClose(endMin, closeHour);
 
-  const totalPrice = menus
-    .filter((m) => selectedMenus.includes(m.id))
-    .reduce((s, m) => s + (m.price || 0), 0);
+  // M1: フロント合計にスタッフ指名料を含め、サーバ計算（route.ts）と一致させる
+  const menuPrice = pickedMenus.reduce((s, m) => s + (m.price || 0), 0);
+  const totalPrice = menuPrice + nominationFee;
 
   function toggleMenu(id: string) {
     setSelectedMenus((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   }
 
   async function submit() {
+    if (submitting) return; // 二重送信ガード
     setError(null);
     if (!customerName.trim()) {
       setError('お客様名を入力してください');
@@ -268,6 +284,15 @@ function BoardBookingModal({
     }
     if (selectedMenus.length === 0) {
       setError('メニューを1つ以上選択してください');
+      return;
+    }
+    // M4: メール・電話のフロント検証（サーバ往復前に即フィードバック）
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError('メールアドレスの形式が正しくありません');
+      return;
+    }
+    if (phone.trim() && !/^[\d-]{1,20}$/.test(phone.trim())) {
+      setError('電話番号は数字とハイフンで入力してください');
       return;
     }
     if (tooLate) {
@@ -281,7 +306,7 @@ function BoardBookingModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           facility_id: facilityId,
-          staff_id: preset.staffKey === '__unassigned__' ? null : preset.staffKey,
+          staff_id: staffKey === '__unassigned__' ? null : staffKey,
           menu_ids: selectedMenus,
           booking_date: date,
           start_time: startTime,
@@ -293,7 +318,13 @@ function BoardBookingModal({
       });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error || '予約の作成に失敗しました');
+        // M5: 重複(409)時はボードを再取得し、最新の埋まり状況を背後に反映（モーダルは開いたまま）
+        if (res.status === 409) {
+          setError('この時間帯は既に予約が入っています。ボードを更新したので別の時間帯を選んでください。');
+          onRefresh();
+        } else {
+          setError(data.error || '予約の作成に失敗しました');
+        }
         setSubmitting(false);
         return;
       }
@@ -315,7 +346,7 @@ function BoardBookingModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <h2 id="board-modal-title" className="text-sm font-bold text-gray-800">新規予約（{preset.staffName}）</h2>
+          <h2 id="board-modal-title" className="text-sm font-bold text-gray-800">新規予約（{staffName}）</h2>
           <button type="button" onClick={handleClose} aria-label="閉じる" className="text-gray-400 hover:text-gray-600 text-xl leading-none">
             <span aria-hidden="true">×</span>
           </button>
@@ -323,13 +354,30 @@ function BoardBookingModal({
 
         <div className="p-4 space-y-3">
           <div className="text-xs text-gray-500">
-            {date}　{startTime}〜{endTime}　/　担当: {preset.staffName}
+            {date}　{startTime}〜{endTime}
           </div>
           {tooLate && (
-            <p className="text-xs text-red-600">
+            <p role="alert" className="text-xs text-red-600">
               終了時刻（{endTime}）が営業終了（{minutesToTime(closeHour * 60)}）を超えます。開始時刻かメニューを調整してください。
             </p>
           )}
+
+          {/* M3: 担当をその場で変更可能。指名料は合計に反映（M1） */}
+          <div>
+            <label htmlFor="board-staff" className="block text-xs font-bold text-gray-600 mb-1">担当</label>
+            <select
+              id="board-staff"
+              value={staffKey}
+              onChange={(e) => setStaffKey(e.target.value)}
+              className="w-full border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
+            >
+              {staffOptions.map((s) => (
+                <option key={s.key} value={s.key}>
+                  {s.name}{s.nominationFee > 0 ? `（指名料 ¥${s.nominationFee.toLocaleString()}）` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <div>
             <label htmlFor="board-customer-name" className="block text-xs font-bold text-gray-600 mb-1">お客様名 <span className="text-red-500">必須</span></label>
@@ -345,8 +393,9 @@ function BoardBookingModal({
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">メール（任意）</label>
+              <label htmlFor="board-email" className="block text-xs font-bold text-gray-600 mb-1">メール（任意）</label>
               <input
+                id="board-email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -355,8 +404,9 @@ function BoardBookingModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-gray-600 mb-1">電話（任意）</label>
+              <label htmlFor="board-phone" className="block text-xs font-bold text-gray-600 mb-1">電話（任意）</label>
               <input
+                id="board-phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 maxLength={20}
@@ -366,8 +416,9 @@ function BoardBookingModal({
           </div>
 
           <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">開始時刻</label>
+            <label htmlFor="board-start-time" className="block text-xs font-bold text-gray-600 mb-1">開始時刻</label>
             <input
+              id="board-start-time"
               type="time"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
@@ -379,7 +430,9 @@ function BoardBookingModal({
           <div>
             <label className="block text-xs font-bold text-gray-600 mb-1">メニュー <span className="text-red-500">必須</span></label>
             {menus.length === 0 ? (
-              <p className="text-xs text-gray-400">メニューが登録されていません。</p>
+              <p className="text-xs text-gray-400">
+                メニューが登録されていません。<Link href="/admin/menus" className="text-sky-600 underline">メニューを登録</Link>
+              </p>
             ) : (
               <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-100 rounded-md p-2">
                 {menus.map((m) => (
@@ -393,14 +446,27 @@ function BoardBookingModal({
                 ))}
               </div>
             )}
+            {hasUnknownDuration && (
+              <p className="text-[11px] text-amber-600 mt-1">
+                所要時間が未設定のメニューがあります。終了時刻は仮（最低30分）で計算しています。
+              </p>
+            )}
           </div>
 
-          <div className="flex items-center justify-between text-sm pt-1">
-            <span className="text-gray-500">合計</span>
-            <span className="font-bold text-gray-800">¥{totalPrice.toLocaleString()}</span>
+          <div className="text-sm pt-1 space-y-0.5">
+            {nominationFee > 0 && (
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>うち指名料</span>
+                <span>¥{nominationFee.toLocaleString()}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-gray-500">合計</span>
+              <span className="font-bold text-gray-800">¥{totalPrice.toLocaleString()}</span>
+            </div>
           </div>
 
-          {error && <p className="text-xs text-red-600">{error}</p>}
+          {error && <p role="alert" className="text-xs text-red-600">{error}</p>}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">

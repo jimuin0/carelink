@@ -65,7 +65,7 @@ export default async function AdminSchedulePage(props: Props) {
   const [{ data: staffRows, error: staffErr }, { data: bookingRows, error: bookingErr }, { data: menuRows, error: menuErr }] = await Promise.all([
     supabase
       .from('staff_profiles')
-      .select('id, name, position')
+      .select('id, name, position, nomination_fee')
       .eq('facility_id', membership.facility_id)
       .eq('is_active', true)
       .order('sort_order', { ascending: true }),
@@ -112,8 +112,11 @@ export default async function AdminSchedulePage(props: Props) {
         end_time: b.end_time, status: b.status, menuName: menuNameOf(b),
       }));
   const boardRows: BoardRow[] = [
-    ...staff.map((s) => ({ key: s.id, name: s.name, position: s.position, chips: chipsFor(s.id) })),
-    { key: '__unassigned__', name: '指名なし', position: null, chips: chipsFor('__unassigned__') },
+    ...staff.map((s) => ({
+      key: s.id, name: s.name, position: s.position,
+      nominationFee: s.nomination_fee ?? 0, chips: chipsFor(s.id),
+    })),
+    { key: '__unassigned__', name: '指名なし', position: null, nominationFee: 0, chips: chipsFor('__unassigned__') },
   ];
 
   // 時間軸ヘッダ（1時間刻み）
