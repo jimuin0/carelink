@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { statusGanttClass } from '@/lib/booking-status';
@@ -57,15 +57,25 @@ export default function BoardScheduleGrid({
     start: minutesToTime(openHour * 60),
   });
 
+  function openModal(row: BoardRow, startMin: number) {
+    setPreset({ staffKey: row.key, staffName: row.name, start: minutesToTime(snapToSlot(startMin)) });
+    setModalOpen(true);
+  }
+
   function handleTrackClick(e: React.MouseEvent<HTMLDivElement>, row: BoardRow) {
     // チップ（Link）クリックは詳細遷移に任せる
     if ((e.target as HTMLElement).closest('a')) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
-    const rawMin = openHour * 60 + ratio * totalMin;
-    const snapped = snapToSlot(rawMin); // 30分グリッドにスナップ
-    setPreset({ staffKey: row.key, staffName: row.name, start: minutesToTime(snapped) });
-    setModalOpen(true);
+    openModal(row, openHour * 60 + ratio * totalMin);
+  }
+
+  // キーボード操作: Enter/Space で営業開始時刻を初期値にモーダルを開く（時刻はモーダル内で調整）
+  function handleTrackKeyDown(e: React.KeyboardEvent<HTMLDivElement>, row: BoardRow) {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      openModal(row, openHour * 60);
+    }
   }
 
   return (
@@ -95,10 +105,14 @@ export default function BoardScheduleGrid({
               )}
             </div>
             <div
-              className="flex-1 relative cursor-pointer"
+              role="button"
+              tabIndex={0}
+              aria-label={`${row.name} の空き時間に新規予約を追加`}
+              className="flex-1 relative cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
               style={{ height: rowHeight }}
               onClick={(e) => handleTrackClick(e, row)}
-              title="クリックで新規予約"
+              onKeyDown={(e) => handleTrackKeyDown(e, row)}
+              title="クリック / Enter で新規予約"
             >
               {hours.map((h, i) => (
                 <div key={h} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(i / hours.length) * 100}%` }} />
@@ -181,6 +195,54 @@ function BoardBookingModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const firstFieldRef = useRef<HTMLInputElement>(null);
+
+  // 入力途中の誤閉じで内容を失わないための破棄確認（R7）
+  const dirty = customerName.trim() !== '' || email.trim() !== '' || phone.trim() !== '' || selectedMenus.length > 0;
+  const closeRef = useRef<() => void>(() => {});
+  function handleClose() {
+    if (dirty && !window.confirm('入力内容を破棄して閉じますか？')) return;
+    onClose();
+  }
+  closeRef.current = handleClose;
+
+  // ダイアログ a11y（R6）: 開いた時に最初の入力へフォーカス、ESC で閉じる、Tab をモーダル内に閉じ込め、
+  // 閉じたら起点（呼び出し元）へフォーカスを戻す。
+  useEffect(() => {
+    const prevFocus = document.activeElement as HTMLElement | null;
+    firstFieldRef.current?.focus();
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeRef.current();
+        return;
+      }
+      if (e.key === 'Tab' && dialogRef.current) {
+        const focusables = Array.from(
+          dialogRef.current.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+          ),
+        ).filter((el) => !el.hasAttribute('disabled') && el.tabIndex !== -1);
+        if (focusables.length === 0) return;
+        const first = focusables[0];
+        const last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    }
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      prevFocus?.focus?.();
+    };
+  }, []);
+
   // 選択メニューの合計時間（分）から終了時刻を算出（最低30分）
   const totalDuration = menus
     .filter((m) => selectedMenus.includes(m.id))
@@ -243,14 +305,20 @@ function BoardBookingModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={handleClose}>
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="board-modal-title"
         className="bg-white rounded-xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b">
-          <h2 className="text-sm font-bold text-gray-800">新規予約（{preset.staffName}）</h2>
-          <button type="button" onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+          <h2 id="board-modal-title" className="text-sm font-bold text-gray-800">新規予約（{preset.staffName}）</h2>
+          <button type="button" onClick={handleClose} aria-label="閉じる" className="text-gray-400 hover:text-gray-600 text-xl leading-none">
+            <span aria-hidden="true">×</span>
+          </button>
         </div>
 
         <div className="p-4 space-y-3">
@@ -264,8 +332,10 @@ function BoardBookingModal({
           )}
 
           <div>
-            <label className="block text-xs font-bold text-gray-600 mb-1">お客様名 <span className="text-red-500">必須</span></label>
+            <label htmlFor="board-customer-name" className="block text-xs font-bold text-gray-600 mb-1">お客様名 <span className="text-red-500">必須</span></label>
             <input
+              id="board-customer-name"
+              ref={firstFieldRef}
               value={customerName}
               onChange={(e) => setCustomerName(e.target.value)}
               maxLength={100}
@@ -334,7 +404,7 @@ function BoardBookingModal({
         </div>
 
         <div className="flex items-center justify-end gap-2 px-4 py-3 border-t">
-          <button type="button" onClick={onClose} className="px-3 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-100">キャンセル</button>
+          <button type="button" onClick={handleClose} className="px-3 py-1.5 rounded-md text-sm text-gray-600 hover:bg-gray-100">キャンセル</button>
           <button
             type="button"
             onClick={submit}
