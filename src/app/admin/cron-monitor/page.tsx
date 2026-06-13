@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import LoadError from '@/components/admin/LoadError';
 
 interface CronLog {
   id: string;
@@ -50,22 +51,25 @@ function formatDate(iso: string): string {
 export default function CronMonitorPage() {
   const [logs, setLogs] = useState<CronLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selectedJob, setSelectedJob] = useState<string>('');
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     let query = supabase
       .from('cron_logs')
       .select('*')
       .order('started_at', { ascending: false })
       .limit(200);
     if (selectedJob) query = query.eq('job_name', selectedJob);
-    const { data } = await query;
-    if (data) setLogs(data);
+    const { data, error } = await query;
+    if (error) { setLoadError(true); setLoading(false); return; }
+    setLogs(data ?? []);
     setLoading(false);
   }, [selectedJob]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   // 直近の各ジョブのステータスサマリー
   const latestByJob = Object.entries(
@@ -164,6 +168,8 @@ export default function CronMonitorPage() {
           <div className="py-12 text-center">
             <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
+        ) : loadError ? (
+          <div className="p-4"><LoadError onRetry={load} message="実行ログの読み込みに失敗しました" /></div>
         ) : logs.length === 0 ? (
           <div className="py-12 text-center text-gray-400 text-sm">
             実行ログがありません

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 export default function CouponEditPage() {
   const params = useParams();
@@ -20,15 +21,23 @@ export default function CouponEditPage() {
   const [validUntil, setValidUntil] = useState('');
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const loadCoupon = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { router.push('/admin/coupons'); return; }
 
-    const { data } = await supabase.from('coupons').select('*').eq('id', couponId).single();
+    const { data, error } = await supabase.from('coupons').select('*').eq('id', couponId).single();
+    // 行なし（PGRST116）は従来どおり一覧へ戻す。通信/権限エラーは空フォーム上書き事故を防ぐため明示する
+    if (error) {
+      if (error.code === 'PGRST116') { router.push('/admin/coupons'); return; }
+      setLoadError(true); setLoading(false); return;
+    }
     if (!data) { router.push('/admin/coupons'); return; }
     setName(data.name);
     setDescription(data.description || '');
@@ -39,9 +48,10 @@ export default function CouponEditPage() {
     setValidFrom(data.valid_from || '');
     setValidUntil(data.valid_until || '');
     setIsActive(data.is_active ?? true);
+    setLoading(false);
   }, [couponId, router]);
 
-  useEffect(() => { loadCoupon(); }, [loadCoupon]);
+  useEffect(() => { loadCoupon().catch(() => { setLoadError(true); setLoading(false); }); }, [loadCoupon]);
 
   const handleSave = async () => {
     if (saving || !name.trim()) {
@@ -116,6 +126,24 @@ export default function CouponEditPage() {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     }
   };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600" />
+      </div>
+    );
+  }
+
+  // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">クーポン編集</h1>
+        <LoadError onRetry={loadCoupon} message="クーポンの読み込みに失敗しました" />
+      </div>
+    );
+  }
 
   return (
     <div>

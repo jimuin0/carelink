@@ -3,11 +3,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 import type { FacilityReview } from '@/types';
 
 export default function AdminReviewsPage() {
   const [reviews, setReviews] = useState<FacilityReview[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | 'published' | 'hidden'>('all');
@@ -25,7 +27,9 @@ export default function AdminReviewsPage() {
       .order('created_at', { ascending: false })
       .limit(100);
     if (filter !== 'all') query = query.eq('status', filter);
-    const { data } = await query;
+    setLoadError(false);
+    const { data, error } = await query;
+    if (error) { setLoadError(true); return; }
     setReviews((data ?? []) as FacilityReview[]);
   }, [filter]);
 
@@ -54,7 +58,7 @@ export default function AdminReviewsPage() {
       }
       setLoading(false);
     };
-    init().catch(() => setLoading(false));
+    init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadReviews]);
 
   useEffect(() => {
@@ -141,7 +145,9 @@ export default function AdminReviewsPage() {
         ))}
       </div>
 
-      {reviews.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={() => { if (facilityId) loadReviews(facilityId); }} message="口コミの読み込みに失敗しました" />
+      ) : reviews.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">口コミがありません</p>
         </div>

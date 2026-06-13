@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 interface QAItem {
   id: string;
@@ -21,6 +22,7 @@ interface QAItem {
 export default function AdminQAPage() {
   const [qaList, setQaList] = useState<QAItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -32,12 +34,14 @@ export default function AdminQAPage() {
 
   const loadQA = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from('facility_qa')
       .select('*')
       .eq('facility_id', fId)
       .order('created_at', { ascending: false })
       .limit(100);
+    if (error) { setLoadError(true); return; }
     setQaList((data ?? []) as QAItem[]);
   }, []);
 
@@ -53,7 +57,7 @@ export default function AdminQAPage() {
       await loadQA(membership.facility_id);
       setLoading(false);
     };
-    init().catch(() => setLoading(false));
+    init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadQA]);
 
   const handleAnswer = async () => {
@@ -199,7 +203,9 @@ export default function AdminQAPage() {
       )}
 
       {/* Q&A List */}
-      {filtered.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={() => { if (facilityId) loadQA(facilityId); }} message="Q&Aの読み込みに失敗しました" />
+      ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">
             {filter === 'pending' ? '未回答の質問はありません' : filter === 'answered' ? '回答済みの質問はありません' : 'Q&Aはまだありません'}

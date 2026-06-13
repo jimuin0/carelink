@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 import type { BlogPost } from '@/types';
 
 function sanitizeUrl(url: string): string {
@@ -42,6 +43,7 @@ export default function EditBlogPage() {
   const [isPublished, setIsPublished] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -58,21 +60,22 @@ export default function EditBlogPage() {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + before.length, end + before.length); }, 0);
   };
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
       const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('blog_posts')
         .select('*')
         .eq('id', postId)
         .eq('facility_id', membership.facility_id)
         .single();
 
+      if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
         const post = data as BlogPost;
         setTitle(post.title);
@@ -80,9 +83,11 @@ export default function EditBlogPage() {
         setIsPublished(post.is_published);
       }
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
   }, [postId]);
+
+  useEffect(() => {
+    load().catch(() => { setLoadError(true); setLoading(false); });
+  }, [load]);
 
   const handleSave = async () => {
     if (saving || !title || !content || !facilityId) return;
@@ -123,6 +128,16 @@ export default function EditBlogPage() {
     return (
       <div className="flex items-center justify-center py-12">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600" />
+      </div>
+    );
+  }
+
+  // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">ブログ編集</h1>
+        <LoadError onRetry={load} message="記事の読み込みに失敗しました" />
       </div>
     );
   }

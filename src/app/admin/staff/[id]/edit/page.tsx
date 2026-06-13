@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState, use } from 'react';
+import { useEffect, useState, use, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 export default function EditStaffPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -17,19 +18,21 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   const [lineWorksChannelId, setLineWorksChannelId] = useState('');
   const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
-    const load = async () => {
+  const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
+      setLoadError(false);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
       const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
       if (!membership) { setLoading(false); return; }
       setFacilityId(membership.facility_id);
-      const { data } = await supabase.from('staff_profiles').select('*').eq('id', params.id).eq('facility_id', membership.facility_id).single();
+      const { data, error } = await supabase.from('staff_profiles').select('*').eq('id', params.id).eq('facility_id', membership.facility_id).single();
+      if (error) { setLoadError(true); setLoading(false); return; }
       if (data) {
         setName(data.name || '');
         setPosition(data.position || '');
@@ -41,9 +44,11 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         setLineWorksNotifyAll(data.line_works_notify_all || false);
       }
       setLoading(false);
-    };
-    load().catch(() => setLoading(false));
   }, [params.id]);
+
+  useEffect(() => {
+    load().catch(() => { setLoadError(true); setLoading(false); });
+  }, [load]);
 
   const handleSave = async () => {
     if (saving || !name || !facilityId) return;
@@ -80,6 +85,16 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
 
   if (loading) {
     return <div className="bg-white rounded-xl p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
+  }
+
+  // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
+  if (loadError) {
+    return (
+      <div>
+        <h1 className="text-2xl font-bold mb-6">スタッフ編集</h1>
+        <LoadError onRetry={load} message="スタッフ情報の読み込みに失敗しました" />
+      </div>
+    );
   }
 
   return (

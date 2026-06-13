@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 interface FeatureArticle {
   id: string;
@@ -35,6 +36,7 @@ const emptyForm: FeatureForm = {
 export default function AdminFeaturesPage() {
   const [features, setFeatures] = useState<FeatureArticle[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [editForm, setEditForm] = useState<FeatureForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -43,10 +45,12 @@ export default function AdminFeaturesPage() {
 
   const loadFeatures = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
-    const { data } = await supabase
+    setLoadError(false);
+    const { data, error } = await supabase
       .from('feature_articles')
       .select('*')
       .order('sort_order', { ascending: true });
+    if (error) { setLoadError(true); return; }
     setFeatures((data ?? []) as FeatureArticle[]);
   }, []);
 
@@ -60,7 +64,7 @@ export default function AdminFeaturesPage() {
       await loadFeatures();
       setLoading(false);
     };
-    init().catch(() => setLoading(false));
+    init().catch(() => { setLoadError(true); setLoading(false); });
   }, [loadFeatures]);
 
   const handleSave = async () => {
@@ -221,7 +225,9 @@ export default function AdminFeaturesPage() {
       )}
 
       {/* Feature List */}
-      {features.length === 0 ? (
+      {loadError ? (
+        <LoadError onRetry={loadFeatures} message="特集の読み込みに失敗しました" />
+      ) : features.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400 mb-2">特集がまだ登録されていません</p>
           <button type="button" onClick={() => setEditForm({ ...emptyForm })} className="text-sm text-sky-600 font-medium hover:underline">最初の特集を追加する</button>
