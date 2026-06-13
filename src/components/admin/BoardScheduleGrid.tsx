@@ -4,7 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { statusGanttClass } from '@/lib/booking-status';
-import { timeToMinutes, minutesToTime, snapToSlot, computeEndMinutes, endExceedsClose } from '@/lib/board-time';
+import { timeToMinutes, minutesToTime, snapToSlot, computeEndMinutes, endExceedsClose, assignLanes } from '@/lib/board-time';
 
 export type BoardChip = {
   id: string;
@@ -70,45 +70,73 @@ export default function BoardScheduleGrid({
 
   return (
     <>
-      {rows.map((row) => (
-        <div key={row.key} className="flex border-b last:border-b-0 hover:bg-sky-50/30">
-          <div className="w-36 shrink-0 px-3 py-2 border-r">
-            <p className="text-sm font-bold text-gray-800 truncate">{row.name}</p>
-            {row.position && <p className="text-[10px] text-gray-400 truncate">{row.position}</p>}
+      {rows.map((row) => {
+        const openMin = openHour * 60;
+        const closeMin = closeHour * 60;
+        // 営業時間帯に重なるチップ（部分はみ出しは端にクランプして表示）と、完全に枠外のチップを分離
+        const inWindow = row.chips.filter(
+          (b) => timeToMinutes(b.end_time) > openMin && timeToMinutes(b.start_time) < closeMin,
+        );
+        const outCount = row.chips.length - inWindow.length;
+        // 同一スタッフ・同時間帯の重複をレーン（段）に分割し、下のチップが隠れないようにする
+        const { lanes, laneCount } = assignLanes(
+          inWindow.map((b) => ({ start: timeToMinutes(b.start_time), end: timeToMinutes(b.end_time) })),
+        );
+        const LANE_H = 28;
+        const rowHeight = Math.max(56, laneCount * LANE_H);
+        const laneH = rowHeight / laneCount;
+        return (
+          <div key={row.key} className="flex border-b last:border-b-0 hover:bg-sky-50/30">
+            <div className="w-36 shrink-0 px-3 py-2 border-r sticky left-0 z-10 bg-white">
+              <p className="text-sm font-bold text-gray-800 truncate">{row.name}</p>
+              {row.position && <p className="text-[10px] text-gray-400 truncate">{row.position}</p>}
+              {outCount > 0 && (
+                <p className="text-[10px] font-bold text-amber-600">営業時間外 {outCount}件</p>
+              )}
+            </div>
+            <div
+              className="flex-1 relative cursor-pointer"
+              style={{ height: rowHeight }}
+              onClick={(e) => handleTrackClick(e, row)}
+              title="クリックで新規予約"
+            >
+              {hours.map((h, i) => (
+                <div key={h} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(i / hours.length) * 100}%` }} />
+              ))}
+              {inWindow.map((b, idx) => {
+                const rawStart = timeToMinutes(b.start_time);
+                const rawEnd = timeToMinutes(b.end_time);
+                const start = Math.max(rawStart - openMin, 0);
+                const end = Math.min(rawEnd - openMin, totalMin);
+                const left = (start / totalMin) * 100;
+                const width = Math.max(((end - start) / totalMin) * 100, 2);
+                const lane = lanes[idx];
+                const clipL = rawStart < openMin;
+                const clipR = rawEnd > closeMin;
+                return (
+                  <Link
+                    key={b.id}
+                    href={`/admin/bookings/${b.id}`}
+                    className={`absolute rounded border-l-4 px-1.5 overflow-hidden shadow-sm hover:shadow transition-shadow flex flex-col justify-center ${statusGanttClass(b.status)}`}
+                    style={{ left: `${left}%`, width: `${width}%`, top: lane * laneH + 2, height: laneH - 4 }}
+                    title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${b.menuName ? ` / ${b.menuName}` : ''}${clipL ? '（早朝に続く）' : ''}${clipR ? '（営業時間外に続く）' : ''}`}
+                  >
+                    <p className="text-[11px] font-bold truncate leading-tight">{clipL ? '◀ ' : ''}{b.customer_name} 様</p>
+                    {laneH >= 40 && (
+                      <p className="text-[10px] truncate leading-tight">
+                        {b.start_time.slice(0, 5)}〜{b.end_time.slice(0, 5)}{clipR ? ' ▶' : ''}{b.menuName ? ` ${b.menuName}` : ''}
+                      </p>
+                    )}
+                  </Link>
+                );
+              })}
+              {row.chips.length === 0 && (
+                <p className="absolute inset-0 flex items-center justify-center text-[11px] text-gray-400 select-none pointer-events-none">クリックで予約追加</p>
+              )}
+            </div>
           </div>
-          <div
-            className="flex-1 relative h-14 cursor-pointer"
-            onClick={(e) => handleTrackClick(e, row)}
-            title="クリックで新規予約"
-          >
-            {hours.map((h, i) => (
-              <div key={h} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(i / hours.length) * 100}%` }} />
-            ))}
-            {row.chips.map((b) => {
-              const start = Math.max(timeToMinutes(b.start_time) - openHour * 60, 0);
-              const end = Math.min(timeToMinutes(b.end_time) - openHour * 60, totalMin);
-              if (end <= 0 || start >= totalMin) return null;
-              const left = (start / totalMin) * 100;
-              const width = Math.max(((end - start) / totalMin) * 100, 2);
-              return (
-                <Link
-                  key={b.id}
-                  href={`/admin/bookings/${b.id}`}
-                  className={`absolute top-1.5 bottom-1.5 rounded border-l-4 px-1.5 py-0.5 overflow-hidden shadow-sm hover:shadow transition-shadow ${statusGanttClass(b.status)}`}
-                  style={{ left: `${left}%`, width: `${width}%` }}
-                  title={`${b.customer_name} 様 ${b.start_time.slice(0, 5)}〜${b.end_time.slice(0, 5)}${b.menuName ? ` / ${b.menuName}` : ''}`}
-                >
-                  <p className="text-[11px] font-bold truncate leading-tight">{b.customer_name} 様</p>
-                  <p className="text-[10px] truncate leading-tight">{b.start_time.slice(0, 5)}〜{b.end_time.slice(0, 5)}{b.menuName ? ` ${b.menuName}` : ''}</p>
-                </Link>
-              );
-            })}
-            {row.chips.length === 0 && (
-              <p className="absolute inset-0 flex items-center justify-center text-[11px] text-gray-300 select-none pointer-events-none">クリックで予約追加</p>
-            )}
-          </div>
-        </div>
-      ))}
+        );
+      })}
 
       {modalOpen && (
         <BoardBookingModal

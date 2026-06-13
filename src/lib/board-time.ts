@@ -33,3 +33,32 @@ export function computeEndMinutes(startMin: number, durationMin: number, minDura
 export function endExceedsClose(endMin: number, closeHour: number): boolean {
   return endMin > closeHour * 60;
 }
+
+/**
+ * 時間が重複する区間を「レーン（段）」に貪欲割当する（ガントの重なり可視化用）。
+ * 同一スタッフ・同時間帯の予約を縦に並置し、下のチップが隠れる問題を解消する。
+ * 返り値: 各区間（入力順）のレーン番号配列と、総レーン数（最低1）。
+ */
+export function assignLanes(intervals: { start: number; end: number }[]): { lanes: number[]; laneCount: number } {
+  const order = intervals
+    .map((iv, i) => ({ iv, i }))
+    .sort((a, b) => a.iv.start - b.iv.start || a.iv.end - b.iv.end);
+  const laneEnds: number[] = []; // 各レーンの現在の占有終了時刻
+  const lanes = new Array<number>(intervals.length).fill(0);
+  for (const { iv, i } of order) {
+    let placed = false;
+    for (let L = 0; L < laneEnds.length; L++) {
+      if (iv.start >= laneEnds[L]) {
+        lanes[i] = L;
+        laneEnds[L] = iv.end;
+        placed = true;
+        break;
+      }
+    }
+    if (!placed) {
+      lanes[i] = laneEnds.length;
+      laneEnds.push(iv.end);
+    }
+  }
+  return { lanes, laneCount: Math.max(laneEnds.length, 1) };
+}
