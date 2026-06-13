@@ -33,33 +33,37 @@ export default function AdminReviewsPage() {
     setReviews((data ?? []) as FacilityReview[]);
   }, [filter]);
 
-  useEffect(() => {
-    const init = async () => {
-      const supabase = createBrowserSupabaseClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (!membership) { setLoading(false); return; }
-      setFacilityId(membership.facility_id);
-      await loadReviews(membership.facility_id);
-      // Load replies
-      const { data: replies } = await supabase
-        .from('review_replies')
-        .select('id, review_id, content, created_at')
-        .eq('facility_id', membership.facility_id)
-        .order('created_at');
-      if (replies) {
-        const map: Record<string, typeof replies> = {};
-        for (const r of replies) {
-          if (!map[r.review_id]) map[r.review_id] = [];
-          map[r.review_id].push(r);
-        }
-        setRepliesMap(map);
+  // user→membership→facilityId→口コミ＋返信取得 の全工程。リトライ時も facilityId を再導出するため
+  // 完全再取得をこの単一関数に集約する（facilityId 未確定の失敗でもリトライが機能する）
+  const reload = useCallback(async () => {
+    const supabase = createBrowserSupabaseClient();
+    setLoadError(false);
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoading(false); return; }
+    const { data: membership } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (!membership) { setLoading(false); return; }
+    setFacilityId(membership.facility_id);
+    await loadReviews(membership.facility_id);
+    // Load replies
+    const { data: replies } = await supabase
+      .from('review_replies')
+      .select('id, review_id, content, created_at')
+      .eq('facility_id', membership.facility_id)
+      .order('created_at');
+    if (replies) {
+      const map: Record<string, typeof replies> = {};
+      for (const r of replies) {
+        if (!map[r.review_id]) map[r.review_id] = [];
+        map[r.review_id].push(r);
       }
-      setLoading(false);
-    };
-    init().catch(() => { setLoadError(true); setLoading(false); });
+      setRepliesMap(map);
+    }
+    setLoading(false);
   }, [loadReviews]);
+
+  useEffect(() => {
+    reload().catch(() => { setLoadError(true); setLoading(false); });
+  }, [reload]);
 
   useEffect(() => {
     if (facilityId) loadReviews(facilityId);
@@ -146,7 +150,7 @@ export default function AdminReviewsPage() {
       </div>
 
       {loadError ? (
-        <LoadError onRetry={() => { if (facilityId) loadReviews(facilityId); }} message="口コミの読み込みに失敗しました" />
+        <LoadError onRetry={() => { reload().catch(() => { setLoadError(true); setLoading(false); }); }} message="口コミの読み込みに失敗しました" />
       ) : reviews.length === 0 ? (
         <div className="bg-white rounded-xl shadow-sm p-12 text-center">
           <p className="text-gray-400">口コミがありません</p>
