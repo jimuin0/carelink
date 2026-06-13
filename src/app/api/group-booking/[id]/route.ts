@@ -36,12 +36,31 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   if (!group) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // Must be organizer or member
-  const isMember = (group.group_booking_members as { user_id: string }[]).some((m) => m.user_id === user.id);
-  if (group.organizer_id !== user.id && !isMember) {
+  type Member = {
+    user_id: string | null;
+    guest_name?: string | null;
+    guest_email?: string | null;
+    guest_phone?: string | null;
+    [k: string]: unknown;
+  };
+  const members = (group.group_booking_members ?? []) as Member[];
+  const isOrganizer = group.organizer_id === user.id;
+  const isMember = members.some((m) => m.user_id === user.id);
+  if (!isOrganizer && !isMember) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
   }
 
-  return NextResponse.json(group);
+  // 主催者のみ全ゲストの PII（氏名/メール/電話）を閲覧可。メンバーには他ゲストの PII を返さず、
+  // 自分の行のみ保持する（グループ内 PII 漏洩の防止＝最小公開）。
+  const safeMembers = isOrganizer
+    ? members
+    : members.map((m) =>
+        m.user_id === user.id
+          ? m
+          : { ...m, guest_name: null, guest_email: null, guest_phone: null }
+      );
+
+  return NextResponse.json({ ...group, group_booking_members: safeMembers });
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {

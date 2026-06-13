@@ -33,12 +33,18 @@ import { GET, PATCH, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
+const OTHER_MEMBER_ID = '55555555-5555-5555-5555-555555555555';
+
 const OPEN_GROUP = {
   id: GROUP_UUID,
   organizer_id: ORGANIZER_ID,
   status: 'open',
   facility_profiles: { name: 'テスト施設', slug: 'test', phone: '06-1234-5678' },
-  group_booking_members: [{ user_id: MEMBER_ID, status: 'confirmed' }],
+  group_booking_members: [
+    { user_id: ORGANIZER_ID, guest_name: '主催 太郎', guest_email: 'org@example.com', guest_phone: '090-1111-1111', status: 'confirmed', is_organizer: true },
+    { user_id: MEMBER_ID, guest_name: 'メンバー 花子', guest_email: 'mem@example.com', guest_phone: '090-2222-2222', status: 'confirmed', is_organizer: false },
+    { user_id: OTHER_MEMBER_ID, guest_name: '他 次郎', guest_email: 'other@example.com', guest_phone: '090-3333-3333', status: 'confirmed', is_organizer: false },
+  ],
 };
 
 function makeRequest(method: string, id = GROUP_UUID, body?: object) {
@@ -108,6 +114,46 @@ test('GET: メンバー → 200', async () => {
   mockAdminFrom.mockReturnValue(singleChain(OPEN_GROUP));
   const res = await GET(makeRequest('GET'), makeProps());
   expect(res.status).toBe(200);
+});
+
+// ─── GET: PII 漏洩防止（T5） ───────────────────────────────────────────────────
+
+test('GET: 主催者は全ゲストの PII（氏名/メール/電話）を受け取る', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: ORGANIZER_ID } } });
+  mockAdminFrom.mockReturnValue(singleChain(OPEN_GROUP));
+  const res = await GET(makeRequest('GET'), makeProps());
+  const json = await res.json();
+  const other = json.group_booking_members.find((m: { user_id: string }) => m.user_id === OTHER_MEMBER_ID);
+  expect(other.guest_email).toBe('other@example.com');
+  expect(other.guest_phone).toBe('090-3333-3333');
+  expect(other.guest_name).toBe('他 次郎');
+});
+
+test('GET: メンバーは他ゲストの PII を受け取らない（自分の行のみ保持）', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: MEMBER_ID } } });
+  mockAdminFrom.mockReturnValue(singleChain(OPEN_GROUP));
+  const res = await GET(makeRequest('GET'), makeProps());
+  const json = await res.json();
+  const me = json.group_booking_members.find((m: { user_id: string }) => m.user_id === MEMBER_ID);
+  const other = json.group_booking_members.find((m: { user_id: string }) => m.user_id === OTHER_MEMBER_ID);
+  // 自分の行は保持
+  expect(me.guest_email).toBe('mem@example.com');
+  expect(me.guest_phone).toBe('090-2222-2222');
+  // 他ゲストの PII は全て null（漏洩防止）。行自体（user_id/status）は残す。
+  expect(other.guest_name).toBeNull();
+  expect(other.guest_email).toBeNull();
+  expect(other.guest_phone).toBeNull();
+  expect(other.user_id).toBe(OTHER_MEMBER_ID);
+  expect(other.status).toBe('confirmed');
+});
+
+test('GET: group_booking_members が null でも主催者は 200（防御的 ?? []）', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: { id: ORGANIZER_ID } } });
+  mockAdminFrom.mockReturnValue(singleChain({ ...OPEN_GROUP, group_booking_members: null }));
+  const res = await GET(makeRequest('GET'), makeProps());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.group_booking_members).toEqual([]);
 });
 
 // ─── PATCH: organizer guard ───────────────────────────────────────────────────
