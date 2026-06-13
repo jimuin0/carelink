@@ -38,3 +38,25 @@ export function clampPage(rawPage: string | undefined, totalPages: number): numb
   if (page > max) return max;
   return page;
 }
+
+/**
+ * YYYY-MM-DD に days 日加算した YYYY-MM-DD を返す。
+ * 文字列を UTC 0:00 として解釈し UTC 日付演算するため、実行環境の TZ に依存しない純粋関数。
+ */
+export function addDays(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().split('T')[0];
+}
+
+/**
+ * 2つの YYYY-MM-DD の暦日差（toYmd - fromYmd）を整数日で返す。
+ * 両者を UTC 0:00 として解釈し**時刻成分を一切混ぜない**ため、TZ に依存しない。
+ * 「予約日まであと何日か」を実時刻 Date.now() との差で求めると JST/UTC のズレで
+ * 日数が 1 段ずれる（キャンセル料の料率が変わる金銭バグ）。本関数で暦日差に統一する。
+ */
+export function diffDays(fromYmd: string, toYmd: string): number {
+  const from = new Date(`${fromYmd}T00:00:00Z`).getTime();
+  const to = new Date(`${toYmd}T00:00:00Z`).getTime();
+  return Math.round((to - from) / 86_400_000);
+}

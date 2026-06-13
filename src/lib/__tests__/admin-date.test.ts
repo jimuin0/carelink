@@ -1,4 +1,4 @@
-import { todayJst, isValidIsoDate, clampPage } from '../admin-date';
+import { todayJst, isValidIsoDate, clampPage, addDays, diffDays } from '../admin-date';
 
 describe('todayJst', () => {
   it('JST の今日を YYYY-MM-DD 形式で返す', () => {
@@ -81,5 +81,55 @@ describe('clampPage', () => {
 
   it('totalPages が 0 でも下限 1 を保証', () => {
     expect(clampPage('2', 0)).toBe(1);
+  });
+});
+
+describe('addDays', () => {
+  it('正の加算', () => {
+    expect(addDays('2026-06-13', 1)).toBe('2026-06-14');
+  });
+
+  it('月跨ぎ', () => {
+    expect(addDays('2026-06-30', 1)).toBe('2026-07-01');
+  });
+
+  it('年跨ぎ', () => {
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+  });
+
+  it('0 は同日', () => {
+    expect(addDays('2026-06-13', 0)).toBe('2026-06-13');
+  });
+
+  it('負の加算（前日）', () => {
+    expect(addDays('2026-06-01', -1)).toBe('2026-05-31');
+  });
+
+  it('うるう年 2/28→2/29', () => {
+    expect(addDays('2028-02-28', 1)).toBe('2028-02-29');
+  });
+});
+
+describe('diffDays', () => {
+  it('同日は 0', () => {
+    expect(diffDays('2026-06-13', '2026-06-13')).toBe(0);
+  });
+
+  it('翌日は +1', () => {
+    expect(diffDays('2026-06-13', '2026-06-14')).toBe(1);
+  });
+
+  it('過去日は負', () => {
+    expect(diffDays('2026-06-13', '2026-06-11')).toBe(-2);
+  });
+
+  it('月跨ぎの差', () => {
+    expect(diffDays('2026-06-30', '2026-07-02')).toBe(2);
+  });
+
+  it('時刻成分を持たないため UTC/JST 境界に依存しない（addDays と整合）', () => {
+    const base = '2026-06-13';
+    expect(diffDays(base, addDays(base, 3))).toBe(3);
+    expect(diffDays(base, addDays(base, -5))).toBe(-5);
   });
 });

@@ -35,6 +35,7 @@ jest.mock('stripe', () =>
 import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
+import { todayJst, addDays } from '@/lib/admin-date';
 
 const STRIPE_SESSION = { id: 'cs_test_cancel', url: 'https://checkout.stripe.com/cancel123' };
 
@@ -59,11 +60,12 @@ function singleChain(data: unknown, error: unknown = null) {
 }
 
 // Future date (+5 days) → no cancellation fee (daysUntil > 3 and no 3-day policy)
+// 日付は JST の今日基準（todayJst+N）で生成し、CI 実行時刻（UTC）に依存しないようにする
 const FUTURE_BOOKING = {
   id: BOOKING_UUID,
   user_id: USER_ID,
   facility_id: FACILITY_UUID,
-  booking_date: new Date(Date.now() + 5 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  booking_date: addDays(todayJst(), 5),
   total_price: 10000,
   status: 'cancelled',
   menu_name: 'テストメニュー',
@@ -72,7 +74,7 @@ const FUTURE_BOOKING = {
 // Past date (no-show scenario) → 100% fee
 const PAST_BOOKING = {
   ...FUTURE_BOOKING,
-  booking_date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  booking_date: addDays(todayJst(), -2),
 };
 
 const POLICY = {
@@ -213,7 +215,7 @@ test('Stripe非対応施設 → 400', async () => {
 });
 
 test('当日キャンセル（same_day_fee_percent）→ 50% 料金', async () => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayJst();
   const todayBooking = { ...PAST_BOOKING, booking_date: todayStr, status: 'cancelled' };
 
   let callNum = 0;
@@ -232,7 +234,7 @@ test('当日キャンセル（same_day_fee_percent）→ 50% 料金', async () =
 });
 
 test('1日前キャンセル（one_day_fee_percent）→ 30% 料金', async () => {
-  const tomorrowStr = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const tomorrowStr = addDays(todayJst(), 1);
   const oneDayBooking = { ...PAST_BOOKING, booking_date: tomorrowStr, status: 'cancelled' };
 
   let callNum = 0;
@@ -251,7 +253,7 @@ test('1日前キャンセル（one_day_fee_percent）→ 30% 料金', async () =
 });
 
 test('2日前キャンセル（three_day_fee_percent > 0）→ 10% 料金', async () => {
-  const twoDaysStr = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const twoDaysStr = addDays(todayJst(), 2);
   const twoDayBooking = { ...PAST_BOOKING, booking_date: twoDaysStr, status: 'cancelled' };
   const policyWithThreeDay = { ...POLICY, three_day_fee_percent: 10 };
 
@@ -336,7 +338,7 @@ test('no_show_fee_percent=null → ?? 100 フォールバック', async () => {
 });
 
 test('same_day_fee_percent=null → ?? 50 フォールバック', async () => {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = todayJst();
   const todayBooking = { ...PAST_BOOKING, booking_date: todayStr, status: 'cancelled' };
   let callNum = 0;
   mockFrom.mockImplementation(() => {
@@ -353,7 +355,7 @@ test('same_day_fee_percent=null → ?? 50 フォールバック', async () => {
 });
 
 test('one_day_fee_percent=null → ?? 30 フォールバック', async () => {
-  const tomorrowStr = new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const tomorrowStr = addDays(todayJst(), 1);
   const tomorrowBooking = { ...PAST_BOOKING, booking_date: tomorrowStr, status: 'cancelled' };
   let callNum = 0;
   mockFrom.mockImplementation(() => {
@@ -370,7 +372,7 @@ test('one_day_fee_percent=null → ?? 30 フォールバック', async () => {
 });
 
 test('three_day_fee_percent=null → ?? 0 フォールバック → fee=0 で早期リターン', async () => {
-  const twoDaysStr = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+  const twoDaysStr = addDays(todayJst(), 2);
   const twoDayBooking = { ...PAST_BOOKING, booking_date: twoDaysStr, status: 'cancelled' };
   let callNum = 0;
   mockFrom.mockImplementation(() => {
