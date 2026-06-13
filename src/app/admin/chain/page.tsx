@@ -4,6 +4,7 @@ import { createClient } from '@supabase/supabase-js';
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import BulkActions from './BulkActions';
+import { jstMonthStartIso } from '@/lib/admin-date';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
 export const dynamic = 'force-dynamic';
@@ -60,9 +61,8 @@ export default async function ChainManagementPage() {
     .in('id', facilityIds)
     .order('name');
 
-  // 予約数（全期間・今月）
-  const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+  // 予約数（全期間・今月＝JST 月境界）
+  const monthStart = jstMonthStartIso(0);
 
   const { data: allBookings } = await admin
     .from('bookings')

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
 import { RevenueChart, BookingTrendChart, CustomerSegmentChart, RepeatRateCard, ViewCountCard } from '@/components/admin/DynamicAnalyticsCharts';
+import { jstMonthInfo } from '@/lib/admin-date';
 
 export default async function AdminAnalyticsPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -18,15 +19,14 @@ export default async function AdminAnalyticsPage() {
 
   const facilityId = membership.facility_id;
 
-  // 月別設定を事前生成
+  // 月別設定を事前生成（JST 月基準。booking_date は date-only のため YYYY-MM-DD で範囲指定）
   const monthConfigs = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date();
-    d.setMonth(d.getMonth() - (5 - i));
-    const year = d.getFullYear();
-    const month = d.getMonth() + 1;
-    const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-    const endD = new Date(year, month, 0);
-    const endDate = `${year}-${String(month).padStart(2, '0')}-${String(endD.getDate()).padStart(2, '0')}`;
+    const { year, month } = jstMonthInfo(-(5 - i));
+    const mm = String(month).padStart(2, '0');
+    const startDate = `${year}-${mm}-01`;
+    // 当月末日（month は 1-12、Date.UTC(year, month, 0) は当月末日＝純粋な暦演算で TZ 非依存）
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const endDate = `${year}-${mm}-${String(lastDay).padStart(2, '0')}`;
     return { label: `${month}月`, startDate, endDate };
   });
 

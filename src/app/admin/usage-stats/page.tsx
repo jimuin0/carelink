@@ -4,24 +4,10 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { bookingStatusLabel } from '@/lib/booking-status';
+import { jstDayStartIso, jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
 
 export const metadata: Metadata = { title: '利用状況分析' };
 export const dynamic = 'force-dynamic';
-
-function daysAgo(n: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
-
-function monthsAgo(n: number) {
-  const d = new Date();
-  d.setMonth(d.getMonth() - n);
-  d.setDate(1);
-  d.setHours(0, 0, 0, 0);
-  return d.toISOString();
-}
 
 export default async function UsageStatsPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -38,18 +24,18 @@ export default async function UsageStatsPage() {
   const facilityId = mem.facility_id;
   const admin = createServiceRoleClient();
 
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
-  const weekAgo = daysAgo(7);
-  const monthAgo = monthsAgo(1);
-  const prevMonthAgo = monthsAgo(2);
+  // JST 暦の境界（created_at は UTC 保存のため UTC ISO に変換した JST 境界で比較）
+  const today = jstDayStartIso(0);
+  const weekAgo = jstDayStartIso(-7);
+  const monthAgo = jstMonthStartIso(-1);
+  const prevMonthAgo = jstMonthStartIso(-2);
 
   // 予約データ
   const { data: allBookings } = await admin
     .from('bookings')
     .select('user_id, created_at, status')
     .eq('facility_id', facilityId)
-    .gte('created_at', monthsAgo(12));
+    .gte('created_at', jstMonthStartIso(-12));
 
   const bookings = allBookings ?? [];
 
@@ -73,10 +59,10 @@ export default async function UsageStatsPage() {
   // 月別 MAU（直近6ヶ月）
   const monthlyData: { month: string; mau: number; bookings: number }[] = [];
   for (let i = 5; i >= 0; i--) {
-    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
-    const label = `${start.getMonth() + 1}月`;
-    const monthBookings = bookings.filter((b) => b.created_at >= start.toISOString() && b.created_at < end.toISOString());
+    const start = jstMonthStartIso(-i);
+    const end = jstMonthStartIso(-i + 1);
+    const label = `${jstMonthInfo(-i).month}月`;
+    const monthBookings = bookings.filter((b) => b.created_at >= start && b.created_at < end);
     const uniqueUsers = new Set(monthBookings.map((b) => b.user_id));
     monthlyData.push({ month: label, mau: uniqueUsers.size, bookings: monthBookings.length });
   }
