@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import LoadError from '@/components/admin/LoadError';
 
 interface Salon {
   id: string;
@@ -16,21 +17,24 @@ interface Salon {
 export default function AdminRegistrationsPage() {
   const [salons, setSalons] = useState<Salon[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmReject, setConfirmReject] = useState(false);
   const [confirmRejectSalon, setConfirmRejectSalon] = useState<Salon | null>(null);
 
   const loadSalons = useCallback(async () => {
+    setLoadError(false);
     try {
       const res = await fetch('/api/admin/registrations');
       if (!res.ok) {
+        setLoadError(true);
         setLoading(false);
         return;
       }
       const json = await res.json();
-      if (json.salons) setSalons(json.salons);
+      setSalons(json.salons ?? []);
     } catch {
-      // silent
+      setLoadError(true);
     }
     setLoading(false);
   }, []);
@@ -89,6 +93,8 @@ export default function AdminRegistrationsPage() {
         <div className="animate-pulse space-y-3">
           {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}
         </div>
+      ) : loadError ? (
+        <LoadError onRetry={loadSalons} message="登録申請の読み込みに失敗しました" />
       ) : salons.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
           <p className="text-gray-400">登録申請はありません</p>
