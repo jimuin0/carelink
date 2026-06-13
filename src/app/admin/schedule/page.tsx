@@ -149,8 +149,8 @@ export default async function AdminSchedulePage(props: Props) {
       <div className="bg-white border rounded-b-xl overflow-x-auto">
         <div className="min-w-[900px]">
           {/* 時間軸ヘッダ */}
-          <div className="flex border-b bg-sky-50/60 sticky top-0">
-            <div className="w-36 shrink-0 px-3 py-2 text-xs font-bold text-gray-600 border-r">スタッフ</div>
+          <div className="flex border-b bg-sky-50/60 sticky top-0 z-20">
+            <div className="w-36 shrink-0 px-3 py-2 text-xs font-bold text-gray-600 border-r sticky left-0 z-30 bg-sky-50">スタッフ</div>
             <div className="flex-1 relative h-8">
               {hours.map((h, i) => (
                 <div

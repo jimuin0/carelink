@@ -22,6 +22,12 @@ function setup(menus: BoardMenu[] = menuShort) {
   );
 }
 
+function setupRows(boardRows: BoardRow[]) {
+  return render(
+    <BoardScheduleGrid facilityId="f1" date="2026-07-01" openHour={8} closeHour={22} rows={boardRows} menus={menuShort} />,
+  );
+}
+
 beforeEach(() => {
   // jsdom はレイアウトを持たず getBoundingClientRect が 0 を返すため width を与える
   Element.prototype.getBoundingClientRect = jest.fn(
@@ -79,6 +85,24 @@ test('正常作成で /api/admin/bookings へ正しいペイロードで POST �
     end_time: '08:30',
     customer_name: '山田花子',
   });
+});
+
+test('時間重複する2予約が両方表示される（レーン分割で隠れない・R2）', () => {
+  setupRows([{ key: 's1', name: '佐藤', position: null, chips: [
+    { id: 'b1', customer_name: '田中', start_time: '10:00', end_time: '11:00', status: 'confirmed', menuName: 'カット' },
+    { id: 'b2', customer_name: '鈴木', start_time: '10:30', end_time: '11:30', status: 'pending', menuName: 'カラー' },
+  ] }]);
+  expect(screen.getByText('田中 様')).toBeInTheDocument();
+  expect(screen.getByText('鈴木 様')).toBeInTheDocument();
+});
+
+test('営業時間外の予約は「営業時間外 N件」バッジで可視化される（R3）', () => {
+  setupRows([{ key: 's1', name: '佐藤', position: null, chips: [
+    { id: 'b3', customer_name: '早朝', start_time: '07:00', end_time: '07:30', status: 'confirmed', menuName: null },
+  ] }]);
+  expect(screen.getByText('営業時間外 1件')).toBeInTheDocument();
+  // 枠外チップ本体はトラックに帯表示されない（バッジで存在を示す）
+  expect(screen.queryByText('早朝 様')).not.toBeInTheDocument();
 });
 
 test('お客様名が空だと送信されない', async () => {

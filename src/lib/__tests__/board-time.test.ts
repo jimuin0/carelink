@@ -4,6 +4,7 @@ import {
   snapToSlot,
   computeEndMinutes,
   endExceedsClose,
+  assignLanes,
 } from '@/lib/board-time';
 
 describe('timeToMinutes', () => {
@@ -61,5 +62,35 @@ describe('endExceedsClose', () => {
     expect(endExceedsClose(1290, 22)).toBe(false); // 21:30
     expect(endExceedsClose(1350, 22)).toBe(true);  // 22:30
     expect(endExceedsClose(1440, 22)).toBe(true);  // 24:00（跨ぎ）
+  });
+});
+
+describe('assignLanes', () => {
+  it('空配列は laneCount=1', () => {
+    expect(assignLanes([])).toEqual({ lanes: [], laneCount: 1 });
+  });
+  it('重複なしは全て同一レーン(0)', () => {
+    const r = assignLanes([{ start: 0, end: 30 }, { start: 30, end: 60 }, { start: 60, end: 90 }]);
+    expect(r).toEqual({ lanes: [0, 0, 0], laneCount: 1 });
+  });
+  it('完全重複の2件は別レーン', () => {
+    const r = assignLanes([{ start: 0, end: 60 }, { start: 0, end: 60 }]);
+    expect(r.laneCount).toBe(2);
+    expect(new Set(r.lanes).size).toBe(2);
+  });
+  it('入力順を保った lanes を返す（後勝ちで隠れない）', () => {
+    // 10:00-11:00 と 10:30-11:30 が重複 → 2レーン。3件目 11:30-12:00 は1件目のレーンを再利用
+    const r = assignLanes([
+      { start: 600, end: 660 },  // i0
+      { start: 630, end: 690 },  // i1（i0と重複）
+      { start: 690, end: 720 },  // i2（i0終了後）
+    ]);
+    expect(r.laneCount).toBe(2);
+    expect(r.lanes[0]).not.toBe(r.lanes[1]); // 重複ペアは別レーン
+    expect(r.lanes[2]).toBe(r.lanes[0]);     // 空いたレーンを再利用
+  });
+  it('3件同時重複は3レーン', () => {
+    const r = assignLanes([{ start: 0, end: 90 }, { start: 30, end: 120 }, { start: 60, end: 150 }]);
+    expect(r.laneCount).toBe(3);
   });
 });
