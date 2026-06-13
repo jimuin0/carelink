@@ -56,28 +56,62 @@ export async function GET(request: Request) {
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
+    const dateStrFor = (day: number) =>
+      `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isPast = (dateStr: string) => new Date(dateStr + 'T00:00:00+09:00') < today;
+    // 旧実装はスタッフループの早期 break により slots を実質 3 前後に丸めていた。集約後も
+    // status 閾値（>=3 available / >=1 few / 0 full）と表示 regime（RemainingSlots）を一致させるため 3 で丸める。
+    const summarize = (total: number): { slots: number; status: 'available' | 'few' | 'full' } => {
+      const slots = Math.min(total, 3);
+      return { slots, status: slots >= 3 ? 'available' : slots >= 1 ? 'few' : 'full' };
+    };
+
     const dates: Record<string, { slots: number; status: 'available' | 'few' | 'full' }> = {};
 
-    // Build list of future dates to check
+    // 集約 RPC で「月 × 全スタッフ」のスロット数を 1 ラウンドトリップで取得（N+1 解消）。
+    // get_month_availability 未デプロイ時（PostgREST schema cache 未反映含む = PGRST202）のみ
+    // 従来の日次ループにフォールバックし、DB マイグレーション適用とコードデプロイの順序に依存せず無停止とする。
+    const { data: monthRows, error: monthErr } = await supabase.rpc('get_month_availability', {
+      p_facility_id: facilityId,
+      p_staff_ids: staffIds,
+      p_year: year,
+      p_month: month,
+      p_duration_minutes: 60,
+    });
+
+    if (!monthErr) {
+      const slotMap = new Map<string, number>();
+      for (const row of (monthRows ?? []) as { d: string; slots: number }[]) {
+        slotMap.set(row.d, row.slots);
+      }
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = dateStrFor(day);
+        dates[dateStr] = isPast(dateStr) ? { slots: 0, status: 'full' } : summarize(slotMap.get(dateStr) ?? 0);
+      }
+      return NextResponse.json({ dates });
+    }
+
+    // 集約関数の未デプロイ以外（通信/権限/SQL エラー）は異常として扱い 500 を返す（空状態に偽装しない）。
+    if (monthErr.code !== 'PGRST202') {
+      throw monthErr;
+    }
+
+    // ---- フォールバック（get_month_availability 適用前の互換経路。適用・cache 反映後は到達しない）----
     const futureDates: string[] = [];
     for (let day = 1; day <= daysInMonth; day++) {
-      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      const dateObj = new Date(dateStr + 'T00:00:00+09:00');
-      if (dateObj < today) {
+      const dateStr = dateStrFor(day);
+      if (isPast(dateStr)) {
         dates[dateStr] = { slots: 0, status: 'full' };
       } else {
         futureDates.push(dateStr);
       }
     }
 
-    // Process dates in batches to limit concurrent DB calls
     const BATCH_SIZE = 5;
     for (let i = 0; i < futureDates.length; i += BATCH_SIZE) {
       const batch = futureDates.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (dateStr) => {
         let totalSlots = 0;
-
-        // Check slots for each staff member sequentially per date
         for (const sid of staffIds) {
           const { data } = await supabase.rpc('get_available_slots', {
             p_facility_id: facilityId,
@@ -86,13 +120,9 @@ export async function GET(request: Request) {
             p_duration_minutes: 60,
           });
           totalSlots += (data || []).length;
-          // Early exit: once we know enough slots exist, skip remaining staff
           if (totalSlots >= 3) break;
         }
-
-        const status: 'available' | 'few' | 'full' =
-          totalSlots >= 3 ? 'available' : totalSlots >= 1 ? 'few' : 'full';
-        dates[dateStr] = { slots: totalSlots, status };
+        dates[dateStr] = summarize(totalSlots);
       }));
     }
 
