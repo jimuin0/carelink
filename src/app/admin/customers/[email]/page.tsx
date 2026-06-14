@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCustomerVisits } from '@/lib/admin';
+import Breadcrumb from '@/components/Breadcrumb';
 
 interface Props {
   params: Promise<{ email: string }>;
@@ -33,6 +34,7 @@ export default async function CustomerDetailPage(props: Props) {
 
   return (
     <div>
+      <Breadcrumb jsonLd={false} items={[{ label: '顧客管理', href: '/admin/customers' }, { label: '顧客詳細' }]} />
       <h1 className="text-2xl font-bold mb-2">顧客詳細</h1>
       <p className="text-sm text-gray-500 mb-6">{email}</p>
 
