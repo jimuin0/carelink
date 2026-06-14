@@ -65,9 +65,26 @@ export default function BoardScheduleGrid({
     setModalOpen(true);
   }
 
+  // タッチでのスクロール/ドラッグを「新規予約タップ」と誤認しないためのしきい値判定。
+  // pointerdown 位置を記録し、click 時に移動量が DRAG_THRESHOLD_PX を超えていれば無視する
+  // （スクロール由来のタップ誤発火を防ぎつつ、デスクトップのクリック位置での時刻指定は維持）。
+  const DRAG_THRESHOLD_PX = 10;
+  const pointerStartRef = useRef<{ x: number; y: number } | null>(null);
+
+  function handleTrackPointerDown(e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) {
+    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+  }
+
   function handleTrackClick(e: React.MouseEvent<HTMLDivElement>, row: BoardRow) {
     // チップ（Link）クリックは詳細遷移に任せる
     if ((e.target as HTMLElement).closest('a')) return;
+    // スクロール/ドラッグ（移動量がしきい値超）はタップ扱いしない
+    const start = pointerStartRef.current;
+    pointerStartRef.current = null;
+    if (start) {
+      const moved = Math.hypot(e.clientX - start.x, e.clientY - start.y);
+      if (moved > DRAG_THRESHOLD_PX) return;
+    }
     const rect = e.currentTarget.getBoundingClientRect();
     const ratio = Math.min(Math.max((e.clientX - rect.left) / rect.width, 0), 1);
     openModal(row, openHour * 60 + ratio * totalMin);
@@ -113,6 +130,8 @@ export default function BoardScheduleGrid({
               aria-label={`${row.name} の空き時間に新規予約を追加`}
               className="flex-1 relative cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-400"
               style={{ height: rowHeight }}
+              onPointerDown={handleTrackPointerDown}
+              onMouseDown={handleTrackPointerDown}
               onClick={(e) => handleTrackClick(e, row)}
               onKeyDown={(e) => handleTrackKeyDown(e, row)}
               title="クリック / Enter で新規予約"
