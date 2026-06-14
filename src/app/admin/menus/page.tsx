@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
@@ -185,9 +186,17 @@ export default function AdminMenusPage() {
 
       {/* Edit/Add Form Modal */}
       {editForm && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) setEditForm(null); }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-lg font-bold mb-4">{editForm.id ? 'メニュー編集' : 'メニュー追加'}</h2>
+        <Modal
+          open
+          onClose={() => setEditForm(null)}
+          title={editForm.id ? 'メニュー編集' : 'メニュー追加'}
+          footer={
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
+            </div>
+          }
+        >
             <div className="space-y-4">
               <div>
                 <label htmlFor="menu-cat" className="form-label">カテゴリ</label>
@@ -231,12 +240,7 @@ export default function AdminMenusPage() {
                 <span className="text-sm">おすすめメニューとして表示</span>
               </label>
             </div>
-            <div className="flex gap-3 mt-6">
-              <button type="button" onClick={() => setEditForm(null)} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存'}</button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Menu List */}
