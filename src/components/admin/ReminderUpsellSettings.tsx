@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import Toggle from '@/components/admin/Toggle';
 
 /**
  * リマインダー設定＋有料オプション（アップセル）セクション
@@ -157,17 +158,7 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
               {locked ? (
                 <span className="text-xs text-gray-400" data-testid={`locked-${key}`}>🔒 未購入</span>
               ) : (
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={settings[key]}
-                  aria-label={label}
-                  onClick={() => handleToggle(key)}
-                  disabled={saving}
-                  className={`relative w-11 h-6 rounded-full transition-colors ${settings[key] ? 'bg-sky-500' : 'bg-gray-300'}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow ${settings[key] ? 'translate-x-5' : ''}`} />
-                </button>
+                <Toggle checked={settings[key]} onChange={() => handleToggle(key)} disabled={saving} label={label} />
               )}
             </div>
           );

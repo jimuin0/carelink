@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
+import Toggle from '@/components/admin/Toggle';
 
 interface Settings {
   push_on_new_booking: boolean;
@@ -93,16 +94,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
         {(Object.keys(LABELS) as (keyof Settings)[]).map((key) => (
           <label key={key} className="flex items-center justify-between cursor-pointer">
             <span className="text-sm text-gray-700">{LABELS[key]}</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={settings[key]}
-              onClick={() => handleToggle(key)}
-              disabled={saving}
-              className={`relative w-11 h-6 rounded-full transition-colors ${settings[key] ? 'bg-sky-500' : 'bg-gray-300'}`}
-            >
-              <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow ${settings[key] ? 'translate-x-5' : ''}`} />
-            </button>
+            <Toggle checked={settings[key]} onChange={() => handleToggle(key)} disabled={saving} />
           </label>
         ))}
       </div>
