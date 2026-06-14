@@ -19,27 +19,26 @@ async function getAdminUserAndVerifyRoom(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  // Get the admin's facility
-  const { data: membership } = await supabase
+  // Get ALL facilities the admin manages（複数施設の owner/admin を 1 つに絞らない＝誤 401 防止）
+  const { data: memberships } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) return null;
+    .in('role', ['owner', 'admin']);
+  if (!memberships || memberships.length === 0) return null;
+  const facilityIds = memberships.map((m: { facility_id: string }) => m.facility_id);
 
-  // Verify the chat room belongs to this facility
+  // Verify the chat room belongs to ANY of the admin's facilities
   const admin = createServiceRoleClient();
   const { data: room } = await admin
     .from('chat_rooms')
-    .select('id')
+    .select('id, facility_id')
     .eq('id', roomId)
-    .eq('facility_id', membership.facility_id)
+    .in('facility_id', facilityIds)
     .single();
 
   if (!room) return null;
-  return { userId: user.id, facilityId: membership.facility_id };
+  return { userId: user.id, facilityId: room.facility_id as string };
 }
 
 // POST: Send a message to a chat room
