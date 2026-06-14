@@ -9,6 +9,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 interface ProfileForm {
   display_name: string;
@@ -35,7 +36,9 @@ export default function ProfileEditPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
 
-  const { register, handleSubmit, reset, formState: { isSubmitting, errors } } = useForm<ProfileForm>();
+  const { register, handleSubmit, reset, formState: { isSubmitting, errors, isDirty } } = useForm<ProfileForm>();
+  // 未保存の編集があるまま離脱/リロードしたら警告（データ消失防止）
+  useUnsavedGuard(isDirty && !isSubmitting);
 
   const loadProfile = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
@@ -98,6 +101,7 @@ export default function ProfileEditPage() {
       });
 
       if (res.ok) {
+        reset(data); // 保存成功でフォームを pristine 化（未保存ガードを解除）
         setToast({ type: 'success', message: 'プロフィールを更新しました' });
       } else {
         const body = await res.json().catch(() => null);

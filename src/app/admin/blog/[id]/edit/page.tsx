@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import type { BlogPost } from '@/types';
 
 function sanitizeUrl(url: string): string {
@@ -44,6 +45,8 @@ export default function EditBlogPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedGuard(dirty);
   const [showPreview, setShowPreview] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -104,6 +107,7 @@ export default function EditBlogPage() {
       const e = await res.json().catch(() => ({}));
       setToast({ type: 'error', message: e.error || '保存に失敗しました' });
     } else {
+      setDirty(false);
       setToast({ type: 'success', message: '保存しました' });
       setTimeout(() => router.push('/admin/blog'), 1000);
     }
@@ -144,7 +148,7 @@ export default function EditBlogPage() {
   }
 
   return (
-    <div>
+    <div onChange={() => setDirty(true)}>
       <h1 className="text-2xl font-bold mb-6">ブログ編集</h1>
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">

@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -40,6 +41,8 @@ export default function StaffSchedulePage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedGuard(dirty);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const loadData = useCallback(async () => {
@@ -105,6 +108,7 @@ export default function StaffSchedulePage() {
         setToast({ type: 'error', message: e.error || '保存に失敗しました' });
         return;
       }
+      setDirty(false);
       setToast({ type: 'success', message: 'スケジュールを保存しました' });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
@@ -174,7 +178,7 @@ export default function StaffSchedulePage() {
   }
 
   return (
-    <div>
+    <div onChange={() => setDirty(true)}>
       <div className="flex items-center gap-3 mb-6">
         <button type="button" onClick={() => router.push('/admin/staff')} className="text-sm text-gray-500 hover:underline">← 戻る</button>
         <h1 className="text-2xl font-bold">{staffName}のスケジュール</h1>
