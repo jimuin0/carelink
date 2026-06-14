@@ -10,6 +10,7 @@ import { NextResponse } from 'next/server';
 import { logCronRun } from '@/lib/cron-logger';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { todayJst } from '@/lib/admin-date';
 import { escSubject, esc } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
@@ -42,7 +43,7 @@ export async function GET(request: Request) {
       .select('facility_id, booking_date, start_time, end_time, updated_at')
       .eq('status', 'cancelled')
       .gte('updated_at', oneHourAgo)
-      .gte('booking_date', now.toISOString().split('T')[0]); // 過去日は無視
+      .gte('booking_date', todayJst()); // 過去日は無視（JST 暦日基準。UTC だと JST 早朝に前日が混入）
 
     let notified = 0;
 
