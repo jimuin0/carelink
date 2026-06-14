@@ -73,6 +73,12 @@ export default async function AdminBookingsPage(props: Props) {
         actions={<p className="text-sm text-gray-500">{total}件</p>}
       />
 
+      {/* 一覧 / 台帳（カレンダー）切替。両画面間の離脱導線を確保する */}
+      <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden mb-4 text-sm">
+        <span className="px-4 py-2 bg-sky-600 text-white font-bold">一覧</span>
+        <Link href="/admin/bookings/calendar" className="px-4 py-2 bg-white text-gray-600 hover:bg-gray-50">台帳</Link>
+      </div>
+
       {/* Filters（現在の date 絞り込みを保持したままステータスを切り替える） */}
       <div className="flex gap-2 mb-4 overflow-x-auto pb-2">
         <FilterLink label="全て" href={bookingsHref({ date: dateFilter })} active={!statusFilter} />
