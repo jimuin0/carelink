@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
+import Toast from '@/components/Toast';
 
 type FeaturedSlot = {
   id: string;
@@ -33,6 +34,7 @@ export default function FeaturedAdsPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string>('search_top');
   const [form, setForm] = useState({ area: '', business_type: '', starts_at: '', ends_at: '' });
   const searchParams = useSearchParams();
@@ -54,6 +56,7 @@ export default function FeaturedAdsPage() {
 
   return (
     <div className="max-w-4xl space-y-6">
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       {paymentStatus === 'success' && (
         <div className="bg-green-50 border border-green-200 rounded-lg p-4 text-sm text-green-800 font-medium">
           決済が完了しました。広告枠が有効化されました。
@@ -172,7 +175,7 @@ export default function FeaturedAdsPage() {
                   });
                   const data = await res.json().catch(() => ({}));
                   if (!res.ok) {
-                    alert(data.error || '申込みに失敗しました');
+                    setToast({ type: 'error', message: data.error || '申込みに失敗しました' });
                   } else if (data.checkout_url && /^https:\/\/checkout\.stripe\.com\//.test(data.checkout_url)) {
                     window.location.href = data.checkout_url;
                   } else {

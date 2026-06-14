@@ -147,16 +147,28 @@ test('ESC でモーダルが閉じる（未入力時・R6）', () => {
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
 });
 
-test('入力途中の閉じは破棄確認し、キャンセルすると閉じない（R7）', async () => {
+test('入力途中の閉じは破棄確認（ConfirmDialog）し、「編集を続ける」で閉じない（R7/T14）', async () => {
   const user = userEvent.setup();
-  const confirmSpy = jest.spyOn(window, 'confirm').mockReturnValue(false);
   setup();
   fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
   await user.type(screen.getByLabelText(/お客様名/), '田中');
   fireEvent.keyDown(document, { key: 'Escape' });
-  expect(confirmSpy).toHaveBeenCalled();
-  expect(screen.getByRole('dialog')).toBeInTheDocument(); // confirm=false で閉じない
-  confirmSpy.mockRestore();
+  // window.confirm でなく共通 ConfirmDialog が出る
+  expect(screen.getByText('入力内容を破棄して閉じますか？')).toBeInTheDocument();
+  // 「編集を続ける」で破棄確認を閉じ、予約モーダルは残る
+  await user.click(screen.getByRole('button', { name: '編集を続ける' }));
+  expect(screen.queryByText('入力内容を破棄して閉じますか？')).not.toBeInTheDocument();
+  expect(screen.getByText('新規予約（佐藤）')).toBeInTheDocument();
+});
+
+test('破棄確認で「破棄して閉じる」を押すとモーダルが閉じる（T14）', async () => {
+  const user = userEvent.setup();
+  setup();
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
+  await user.type(screen.getByLabelText(/お客様名/), '田中');
+  fireEvent.keyDown(document, { key: 'Escape' });
+  await user.click(screen.getByRole('button', { name: '破棄して閉じる' }));
+  expect(screen.queryByText('新規予約（佐藤）')).not.toBeInTheDocument();
 });
 
 const twoStaff: BoardRow[] = [
