@@ -5,6 +5,16 @@
     "carelink-safety/no-await-fire-and-forget": "error",
     "carelink-safety/no-bare-sentry-capture": "error",
     "carelink-safety/no-discarded-supabase-error": "error",
+    "no-restricted-globals": [
+      "error",
+      { "name": "alert", "message": "alert() は使わず Toast を使ってください（UI 一貫性・スクリーンリーダー対応）。" },
+      { "name": "confirm", "message": "confirm() は使わず ConfirmDialog を使ってください（UI 一貫性・a11y）。" }
+    ],
+    "no-restricted-properties": [
+      "error",
+      { "object": "window", "property": "alert", "message": "window.alert は使わず Toast を使ってください。" },
+      { "object": "window", "property": "confirm", "message": "window.confirm は使わず ConfirmDialog を使ってください。" }
+    ],
     "no-restricted-imports": [
       "error",
       {

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { statusGanttClass } from '@/lib/booking-status';
 import { timeToMinutes, minutesToTime, snapToSlot, computeEndMinutes, endExceedsClose, assignLanes } from '@/lib/board-time';
 
@@ -233,9 +234,16 @@ function BoardBookingModal({
 
   // 入力途中の誤閉じで内容を失わないための破棄確認（R7）
   const dirty = customerName.trim() !== '' || email.trim() !== '' || phone.trim() !== '' || selectedMenus.length > 0;
+  // 入力途中の破棄確認は window.confirm でなく共通 ConfirmDialog に統一（UI 二重基準を排除）。
+  const [showDiscard, setShowDiscard] = useState(false);
+  const showDiscardRef = useRef(false); // ESC ハンドラ（document リスナ）から最新状態を読むため
   const closeRef = useRef<() => void>(() => {});
   function handleClose() {
-    if (dirty && !window.confirm('入力内容を破棄して閉じますか？')) return;
+    if (dirty) {
+      showDiscardRef.current = true;
+      setShowDiscard(true);
+      return;
+    }
     onClose();
   }
   closeRef.current = handleClose;
@@ -247,6 +255,8 @@ function BoardBookingModal({
     firstFieldRef.current?.focus();
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') {
+        // 破棄確認ダイアログ表示中は ConfirmDialog 側の ESC（キャンセル）に委ね、二重処理しない
+        if (showDiscardRef.current) return;
         e.preventDefault();
         closeRef.current();
         return;
@@ -355,6 +365,7 @@ function BoardBookingModal({
   }
 
   return (
+    <>
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={handleClose}>
       <div
         ref={dialogRef}
@@ -501,5 +512,15 @@ function BoardBookingModal({
         </div>
       </div>
     </div>
+    <ConfirmDialog
+      open={showDiscard}
+      title="入力内容を破棄"
+      message="入力内容を破棄して閉じますか？"
+      confirmLabel="破棄して閉じる"
+      cancelLabel="編集を続ける"
+      onConfirm={() => { showDiscardRef.current = false; setShowDiscard(false); onClose(); }}
+      onCancel={() => { showDiscardRef.current = false; setShowDiscard(false); }}
+    />
+    </>
   );
 }
