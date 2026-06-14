@@ -7,6 +7,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
 
 interface ProfileForm {
@@ -364,8 +365,7 @@ export default function ProfileEditPage() {
 
       {/* アカウント削除確認モーダル */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowDeleteModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <Modal open onClose={() => { setShowDeleteModal(false); setDeleteConfirmText(''); }} maxWidthClass="max-w-sm">
             <h3 className="text-lg font-bold text-red-600 mb-2">アカウントを削除する</h3>
             <p className="text-sm text-gray-600 mb-4">
               予約履歴・お気に入り・ポイントなど全てのデータが完全に削除されます。この操作は取り消せません。
@@ -415,8 +415,7 @@ export default function ProfileEditPage() {
                 {deleting ? '削除中...' : '削除する'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

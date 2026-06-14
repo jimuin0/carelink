@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
 
 interface QAItem {
@@ -179,9 +180,17 @@ export default function AdminQAPage() {
 
       {/* Answer Modal */}
       {answeringId && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={(e) => { if (e.target === e.currentTarget) { setAnsweringId(null); setAnswerText(''); } }}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
-            <h2 className="text-lg font-bold mb-4">回答を入力</h2>
+        <Modal
+          open
+          onClose={() => { setAnsweringId(null); setAnswerText(''); }}
+          title="回答を入力"
+          footer={
+            <div className="flex gap-3">
+              <button type="button" onClick={() => { setAnsweringId(null); setAnswerText(''); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
+              <button type="button" onClick={handleAnswer} disabled={saving || !answerText.trim()} className="btn-primary flex-1 !py-2.5">{saving ? '送信中...' : '回答を送信'}</button>
+            </div>
+          }
+        >
             <div className="bg-gray-50 rounded-lg p-3 mb-4">
               <p className="text-xs text-gray-400 mb-1">質問</p>
               <p className="text-sm">{qaList.find((q) => q.id === answeringId)?.question}</p>
@@ -199,12 +208,7 @@ export default function AdminQAPage() {
               />
               <p className="text-xs text-gray-400 mt-1 text-right">{answerText.length}/2000</p>
             </div>
-            <div className="flex gap-3 mt-4">
-              <button type="button" onClick={() => { setAnsweringId(null); setAnswerText(''); }} className="flex-1 py-2.5 text-sm text-gray-500 hover:bg-gray-100 rounded-lg transition-colors">キャンセル</button>
-              <button type="button" onClick={handleAnswer} disabled={saving || !answerText.trim()} className="btn-primary flex-1 !py-2.5">{saving ? '送信中...' : '回答を送信'}</button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* Q&A List */}
