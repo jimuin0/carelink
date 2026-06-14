@@ -230,7 +230,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       <AdminTopNav groups={visibleNavGroups} />
 
       {/* Mobile bottom nav */}
-      <AdminMobileNav items={visibleNavItems} />
+      <AdminMobileNav items={visibleNavItems} groups={visibleNavGroups} />
 
       {/* Main */}
       <main className="p-4 lg:p-6 pb-20 lg:pb-8 max-w-[1400px] mx-auto">

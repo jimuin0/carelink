@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { type NavGroup } from '@/components/admin/AdminTopNav';
 
 interface NavItem {
   href: string;
@@ -9,10 +10,9 @@ interface NavItem {
   icon: string;
 }
 
-export default function AdminMobileNav({ items }: { items: NavItem[] }) {
+export default function AdminMobileNav({ items, groups }: { items: NavItem[]; groups: NavGroup[] }) {
   const [showMore, setShowMore] = useState(false);
   const mainItems = items.slice(0, 4);
-  const moreItems = items.slice(4);
   const sheetRef = useRef<HTMLDivElement>(null);
   const moreBtnRef = useRef<HTMLButtonElement>(null);
 
@@ -44,20 +44,24 @@ export default function AdminMobileNav({ items }: { items: NavItem[] }) {
             className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-xl p-4 max-h-[60vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2">メニュー</p>
-            <div className="grid grid-cols-4 gap-2">
-              {moreItems.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  onClick={() => setShowMore(false)}
-                  className="flex flex-col items-center gap-1 p-3 rounded-xl hover:bg-sky-50 transition-colors"
-                >
-                  <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={item.icon} />
-                  </svg>
-                  <span className="text-micro text-gray-600 text-center">{item.label}</span>
-                </Link>
+            {/* 49項目を平坦に並べず、デスクトップと同じ navGroups で分類して表示（単一ソース） */}
+            <div className="space-y-4">
+              {groups.map((g) => (
+                <section key={g.key}>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 px-2">{g.label}</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {g.items.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setShowMore(false)}
+                        className="px-2 py-2 rounded-lg text-xs text-gray-700 hover:bg-sky-50 transition-colors text-center"
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                </section>
               ))}
             </div>
           </div>
