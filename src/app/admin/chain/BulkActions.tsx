@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export default function ChainBulkActions({ facilityIds, facilityNames }: Props) {
+  const router = useRouter();
   const [tab, setTab] = useState<'coupon' | 'publish'>('coupon');
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -69,7 +71,8 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        setToast({ type: 'success', message: `${(data as { updated?: number }).updated ?? 0}施設の公開状態を変更しました。ページをリロードしてください。` });
+        setToast({ type: 'success', message: `${(data as { updated?: number }).updated ?? 0}施設の公開状態を変更しました。` });
+        router.refresh(); // 手動リロード誘導をやめサーバーコンポーネントを再取得
       } else {
         setToast({ type: 'error', message: (data as { error?: string }).error || '変更に失敗しました' });
       }

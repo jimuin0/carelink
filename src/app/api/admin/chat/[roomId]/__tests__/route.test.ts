@@ -46,23 +46,24 @@ function makeRequest(method: string, body?: object) {
   });
 }
 
-// facility_members: select → eq → in → limit → single
+// facility_members: select → eq → in（複数施設をリストで返す）。単一 or null を受け内部で配列化。
 function memberSingle(data: unknown) {
+  const result = Promise.resolve({ data: data ? [data] : [], error: null });
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn(() => result),
+  };
+}
+
+// chat_rooms: select → eq → in → single。room には facility_id を含める。
+function roomSingle(data: unknown) {
+  const room = data ? { facility_id: FACILITY_UUID, ...(data as object) } : null;
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
-  };
-}
-
-// chat_rooms: select → eq → eq → single
-function roomSingle(data: unknown) {
-  return {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    single: jest.fn(() => Promise.resolve({ data: room, error: null })),
   };
 }
 
