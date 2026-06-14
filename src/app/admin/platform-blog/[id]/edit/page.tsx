@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 const SECTION_TEMPLATES = {
   paragraph: '{"type":"paragraph","text":"テキストをここに入力"}',
@@ -31,6 +32,8 @@ export default function EditPlatformBlogPage(props: Props) {
   const [isPublished, setIsPublished] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedGuard(dirty);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [jsonError, setJsonError] = useState('');
@@ -107,6 +110,7 @@ export default function EditPlatformBlogPage(props: Props) {
       const e = await res.json().catch(() => ({}));
       setToast({ type: 'error', message: e.error || '保存に失敗しました' });
     } else {
+      setDirty(false);
       setToast({ type: 'success', message: '保存しました' });
     }
     setSaving(false);
@@ -142,7 +146,7 @@ export default function EditPlatformBlogPage(props: Props) {
   }
 
   return (
-    <div className="max-w-3xl space-y-5">
+    <div className="max-w-3xl space-y-5" onChange={() => setDirty(true)}>
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
       <div className="flex items-center justify-between">

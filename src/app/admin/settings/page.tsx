@@ -7,6 +7,7 @@ import { businessTypes, facilityFeatures, prefectures, dayOrder, dayLabels } fro
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbPageHeader } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 
@@ -21,6 +22,8 @@ interface BusinessHours {
 export default function AdminSettingsPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedGuard(dirty);
   const [saving, setSaving] = useState(false);
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -186,6 +189,7 @@ export default function AdminSettingsPage() {
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '保存に失敗しました' });
       } else {
+        setDirty(false);
         setToast({ type: 'success', message: '施設情報を保存しました' });
       }
     } catch {
@@ -217,7 +221,7 @@ export default function AdminSettingsPage() {
   }
 
   return (
-    <div>
+    <div onChange={() => setDirty(true)}>
       <SbPageHeader
         title="施設設定"
         actions={

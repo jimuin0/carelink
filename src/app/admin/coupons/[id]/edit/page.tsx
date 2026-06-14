@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 export default function CouponEditPage() {
   const params = useParams();
@@ -23,6 +24,8 @@ export default function CouponEditPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
+  const [dirty, setDirty] = useState(false);
+  useUnsavedGuard(dirty);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -97,6 +100,7 @@ export default function CouponEditPage() {
         const err = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: err.error ?? '保存に失敗しました' });
       } else {
+        setDirty(false);
         setToast({ type: 'success', message: '保存しました' });
       }
     } catch {
@@ -146,7 +150,7 @@ export default function CouponEditPage() {
   }
 
   return (
-    <div>
+    <div onChange={() => setDirty(true)}>
       <h1 className="text-2xl font-bold mb-6">クーポン編集</h1>
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
