@@ -41,7 +41,7 @@ export default function AdminMobileNav({ items, groups }: { items: NavItem[]; gr
             role="dialog"
             aria-modal="true"
             aria-label="その他のメニュー"
-            className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-xl p-4 max-h-[60vh] overflow-y-auto"
+            className="absolute bottom-16 left-0 right-0 bg-white rounded-t-2xl shadow-xl p-4 max-h-[60vh] overflow-y-auto overscroll-contain"
             onClick={(e) => e.stopPropagation()}
           >
             {/* 49項目を平坦に並べず、デスクトップと同じ navGroups で分類して表示（単一ソース） */}
@@ -69,7 +69,7 @@ export default function AdminMobileNav({ items, groups }: { items: NavItem[]; gr
       )}
 
       {/* Bottom nav bar */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40 flex justify-around py-2">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t z-40 flex justify-around pt-2 pb-[calc(0.5rem_+_env(safe-area-inset-bottom))]">
         {mainItems.map((item) => (
           <Link key={item.href} href={item.href} className="flex flex-col items-center gap-0.5 px-2 py-1">
             <svg className="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

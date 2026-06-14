@@ -18,7 +18,7 @@ export default function StickySignupCta() {
   if (!show) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 sm:hidden bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] px-4 py-3">
+    <div className="fixed bottom-0 left-0 right-0 z-50 sm:hidden bg-white border-t border-gray-200 shadow-[0_-2px_12px_rgba(0,0,0,0.08)] px-4 pt-3 pb-[calc(0.75rem_+_env(safe-area-inset-bottom))]">
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <p className="text-[11px] text-gray-500 mb-1.5">予約のたびにポイント還元。利用は完全無料。</p>

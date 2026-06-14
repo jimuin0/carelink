@@ -89,7 +89,7 @@ export default function Modal({ open, onClose, title, children, footer, maxWidth
             <h2 id={titleId} className="text-lg font-bold">{title}</h2>
           </div>
         )}
-        <div className={`px-6 overflow-y-auto grow ${title ? '' : 'pt-6'} ${footer ? '' : 'pb-6'}`}>
+        <div className={`px-6 overflow-y-auto overscroll-contain grow ${title ? '' : 'pt-6'} ${footer ? '' : 'pb-6'}`}>
           {children}
         </div>
         {footer && (
