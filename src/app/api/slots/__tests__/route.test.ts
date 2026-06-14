@@ -249,14 +249,27 @@ describe('GET /api/slots', () => {
     expect(call[1]).toBe('unknown');
   });
 
-  test('RPC error → 200 with empty slots (route ignores error field, uses data ?? [])', async () => {
-    // Route destructures only { data }, ignoring error; returns slots: [] when data is null
+  test('RPC error → 500（空き枠なしに偽装せず失敗を顕在化・Sentry記録）', async () => {
+    // get_available_slots のエラーを握り潰すと予約導線が無監視で壊れる（過去の
+    // booking_buffer_minutes ドリフト事例）。error を捕捉して 500 を返す。
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
     createServerSupabaseClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({
         data: null,
         error: { message: 'Database error' },
       }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.slots).toEqual([]);
+  });
+
+  test('RPC が data=null・error=null → 200・空配列（data ?? [] の null 分岐）', async () => {
+    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    createServerSupabaseClient.mockReturnValue({
+      rpc: jest.fn().mockResolvedValue({ data: null, error: null }),
     });
 
     const res = await GET(makeRequest() as any);

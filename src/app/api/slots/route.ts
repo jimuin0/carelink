@@ -31,12 +31,20 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServerSupabaseClient();
-  const { data } = await supabase.rpc('get_available_slots', {
+  const { data, error } = await supabase.rpc('get_available_slots', {
     p_facility_id: facilityId,
     p_staff_id: staffId,
     p_date: date,
     p_duration_minutes: duration,
   });
+
+  // 取得失敗を「空き枠なし」に偽装しない。RPC エラーを握り潰すと、過去の booking_buffer_minutes
+  // スキーマドリフトのように予約導線が無監視で壊れる（空配列＝予約不可がサイレントに発生）。
+  // Sentry に記録し 500 を返して失敗を顕在化させる。
+  if (error) {
+    safeCaptureException(error, 'slots:get_available_slots');
+    return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
+  }
 
   return NextResponse.json({ slots: (data ?? []) as AvailableSlot[] });
   } catch (e) {
