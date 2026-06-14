@@ -115,7 +115,7 @@ export default function AdminGroupBookingsPage() {
                       <span className="text-xs text-gray-400">#{b.share_code}</span>
                     </div>
                     <p className="font-bold text-gray-900">
-                      {new Date(b.booking_date).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short' })}
+                      {new Date(`${b.booking_date}T00:00:00+09:00`).toLocaleDateString('ja-JP', { month: 'long', day: 'numeric', weekday: 'short', timeZone: 'Asia/Tokyo' })}
                       {' '}{b.start_time.slice(0, 5)}〜{b.end_time.slice(0, 5)}
                     </p>
                     <p className="text-sm text-gray-600">

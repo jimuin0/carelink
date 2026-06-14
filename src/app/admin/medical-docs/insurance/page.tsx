@@ -54,7 +54,7 @@ export default function InsurancePage() {
     setForm({ ...form, [k]: e.target.value });
 
   const totalAmount = form.treatment_count * form.amount_per_session;
-  const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric' });
+  const today = new Date().toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Tokyo' });
 
   return (
     <div className="space-y-6 max-w-3xl">

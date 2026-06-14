@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { todayJst, addDays } from '@/lib/admin-date';
 import LoadError from '@/components/admin/LoadError';
 import { statusSolidClass, bookingStatusLabel } from '@/lib/booking-status';
 
@@ -20,7 +21,7 @@ interface CalendarBooking {
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 9); // 9:00 - 22:00
 
 export default function BookingCalendarPage() {
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(() => todayJst());
   const [bookings, setBookings] = useState<CalendarBooking[]>([]);
   const [staffList, setStaffList] = useState<{ id: string; name: string }[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,14 +83,13 @@ export default function BookingCalendarPage() {
   };
 
   const navigateDate = (offset: number) => {
-    const d = new Date(date);
-    d.setDate(d.getDate() + offset);
-    setDate(d.toISOString().slice(0, 10));
+    setDate(addDays(date, offset));
   };
 
   const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-  const dateObj = new Date(date);
-  const dateLabel = `${dateObj.getFullYear()}年${dateObj.getMonth() + 1}月${dateObj.getDate()}日（${dayNames[dateObj.getDay()]}）`;
+  // YYYY-MM-DD を UTC 0:00 として解釈し曜日を求める（ローカル TZ 依存の getDay を避ける）
+  const [yLabel, mLabel, dLabel] = date.split('-').map(Number);
+  const dateLabel = `${yLabel}年${mLabel}月${dLabel}日（${dayNames[new Date(Date.UTC(yLabel, mLabel - 1, dLabel)).getUTCDay()]}）`;
 
   return (
     <div>
