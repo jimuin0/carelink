@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useRef } from 'react';
 
 /**
  * SB 上部タブナビゲーション（HPB サロンボード型・CareLink 色）
@@ -43,8 +44,25 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
   }
   const activeGroup = groups.find((g) => g.key === activeKey) ?? groups[0];
 
+  // sticky なナビの実高さを CSS 変数 --admin-topnav-h に公開する。
+  // 配下ページの sticky 要素（例: schedule のガント時間軸ヘッダ）が top をこの値に揃えることで、
+  // 同じ top-0 で z-index 衝突して隠れる問題を防ぐ。レスポンシブな高さ変化に追従。
+  const navRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = navRef.current;
+    if (!el) return;
+    const apply = () => document.documentElement.style.setProperty('--admin-topnav-h', `${el.offsetHeight}px`);
+    apply();
+    const ro = new ResizeObserver(apply);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      document.documentElement.style.removeProperty('--admin-topnav-h');
+    };
+  }, []);
+
   return (
-    <div className="hidden lg:block sticky top-0 z-40 shadow">
+    <div ref={navRef} className="hidden lg:block sticky top-0 z-40 shadow">
       {/* 1段目: 主要タブ（primary グラデーション帯） */}
       <div className="bg-gradient-to-b from-sky-600 to-sky-700">
         <div className="flex items-stretch px-2">
