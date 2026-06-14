@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for src/lib/entitlements.ts
  *  - facility_id → 購入済みオプション Set のマップ構築
