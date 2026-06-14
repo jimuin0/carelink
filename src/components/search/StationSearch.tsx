@@ -9,6 +9,7 @@ export default function StationSearch() {
   const [stations, setStations] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1); // combobox の現在ハイライト位置
   const router = useRouter();
 
   const handleClose = useCallback(() => setOpen(false), []);
@@ -36,6 +37,21 @@ export default function StationSearch() {
     router.push(`/search?keyword=${encodeURIComponent(station)}`);
   };
 
+  // combobox キーボード操作（上下で候補移動・Enter で確定）
+  const handleInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (filtered.length === 0) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === 'Enter' && activeIndex >= 0 && activeIndex < filtered.length) {
+      e.preventDefault();
+      handleSelect(filtered[activeIndex]);
+    }
+  };
+
   return (
     <>
       <button
@@ -51,7 +67,13 @@ export default function StationSearch() {
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[70vh] flex flex-col shadow-2xl" onClick={(e) => e.stopPropagation()}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="駅から探す"
+            className="bg-white rounded-2xl w-full max-w-md mx-4 max-h-[70vh] flex flex-col shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="p-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold">駅から探す</h3>
@@ -60,14 +82,21 @@ export default function StationSearch() {
               <input
                 type="text"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={(e) => { setQuery(e.target.value); setActiveIndex(-1); }}
+                onKeyDown={handleInputKeyDown}
                 placeholder="駅名を入力..."
                 className="form-input w-full text-sm"
                 maxLength={50}
                 autoFocus
+                role="combobox"
+                aria-label="駅名で検索"
+                aria-expanded={filtered.length > 0}
+                aria-controls="station-listbox"
+                aria-autocomplete="list"
+                aria-activedescendant={activeIndex >= 0 ? `station-opt-${activeIndex}` : undefined}
               />
             </div>
-            <div className="overflow-y-auto flex-1 p-2">
+            <div id="station-listbox" role="listbox" aria-label="駅候補" className="overflow-y-auto flex-1 p-2">
               {loading ? (
                 <p className="text-center text-gray-400 text-sm py-8">読み込み中...</p>
               ) : fetchError ? (
@@ -75,12 +104,15 @@ export default function StationSearch() {
               ) : filtered.length === 0 ? (
                 <p className="text-center text-gray-400 text-sm py-8">該当する駅がありません</p>
               ) : (
-                filtered.map((station) => (
+                filtered.map((station, i) => (
                   <button
                     type="button"
                     key={station}
+                    id={`station-opt-${i}`}
+                    role="option"
+                    aria-selected={i === activeIndex}
                     onClick={() => handleSelect(station)}
-                    className="w-full text-left px-3 py-2 rounded-lg text-sm hover:bg-sky-50 transition-colors"
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${i === activeIndex ? 'bg-sky-100' : 'hover:bg-sky-50'}`}
                   >
                     {station}
                   </button>
