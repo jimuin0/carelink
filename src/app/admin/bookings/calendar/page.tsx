@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 import { statusSolidClass, bookingStatusLabel } from '@/lib/booking-status';
@@ -92,6 +93,11 @@ export default function BookingCalendarPage() {
 
   return (
     <div>
+      {/* 一覧 / 台帳（カレンダー）切替。両画面間の離脱導線を確保する */}
+      <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden mb-4 text-sm">
+        <Link href="/admin/bookings" className="px-4 py-2 bg-white text-gray-600 hover:bg-gray-50">一覧</Link>
+        <span className="px-4 py-2 bg-sky-600 text-white font-bold">台帳</span>
+      </div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">予約台帳</h1>
         <div className="flex items-center gap-2">
