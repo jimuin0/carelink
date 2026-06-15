@@ -30,7 +30,7 @@ export default function HpbSimulator() {
             onChange={(e) => setMonthlyFee(Number(e.target.value))}
             className="w-full accent-sky-500"
           />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>¥0</span><span>¥50,000</span><span>¥100,000</span>
           </div>
         </div>
@@ -50,7 +50,7 @@ export default function HpbSimulator() {
             onChange={(e) => setBookingsPerMonth(Number(e.target.value))}
             className="w-full accent-sky-500"
           />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>0件</span><span>100件</span><span>200件</span>
           </div>
         </div>
@@ -70,7 +70,7 @@ export default function HpbSimulator() {
             onChange={(e) => setFeePerBooking(Number(e.target.value))}
             className="w-full accent-sky-500"
           />
-          <div className="flex justify-between text-xs text-gray-400 mt-1">
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
             <span>¥0</span><span>¥500</span><span>¥1,000</span>
           </div>
         </div>
@@ -82,14 +82,14 @@ export default function HpbSimulator() {
         <p className="text-4xl font-extrabold text-sky-600 mb-1">
           月 ¥{monthlySaving.toLocaleString()}
         </p>
-        <p className="text-gray-400 text-sm">節約できます</p>
+        <p className="text-gray-500 text-sm">節約できます</p>
         <div className="mt-4 py-3 bg-sky-50 rounded-lg">
           <p className="text-sm text-sky-700 font-bold">
             年間 <span className="text-2xl">¥{annualSaving.toLocaleString()}</span> の節約
           </p>
         </div>
         {annualSaving > 0 && (
-          <p className="text-xs text-gray-400 mt-3">
+          <p className="text-xs text-gray-500 mt-3">
             ※CareLink の月額・手数料はすべて¥0です
           </p>
         )}

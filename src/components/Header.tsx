@@ -30,7 +30,7 @@ export default function Header() {
             </Link>
             <Link
               href="/salon"
-              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-xs text-gray-600 hover:text-gray-800 transition-colors"
             >
               施設掲載
             </Link>
@@ -93,7 +93,7 @@ export default function Header() {
             </Link>
             <Link
               href="/salon"
-              className="text-xs text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-xs text-gray-600 hover:text-gray-800 transition-colors"
               onClick={() => setIsOpen(false)}
             >
               施設掲載はこちら

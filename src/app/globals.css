@@ -3,8 +3,10 @@
 @tailwind utilities;
 
 :root {
-  --primary: #0284C7;
-  --primary-dark: #0369A1;
+  /* WCAG AA(4.5:1) 準拠: 白文字/白背景で #0284C7(sky-600)は約4.08:1で不足。
+     #0369A1(sky-700)は約5.79:1で合格。hover はさらに濃い #075985(sky-800)。 */
+  --primary: #0369A1;
+  --primary-dark: #075985;
   --accent: #F59E0B;
   --background: #ffffff;
   --foreground: #171717;

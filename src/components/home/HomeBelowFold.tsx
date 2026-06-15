@@ -243,12 +243,12 @@ export default function HomeBelowFold() {
               className="block p-4 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
             >
               <p className="text-sm font-medium text-gray-800 line-clamp-2">{post.title}</p>
-              <p className="text-xs text-sky-600 mt-2">続きを読む →</p>
+              <p className="text-xs text-sky-700 mt-2">続きを読む →</p>
             </Link>
           ))}
         </div>
         <div className="text-center mt-4">
-          <Link href="/blog" className="text-sm text-sky-600 hover:underline">コラム一覧を見る →</Link>
+          <Link href="/blog" className="text-sm text-sky-700 hover:underline">コラム一覧を見る →</Link>
         </div>
       </div>
     </>

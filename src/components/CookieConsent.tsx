@@ -48,7 +48,7 @@ export default function CookieConsent() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/97 backdrop-blur text-white shadow-xl">
+    <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900 backdrop-blur text-white shadow-xl">
       <div className="max-w-4xl mx-auto px-4 pt-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
         {!showDetails ? (
           /* シンプルバー */
