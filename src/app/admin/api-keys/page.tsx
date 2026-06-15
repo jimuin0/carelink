@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { SbBadge } from '@/components/admin/SbUi';
 
 interface ApiKey {
   id: string;
@@ -194,9 +195,9 @@ export default function ApiKeysPage() {
                 <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="font-medium text-sm text-gray-900">{key.name}</span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${key.is_active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                    <SbBadge tone={key.is_active ? 'success' : 'danger'}>
                       {key.is_active ? '有効' : '無効'}
-                    </span>
+                    </SbBadge>
                   </div>
                   <p className="text-xs font-mono text-gray-500">{key.key_prefix}••••••••</p>
                   <div className="flex items-center gap-3 text-xs text-gray-400 flex-wrap">

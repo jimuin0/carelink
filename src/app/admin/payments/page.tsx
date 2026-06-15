@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
 
 interface PaymentSession {
   id: string;
@@ -15,12 +16,12 @@ interface PaymentSession {
   bookings?: { customer_name: string | null; booking_date: string | null } | null;
 }
 
-const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  paid: 'bg-green-100 text-green-800',
-  cancelled: 'bg-gray-100 text-gray-800',
-  refunded: 'bg-blue-100 text-blue-800',
-  expired: 'bg-red-100 text-red-800',
+const statusTones: Record<string, SbBadgeTone> = {
+  pending: 'warning',
+  paid: 'success',
+  cancelled: 'neutral',
+  refunded: 'info',
+  expired: 'danger',
 };
 
 const statusLabels: Record<string, string> = {
@@ -131,9 +132,9 @@ export default function AdminPaymentsPage() {
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="font-bold text-gray-800">Stripe連携</h2>
-          <span className={`text-xs px-2 py-1 rounded-full font-bold ${stripeEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
+          <SbBadge tone={stripeEnabled ? 'success' : 'neutral'}>
             {stripeEnabled ? '有効' : '未設定'}
-          </span>
+          </SbBadge>
         </div>
 
         {!stripeEnabled && (
@@ -202,9 +203,9 @@ export default function AdminPaymentsPage() {
               <div key={s.id} className="px-5 py-4 flex items-center justify-between gap-4">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusColors[s.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                    <SbBadge tone={statusTones[s.status] ?? 'neutral'}>
                       {statusLabels[s.status] ?? s.status}
-                    </span>
+                    </SbBadge>
                     <span className="text-xs text-gray-400">{s.payment_type === 'deposit' ? 'デポジット' : '全額'}</span>
                   </div>
                   <p className="text-xs text-gray-400 mt-0.5 font-mono">{s.stripe_session_id.slice(0, 20)}...</p>

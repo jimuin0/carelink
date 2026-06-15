@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
 
 type Campaign = {
   id: string;
@@ -20,12 +21,12 @@ const TYPE_LABELS: Record<string, string> = {
   promo: 'プロモーション',
 };
 
-const STATUS_LABELS: Record<string, { label: string; color: string }> = {
-  draft: { label: '下書き', color: 'bg-gray-100 text-gray-700' },
-  scheduled: { label: '配信予定', color: 'bg-blue-100 text-blue-700' },
-  sending: { label: '配信中', color: 'bg-yellow-100 text-yellow-700' },
-  sent: { label: '配信済み', color: 'bg-green-100 text-green-700' },
-  cancelled: { label: 'キャンセル', color: 'bg-red-100 text-red-700' },
+const STATUS_LABELS: Record<string, { label: string; tone: SbBadgeTone }> = {
+  draft: { label: '下書き', tone: 'neutral' },
+  scheduled: { label: '配信予定', tone: 'info' },
+  sending: { label: '配信中', tone: 'warning' },
+  sent: { label: '配信済み', tone: 'success' },
+  cancelled: { label: 'キャンセル', tone: 'danger' },
 };
 
 export default function NewslettersPage() {
@@ -227,12 +228,12 @@ export default function NewslettersPage() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs bg-sky-100 text-sky-700 px-2 py-0.5 rounded-full font-medium">
+                      <SbBadge tone="info">
                         {TYPE_LABELS[c.campaign_type]}
-                      </span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_LABELS[c.status].color}`}>
+                      </SbBadge>
+                      <SbBadge tone={STATUS_LABELS[c.status].tone}>
                         {STATUS_LABELS[c.status].label}
-                      </span>
+                      </SbBadge>
                     </div>
                     <div className="font-medium text-gray-900 mt-1 truncate">{c.subject}</div>
                     <div className="text-xs text-gray-500 mt-1 space-x-3">

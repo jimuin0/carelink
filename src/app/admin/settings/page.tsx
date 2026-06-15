@@ -8,7 +8,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
-import { SbPageHeader } from '@/components/admin/SbUi';
+import { SbPageHeader, SbBadge } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
@@ -226,9 +226,9 @@ export default function AdminSettingsPage() {
         title="施設設定"
         actions={
           <>
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${facilityStatus === 'published' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+            <SbBadge tone={facilityStatus === 'published' ? 'success' : 'neutral'}>
               {facilityStatus === 'published' ? '公開中' : '非公開'}
-            </span>
+            </SbBadge>
             <button
               type="button"
               onClick={async () => {
