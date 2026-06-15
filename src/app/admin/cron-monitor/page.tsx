@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
 
 interface CronLog {
   id: string;
@@ -175,46 +176,42 @@ export default function CronMonitorPage() {
             実行ログがありません
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs text-gray-500">
-                <tr>
-                  <th className="text-left px-4 py-2">ジョブ</th>
-                  <th className="text-left px-4 py-2">実行時刻</th>
-                  <th className="text-center px-4 py-2">状態</th>
-                  <th className="text-right px-4 py-2">処理数</th>
-                  <th className="text-right px-4 py-2">所要時間</th>
-                  <th className="text-left px-4 py-2">エラー</th>
+          <SbTable>
+            <SbThead>
+              <SbTh>ジョブ</SbTh>
+              <SbTh>実行時刻</SbTh>
+              <SbTh align="center">状態</SbTh>
+              <SbTh align="right">処理数</SbTh>
+              <SbTh align="right">所要時間</SbTh>
+              <SbTh>エラー</SbTh>
+            </SbThead>
+            <SbTbody>
+              {logs.map((log) => (
+                <tr key={log.id} className={log.status === 'error' ? 'bg-red-50' : ''}>
+                  <SbTd className="font-medium text-gray-700">
+                    {JOB_LABELS[log.job_name] || log.job_name}
+                  </SbTd>
+                  <SbTd className="text-gray-500 whitespace-nowrap">
+                    {formatDate(log.started_at)}
+                  </SbTd>
+                  <SbTd align="center">
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CONFIG[log.status].className}`}>
+                      {STATUS_CONFIG[log.status].label}
+                    </span>
+                  </SbTd>
+                  <SbTd align="right" className="text-gray-600">
+                    {log.processed > 0 ? log.processed : '-'}
+                  </SbTd>
+                  <SbTd align="right" className="text-gray-400">
+                    {formatDuration(log.duration_ms)}
+                  </SbTd>
+                  <SbTd className="text-xs text-red-600 max-w-[200px] truncate">
+                    {log.error_msg || '-'}
+                  </SbTd>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {logs.map((log) => (
-                  <tr key={log.id} className={log.status === 'error' ? 'bg-red-50' : ''}>
-                    <td className="px-4 py-2.5 font-medium text-gray-700">
-                      {JOB_LABELS[log.job_name] || log.job_name}
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-500 whitespace-nowrap">
-                      {formatDate(log.started_at)}
-                    </td>
-                    <td className="px-4 py-2.5 text-center">
-                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${STATUS_CONFIG[log.status].className}`}>
-                        {STATUS_CONFIG[log.status].label}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-gray-600">
-                      {log.processed > 0 ? log.processed : '-'}
-                    </td>
-                    <td className="px-4 py-2.5 text-right text-gray-400">
-                      {formatDuration(log.duration_ms)}
-                    </td>
-                    <td className="px-4 py-2.5 text-xs text-red-600 max-w-[200px] truncate">
-                      {log.error_msg || '-'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </SbTbody>
+          </SbTable>
         )}
       </div>
     </div>

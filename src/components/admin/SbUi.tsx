@@ -97,6 +97,70 @@ export function SbStatusChip({ status }: { status: string }) {
   );
 }
 
+/**
+ * 一覧テーブルの共通枠。横スクロール器＋統一スタイルを一元化する。
+ * thead は <SbThead>、見出しセルは <SbTh>、本体は <SbTbody>、データセルは <SbTd> を使う。
+ * これにより各管理ページで直書きされていた <table>/<th>/<td> のスタイルを単一ソースに統一する。
+ */
+export function SbTable({ children, className = '' }: { children: ReactNode; className?: string }) {
+  return (
+    <div className="overflow-x-auto overscroll-x-contain">
+      <table className={`w-full text-sm ${className}`}>{children}</table>
+    </div>
+  );
+}
+
+/** テーブル見出し行（<SbTh> を children に並べる） */
+export function SbThead({ children }: { children: ReactNode }) {
+  return (
+    <thead className="bg-gray-50 border-b border-gray-200">
+      <tr>{children}</tr>
+    </thead>
+  );
+}
+
+type SbAlign = 'left' | 'center' | 'right';
+const sbAlignClass: Record<SbAlign, string> = {
+  left: 'text-left',
+  center: 'text-center',
+  right: 'text-right',
+};
+
+/** 見出しセル（align で左右中央、className で hidden 等の追加クラス可） */
+export function SbTh({
+  children,
+  align = 'left',
+  className = '',
+}: {
+  children?: ReactNode;
+  align?: SbAlign;
+  className?: string;
+}) {
+  return (
+    <th className={`px-4 py-2.5 font-medium text-xs text-gray-500 whitespace-nowrap ${sbAlignClass[align]} ${className}`}>
+      {children}
+    </th>
+  );
+}
+
+/** データ本体（行間の境界線を統一） */
+export function SbTbody({ children }: { children: ReactNode }) {
+  return <tbody className="divide-y divide-gray-100">{children}</tbody>;
+}
+
+/** データセル（align で左右中央、className で hidden 等の追加クラス可） */
+export function SbTd({
+  children,
+  align = 'left',
+  className = '',
+}: {
+  children?: ReactNode;
+  align?: SbAlign;
+  className?: string;
+}) {
+  return <td className={`px-4 py-3 ${sbAlignClass[align]} ${className}`}>{children}</td>;
+}
+
 /** ボタン風リンク（primary / outline） */
 export function SbButtonLink({
   href,

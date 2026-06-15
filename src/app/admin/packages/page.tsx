@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
 
 interface ServicePackage {
   id: string;
@@ -302,39 +303,37 @@ export default function PackagesPage() {
           {userPackages.length === 0 ? (
             <div className="py-12 text-center text-gray-400 text-sm">購入履歴がありません</div>
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 text-xs text-gray-500 border-b">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium">ユーザー</th>
-                  <th className="text-left px-4 py-3 font-medium">パッケージ</th>
-                  <th className="text-left px-4 py-3 font-medium hidden sm:table-cell">残回数</th>
-                  <th className="text-left px-4 py-3 font-medium hidden md:table-cell">有効期限</th>
-                  <th className="text-left px-4 py-3 font-medium hidden md:table-cell">購入日</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
+            <SbTable>
+              <SbThead>
+                <SbTh>ユーザー</SbTh>
+                <SbTh>パッケージ</SbTh>
+                <SbTh className="hidden sm:table-cell">残回数</SbTh>
+                <SbTh className="hidden md:table-cell">有効期限</SbTh>
+                <SbTh className="hidden md:table-cell">購入日</SbTh>
+              </SbThead>
+              <SbTbody>
                 {userPackages.map((up) => (
                   <tr key={up.id}>
-                    <td className="px-4 py-3 text-xs">
+                    <SbTd className="text-xs">
                       <p className="font-medium text-gray-800">{up.profiles?.display_name || '不明'}</p>
                       <p className="text-gray-400">{up.profiles?.email}</p>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{up.service_packages?.name}</td>
-                    <td className="px-4 py-3 hidden sm:table-cell">
+                    </SbTd>
+                    <SbTd className="text-xs text-gray-700">{up.service_packages?.name}</SbTd>
+                    <SbTd className="hidden sm:table-cell">
                       <span className={`text-xs font-bold ${up.sessions_remaining > 0 ? 'text-sky-600' : 'text-gray-400'}`}>
                         {up.sessions_remaining}/{up.sessions_total}回
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400 hidden md:table-cell">
+                    </SbTd>
+                    <SbTd className="text-xs text-gray-400 hidden md:table-cell">
                       {up.expires_at ? new Date(up.expires_at).toLocaleDateString('ja-JP') : '無期限'}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-gray-400 hidden md:table-cell">
+                    </SbTd>
+                    <SbTd className="text-xs text-gray-400 hidden md:table-cell">
                       {new Date(up.purchased_at).toLocaleDateString('ja-JP')}
-                    </td>
+                    </SbTd>
                   </tr>
                 ))}
-              </tbody>
-            </table>
+              </SbTbody>
+            </SbTable>
           )}
         </div>
       )}
