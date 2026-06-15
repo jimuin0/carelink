@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Toast from '@/components/Toast';
+import { SbBadge } from '@/components/admin/SbUi';
 
 type FeaturedSlot = {
   id: string;
@@ -221,9 +222,9 @@ export default function FeaturedAdsPage() {
                   <div>
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-gray-900">{SLOT_LABELS[slot.slot_type] || slot.slot_type}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${slot.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <SbBadge tone={slot.is_active ? 'success' : 'neutral'}>
                         {slot.is_active ? '掲載中' : '停止中'}
-                      </span>
+                      </SbBadge>
                     </div>
                     <div className="text-xs text-gray-500 mt-1 space-x-2">
                       {slot.area && <span>エリア: {slot.area}</span>}

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { SbBadge } from '@/components/admin/SbUi';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 interface Plan {
@@ -224,9 +225,9 @@ export default function SubscriptionPlansPage() {
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-medium text-sm">{plan.name}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full ${plan.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                      <SbBadge tone={plan.is_active ? 'success' : 'neutral'}>
                         {plan.is_active ? '公開中' : '非公開'}
-                      </span>
+                      </SbBadge>
                     </div>
                     <p className="text-xs text-gray-500 mt-0.5">
                       月額 ¥{plan.price.toLocaleString()} / 月{plan.sessions_per_month}回 / 最低{plan.valid_months}ヶ月

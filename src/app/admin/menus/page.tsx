@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { SbPageHeader } from '@/components/admin/SbUi';
+import { SbPageHeader, SbBadge } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
 
 const categories = ['カット', 'カラー', 'パーマ', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'ネイル', 'まつげ', 'エステ', 'リラクゼーション', '鍼灸', '整体', '介護', 'その他'];
@@ -267,7 +267,7 @@ export default function AdminMenusPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="font-medium text-sm truncate">{menu.name}</p>
-                        {menu.is_featured && <span className="text-micro px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-full font-bold">おすすめ</span>}
+                        {menu.is_featured && <SbBadge tone="warning">おすすめ</SbBadge>}
                       </div>
                       {menu.description && <p className="text-xs text-gray-400 mt-0.5 truncate">{menu.description}</p>}
                     </div>

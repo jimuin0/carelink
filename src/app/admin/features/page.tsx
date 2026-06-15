@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
+import { SbBadge } from '@/components/admin/SbUi';
 
 interface FeatureArticle {
   id: string;
@@ -255,9 +256,9 @@ export default function AdminFeaturesPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <p className="font-medium text-sm truncate">{feature.title}</p>
-                  <span className={`text-micro px-1.5 py-0.5 rounded-full font-bold ${feature.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  <SbBadge tone={feature.is_active ? 'success' : 'neutral'}>
                     {feature.is_active ? '公開' : '非公開'}
-                  </span>
+                  </SbBadge>
                 </div>
                 {feature.subtitle && <p className="text-xs text-gray-400 mt-0.5 truncate">{feature.subtitle}</p>}
                 <p className="text-xs text-gray-300 mt-0.5">順序: {feature.sort_order}</p>

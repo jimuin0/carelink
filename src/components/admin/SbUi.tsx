@@ -161,6 +161,38 @@ export function SbTd({
   return <td className={`px-4 py-3 ${sbAlignClass[align]} ${className}`}>{children}</td>;
 }
 
+/**
+ * 状態バッジ（ステータスピル）の共通部品。
+ * 各ページで直書きされていた `bg-*-100 text-*-700 rounded-full` のピルを単一ソースに統一する。
+ * 色は意味（tone）で指定する。状態文字列→tone のマッピングは呼び出し側が決める
+ * （予約ステータスは別途 @/lib/booking-status の SbStatusChip を使う）。
+ */
+export type SbBadgeTone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+
+const sbBadgeToneClass: Record<SbBadgeTone, string> = {
+  success: 'bg-emerald-100 text-emerald-700',
+  warning: 'bg-amber-100 text-amber-700',
+  danger: 'bg-rose-100 text-rose-700',
+  info: 'bg-sky-100 text-sky-700',
+  neutral: 'bg-gray-100 text-gray-600',
+};
+
+export function SbBadge({
+  tone = 'neutral',
+  children,
+  className = '',
+}: {
+  tone?: SbBadgeTone;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <span className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap ${sbBadgeToneClass[tone]} ${className}`}>
+      {children}
+    </span>
+  );
+}
+
 /** ボタン風リンク（primary / outline） */
 export function SbButtonLink({
   href,
