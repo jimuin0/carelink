@@ -56,7 +56,25 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: https://fake.supabase.co
           NEXT_PUBLIC_SUPABASE_ANON_KEY: fake-anon-key
         # break:100 により Survived>0 なら非ゼロ終了でこのステップが失敗する。
-        run: npx stryker run stryker.config.mjs --mutate "src/lib/${{ matrix.module }}.ts" --concurrency 2
+        # Stryker の "Something went wrong in the initial test run"（dry-run 一時 crash）は
+        # CI ランナーの一時的なリソース揺らぎで稀に発生し週次を赤くする（2026-06-13 に発生・
+        # 同一 main の再実行で全green＝transient と実証）。発症前予防として最大2回まで再試行する。
+        # 実 Survived は決定的に再試行でも非ゼロ終了するためマスクされない（一時 crash のみ救済）。
+        # さらに後続「Assert no masked timeouts」が mutation.json を直接検査する二重の安全網。
+        run: |
+          for attempt in 1 2; do
+            echo "::group::Stryker attempt ${attempt} (${{ matrix.module }})"
+            if npx stryker run stryker.config.mjs --mutate "src/lib/${{ matrix.module }}.ts" --concurrency 2; then
+              echo "::endgroup::"
+              exit 0
+            fi
+            echo "::endgroup::"
+            if [ "${attempt}" = "1" ]; then
+              echo "::warning::Stryker attempt 1 が失敗。初期テスト実行の一時障害の可能性があるため再試行します（実 Survived は再試行でも失敗するためマスクしません）。"
+            fi
+          done
+          echo "::error::Stryker が2回とも失敗しました（一時障害でなく実 Survived/設定不備の可能性）。"
+          exit 1
 
       - name: Assert no masked timeouts (Timeout=0)
         # Stryker は Timeout を kill 扱いにするため break:100 では時間切れマスクを検知できない。
