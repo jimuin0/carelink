@@ -2,6 +2,7 @@ import { cache } from 'react';
 import { createServerSupabaseClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
+import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
 
 const PER_PAGE = 20;
 
@@ -228,7 +229,7 @@ export async function getAvailableFacilityIds(
 ): Promise<Set<string>> {
   if (facilityIds.length === 0) return new Set();
   const supabase = createServerSupabaseClient();
-  const dayOfWeek = new Date(dateStr).getDay(); // 0=Sun
+  const dayOfWeek = dayOfWeekUtc(dateStr); // 0=Sun（TZ非依存・admin-date 単一ソース）
 
   // 1. Get staff schedules for this day of week
   const { data: staffSchedules } = await supabase
@@ -336,13 +337,13 @@ function timeToMinutes(t: string): number {
 export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Record<string, number>> {
   if (facilityIds.length === 0) return {};
   const supabase = createServerSupabaseClient();
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const monthStart = `${year}-${month}-01`;
-  const nextMonth = now.getMonth() + 2 > 12
-    ? `${year + 1}-01-01`
-    : `${year}-${String(now.getMonth() + 2).padStart(2, '0')}-01`;
+  // 「今月」は JST 暦月で判定する。サーバ(UTC)で now.getMonth() を使うと
+  // JST 月初早朝（JST 1日 00:00〜08:59 = UTC 前月末日 15:00〜23:59）にまだ前月扱いになり、
+  // 「今月の予約数」が前月分を集計してしまう。admin-date の単一ソースで JST 月境界に統一する。
+  const cur = jstMonthInfo(0);
+  const monthStart = `${cur.year}-${String(cur.month).padStart(2, '0')}-01`;
+  const next = jstMonthInfo(1);
+  const nextMonth = `${next.year}-${String(next.month).padStart(2, '0')}-01`;
 
   const { data } = await supabase
     .from('bookings')

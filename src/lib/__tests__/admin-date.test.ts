@@ -1,4 +1,4 @@
-import { todayJst, isValidIsoDate, clampPage, addDays, diffDays, jstDayStartIso, jstMonthStartIso, jstMonthInfo } from '../admin-date';
+import { todayJst, isValidIsoDate, clampPage, addDays, diffDays, jstDayStartIso, jstMonthStartIso, jstMonthInfo, dayOfWeekUtc } from '../admin-date';
 
 describe('todayJst', () => {
   it('JST の今日を YYYY-MM-DD 形式で返す', () => {
@@ -174,5 +174,40 @@ describe('JST 境界ヘルパ（setSystemTime で決定的に検証）', () => {
     expect(jstDayStartIso(-7)).toBe('2026-05-24T15:00:00.000Z');
     const diff = new Date(jstDayStartIso(0)).getTime() - new Date(jstDayStartIso(-7)).getTime();
     expect(diff).toBe(7 * 86_400_000);
+  });
+});
+
+describe('dayOfWeekUtc（暦日の曜日・TZ非依存）', () => {
+  it('2026-05-01 は金曜(5)', () => {
+    expect(dayOfWeekUtc('2026-05-01')).toBe(5);
+  });
+  it('2026-05-03 は日曜(0)', () => {
+    expect(dayOfWeekUtc('2026-05-03')).toBe(0);
+  });
+  it('2026-05-09 は土曜(6)', () => {
+    expect(dayOfWeekUtc('2026-05-09')).toBe(6);
+  });
+  it('2026-01-01 は木曜(4)（年初境界）', () => {
+    expect(dayOfWeekUtc('2026-01-01')).toBe(4);
+  });
+  it('2024-02-29 は木曜(4)（うるう日）', () => {
+    expect(dayOfWeekUtc('2024-02-29')).toBe(4);
+  });
+
+  it('負オフセット TZ でも前日にズレない（旧 new Date(ymd).getDay() は誤る）を子プロセスで実証', () => {
+    const { execFileSync } = require('child_process');
+    // TZ=America/Los_Angeles(UTC-7/8) では date-only を UTC 解釈後にローカル曜日を取る
+    // 旧実装 new Date(ymd).getDay() は前日(木=4)になるが、UTC 0:00 解釈+getUTCDay() は金(5)で正しい。
+    const script =
+      "const d='2026-05-01';" +
+      "process.stdout.write(JSON.stringify({" +
+      "oldGetDay:new Date(d).getDay()," +
+      "newUtc:new Date(d+'T00:00:00Z').getUTCDay()}));";
+    const out = execFileSync('node', ['-e', script], {
+      env: { ...process.env, TZ: 'America/Los_Angeles' },
+    }).toString();
+    const { oldGetDay, newUtc } = JSON.parse(out);
+    expect(oldGetDay).toBe(4); // 旧実装は負オフセットTZで前日(木)＝バグ
+    expect(newUtc).toBe(5);    // dayOfWeekUtc と同手法は常に正しい(金)
   });
 });

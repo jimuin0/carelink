@@ -94,3 +94,14 @@ export function jstMonthInfo(offsetMonths: number): { year: number; month: numbe
   const dt = new Date(Date.UTC(y, m + offsetMonths, 1));
   return { year: dt.getUTCFullYear(), month: dt.getUTCMonth() + 1 };
 }
+
+/**
+ * YYYY-MM-DD の曜日（0=日〜6=土）を実行環境 TZ に依存せず返す。
+ * `new Date(ymd).getDay()` は date-only 文字列を UTC 0:00 として解釈した上で
+ * **ローカル TZ の曜日**を返すため、サーバが負オフセット TZ だと前日の曜日になる
+ * （例: UTC-7 では 2026-05-01 が前日 4/30=木曜と判定され、staff_schedules.day_of_week
+ * の照合がズレて空き判定を誤る）。本関数は UTC 0:00 解釈＋getUTCDay() で暦日の曜日に統一する。
+ */
+export function dayOfWeekUtc(ymd: string): number {
+  return new Date(`${ymd}T00:00:00Z`).getUTCDay();
+}
