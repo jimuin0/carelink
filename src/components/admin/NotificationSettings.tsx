@@ -34,6 +34,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
@@ -60,12 +61,14 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
   useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
   const handleToggle = async (key: keyof Settings) => {
+    const prevSettings = settings;
     const newSettings = { ...settings, [key]: !settings[key] };
     setSettings(newSettings);
     setSaving(true);
+    setSaveError(false);
 
     const supabase = createBrowserSupabaseClient();
-    await supabase
+    const { error } = await supabase
       .from('facility_notification_settings')
       .upsert({
         facility_id: facilityId,
@@ -73,6 +76,8 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
       }, { onConflict: 'facility_id' });
 
     setSaving(false);
+    // 保存失敗時は楽観更新したトグルを元に戻し、失敗を明示する（DBと表示の不整合を防ぐ）。
+    if (error) { setSettings(prevSettings); setSaveError(true); }
   };
 
   if (loading) return <div className="h-40 bg-gray-50 rounded-lg animate-pulse" />;
@@ -99,6 +104,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
         ))}
       </div>
       {saving && <p className="text-xs text-gray-400 mt-2">保存中...</p>}
+      {saveError && <p className="text-xs text-red-600 mt-2" role="alert">設定の保存に失敗しました。時間をおいて再度お試しください。</p>}
     </div>
   );
 }
