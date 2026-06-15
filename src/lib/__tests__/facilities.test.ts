@@ -728,6 +728,21 @@ describe('null data fallbacks', () => {
     jest.useRealTimers();
   });
 
+  test('getMonthlyBookingCounts: JST月初早朝(UTCは前月末)でも当月=JST月で集計（旧 getMonth ズレを解消・回帰防止）', async () => {
+    jest.useFakeTimers();
+    // UTC 2026-06-30 17:00 = JST 2026-07-01 02:00（旧実装は UTC=6/30 のため前月6月を集計してしまう帯）
+    jest.setSystemTime(new Date('2026-06-30T17:00:00Z'));
+    const chain = fluent(null);
+    chain.gte = jest.fn(() => chain);
+    chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockReturnValue(chain);
+    await getMonthlyBookingCounts(['f-1']);
+    // JST では既に7月 → 当月境界は 7/1〜8/1 でなければならない（旧実装だと 6/1〜7/1）
+    expect((chain.gte as jest.Mock).mock.calls[0]).toEqual(['booking_date', '2026-07-01']);
+    expect((chain.lt as jest.Mock).mock.calls[0]).toEqual(['booking_date', '2026-08-01']);
+    jest.useRealTimers();
+  });
+
   // Branch coverage: line 94 — getPopularFacilities cachedFetch 内部で data が null の場合
   test('getPopularFacilities: cachedFetch 内部 data が null → 空配列を返す', async () => {
     // cachedFetch mock が fetcher() を呼ぶので limit() が { data: null } を返すようにする
