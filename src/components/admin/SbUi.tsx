@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { forwardRef, type ReactNode, type InputHTMLAttributes } from 'react';
 import { bookingStatusLabel, statusChipClass } from '@/lib/booking-status';
+import ScrollHint from './ScrollHint';
 
 /**
  * テキスト入力の共通部品。globals.css の .form-input スタイルを単一ソースとして適用し、
@@ -116,9 +117,9 @@ export function SbStatusChip({ status }: { status: string }) {
  */
 export function SbTable({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className="overflow-x-auto overscroll-x-contain">
+    <ScrollHint>
       <table className={`w-full text-sm ${className}`}>{children}</table>
-    </div>
+    </ScrollHint>
   );
 }
 
