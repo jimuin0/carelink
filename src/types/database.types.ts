@@ -5931,6 +5931,15 @@ export type Database = {
           slots: number
         }[]
       }
+      get_unique_customers: {
+        Args: { p_facility_id: string }
+        Returns: {
+          email: string
+          last_visit: string
+          name: string
+          visit_count: number
+        }[]
+      }
       get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
