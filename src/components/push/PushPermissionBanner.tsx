@@ -18,6 +18,7 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
 export default function PushPermissionBanner() {
   const [show, setShow] = useState(false);
   const [subscribing, setSubscribing] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!VAPID_PUBLIC_KEY) return;
@@ -32,6 +33,7 @@ export default function PushPermissionBanner() {
   const handleSubscribe = async () => {
     if (!VAPID_PUBLIC_KEY) return;
     setSubscribing(true);
+    setError(false);
 
     try {
       const permission = await Notification.requestPermission();
@@ -47,7 +49,7 @@ export default function PushPermissionBanner() {
       });
 
       const subJson = subscription.toJSON();
-      await fetch('/api/push/subscribe', {
+      const res = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -56,9 +58,13 @@ export default function PushPermissionBanner() {
         }),
       });
 
+      // res.ok を見ずに setShow(false) すると、サーバ保存失敗でも購読済み扱いでバナーが消える。
+      // 失敗時はバナーを残しエラー表示して再試行できるようにする。
+      if (!res.ok) { setError(true); return; }
+
       setShow(false);
     } catch {
-      // User denied or error
+      setError(true);
     } finally {
       setSubscribing(false);
     }
@@ -94,6 +100,7 @@ export default function PushPermissionBanner() {
               後で
             </button>
           </div>
+          {error && <p className="text-xs text-red-600 mt-2" role="alert">通知の登録に失敗しました。時間をおいて再度お試しください。</p>}
         </div>
       </div>
     </div>

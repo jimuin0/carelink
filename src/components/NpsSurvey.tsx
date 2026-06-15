@@ -16,6 +16,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
   const [comment, setComment] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   const getLabel = (s: number) => {
     if (s >= 9) return '非常に満足';
@@ -36,15 +37,20 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
   const handleSubmit = async () => {
     if (score === null || loading) return;
     setLoading(true);
+    setError(false);
 
     try {
-      await fetch('/api/nps', {
+      const res = await fetch('/api/nps', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ score, facility_id: facilityId, booking_id: bookingId, comment: comment || undefined, category }),
       });
+      // res.ok を検証せず submitted にすると、HTTP エラー（4xx/5xx）でも送信完了と偽装される。
+      if (!res.ok) { setError(true); return; }
       trackNpsSubmitted(score, bookingId);
       setSubmitted(true);
+    } catch {
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -125,6 +131,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
           >
             {loading ? '送信中...' : '送信する'}
           </button>
+          {error && <p className="text-xs text-red-600 mt-2 text-center" role="alert">送信に失敗しました。時間をおいて再度お試しください。</p>}
         </>
       )}
     </div>

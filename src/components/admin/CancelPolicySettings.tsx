@@ -24,6 +24,7 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState(false);
 
   const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
@@ -50,11 +51,14 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
 
   const handleSave = async () => {
     setSaving(true);
+    setSaveError(false);
     const supabase = createBrowserSupabaseClient();
-    await supabase
+    const { error } = await supabase
       .from('facility_cancel_policies')
       .upsert({ facility_id: facilityId, ...policy }, { onConflict: 'facility_id' });
     setSaving(false);
+    // 返金率に直結する設定。保存失敗を成功と偽装せず、失敗は明示する。
+    if (error) { setSaveError(true); return; }
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -129,6 +133,9 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
         <button type="button" onClick={handleSave} disabled={saving} className="btn-primary !py-2 text-sm">
           {saving ? '保存中...' : saved ? '保存しました' : 'ポリシーを保存'}
         </button>
+        {saveError && (
+          <p className="text-xs text-red-600 mt-2" role="alert">保存に失敗しました。時間をおいて再度お試しください。</p>
+        )}
       </div>
     </div>
   );
