@@ -85,6 +85,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
         <form method="GET" className="px-4 sm:px-6 py-4 border-b border-gray-100 flex flex-wrap gap-3">
           <select
             name="job_type"
+            aria-label="職種で絞り込む"
             defaultValue={searchParams.job_type || ''}
             className="text-sm border border-gray-200 rounded-lg px-3 py-2"
           >
@@ -97,6 +98,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
           </select>
           <select
             name="prefecture"
+            aria-label="都道府県で絞り込む"
             defaultValue={searchParams.prefecture || ''}
             className="text-sm border border-gray-200 rounded-lg px-3 py-2"
           >

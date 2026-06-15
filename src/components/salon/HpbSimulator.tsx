@@ -22,6 +22,7 @@ export default function HpbSimulator() {
           </div>
           <input
             type="range"
+            aria-label="現在の月額費用"
             min={0}
             max={100000}
             step={5000}
@@ -41,6 +42,7 @@ export default function HpbSimulator() {
           </div>
           <input
             type="range"
+            aria-label="月間予約件数"
             min={0}
             max={200}
             step={10}
@@ -60,6 +62,7 @@ export default function HpbSimulator() {
           </div>
           <input
             type="range"
+            aria-label="予約手数料（1件あたり）"
             min={0}
             max={1000}
             step={50}

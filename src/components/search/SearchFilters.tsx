@@ -168,8 +168,9 @@ export default function SearchFilters({ className }: { className?: string }) {
 
       {/* 日付・時間指定 */}
       <div className="mb-5">
-        <label className="block text-xs font-medium text-gray-600 mb-1.5">予約希望日</label>
+        <label htmlFor="filter-available-date" className="block text-xs font-medium text-gray-600 mb-1.5">予約希望日</label>
         <input
+          id="filter-available-date"
           type="date"
           value={availableDate}
           onChange={(e) => setAvailableDate(e.target.value)}
@@ -178,8 +179,9 @@ export default function SearchFilters({ className }: { className?: string }) {
         />
       </div>
       <div className="mb-5">
-        <label className="block text-xs font-medium text-gray-600 mb-1.5">時間帯</label>
+        <label htmlFor="filter-available-time" className="block text-xs font-medium text-gray-600 mb-1.5">時間帯</label>
         <select
+          id="filter-available-time"
           value={availableTime}
           onChange={(e) => setAvailableTime(e.target.value)}
           className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"

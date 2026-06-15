@@ -127,7 +127,7 @@ export default function PrivacyPage() {
           <h2 className="text-xl font-bold mb-4">第10条（お問い合わせ窓口・苦情の申出先）</h2>
           <p className="text-gray-600 mb-2">
             個人情報の取扱いに関するお問い合わせ、開示等のご請求、苦情の申出は、
-            <Link href="/contact" className="text-primary hover:underline">お問い合わせページ</Link>
+            <Link href="/contact" className="text-primary underline">お問い合わせページ</Link>
             よりご連絡ください。
           </p>
           <ul className="text-gray-600 space-y-1 text-sm">
@@ -135,7 +135,7 @@ export default function PrivacyPage() {
             <li>所在地：大阪府豊中市</li>
           </ul>
           <p className="text-gray-600 text-sm mt-2">
-            なお、当事業者の対応にご納得いただけない場合は、個人情報保護委員会（<a href="https://www.ppc.go.jp/" className="text-primary hover:underline" target="_blank" rel="noopener noreferrer">https://www.ppc.go.jp/</a>）にご相談いただくこともできます。
+            なお、当事業者の対応にご納得いただけない場合は、個人情報保護委員会（<a href="https://www.ppc.go.jp/" className="text-primary underline" target="_blank" rel="noopener noreferrer">https://www.ppc.go.jp/</a>）にご相談いただくこともできます。
           </p>
         </section>
 
