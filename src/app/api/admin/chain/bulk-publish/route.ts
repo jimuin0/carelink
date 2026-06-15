@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
 
   const { error } = await admin
     .from('facility_profiles')
-    .update({ is_published, updated_at: new Date().toISOString() })
+    .update({ status: is_published ? 'published' : 'draft', updated_at: new Date().toISOString() })
     .in('id', facility_ids);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

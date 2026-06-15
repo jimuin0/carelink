@@ -203,6 +203,23 @@ describe('GET /api/recommendations', () => {
     expect(res.status).toBe(200);
   });
 
+  test('popular 経路は status=published で絞る（is_published 列は存在しない・回帰防止）', async () => {
+    setupDefaultMocks(true, 0, 0); // 履歴なし → popular fallback
+    await GET(makeRequest() as any);
+    const eqMock = mockPopularSelect().eq as jest.Mock;
+    const eqColumns = eqMock.mock.calls.map((c) => c[0]);
+    expect(eqMock).toHaveBeenCalledWith('status', 'published');
+    expect(eqColumns).not.toContain('is_published');
+  });
+
+  test('personalized 経路も status=published で絞る（is_published 不使用・回帰防止）', async () => {
+    await GET(makeRequest() as any); // 履歴あり → personalized
+    const eqMock = mockPopularSelect().eq as jest.Mock;
+    const eqColumns = eqMock.mock.calls.map((c) => c[0]);
+    expect(eqMock).toHaveBeenCalledWith('status', 'published');
+    expect(eqColumns).not.toContain('is_published');
+  });
+
   test('filters out visited facilities', async () => {
     const res = await GET(makeRequest(6, 'fac-booking-0') as any);
 
