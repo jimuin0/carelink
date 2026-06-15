@@ -28,6 +28,24 @@ export async function getCustomerVisits(facilityId: string, email?: string): Pro
 
 export async function getUniqueCustomers(facilityId: string): Promise<{ email: string; name: string; visit_count: number; last_visit: string }[]> {
   const supabase = await createServerSupabaseAuthClient();
+
+  // まず DB 集計 RPC を試す（全来店行の転送・JS 集計を避ける）。
+  // RPC 未適用（PGRST202）やエラー時は従来の JS 集計へフォールバックするため、
+  // migration 適用前後どちらでも正しく動作する（症状ブロックでなく漸進的移行）。
+  if (typeof (supabase as { rpc?: unknown }).rpc === 'function') {
+    const { data: rpcData, error: rpcError } = await supabase.rpc('get_unique_customers', {
+      p_facility_id: facilityId,
+    });
+    if (!rpcError && Array.isArray(rpcData)) {
+      return (rpcData as { email: string; name: string; visit_count: number | string; last_visit: string }[]).map((r) => ({
+        email: r.email,
+        name: r.name,
+        visit_count: Number(r.visit_count),
+        last_visit: r.last_visit,
+      }));
+    }
+  }
+
   const fetchWith = (cols: string) => supabase
     .from('customer_visits')
     .select(cols)

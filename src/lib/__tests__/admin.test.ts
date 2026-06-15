@@ -5,7 +5,7 @@
  * Covers getCustomerVisits and getUniqueCustomers
  */
 
-let mockSupabase: { from: jest.Mock };
+let mockSupabase: { from: jest.Mock; rpc?: jest.Mock };
 
 jest.mock('../supabase-server-auth', () => ({
   createServerSupabaseAuthClient: jest.fn(() => Promise.resolve(mockSupabase)),
@@ -205,5 +205,65 @@ describe('getUniqueCustomers()', () => {
     // canonicalizeEmail で foo@gmail.com に統合 → 1顧客 visit_count=2
     expect(result).toHaveLength(1);
     expect(result[0].visit_count).toBe(2);
+  });
+
+  test('集計 RPC が成功 → RPC 結果を使用し全行取得(from)しない（visit_count を数値化）', async () => {
+    mockSupabase.rpc = jest.fn(() => Promise.resolve({
+      data: [
+        { email: 'a@test.com', name: '山田', visit_count: 3, last_visit: '2026-05-01' },
+        { email: 'b@test.com', name: '田中', visit_count: '1', last_visit: '2026-04-20' }, // bigint が文字列で来ても数値化
+      ],
+      error: null,
+    }));
+
+    const result = await getUniqueCustomers('f1');
+
+    expect(mockSupabase.rpc).toHaveBeenCalledWith('get_unique_customers', { p_facility_id: 'f1' });
+    expect(mockSupabase.from).not.toHaveBeenCalled(); // RPC 成功時は全来店行を取得しない
+    expect(result).toHaveLength(2);
+    expect(result[0]).toEqual({ email: 'a@test.com', name: '山田', visit_count: 3, last_visit: '2026-05-01' });
+    expect(result[1].visit_count).toBe(1); // 文字列 '1' → 数値 1
+  });
+
+  test('集計 RPC 未適用(PGRST202) → 従来の JS 集計にフォールバック', async () => {
+    mockSupabase.rpc = jest.fn(() => Promise.resolve({
+      data: null,
+      error: { code: 'PGRST202', message: 'function get_unique_customers does not exist' },
+    }));
+    const rows = [
+      { customer_email: 'a@test.com', customer_name: '山田', visit_date: '2026-04-10' },
+      { customer_email: 'a@test.com', customer_name: '山田', visit_date: '2026-04-01' },
+    ];
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn(() => Promise.resolve({ data: rows })),
+    };
+    mockSupabase.from.mockReturnValue(chain);
+
+    const result = await getUniqueCustomers('f1');
+
+    expect(mockSupabase.rpc).toHaveBeenCalled();
+    expect(mockSupabase.from).toHaveBeenCalledWith('customer_visits'); // フォールバックで全行取得
+    expect(result).toHaveLength(1);
+    expect(result[0].visit_count).toBe(2);
+  });
+
+  test('集計 RPC が配列以外(null)を返す → JS 集計にフォールバック', async () => {
+    mockSupabase.rpc = jest.fn(() => Promise.resolve({ data: null, error: null }));
+    const rows = [
+      { customer_email: 'z@test.com', customer_name: 'Z', visit_date: '2026-01-01' },
+    ];
+    const chain = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      order: jest.fn(() => Promise.resolve({ data: rows })),
+    };
+    mockSupabase.from.mockReturnValue(chain);
+
+    const result = await getUniqueCustomers('f1');
+
+    expect(result).toHaveLength(1);
+    expect(result[0].email).toBe('z@test.com');
   });
 });
