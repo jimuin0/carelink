@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge } from '@/components/admin/SbUi';
+import { SbBadge, SbInput } from '@/components/admin/SbUi';
 
 interface FeatureArticle {
   id: string;
@@ -195,15 +195,15 @@ export default function AdminFeaturesPage() {
             <div className="space-y-4">
               <div>
                 <label htmlFor="feat-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
-                <input id="feat-title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} className="form-input" maxLength={100} placeholder="例: 春のヘアスタイル特集" />
+                <SbInput id="feat-title" value={editForm.title} onChange={(e) => setEditForm({ ...editForm, title: e.target.value })} maxLength={100} placeholder="例: 春のヘアスタイル特集" />
               </div>
               <div>
                 <label htmlFor="feat-subtitle" className="form-label">サブタイトル</label>
-                <input id="feat-subtitle" value={editForm.subtitle} onChange={(e) => setEditForm({ ...editForm, subtitle: e.target.value })} className="form-input" maxLength={200} placeholder="例: トレンドの春カラーをチェック" />
+                <SbInput id="feat-subtitle" value={editForm.subtitle} onChange={(e) => setEditForm({ ...editForm, subtitle: e.target.value })} maxLength={200} placeholder="例: トレンドの春カラーをチェック" />
               </div>
               <div>
                 <label htmlFor="feat-image" className="form-label">画像URL</label>
-                <input id="feat-image" value={editForm.image_url} onChange={(e) => setEditForm({ ...editForm, image_url: e.target.value })} className="form-input" maxLength={500} placeholder="https://xxx.supabase.co/storage/v1/..." />
+                <SbInput id="feat-image" value={editForm.image_url} onChange={(e) => setEditForm({ ...editForm, image_url: e.target.value })} maxLength={500} placeholder="https://xxx.supabase.co/storage/v1/..." />
                 {editForm.image_url && (
                   <div className="mt-2 w-full h-32 relative rounded-lg overflow-hidden bg-gray-100">
                     <Image src={editForm.image_url} alt="プレビュー" fill className="object-cover" sizes="100%" unoptimized />
@@ -212,12 +212,12 @@ export default function AdminFeaturesPage() {
               </div>
               <div>
                 <label htmlFor="feat-href" className="form-label">リンクURL</label>
-                <input id="feat-href" value={editForm.href} onChange={(e) => setEditForm({ ...editForm, href: e.target.value })} className="form-input" maxLength={500} placeholder="例: /search?keyword=春カラー" />
+                <SbInput id="feat-href" value={editForm.href} onChange={(e) => setEditForm({ ...editForm, href: e.target.value })} maxLength={500} placeholder="例: /search?keyword=春カラー" />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="feat-order" className="form-label">表示順</label>
-                  <input id="feat-order" type="number" min={0} value={editForm.sort_order} onChange={(e) => setEditForm({ ...editForm, sort_order: e.target.value })} className="form-input" />
+                  <SbInput id="feat-order" type="number" min={0} value={editForm.sort_order} onChange={(e) => setEditForm({ ...editForm, sort_order: e.target.value })} />
                 </div>
                 <div className="flex items-end pb-1">
                   <label className="flex items-center gap-2 cursor-pointer">

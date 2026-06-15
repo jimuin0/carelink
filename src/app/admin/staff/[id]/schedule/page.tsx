@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -204,7 +205,7 @@ export default function StaffSchedulePage() {
               </label>
               {enabledDays[i] ? (
                 <div className="flex items-center gap-2">
-                  <input
+                  <SbInput
                     type="time"
                     value={schedules[i].start_time}
                     onChange={(e) => {
@@ -212,10 +213,10 @@ export default function StaffSchedulePage() {
                       next[i] = { ...next[i], start_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="form-input !w-32 text-sm"
+                    className="!w-32 text-sm"
                   />
                   <span className="text-gray-400">〜</span>
-                  <input
+                  <SbInput
                     type="time"
                     value={schedules[i].end_time}
                     onChange={(e) => {
@@ -223,7 +224,7 @@ export default function StaffSchedulePage() {
                       next[i] = { ...next[i], end_time: e.target.value };
                       setSchedules(next);
                     }}
-                    className="form-input !w-32 text-sm"
+                    className="!w-32 text-sm"
                   />
                 </div>
               ) : (
@@ -243,12 +244,12 @@ export default function StaffSchedulePage() {
         <div className="flex flex-wrap items-end gap-3 mb-4">
           <div>
             <label className="text-xs text-gray-500 block mb-1">日付</label>
-            <input
+            <SbInput
               type="date"
               value={newOverrideDate}
               onChange={(e) => setNewOverrideDate(e.target.value)}
               min={new Date().toISOString().split('T')[0]}
-              className="form-input text-sm !w-40"
+              className="text-sm !w-40"
             />
           </div>
           <div>
@@ -266,11 +267,11 @@ export default function StaffSchedulePage() {
             <>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">開始</label>
-                <input type="time" value={newOverrideStart} onChange={(e) => setNewOverrideStart(e.target.value)} className="form-input text-sm !w-28" />
+                <SbInput type="time" value={newOverrideStart} onChange={(e) => setNewOverrideStart(e.target.value)} className="text-sm !w-28" />
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">終了</label>
-                <input type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="form-input text-sm !w-28" />
+                <SbInput type="time" value={newOverrideEnd} onChange={(e) => setNewOverrideEnd(e.target.value)} className="text-sm !w-28" />
               </div>
             </>
           )}

@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { SbInput } from '@/components/admin/SbUi';
 import type { FacilityPhoto } from '@/types';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
@@ -192,7 +193,7 @@ export default function AdminPhotosPage() {
           </div>
           <div className="flex-1 min-w-[200px]">
             <label htmlFor="photo-caption" className="form-label">キャプション（任意）</label>
-            <input id="photo-caption" value={caption} onChange={(e) => setCaption(e.target.value)} className="form-input" maxLength={200} placeholder="写真の説明" />
+            <SbInput id="photo-caption" value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={200} placeholder="写真の説明" />
           </div>
           <label className={`btn-primary !py-2.5 px-6 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
             {uploading ? 'アップロード中...' : '写真を選択'}

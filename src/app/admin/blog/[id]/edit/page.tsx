@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import { SbInput } from '@/components/admin/SbUi';
 import type { BlogPost } from '@/types';
 
 function sanitizeUrl(url: string): string {
@@ -154,7 +155,7 @@ export default function EditBlogPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="blog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" maxLength={200} />
+          <SbInput id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
         </div>
         <div>
           <label htmlFor="blog-content" className="form-label">

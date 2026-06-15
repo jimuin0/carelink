@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { SbPageHeader, SbBadge } from '@/components/admin/SbUi';
+import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
 
 const categories = ['カット', 'カラー', 'パーマ', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'ネイル', 'まつげ', 'エステ', 'リラクゼーション', '鍼灸', '整体', '介護', 'その他'];
@@ -206,7 +206,7 @@ export default function AdminMenusPage() {
               </div>
               <div>
                 <label htmlFor="menu-name" className="form-label">メニュー名 <span className="text-red-500">*</span></label>
-                <input id="menu-name" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} className="form-input" maxLength={100} />
+                <SbInput id="menu-name" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} maxLength={100} />
               </div>
               <div>
                 <label htmlFor="menu-desc" className="form-label">説明</label>
@@ -215,20 +215,20 @@ export default function AdminMenusPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label htmlFor="menu-price" className="form-label">料金（税込）</label>
-                  <input id="menu-price" type="number" min={0} value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} className="form-input" placeholder="5000" />
+                  <SbInput id="menu-price" type="number" min={0} value={editForm.price} onChange={(e) => setEditForm({ ...editForm, price: e.target.value })} placeholder="5000" />
                 </div>
                 <div>
                   <label htmlFor="menu-dur" className="form-label">所要時間（分）</label>
-                  <input id="menu-dur" type="number" min={0} value={editForm.duration_minutes} onChange={(e) => setEditForm({ ...editForm, duration_minutes: e.target.value })} className="form-input" placeholder="60" />
+                  <SbInput id="menu-dur" type="number" min={0} value={editForm.duration_minutes} onChange={(e) => setEditForm({ ...editForm, duration_minutes: e.target.value })} placeholder="60" />
                 </div>
               </div>
               <div>
                 <label htmlFor="menu-note" className="form-label">料金備考</label>
-                <input id="menu-note" value={editForm.price_note} onChange={(e) => setEditForm({ ...editForm, price_note: e.target.value })} className="form-input" placeholder="例: 初回限定" maxLength={100} />
+                <SbInput id="menu-note" value={editForm.price_note} onChange={(e) => setEditForm({ ...editForm, price_note: e.target.value })} placeholder="例: 初回限定" maxLength={100} />
               </div>
               <div>
                 <label htmlFor="menu-photo" className="form-label">画像URL</label>
-                <input id="menu-photo" value={editForm.photo_url} onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })} className="form-input" placeholder="https://xxx.supabase.co/storage/v1/..." maxLength={500} />
+                <SbInput id="menu-photo" value={editForm.photo_url} onChange={(e) => setEditForm({ ...editForm, photo_url: e.target.value })} placeholder="https://xxx.supabase.co/storage/v1/..." maxLength={500} />
                 {editForm.photo_url && (
                   <div className="mt-2 w-20 h-20 relative rounded-lg overflow-hidden bg-gray-100">
                     <Image src={editForm.photo_url} alt="プレビュー" fill className="object-cover" sizes="80px" unoptimized />

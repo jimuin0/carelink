@@ -1,6 +1,18 @@
 import Link from 'next/link';
-import type { ReactNode } from 'react';
+import { forwardRef, type ReactNode, type InputHTMLAttributes } from 'react';
 import { bookingStatusLabel, statusChipClass } from '@/lib/booking-status';
+
+/**
+ * テキスト入力の共通部品。globals.css の .form-input スタイルを単一ソースとして適用し、
+ * 各管理ページで直書きされていた input のクラスを統一する。
+ * すべての input 属性（type/value/onChange/min/max/required/disabled/name/id 等）を
+ * そのまま透過する。checkbox/radio/file など非テキスト系はスタイル要件が異なるため対象外。
+ */
+export const SbInput = forwardRef<HTMLInputElement, InputHTMLAttributes<HTMLInputElement>>(
+  function SbInput({ className = '', ...props }, ref) {
+    return <input ref={ref} className={`form-input ${className}`.trim()} {...props} />;
+  }
+);
 
 /**
  * SB 共通 UI 部品（HotPepper サロンボード型・CareLink 色）

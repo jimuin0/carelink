@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import { SbInput } from '@/components/admin/SbUi';
 
 export default function NewCouponPage() {
   const router = useRouter();
@@ -91,7 +92,7 @@ export default function NewCouponPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
-          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" placeholder="新規限定20%OFF" maxLength={100} />
+          <SbInput id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="新規限定20%OFF" maxLength={100} />
         </div>
         <div>
           <label htmlFor="coupon-desc" className="form-label">説明</label>
@@ -121,37 +122,35 @@ export default function NewCouponPage() {
             <label htmlFor="coupon-value" className="form-label">
               割引額{discountType === 'percentage' ? '(%) ※0〜100' : '(円)'}
             </label>
-            <input
+            <SbInput
               id="coupon-value"
               type="number"
               min={0}
               max={discountType === 'percentage' ? 100 : 100000}
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
-              className="form-input"
             />
           </div>
         ) : (
           <div>
             <label htmlFor="coupon-special" className="form-label">特別価格(円)</label>
-            <input
+            <SbInput
               id="coupon-special"
               type="number"
               min={0}
               value={specialPrice}
               onChange={(e) => setSpecialPrice(e.target.value)}
-              className="form-input"
             />
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="coupon-from" className="form-label">有効期限（開始）</label>
-            <input id="coupon-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className="form-input" />
+            <SbInput id="coupon-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
           </div>
           <div>
             <label htmlFor="coupon-until" className="form-label">有効期限（終了）</label>
-            <input id="coupon-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="form-input" />
+            <SbInput id="coupon-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
           </div>
         </div>
 

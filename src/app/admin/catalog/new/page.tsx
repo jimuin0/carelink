@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import { SbInput } from '@/components/admin/SbUi';
 
 export default function NewCatalogPage() {
   const router = useRouter();
@@ -55,7 +56,7 @@ export default function NewCatalogPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="catalog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input id="catalog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} className="form-input" />
+          <SbInput id="catalog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
         </div>
         <div>
           <label htmlFor="catalog-desc" className="form-label">説明</label>
@@ -63,7 +64,7 @@ export default function NewCatalogPage() {
         </div>
         <div>
           <label htmlFor="catalog-tags" className="form-label">タグ（カンマ区切り）</label>
-          <input id="catalog-tags" value={tags} onChange={(e) => setTags(e.target.value)} maxLength={200} className="form-input" placeholder="ショートヘア, ボブ, カラー" />
+          <SbInput id="catalog-tags" value={tags} onChange={(e) => setTags(e.target.value)} maxLength={200} placeholder="ショートヘア, ボブ, カラー" />
         </div>
 
         {/* 医療広告ガイドライン警告（v8.5） */}
