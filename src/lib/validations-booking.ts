@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isValidIsoDate } from './date-utils';
 
 const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
 
@@ -39,6 +40,9 @@ export const bookingSchema = z.object({
   coupon_id: z.string().uuid().nullable(),
   booking_date: z.string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, '正しい日付形式で入力してください')
+    // 形式が合っていても 2026-02-30 等の不在日は regex を通る。DATE 列が拒否し 500 になる前に
+    // ここで弾き、明確な 400 メッセージを返す（文字列比較の境界判定も不在日では無意味なため先に検証）。
+    .refine((date) => isValidIsoDate(date), '有効な日付を入力してください')
     .refine((date) => date >= getTodayString(), '過去の日付は指定できません')
     .refine((date) => date <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: timeString,

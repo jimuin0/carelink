@@ -11,10 +11,12 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
+import { isValidIsoDate } from '@/lib/date-utils';
 
 const CreateSchema = z.object({
   facility_id: z.string().uuid(),
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // 形式が合っていても 2026-02-30 等の不在日は regex を通る。DATE 列が拒否し 500 になる前に弾く。
+  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => isValidIsoDate(d), '有効な日付を入力してください'),
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   menu_id: z.string().uuid().optional(),
