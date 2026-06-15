@@ -74,14 +74,10 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
 /**
  * 本番へ未適用と判明している migration 定義 RPC 関数。
  * テーブルの KNOWN_PENDING_DEPLOYMENT と同趣旨で、本番適用先送りの明示宣言（原則禁止）。
- * 2026-06-03 時点で空＝関数ドリフト 0。
+ * 2026-06-15 時点で空＝関数ドリフト 0（get_unique_customers [T20] は本番適用済み＝
+ * database.types.ts に反映済みのため本リストから除去）。
  */
-const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
-  // 20260615000001_get_unique_customers_rpc.sql [T20]。
-  // アプリは RPC 優先＋未適用(PGRST202)/エラー時 JS 集計フォールバックのため、本番適用前も現状維持で安全。
-  // 神原さんが本番へ適用し database.types.ts を再生成したら、本行を削除すること（ドリフト台帳の最新化）。
-  'get_unique_customers',
-]);
+const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([]);
 
 function migrationDefinedTables(): Set<string> {
   const tables = new Set<string>();
