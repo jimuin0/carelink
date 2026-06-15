@@ -107,7 +107,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
-          <button type="submit" className="text-sm bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg font-medium">
+          <button type="submit" className="text-sm bg-sky-700 hover:bg-sky-800 text-white px-4 py-2 rounded-lg font-medium">
             絞り込む
           </button>
         </form>
@@ -115,7 +115,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
         {/* リスト */}
         <div className="divide-y divide-gray-100">
           {jobs.length === 0 && (
-            <div className="px-4 sm:px-6 py-12 text-center text-gray-400 text-sm">該当する求人がありません</div>
+            <div className="px-4 sm:px-6 py-12 text-center text-gray-500 text-sm">該当する求人がありません</div>
           )}
           {jobs.map((j) => {
             const f = j.facility_profiles;
@@ -140,7 +140,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
                     </div>
                     <h2 className="text-sm font-bold mb-1 line-clamp-2">{j.title}</h2>
                     <p className="text-xs text-gray-500 mb-1">{f.name} ／ {f.prefecture}{f.city}</p>
-                    <p className="text-sm font-bold text-sky-600">{salary}</p>
+                    <p className="text-sm font-bold text-sky-700">{salary}</p>
                   </div>
                 </div>
               </Link>

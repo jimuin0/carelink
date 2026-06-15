@@ -102,7 +102,7 @@ function LoginContent() {
                 <div className="w-full border-t border-gray-200" />
               </div>
               <div className="relative flex justify-center text-sm">
-                <span className="bg-white px-4 text-gray-400">または</span>
+                <span className="bg-white px-4 text-gray-500">または</span>
               </div>
             </div>
           </div>
@@ -134,7 +134,7 @@ function LoginContent() {
           </button>
 
           <div className="mt-4 text-center">
-            <Link href="/auth/forgot-password" className="text-sm text-sky-600 hover:underline">
+            <Link href="/auth/forgot-password" className="text-sm text-sky-700 hover:underline">
               パスワードをお忘れの方
             </Link>
           </div>
@@ -142,14 +142,14 @@ function LoginContent() {
           <div className="mt-4 text-center">
             <p className="text-sm text-gray-500">
               アカウントをお持ちでない方は
-              <Link href={`/auth/signup?redirect=${encodeURIComponent(redirect)}`} className="text-sky-600 underline ml-1">
+              <Link href={`/auth/signup?redirect=${encodeURIComponent(redirect)}`} className="text-sky-700 underline ml-1">
                 新規登録
               </Link>
             </p>
           </div>
 
           <div className="mt-4 text-center">
-            <Link href="/search" className="text-sm text-gray-400 hover:underline">
+            <Link href="/search" className="text-sm text-gray-500 hover:underline">
               施設を探す
             </Link>
           </div>

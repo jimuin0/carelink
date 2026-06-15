@@ -133,7 +133,7 @@ export default async function SearchPage(props: Props) {
       <section className="bg-gradient-to-br from-sky-50 to-white">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
           <nav className="mb-4" aria-label="パンくずリスト">
-            <ol className="flex items-center gap-1.5 text-xs text-gray-400 flex-wrap">
+            <ol className="flex items-center gap-1.5 text-xs text-gray-500 flex-wrap">
               {breadcrumbs.map((item, i) => (
                 <li key={i} className="flex items-center gap-1.5">
                   {i > 0 && <span>/</span>}
@@ -181,7 +181,7 @@ export default async function SearchPage(props: Props) {
             {featuredFacilities.length > 0 && (
               <div className="mb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
+                  <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">スポンサー</span>
                 </div>
                 <ViewToggle
                   facilities={featuredFacilities}
@@ -207,9 +207,9 @@ export default async function SearchPage(props: Props) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
                   </svg>
                   <p className="text-gray-700 font-bold mb-1">該当する施設が見つかりませんでした</p>
-                  <p className="text-gray-400 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
+                  <p className="text-gray-500 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
                   <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
-                    <Link href="/search" className="px-5 py-2.5 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 transition-colors">すべての施設を見る</Link>
+                    <Link href="/search" className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors">すべての施設を見る</Link>
                     {searchParams.type && (
                       <Link
                         href={`/search?${searchParams.area ? `area=${encodeURIComponent(searchParams.area)}` : ''}`}
@@ -262,7 +262,7 @@ export default async function SearchPage(props: Props) {
                   </div>
                   <Link
                     href="/salon"
-                    className="shrink-0 px-5 py-2.5 bg-sky-600 text-white text-sm font-bold rounded-lg hover:bg-sky-700 transition-colors"
+                    className="shrink-0 px-5 py-2.5 bg-sky-700 text-white text-sm font-bold rounded-lg hover:bg-sky-800 transition-colors"
                   >
                     無料で施設を掲載する
                   </Link>

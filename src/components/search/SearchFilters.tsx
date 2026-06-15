@@ -68,7 +68,7 @@ export default function SearchFilters({ className }: { className?: string }) {
     <div className={className}>
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-bold text-gray-800">絞り込み</h2>
-        <button type="button" onClick={clearFilters} aria-label="フィルターをクリア" className="text-xs text-gray-400 hover:text-sky-600 transition-colors">
+        <button type="button" onClick={clearFilters} aria-label="フィルターをクリア" className="text-xs text-gray-600 hover:text-sky-700 transition-colors">
           クリア
         </button>
       </div>
@@ -269,7 +269,7 @@ export default function SearchFilters({ className }: { className?: string }) {
       <button
         type="button"
         onClick={applyFilters}
-        className="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-lg transition-colors"
+        className="w-full py-2.5 bg-sky-700 hover:bg-sky-800 text-white text-sm font-bold rounded-lg transition-colors"
       >
         この条件で検索
       </button>

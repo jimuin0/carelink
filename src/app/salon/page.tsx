@@ -64,7 +64,7 @@ export default function SalonPage() {
                   <th className="py-3 px-4 text-center bg-sky-50 rounded-t-xl">
                     <span className="text-sky-700 font-bold text-base">CareLink</span>
                   </th>
-                  <th className="py-3 px-4 text-center text-gray-400">大手ポータルA</th>
+                  <th className="py-3 px-4 text-center text-gray-500">大手ポータルA</th>
                 </tr>
               </thead>
               <tbody>
@@ -88,13 +88,13 @@ export default function SalonPage() {
                   <tr key={feature} className="border-b border-gray-100">
                     <td className="py-3 px-4 text-gray-600">{feature}</td>
                     <td className="py-3 px-4 text-center bg-sky-50 font-bold text-sky-700">{carelink}</td>
-                    <td className="py-3 px-4 text-center text-gray-400">{other}</td>
+                    <td className="py-3 px-4 text-center text-gray-500">{other}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-center text-xs text-gray-400 mt-4">※大手ポータルAは一般的な美容ポータルサイトの料金体系を参考にしています</p>
+          <p className="text-center text-xs text-gray-500 mt-4">※大手ポータルAは一般的な美容ポータルサイトの料金体系を参考にしています</p>
         </div>
       </section>
 
@@ -157,7 +157,7 @@ export default function SalonPage() {
               <span key={t} className="px-4 py-2 bg-white border border-gray-200 rounded-full text-sm text-gray-700">{t}</span>
             ))}
           </div>
-          <p className="text-gray-400 text-xs mt-4">その他の業種もご相談ください</p>
+          <p className="text-gray-500 text-xs mt-4">その他の業種もご相談ください</p>
         </div>
       </section>
 
@@ -174,12 +174,12 @@ export default function SalonPage() {
             ].map((item) => (
               <div key={item.q} className="bg-white rounded-xl p-5 shadow-sm">
                 <p className="text-xs text-gray-500 mb-1">{item.q}</p>
-                <p className="text-2xl font-bold text-sky-600">{item.v}</p>
-                <p className="text-xs text-gray-400 mt-1">{item.sub}</p>
+                <p className="text-2xl font-bold text-sky-700">{item.v}</p>
+                <p className="text-xs text-gray-500 mt-1">{item.sub}</p>
               </div>
             ))}
           </div>
-          <Link href="/salon/cases" className="inline-flex items-center gap-2 text-sky-600 font-bold hover:underline">
+          <Link href="/salon/cases" className="inline-flex items-center gap-2 text-sky-700 font-bold hover:underline">
             詳しい事例を見る →
           </Link>
         </div>
