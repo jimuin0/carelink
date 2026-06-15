@@ -121,7 +121,7 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
             type="button"
             onClick={handleSubmit}
             disabled={loading}
-            className="w-full py-2 bg-sky-500 text-white rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50"
+            className="w-full py-2 bg-sky-600 text-white rounded-lg text-sm font-medium hover:bg-sky-700 disabled:opacity-50"
           >
             {loading ? '送信中...' : '送信する'}
           </button>

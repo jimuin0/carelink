@@ -105,7 +105,7 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
               <option key={p} value={p}>{p}</option>
             ))}
           </select>
-          <button type="submit" className="text-sm bg-sky-500 hover:bg-sky-600 text-white px-4 py-2 rounded-lg font-medium">
+          <button type="submit" className="text-sm bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 rounded-lg font-medium">
             絞り込む
           </button>
         </form>

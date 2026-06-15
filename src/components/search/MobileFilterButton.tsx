@@ -11,7 +11,7 @@ export default function MobileFilterButton({ filterCount }: { filterCount: numbe
       <div className="lg:hidden fixed bottom-20 right-4 z-30">
         <button
           type="button"
-          className="flex items-center gap-2 px-4 py-3 bg-sky-500 text-white rounded-full shadow-lg hover:bg-sky-600 transition-colors"
+          className="flex items-center gap-2 px-4 py-3 bg-sky-600 text-white rounded-full shadow-lg hover:bg-sky-700 transition-colors"
           onClick={() => {
             const dialog = document.getElementById('mobile-filter-dialog');
             if (dialog) (dialog as HTMLDialogElement).showModal();

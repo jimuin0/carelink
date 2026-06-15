@@ -238,7 +238,7 @@ export default function NewPlatformBlogPage() {
           type="button"
           onClick={handleSave}
           disabled={saving || !title || !slug}
-          className="flex-1 px-4 py-2.5 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium disabled:opacity-50"
+          className="flex-1 px-4 py-2.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium disabled:opacity-50"
         >
           {saving ? '保存中...' : isPublished ? '公開して保存' : '下書き保存'}
         </button>

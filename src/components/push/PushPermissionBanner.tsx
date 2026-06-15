@@ -82,7 +82,7 @@ export default function PushPermissionBanner() {
               type="button"
               onClick={handleSubscribe}
               disabled={subscribing}
-              className="px-4 py-1.5 bg-sky-500 text-white text-xs font-bold rounded-lg hover:bg-sky-600 transition-colors"
+              className="px-4 py-1.5 bg-sky-600 text-white text-xs font-bold rounded-lg hover:bg-sky-700 transition-colors"
             >
               {subscribing ? '設定中...' : '通知を許可'}
             </button>

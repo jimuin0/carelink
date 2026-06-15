@@ -295,7 +295,7 @@ export default function EditPlatformBlogPage(props: Props) {
           type="button"
           onClick={handleSave}
           disabled={saving || !title || !slug}
-          className="px-6 py-2.5 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium disabled:opacity-50"
+          className="px-6 py-2.5 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium disabled:opacity-50"
         >
           {saving ? '保存中...' : '保存'}
         </button>

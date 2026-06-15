@@ -102,7 +102,7 @@ export default function ReferralPage() {
             <button
               type="button"
               onClick={copyCode}
-              className="px-4 py-3 rounded-xl bg-sky-500 text-white text-sm font-bold hover:bg-sky-600 transition-colors shrink-0"
+              className="px-4 py-3 rounded-xl bg-sky-600 text-white text-sm font-bold hover:bg-sky-700 transition-colors shrink-0"
             >
               {copied ? 'コピー済み' : 'コピー'}
             </button>
@@ -147,7 +147,7 @@ export default function ReferralPage() {
               type="button"
               onClick={applyCode}
               disabled={!inputCode.trim() || applying}
-              className="px-5 py-2.5 rounded-xl bg-sky-500 text-white text-sm font-bold hover:bg-sky-600 disabled:opacity-50 transition-colors shrink-0"
+              className="px-5 py-2.5 rounded-xl bg-sky-600 text-white text-sm font-bold hover:bg-sky-700 disabled:opacity-50 transition-colors shrink-0"
             >
               {applying ? '適用中...' : '適用'}
             </button>

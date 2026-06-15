@@ -245,7 +245,7 @@ export default function AdminQAPage() {
                     <button
                       type="button"
                       onClick={() => { setAnsweringId(qa.id); setAnswerText(qa.answer || ''); }}
-                      className="text-xs bg-sky-500 text-white px-3 py-1.5 rounded-lg hover:bg-sky-600 transition-colors"
+                      className="text-xs bg-sky-600 text-white px-3 py-1.5 rounded-lg hover:bg-sky-700 transition-colors"
                     >
                       回答する
                     </button>

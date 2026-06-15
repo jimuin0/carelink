@@ -260,7 +260,7 @@ export default async function JobDetailPage(props: Props) {
         <div className="px-4 sm:px-6 py-6 border-t border-gray-100">
           <Link
             href={`/facility/${f.slug}#contact-section`}
-            className="block w-full text-center bg-sky-500 hover:bg-sky-600 text-white font-bold py-4 rounded-xl transition-colors"
+            className="block w-full text-center bg-sky-600 hover:bg-sky-700 text-white font-bold py-4 rounded-xl transition-colors"
           >
             この求人に応募する
           </Link>

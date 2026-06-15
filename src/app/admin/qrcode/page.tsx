@@ -104,7 +104,7 @@ export default function AdminQrCodePage() {
                 <button
                   type="button"
                   onClick={handleDownload}
-                  className="flex-1 px-4 py-2 bg-sky-500 text-white text-sm font-bold rounded-lg hover:bg-sky-600 transition-colors"
+                  className="flex-1 px-4 py-2 bg-sky-600 text-white text-sm font-bold rounded-lg hover:bg-sky-700 transition-colors"
                 >
                   PNG保存
                 </button>

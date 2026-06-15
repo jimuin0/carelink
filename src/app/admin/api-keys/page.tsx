@@ -173,7 +173,7 @@ export default function ApiKeysPage() {
           type="button"
           onClick={handleCreate}
           disabled={creating || !newKeyName.trim() || selectedScopes.length === 0}
-          className="px-5 py-2.5 bg-sky-500 text-white rounded-lg font-bold text-sm hover:bg-sky-600 disabled:opacity-50 transition-colors"
+          className="px-5 py-2.5 bg-sky-600 text-white rounded-lg font-bold text-sm hover:bg-sky-700 disabled:opacity-50 transition-colors"
         >
           {creating ? '作成中...' : 'APIキーを発行する'}
         </button>
