@@ -55,6 +55,19 @@
       "rules": {
         "carelink-safety/no-bare-sentry-capture": "off"
       }
+    },
+    {
+      "files": ["src/app/admin/**/*.tsx"],
+      "excludedFiles": ["**/__tests__/**"],
+      "rules": {
+        "no-restricted-syntax": [
+          "error",
+          {
+            "selector": "JSXOpeningElement[name.name='table']",
+            "message": "管理ページで生の <table> は使わず @/components/admin/SbUi の <SbTable> を使ってください（一覧テーブルの見た目・横スクロール挙動を統一・単一ソース化するため）。"
+          }
+        ]
+      }
     }
   ]
 }

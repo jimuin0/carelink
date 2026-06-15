@@ -5,6 +5,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import BulkActions from './BulkActions';
 import { jstMonthStartIso } from '@/lib/admin-date';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
 export const dynamic = 'force-dynamic';
@@ -145,63 +146,59 @@ export default async function ChainManagementPage() {
         <div className="px-4 py-3 border-b border-gray-100">
           <h2 className="font-bold text-sm">施設別パフォーマンス</h2>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">施設名</th>
-                <th className="text-left px-4 py-2.5 text-xs text-gray-500 font-medium">エリア</th>
-                <th className="text-center px-3 py-2.5 text-xs text-gray-500 font-medium">公開</th>
-                <th className="text-right px-3 py-2.5 text-xs text-gray-500 font-medium">今月予約</th>
-                <th className="text-right px-3 py-2.5 text-xs text-gray-500 font-medium">累計予約</th>
-                <th className="text-right px-3 py-2.5 text-xs text-gray-500 font-medium">口コミ</th>
-                <th className="text-right px-3 py-2.5 text-xs text-gray-500 font-medium">評価</th>
-                <th className="text-right px-3 py-2.5 text-xs text-gray-500 font-medium">NPS</th>
-                <th className="px-4 py-2.5"></th>
+        <SbTable>
+          <SbThead>
+            <SbTh>施設名</SbTh>
+            <SbTh>エリア</SbTh>
+            <SbTh align="center">公開</SbTh>
+            <SbTh align="right">今月予約</SbTh>
+            <SbTh align="right">累計予約</SbTh>
+            <SbTh align="right">口コミ</SbTh>
+            <SbTh align="right">評価</SbTh>
+            <SbTh align="right">NPS</SbTh>
+            <SbTh />
+          </SbThead>
+          <SbTbody>
+            {stats.map((f) => (
+              <tr key={f.id} className="hover:bg-gray-50/50">
+                <SbTd>
+                  <Link href={`/admin?fid=${f.id}`} className="font-medium text-gray-800 hover:text-sky-600 transition-colors">
+                    {f.name}
+                  </Link>
+                </SbTd>
+                <SbTd className="text-gray-500 text-xs">{f.prefecture} {f.city}</SbTd>
+                <SbTd align="center">
+                  <span className={`inline-block w-2 h-2 rounded-full ${f.is_published ? 'bg-green-500' : 'bg-gray-300'}`} />
+                </SbTd>
+                <SbTd align="right" className="font-medium text-gray-800">{f.monthly_bookings}</SbTd>
+                <SbTd align="right" className="text-gray-500">{f.booking_count.toLocaleString()}</SbTd>
+                <SbTd align="right" className="text-gray-500">{f.review_count}</SbTd>
+                <SbTd align="right">
+                  {f.review_count > 0 ? (
+                    <span className="text-amber-500 font-medium">
+                      ★{f.rating_avg.toFixed(1)}
+                    </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </SbTd>
+                <SbTd align="right">
+                  {f.nps_score !== null ? (
+                    <span className={`font-medium ${f.nps_score >= 50 ? 'text-green-600' : f.nps_score >= 0 ? 'text-yellow-600' : 'text-red-500'}`}>
+                      {f.nps_score > 0 ? '+' : ''}{f.nps_score}
+                    </span>
+                  ) : (
+                    <span className="text-gray-300">—</span>
+                  )}
+                </SbTd>
+                <SbTd>
+                  <Link href={`/facility/${f.slug}`} target="_blank" rel="noopener noreferrer"
+                    className="text-xs text-sky-600 hover:underline">公開ページ →</Link>
+                </SbTd>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
-              {stats.map((f) => (
-                <tr key={f.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-3">
-                    <Link href={`/admin?fid=${f.id}`} className="font-medium text-gray-800 hover:text-sky-600 transition-colors">
-                      {f.name}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-3 text-gray-500 text-xs">{f.prefecture} {f.city}</td>
-                  <td className="px-3 py-3 text-center">
-                    <span className={`inline-block w-2 h-2 rounded-full ${f.is_published ? 'bg-green-500' : 'bg-gray-300'}`} />
-                  </td>
-                  <td className="px-3 py-3 text-right font-medium text-gray-800">{f.monthly_bookings}</td>
-                  <td className="px-3 py-3 text-right text-gray-500">{f.booking_count.toLocaleString()}</td>
-                  <td className="px-3 py-3 text-right text-gray-500">{f.review_count}</td>
-                  <td className="px-3 py-3 text-right">
-                    {f.review_count > 0 ? (
-                      <span className="text-amber-500 font-medium">
-                        ★{f.rating_avg.toFixed(1)}
-                      </span>
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    {f.nps_score !== null ? (
-                      <span className={`font-medium ${f.nps_score >= 50 ? 'text-green-600' : f.nps_score >= 0 ? 'text-yellow-600' : 'text-red-500'}`}>
-                        {f.nps_score > 0 ? '+' : ''}{f.nps_score}
-                      </span>
-                    ) : (
-                      <span className="text-gray-300">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    <Link href={`/facility/${f.slug}`} target="_blank" rel="noopener noreferrer"
-                      className="text-xs text-sky-600 hover:underline">公開ページ →</Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            ))}
+          </SbTbody>
+        </SbTable>
       </div>
 
       {/* 一括操作 */}

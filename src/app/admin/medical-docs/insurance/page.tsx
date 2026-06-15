@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SbTable, SbTbody } from '@/components/admin/SbUi';
 
 const TREATMENTS = ['鍼灸治療', '灸治療', '鍼治療', 'マッサージ', '変形徒手矯正術'];
 const DISEASES = ['神経痛', '腰痛症', '頸腕症候群', '五十肩', '関節リウマチ', '頸椎捻挫後遺症', 'その他'];
@@ -226,8 +227,8 @@ export default function InsurancePage() {
 
         <p className="text-right text-sm mb-4">申請日: {today}</p>
 
-        <table className="w-full border-collapse text-sm mb-4 print-table">
-          <tbody>
+        <SbTable className="border-collapse mb-4 print-table">
+          <SbTbody>
             <tr>
               <th className="bg-gray-50 w-32 text-left">患者氏名</th>
               <td>{form.patient_name} {form.patient_kana && `（${form.patient_kana}）`}</td>
@@ -294,8 +295,8 @@ export default function InsurancePage() {
                 <td colSpan={3}>{form.notes}</td>
               </tr>
             )}
-          </tbody>
-        </table>
+          </SbTbody>
+        </SbTable>
 
         <div className="mt-8 flex justify-between items-end">
           <div className="text-xs text-gray-500">

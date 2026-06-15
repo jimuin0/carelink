@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SbTable, SbTbody } from '@/components/admin/SbUi';
 
 interface FormState {
   // 患者情報
@@ -228,8 +229,8 @@ export default function ReferralPage() {
           下記の患者様をご紹介申し上げます。ご高診のほどよろしくお願い申し上げます。
         </p>
 
-        <table className="w-full border-collapse text-sm mb-4" style={{ borderCollapse: 'collapse' }}>
-          <tbody>
+        <SbTable className="border-collapse mb-4">
+          <SbTbody>
             <tr style={{ border: '1px solid #ccc' }}>
               <th style={{ border: '1px solid #ccc', background: '#f5f5f5', padding: '6px 10px', width: '130px', textAlign: 'left' }}>患者氏名</th>
               <td style={{ border: '1px solid #ccc', padding: '6px 10px' }}>
@@ -277,8 +278,8 @@ export default function ReferralPage() {
                 <td colSpan={3} style={{ border: '1px solid #ccc', padding: '6px 10px', whiteSpace: 'pre-wrap' }}>{form.notes}</td>
               </tr>
             )}
-          </tbody>
-        </table>
+          </SbTbody>
+        </SbTable>
 
         <div className="mt-8 flex justify-end">
           <div className="text-sm text-right space-y-1">

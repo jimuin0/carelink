@@ -1,6 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,37 +60,35 @@ export default async function PlatformBlogPage() {
             <Link href="/admin/platform-blog/new" className="text-sm text-sky-600 hover:underline">最初の記事を作成する</Link>
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 text-xs text-gray-500 border-b">
-              <tr>
-                <th className="text-left px-4 py-3 font-medium">タイトル</th>
-                <th className="text-left px-4 py-3 font-medium hidden sm:table-cell">カテゴリ</th>
-                <th className="text-left px-4 py-3 font-medium hidden md:table-cell">最終更新</th>
-                <th className="text-left px-4 py-3 font-medium">ステータス</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-50">
+          <SbTable>
+            <SbThead>
+              <SbTh>タイトル</SbTh>
+              <SbTh className="hidden sm:table-cell">カテゴリ</SbTh>
+              <SbTh className="hidden md:table-cell">最終更新</SbTh>
+              <SbTh>ステータス</SbTh>
+              <SbTh />
+            </SbThead>
+            <SbTbody>
               {posts.map((post) => (
                 <tr key={post.id} className="hover:bg-gray-50/50">
-                  <td className="px-4 py-3">
+                  <SbTd>
                     <p className="font-medium text-gray-800 truncate max-w-xs">{post.title}</p>
                     <p className="text-xs text-gray-400 mt-0.5 font-mono">{post.slug}</p>
-                  </td>
-                  <td className="px-4 py-3 hidden sm:table-cell">
+                  </SbTd>
+                  <SbTd className="hidden sm:table-cell">
                     <span className="text-xs bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full">{post.category}</span>
-                  </td>
-                  <td className="px-4 py-3 text-gray-400 text-xs hidden md:table-cell">
+                  </SbTd>
+                  <SbTd className="text-gray-400 text-xs hidden md:table-cell">
                     {new Date(post.updated_at).toLocaleDateString('ja-JP')}
-                  </td>
-                  <td className="px-4 py-3">
+                  </SbTd>
+                  <SbTd>
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       post.is_published ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'
                     }`}>
                       {post.is_published ? '公開中' : '下書き'}
                     </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
+                  </SbTd>
+                  <SbTd align="right">
                     <div className="flex items-center gap-2 justify-end">
                       {post.is_published && (
                         <Link href={`/blog/${post.slug}`} target="_blank" rel="noopener noreferrer" className="text-xs text-gray-400 hover:text-sky-600">
@@ -100,11 +99,11 @@ export default async function PlatformBlogPage() {
                         編集
                       </Link>
                     </div>
-                  </td>
+                  </SbTd>
                 </tr>
               ))}
-            </tbody>
-          </table>
+            </SbTbody>
+          </SbTable>
         )}
       </div>
     </div>

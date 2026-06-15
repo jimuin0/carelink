@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import Link from 'next/link';
 import type { Booking } from '@/types';
-import { SbStatusChip, SbPageHeader } from '@/components/admin/SbUi';
+import { SbStatusChip, SbPageHeader, SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
 import { isValidIsoDate, clampPage } from '@/lib/admin-date';
 import { bookingsHref } from '@/lib/admin-bookings-url';
 
@@ -94,42 +94,38 @@ export default async function AdminBookingsPage(props: Props) {
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b">
-                <tr>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">日時</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">お客様</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-500">ステータス</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-500">金額</th>
-                </tr>
-              </thead>
-              <tbody>
-                {bookings.map((booking) => {
-                  return (
-                    <tr key={booking.id} className="border-b last:border-0 hover:bg-gray-50">
-                      <td className="px-4 py-3">
-                        <Link href={`/admin/bookings/${booking.id}`} className="hover:text-primary">
-                          <p className="font-medium">{booking.booking_date}</p>
-                          <p className="text-xs text-gray-500">{booking.start_time?.slice(0, 5)}〜{booking.end_time?.slice(0, 5)}</p>
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3">
-                        <p>{booking.customer_name}</p>
-                        <p className="text-xs text-gray-400">{booking.email}</p>
-                      </td>
-                      <td className="px-4 py-3">
-                        <SbStatusChip status={booking.status} />
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {booking.total_price !== null ? `¥${booking.total_price.toLocaleString()}` : '-'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <SbTable>
+            <SbThead>
+              <SbTh>日時</SbTh>
+              <SbTh>お客様</SbTh>
+              <SbTh>ステータス</SbTh>
+              <SbTh align="right">金額</SbTh>
+            </SbThead>
+            <SbTbody>
+              {bookings.map((booking) => {
+                return (
+                  <tr key={booking.id} className="hover:bg-gray-50">
+                    <SbTd>
+                      <Link href={`/admin/bookings/${booking.id}`} className="hover:text-primary">
+                        <p className="font-medium">{booking.booking_date}</p>
+                        <p className="text-xs text-gray-500">{booking.start_time?.slice(0, 5)}〜{booking.end_time?.slice(0, 5)}</p>
+                      </Link>
+                    </SbTd>
+                    <SbTd>
+                      <p>{booking.customer_name}</p>
+                      <p className="text-xs text-gray-400">{booking.email}</p>
+                    </SbTd>
+                    <SbTd>
+                      <SbStatusChip status={booking.status} />
+                    </SbTd>
+                    <SbTd align="right">
+                      {booking.total_price !== null ? `¥${booking.total_price.toLocaleString()}` : '-'}
+                    </SbTd>
+                  </tr>
+                );
+              })}
+            </SbTbody>
+          </SbTable>
         </div>
       )}
 
