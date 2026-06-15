@@ -107,7 +107,7 @@ export default function JoinGroupBookingPage(props: { params: Promise<{ code: st
             </div>
             <h1 className="text-xl font-bold text-gray-900 mb-2">グループに参加しました！</h1>
             <p className="text-sm text-gray-500 mb-6">予約の詳細はマイページから確認できます。</p>
-            <Link href="/mypage/bookings" className="block w-full py-3 bg-sky-500 text-white rounded-xl font-bold text-center hover:bg-sky-600 transition-colors">
+            <Link href="/mypage/bookings" className="block w-full py-3 bg-sky-600 text-white rounded-xl font-bold text-center hover:bg-sky-700 transition-colors">
               マイページで確認する
             </Link>
           </div>
@@ -163,7 +163,7 @@ export default function JoinGroupBookingPage(props: { params: Promise<{ code: st
               type="button"
               onClick={handleJoin}
               disabled={joining || spotsLeft <= 0}
-              className="w-full py-3 bg-sky-500 text-white rounded-xl font-bold hover:bg-sky-600 disabled:opacity-50 transition-colors"
+              className="w-full py-3 bg-sky-600 text-white rounded-xl font-bold hover:bg-sky-700 disabled:opacity-50 transition-colors"
             >
               {joining ? '参加中...' : spotsLeft <= 0 ? '満員です' : 'このグループに参加する'}
             </button>

@@ -204,7 +204,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
             if (booking.staff_id) params.set('staff', booking.staff_id);
             router.push(`/facility/${(booking as unknown as { facility_slug?: string }).facility_slug || booking.facility_id}/booking?${params.toString()}`);
           }}
-          className="w-full mt-3 py-3 rounded-xl bg-sky-500 text-white font-bold hover:bg-sky-600 transition-colors"
+          className="w-full mt-3 py-3 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-700 transition-colors"
         >
           同じ内容で再予約する
         </button>

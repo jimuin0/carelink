@@ -228,7 +228,7 @@ export default function AdminChatPage() {
                     onClick={sendMessage}
                     disabled={!input.trim()}
                     aria-label="送信"
-                    className="shrink-0 w-10 h-10 bg-sky-500 text-white rounded-full flex items-center justify-center hover:bg-sky-600 disabled:opacity-50 transition-colors"
+                    className="shrink-0 w-10 h-10 bg-sky-600 text-white rounded-full flex items-center justify-center hover:bg-sky-700 disabled:opacity-50 transition-colors"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />

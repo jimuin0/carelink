@@ -267,7 +267,7 @@ export default function SearchFilters({ className }: { className?: string }) {
       <button
         type="button"
         onClick={applyFilters}
-        className="w-full py-2.5 bg-sky-500 hover:bg-sky-600 text-white text-sm font-bold rounded-lg transition-colors"
+        className="w-full py-2.5 bg-sky-600 hover:bg-sky-700 text-white text-sm font-bold rounded-lg transition-colors"
       >
         この条件で検索
       </button>

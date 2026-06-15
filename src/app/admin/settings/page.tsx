@@ -547,7 +547,7 @@ export default function AdminSettingsPage() {
              target="_blank" rel="noopener noreferrer" className="underline">Place ID Finder</a>
           {' '}で自店舗を検索して取得できます（「ChIJ...」から始まる文字列）
         </div>
-        <Link href="/admin/gbp" className="inline-block bg-sky-500 text-white text-sm px-5 py-2 rounded-lg hover:bg-sky-600 transition-colors">
+        <Link href="/admin/gbp" className="inline-block bg-sky-600 text-white text-sm px-5 py-2 rounded-lg hover:bg-sky-700 transition-colors">
           GBP設定・診断を開く
         </Link>
       </section>

@@ -182,7 +182,7 @@ export default function TreatmentRecordsPage() {
         <button
           type="button"
           onClick={() => { setEditRecord(null); setForm(EMPTY_FORM); setShowForm(true); }}
-          className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium"
+          className="text-sm px-4 py-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium"
         >
           + 新規記録
         </button>
@@ -280,7 +280,7 @@ export default function TreatmentRecordsPage() {
               キャンセル
             </button>
             <button type="button" onClick={handleSave} disabled={saving || !form.treated_at}
-              className="px-6 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 font-medium">
+              className="px-6 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 font-medium">
               {saving ? '保存中...' : '保存'}
             </button>
           </div>

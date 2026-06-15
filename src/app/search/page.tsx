@@ -209,7 +209,7 @@ export default async function SearchPage(props: Props) {
                   <p className="text-gray-700 font-bold mb-1">該当する施設が見つかりませんでした</p>
                   <p className="text-gray-400 text-sm mb-6">検索条件を変えて、もう一度お試しください</p>
                   <div className="flex flex-col sm:flex-row gap-3 justify-center flex-wrap">
-                    <Link href="/search" className="px-5 py-2.5 bg-sky-500 text-white rounded-lg text-sm font-bold hover:bg-sky-600 transition-colors">すべての施設を見る</Link>
+                    <Link href="/search" className="px-5 py-2.5 bg-sky-600 text-white rounded-lg text-sm font-bold hover:bg-sky-700 transition-colors">すべての施設を見る</Link>
                     {searchParams.type && (
                       <Link
                         href={`/search?${searchParams.area ? `area=${encodeURIComponent(searchParams.area)}` : ''}`}
@@ -262,7 +262,7 @@ export default async function SearchPage(props: Props) {
                   </div>
                   <Link
                     href="/salon"
-                    className="shrink-0 px-5 py-2.5 bg-sky-500 text-white text-sm font-bold rounded-lg hover:bg-sky-600 transition-colors"
+                    className="shrink-0 px-5 py-2.5 bg-sky-600 text-white text-sm font-bold rounded-lg hover:bg-sky-700 transition-colors"
                   >
                     無料で施設を掲載する
                   </Link>

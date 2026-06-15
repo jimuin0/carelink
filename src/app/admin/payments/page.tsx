@@ -183,7 +183,7 @@ export default function AdminPaymentsPage() {
             )}
 
             <button type="button" onClick={handleSave} disabled={saving}
-              className="px-5 py-2.5 bg-sky-500 text-white rounded-lg font-bold text-sm hover:bg-sky-600 disabled:opacity-50 transition-colors">
+              className="px-5 py-2.5 bg-sky-600 text-white rounded-lg font-bold text-sm hover:bg-sky-700 disabled:opacity-50 transition-colors">
               {saving ? '保存中...' : '設定を保存'}
             </button>
           </div>

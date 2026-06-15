@@ -101,7 +101,7 @@ export default async function FeatureDetailPage({ params }: Props) {
           </div>
           <Link
             href={`/search?${feature.filter_type ? `type=${encodeURIComponent(feature.filter_type)}` : ''}${feature.filter_keyword ? `&keyword=${encodeURIComponent(feature.filter_keyword)}` : ''}`}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl text-sm transition-colors whitespace-nowrap"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-sm transition-colors whitespace-nowrap"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
             サロンを探す
@@ -139,7 +139,7 @@ export default async function FeatureDetailPage({ params }: Props) {
             <div className="text-center mt-8">
               <Link
                 href={`/search?${feature.filter_type ? `type=${encodeURIComponent(feature.filter_type)}` : ''}${feature.filter_keyword ? `&keyword=${encodeURIComponent(feature.filter_keyword)}` : ''}`}
-                className="inline-flex items-center gap-2 px-8 py-3.5 bg-sky-500 hover:bg-sky-600 text-white font-bold rounded-xl text-sm transition-colors shadow-md hover:shadow-lg"
+                className="inline-flex items-center gap-2 px-8 py-3.5 bg-sky-600 hover:bg-sky-700 text-white font-bold rounded-xl text-sm transition-colors shadow-md hover:shadow-lg"
               >
                 すべての施設を見る
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>

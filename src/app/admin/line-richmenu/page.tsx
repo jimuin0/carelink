@@ -163,7 +163,7 @@ export default function LineRichMenuPage() {
         <div className="flex items-center justify-between mb-3">
           <h2 className="font-bold text-gray-800">設定JSON</h2>
           <button type="button" onClick={copyJson}
-            className="text-xs px-3 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 transition-colors font-bold">
+            className="text-xs px-3 py-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 transition-colors font-bold">
             {copied ? '✓ コピー済み' : 'JSONをコピー'}
           </button>
         </div>

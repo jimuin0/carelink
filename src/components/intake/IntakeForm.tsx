@@ -221,7 +221,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
         <button
           type="submit"
           disabled={submitting}
-          className="w-full bg-sky-500 text-white font-bold py-3 rounded-xl text-sm hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="w-full bg-sky-600 text-white font-bold py-3 rounded-xl text-sm hover:bg-sky-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {submitting ? '送信中...' : '問診票を送信する'}
         </button>

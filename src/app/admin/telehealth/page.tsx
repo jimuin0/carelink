@@ -152,7 +152,7 @@ export default function TelehealthPage() {
           <p className="text-xs text-gray-400 mt-0.5">ビデオ通話による遠隔相談・診療の管理</p>
         </div>
         <button type="button" onClick={() => setShowForm(true)}
-          className="text-sm px-4 py-1.5 bg-sky-500 text-white rounded-lg hover:bg-sky-600 font-medium">
+          className="text-sm px-4 py-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium">
           + 相談を作成
         </button>
       </div>
@@ -210,7 +210,7 @@ export default function TelehealthPage() {
           <div className="flex gap-3">
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
             <button type="button" onClick={handleCreate} disabled={saving || !form.scheduled_at}
-              className="px-6 py-2 text-sm bg-sky-500 text-white rounded-lg hover:bg-sky-600 disabled:opacity-50 font-medium">
+              className="px-6 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 font-medium">
               {saving ? '保存中...' : '作成'}
             </button>
           </div>
@@ -269,7 +269,7 @@ export default function TelehealthPage() {
                 )}
                 {s.status === 'in_progress' && (
                   <button type="button" onClick={() => updateStatus(s.id, 'completed')}
-                    className="text-xs bg-sky-500 text-white px-3 py-1 rounded hover:bg-sky-600 shrink-0">完了</button>
+                    className="text-xs bg-sky-600 text-white px-3 py-1 rounded hover:bg-sky-700 shrink-0">完了</button>
                 )}
               </div>
             </div>

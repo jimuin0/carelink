@@ -111,7 +111,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
               type="button"
               onClick={handleSubmit}
               disabled={submitting || !question.trim()}
-              className="bg-sky-500 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-600 transition-colors disabled:opacity-50"
+              className="bg-sky-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors disabled:opacity-50"
             >
               {submitting ? '送信中...' : '質問する'}
             </button>

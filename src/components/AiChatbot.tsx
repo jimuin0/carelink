@@ -155,7 +155,7 @@ export default function AiChatbot() {
               onClick={() => sendMessage(input)}
               disabled={!input.trim() || loading}
               aria-label="送信"
-              className="shrink-0 w-9 h-9 bg-sky-500 text-white rounded-full flex items-center justify-center hover:bg-sky-600 disabled:opacity-40 transition-colors"
+              className="shrink-0 w-9 h-9 bg-sky-600 text-white rounded-full flex items-center justify-center hover:bg-sky-700 disabled:opacity-40 transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
@@ -170,7 +170,7 @@ export default function AiChatbot() {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-label={open ? 'チャットを閉じる' : 'AIアシスタントに質問する'}
-        className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-sky-500 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-sky-600 transition-all active:scale-95"
+        className="fixed bottom-4 right-4 z-50 w-14 h-14 bg-sky-600 text-white rounded-full shadow-lg flex items-center justify-center hover:bg-sky-700 transition-all active:scale-95"
       >
         {open ? (
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -58,7 +58,7 @@ const PLANS = [
     badge: 'おすすめ',
     color: 'border-sky-400 ring-2 ring-sky-300',
     headerColor: 'bg-sky-500 text-white',
-    buttonClass: 'bg-sky-500 text-white hover:bg-sky-600',
+    buttonClass: 'bg-sky-600 text-white hover:bg-sky-700',
     buttonLabel: '14日間無料体験',
     buttonHref: '/contact?plan=standard',
     description: '成長中のサロン・チェーン店向け',
@@ -247,7 +247,7 @@ export default function PremiumPage() {
           <p className="text-gray-600 text-sm mb-6">フリープランで使い心地を確かめてから、プレミアムにアップグレードできます。</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
             <Link href="/register"
-              className="px-6 py-3 bg-sky-500 text-white font-bold rounded-xl hover:bg-sky-600 transition-colors">
+              className="px-6 py-3 bg-sky-600 text-white font-bold rounded-xl hover:bg-sky-700 transition-colors">
               無料で施設を掲載する
             </Link>
             <Link href="/contact?plan=premium"

@@ -264,7 +264,7 @@ export default function NewslettersPage() {
                           <button
                             type="button"
                             onClick={() => handleAction(c.id, 'schedule')}
-                            className="text-xs bg-blue-500 text-white px-3 py-1 rounded-lg hover:bg-blue-600 transition-colors"
+                            className="text-xs bg-sky-600 text-white px-3 py-1 rounded-lg hover:bg-sky-700 transition-colors"
                           >
                             予約配信
                           </button>
