@@ -12,11 +12,16 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { isValidIsoDate } from '@/lib/date-utils';
+import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 
 const CreateSchema = z.object({
   facility_id: z.string().uuid(),
   // 形式が合っていても 2026-02-30 等の不在日は regex を通る。DATE 列が拒否し 500 になる前に弾く。
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => isValidIsoDate(d), '有効な日付を入力してください'),
+  // また個人予約(bookingSchema)と同様に過去日・1年超を拒否する（DB に日付境界の CHECK は無く素通りするため）。
+  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+    .refine((d) => isValidIsoDate(d), '有効な日付を入力してください')
+    .refine((d) => d >= getTodayString(), '過去の日付は指定できません')
+    .refine((d) => d <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   menu_id: z.string().uuid().optional(),

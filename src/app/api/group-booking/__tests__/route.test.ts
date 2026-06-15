@@ -84,7 +84,7 @@ function makeRequest(body: object, ip = '192.168.1.1') {
 const FACILITY_UUID = '11111111-1111-1111-1111-111111111111';
 const validGroupBooking = {
   facility_id: FACILITY_UUID,
-  booking_date: '2026-05-01',
+  booking_date: '2027-04-01', // 未来かつ +1年以内（個人予約 bookingSchema のテストと同じ基準日）
   start_time: '10:00',
   end_time: '11:00',
   total_members: 4,
@@ -149,6 +149,19 @@ describe('POST /api/group-booking', () => {
   test('実在しない暦日 booking_date（2027-02-30）→ 400（regex通過後の実在日検証・回帰防止）', async () => {
     // 旧コードは regex のみで通過し DATE 列拒否の 500 になっていた
     const res = await POST(makeRequest({ ...validGroupBooking, booking_date: '2027-02-30' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('過去日 booking_date（2020-01-01）→ 400（個人予約と同一の境界検証・回帰防止）', async () => {
+    // 旧コードは境界検証が無く過去日のグループ予約を作成・保存できていた（DB にも CHECK 無し）
+    const res = await POST(makeRequest({ ...validGroupBooking, booking_date: '2020-01-01' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('1年超の未来日 booking_date（2030-01-01）→ 400（上限境界・回帰防止）', async () => {
+    const res = await POST(makeRequest({ ...validGroupBooking, booking_date: '2030-01-01' }) as any);
 
     expect(res.status).toBe(400);
   });
@@ -283,7 +296,7 @@ const VALID_STAFF_UUID = 'ac85dabf-1359-4ba0-bbea-7117a530db04';
 
 const validGroupBookingForSuccess = {
   facility_id: VALID_FACILITY_UUID,
-  booking_date: '2026-05-01',
+  booking_date: '2027-04-01', // 未来かつ +1年以内（境界検証追加に伴い過去日 → 未来日へ）
   start_time: '10:00',
   end_time: '11:00',
   total_members: 4,
