@@ -9,20 +9,15 @@ import { getTodayString } from './validations-booking';
  * あった（JST 0:00〜8:59 はサーバ UTC ではまだ前日）。独自実装を禁止しこの関数へ統一する。
  */
 
+/**
+ * 実在日検証は date-utils（最下層）に集約。validations-booking からも循環依存なく
+ * 参照できるよう独立させてある。既存の `@/lib/admin-date` 経由の import を維持するため再エクスポートする。
+ */
+export { isValidIsoDate } from './date-utils';
+
 /** JST(UTC+9) の今日 YYYY-MM-DD。実装は getTodayString に集約（単一ソース）。 */
 export function todayJst(): string {
   return getTodayString();
-}
-
-/**
- * YYYY-MM-DD が「形式が正しく、かつ実在する暦日」であれば true。
- * 正規表現は形式しか見ず 2026-02-30 等の不正日を通してしまう（JS の ISO パースは
- * 2026-02-30 を 2026-03-02 に黙ってロールオーバーする）ため、round-trip で実在性を検証する。
- */
-export function isValidIsoDate(value: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const parsed = new Date(`${value}T00:00:00Z`);
-  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 }
 
 /**

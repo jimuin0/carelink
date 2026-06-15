@@ -146,6 +146,13 @@ describe('POST /api/group-booking', () => {
     expect(res.status).toBe(400);
   });
 
+  test('実在しない暦日 booking_date（2027-02-30）→ 400（regex通過後の実在日検証・回帰防止）', async () => {
+    // 旧コードは regex のみで通過し DATE 列拒否の 500 になっていた
+    const res = await POST(makeRequest({ ...validGroupBooking, booking_date: '2027-02-30' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
   test('missing start_time → 400', async () => {
     const res = await POST(makeRequest({ ...validGroupBooking, start_time: undefined }) as any);
 

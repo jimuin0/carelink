@@ -31,6 +31,17 @@ describe('bookingSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  test('booking_date が実在しない暦日（2027-02-30）はエラー（regex通過後の実在日検証・回帰防止）', () => {
+    // 2027-02-30 は未来かつ範囲内なので日付境界 refine は通り、実在日検証だけが弾く。
+    // 旧コードは regex のみで通過し DATE 列拒否の 500 になっていた。
+    const result = bookingSchema.safeParse({ ...validBooking, booking_date: '2027-02-30' });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msg = result.error.issues.find((i) => i.path[0] === 'booking_date')?.message;
+      expect(msg).toBe('有効な日付を入力してください');
+    }
+  });
+
   test('customer_nameが空だとエラー', () => {
     const result = bookingSchema.safeParse({ ...validBooking, customer_name: '' });
     expect(result.success).toBe(false);
