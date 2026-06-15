@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import { SbInput } from '@/components/admin/SbUi';
 
 function sanitizeUrl(url: string): string {
   const trimmed = url.trim();
@@ -89,7 +90,7 @@ export default function NewBlogPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="blog-title" className="form-label">タイトル <span className="text-red-500">*</span></label>
-          <input id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} className="form-input" maxLength={200} />
+          <SbInput id="blog-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
         </div>
         <div>
           <label htmlFor="blog-content" className="form-label">

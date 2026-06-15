@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 export default function EditStaffPage(props: { params: Promise<{ id: string }> }) {
@@ -109,11 +110,11 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="staff-name" className="form-label">名前 <span className="text-red-500">*</span></label>
-          <input id="staff-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" maxLength={50} />
+          <SbInput id="staff-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={50} />
         </div>
         <div>
           <label htmlFor="staff-position" className="form-label">役職</label>
-          <input id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} className="form-input" placeholder="店長、スタイリスト等" maxLength={50} />
+          <SbInput id="staff-position" value={position} onChange={(e) => setPosition(e.target.value)} placeholder="店長、スタイリスト等" maxLength={50} />
         </div>
         <div>
           <label htmlFor="staff-bio" className="form-label">自己紹介</label>
@@ -121,16 +122,16 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         </div>
         <div>
           <label htmlFor="staff-specialties" className="form-label">得意分野（カンマ区切り）</label>
-          <input id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} className="form-input" placeholder="カット, カラー, パーマ" maxLength={200} />
+          <SbInput id="staff-specialties" value={specialties} onChange={(e) => setSpecialties(e.target.value)} placeholder="カット, カラー, パーマ" maxLength={200} />
         </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="staff-years" className="form-label">経験年数</label>
-            <input id="staff-years" type="number" value={yearsExperience} onChange={(e) => setYearsExperience(e.target.value)} className="form-input" />
+            <SbInput id="staff-years" type="number" value={yearsExperience} onChange={(e) => setYearsExperience(e.target.value)} />
           </div>
           <div>
             <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
-            <input id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="form-input" maxLength={200} />
+            <SbInput id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} maxLength={200} />
           </div>
         </div>
 
@@ -139,11 +140,10 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
           <div className="space-y-3">
             <div>
               <label htmlFor="staff-lw-channel" className="form-label">LINE Works チャンネルID</label>
-              <input
+              <SbInput
                 id="staff-lw-channel"
                 value={lineWorksChannelId}
                 onChange={(e) => setLineWorksChannelId(e.target.value)}
-                className="form-input"
                 placeholder="例: 12345678901234567"
               />
               <p className="text-xs text-gray-400 mt-1">LINE Works 管理コンソールのBot設定から確認できます</p>

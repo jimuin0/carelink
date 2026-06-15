@@ -8,7 +8,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
-import { SbPageHeader, SbBadge } from '@/components/admin/SbUi';
+import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
@@ -266,7 +266,7 @@ export default function AdminSettingsPage() {
         <div className="space-y-4">
           <div>
             <label htmlFor="fac-name" className="form-label">施設名 <span className="text-red-500">*</span></label>
-            <input id="fac-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" maxLength={100} />
+            <SbInput id="fac-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
           </div>
           <div>
             <label htmlFor="fac-type" className="form-label">業種 <span className="text-red-500">*</span></label>
@@ -277,7 +277,7 @@ export default function AdminSettingsPage() {
           </div>
           <div>
             <label htmlFor="fac-catch" className="form-label">キャッチコピー</label>
-            <input id="fac-catch" value={catchCopy} onChange={(e) => setCatchCopy(e.target.value)} className="form-input" maxLength={200} placeholder="例: 駅チカ3分！技術力No.1" />
+            <SbInput id="fac-catch" value={catchCopy} onChange={(e) => setCatchCopy(e.target.value)} maxLength={200} placeholder="例: 駅チカ3分！技術力No.1" />
           </div>
           <div>
             <label htmlFor="fac-desc" className="form-label">施設紹介</label>
@@ -293,7 +293,7 @@ export default function AdminSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="fac-zip" className="form-label">郵便番号</label>
-              <input id="fac-zip" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} className="form-input" placeholder="123-4567" maxLength={8} />
+              <SbInput id="fac-zip" value={postalCode} onChange={(e) => setPostalCode(e.target.value)} placeholder="123-4567" maxLength={8} />
             </div>
             <div>
               <label htmlFor="fac-pref" className="form-label">都道府県 <span className="text-red-500">*</span></label>
@@ -306,20 +306,20 @@ export default function AdminSettingsPage() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label htmlFor="fac-city" className="form-label">市区町村 <span className="text-red-500">*</span></label>
-              <input id="fac-city" value={city} onChange={(e) => setCity(e.target.value)} className="form-input" maxLength={50} />
+              <SbInput id="fac-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={50} />
             </div>
             <div>
               <label htmlFor="fac-addr" className="form-label">番地 <span className="text-red-500">*</span></label>
-              <input id="fac-addr" value={address} onChange={(e) => setAddress(e.target.value)} className="form-input" maxLength={100} />
+              <SbInput id="fac-addr" value={address} onChange={(e) => setAddress(e.target.value)} maxLength={100} />
             </div>
           </div>
           <div>
             <label htmlFor="fac-bldg" className="form-label">建物名・階</label>
-            <input id="fac-bldg" value={building} onChange={(e) => setBuilding(e.target.value)} className="form-input" maxLength={100} />
+            <SbInput id="fac-bldg" value={building} onChange={(e) => setBuilding(e.target.value)} maxLength={100} />
           </div>
           <div>
             <label htmlFor="fac-access" className="form-label">アクセス情報</label>
-            <input id="fac-access" value={accessInfo} onChange={(e) => setAccessInfo(e.target.value)} className="form-input" placeholder="例: 渋谷駅から徒歩3分" maxLength={200} />
+            <SbInput id="fac-access" value={accessInfo} onChange={(e) => setAccessInfo(e.target.value)} placeholder="例: 渋谷駅から徒歩3分" maxLength={200} />
           </div>
         </div>
       </section>
@@ -330,11 +330,11 @@ export default function AdminSettingsPage() {
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="fac-phone" className="form-label">電話番号</label>
-            <input id="fac-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} className="form-input" placeholder="03-1234-5678" maxLength={20} />
+            <SbInput id="fac-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="03-1234-5678" maxLength={20} />
           </div>
           <div>
             <label htmlFor="fac-web" className="form-label">Webサイト</label>
-            <input id="fac-web" type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} className="form-input" placeholder="https://" maxLength={200} />
+            <SbInput id="fac-web" type="url" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://" maxLength={200} />
           </div>
         </div>
       </section>
@@ -357,18 +357,18 @@ export default function AdminSettingsPage() {
               </label>
               {!closedDays.includes(day) ? (
                 <div className="flex items-center gap-2">
-                  <input
+                  <SbInput
                     type="time"
                     value={hours[day]?.open || '09:00'}
                     onChange={(e) => updateHour(day, 'open', e.target.value)}
-                    className="form-input !py-1.5 !px-2 text-sm w-32"
+                    className="!py-1.5 !px-2 text-sm w-32"
                   />
                   <span className="text-gray-400">〜</span>
-                  <input
+                  <SbInput
                     type="time"
                     value={hours[day]?.close || '19:00'}
                     onChange={(e) => updateHour(day, 'close', e.target.value)}
-                    className="form-input !py-1.5 !px-2 text-sm w-32"
+                    className="!py-1.5 !px-2 text-sm w-32"
                   />
                 </div>
               ) : (
@@ -379,7 +379,7 @@ export default function AdminSettingsPage() {
         </div>
         <div className="mt-4">
           <label htmlFor="fac-holiday" className="form-label">定休日（補足）</label>
-          <input id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} className="form-input" placeholder="例: 第2・4月曜、年末年始" maxLength={100} />
+          <SbInput id="fac-holiday" value={regularHoliday} onChange={(e) => setRegularHoliday(e.target.value)} placeholder="例: 第2・4月曜、年末年始" maxLength={100} />
         </div>
       </section>
 
@@ -428,11 +428,11 @@ export default function AdminSettingsPage() {
         <div className="grid grid-cols-2 gap-4 mb-4">
           <div>
             <label htmlFor="fac-seats" className="form-label">席数</label>
-            <input id="fac-seats" type="number" min={0} value={seatCount} onChange={(e) => setSeatCount(e.target.value)} className="form-input" />
+            <SbInput id="fac-seats" type="number" min={0} value={seatCount} onChange={(e) => setSeatCount(e.target.value)} />
           </div>
           <div>
             <label htmlFor="fac-staff-count" className="form-label">スタッフ数</label>
-            <input id="fac-staff-count" type="number" min={0} value={staffCount} onChange={(e) => setStaffCount(e.target.value)} className="form-input" />
+            <SbInput id="fac-staff-count" type="number" min={0} value={staffCount} onChange={(e) => setStaffCount(e.target.value)} />
           </div>
         </div>
         <div className="flex items-center gap-6 mb-4">

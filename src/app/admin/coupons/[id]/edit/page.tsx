@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import { SbInput } from '@/components/admin/SbUi';
 
 export default function CouponEditPage() {
   const params = useParams();
@@ -156,7 +157,7 @@ export default function CouponEditPage() {
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>
           <label htmlFor="coupon-name" className="form-label">クーポン名 <span className="text-red-500">*</span></label>
-          <input id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} className="form-input" maxLength={100} />
+          <SbInput id="coupon-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} />
         </div>
         <div>
           <label htmlFor="coupon-desc" className="form-label">説明</label>
@@ -186,37 +187,35 @@ export default function CouponEditPage() {
             <label htmlFor="discount-val" className="form-label">
               割引値{discountType === 'fixed' ? '（円）' : '（%）※0〜100'}
             </label>
-            <input
+            <SbInput
               id="discount-val"
               type="number"
               min={0}
               max={discountType === 'percentage' ? 100 : 100000}
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
-              className="form-input"
             />
           </div>
         ) : (
           <div>
             <label htmlFor="special-price" className="form-label">特別価格（円）</label>
-            <input
+            <SbInput
               id="special-price"
               type="number"
               min={0}
               value={specialPrice}
               onChange={(e) => setSpecialPrice(e.target.value)}
-              className="form-input"
             />
           </div>
         )}
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="valid-from" className="form-label">有効開始日</label>
-            <input id="valid-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} className="form-input" />
+            <SbInput id="valid-from" type="date" value={validFrom} onChange={(e) => setValidFrom(e.target.value)} />
           </div>
           <div>
             <label htmlFor="valid-until" className="form-label">有効終了日</label>
-            <input id="valid-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} className="form-input" />
+            <SbInput id="valid-until" type="date" value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
           </div>
         </div>
         <div>
