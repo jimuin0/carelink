@@ -73,7 +73,7 @@ export async function GET(request: NextRequest) {
     const { data } = await admin
       .from('facility_card_view')
       .select('*')
-      .eq('is_published', true)
+      .eq('status', 'published')
       .order('rating_count', { ascending: false })
       .limit(limit);
     return NextResponse.json({ recommendations: data ?? [], type: 'popular' });
@@ -83,7 +83,7 @@ export async function GET(request: NextRequest) {
   let query = admin
     .from('facility_card_view')
     .select('*')
-    .eq('is_published', true);
+    .eq('status', 'published');
 
   if (topType) query = query.eq('business_type', topType);
   if (topPref) query = query.eq('prefecture', topPref);
@@ -98,7 +98,7 @@ export async function GET(request: NextRequest) {
     const { data: typeMatches } = await admin
       .from('facility_card_view')
       .select('*')
-      .eq('is_published', true)
+      .eq('status', 'published')
       .eq('business_type', topType)
       .order('rating_avg', { ascending: false })
       .limit(limit * 2);

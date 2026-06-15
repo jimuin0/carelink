@@ -161,6 +161,34 @@ test('POST: 非公開に一括変更 → 200', async () => {
   expect(res.status).toBe(200);
 });
 
+test('POST: 公開は status=published を書き込む（is_published 列は存在しない・回帰防止）', async () => {
+  const updateSpy = jest.fn().mockReturnValue({ in: jest.fn(() => Promise.resolve({ error: null })) });
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);
+    }
+    return { update: updateSpy };
+  });
+  await POST(makeRequest(validBody({ is_published: true })));
+  const payload = updateSpy.mock.calls[0][0];
+  expect(payload.status).toBe('published');
+  expect(payload).not.toHaveProperty('is_published');
+});
+
+test('POST: 非公開は status=draft を書き込む（既存 settings 単体トグルと一貫・回帰防止）', async () => {
+  const updateSpy = jest.fn().mockReturnValue({ in: jest.fn(() => Promise.resolve({ error: null })) });
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') {
+      return membershipChain([{ facility_id: FACILITY_A }, { facility_id: FACILITY_B }]);
+    }
+    return { update: updateSpy };
+  });
+  await POST(makeRequest(validBody({ is_published: false })));
+  const payload = updateSpy.mock.calls[0][0];
+  expect(payload.status).toBe('draft');
+  expect(payload).not.toHaveProperty('is_published');
+});
+
 test('POST: CSRF エラー → 403', async () => {
   const { checkCsrf } = require('@/lib/csrf');
   (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));

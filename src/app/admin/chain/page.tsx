@@ -58,7 +58,7 @@ export default async function ChainManagementPage() {
   // 施設基本情報
   const { data: facilities } = await admin
     .from('facility_profiles')
-    .select('id, name, slug, prefecture, city, is_published')
+    .select('id, name, slug, prefecture, city, status')
     .in('id', facilityIds)
     .order('name');
 
@@ -104,7 +104,7 @@ export default async function ChainManagementPage() {
       slug: f.slug,
       prefecture: f.prefecture ?? '',
       city: f.city ?? '',
-      is_published: f.is_published,
+      is_published: f.status === 'published',
       booking_count: fBookings.length,
       review_count: fReviews.length,
       rating_avg: avgRating,
