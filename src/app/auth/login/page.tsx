@@ -142,7 +142,7 @@ function LoginContent() {
           <div className="mt-4 text-center">
             <p className="text-sm text-gray-500">
               アカウントをお持ちでない方は
-              <Link href={`/auth/signup?redirect=${encodeURIComponent(redirect)}`} className="text-sky-600 hover:underline ml-1">
+              <Link href={`/auth/signup?redirect=${encodeURIComponent(redirect)}`} className="text-sky-600 underline ml-1">
                 新規登録
               </Link>
             </p>
