@@ -687,6 +687,92 @@ describe('GET /api/cron/customer-segment', () => {
       expect(mockCouponInsert).not.toHaveBeenCalled();
       expect(mockSend).not.toHaveBeenCalled();
     });
+
+    // -------------------------------------------------------------------
+    // デプロイ順序非依存フォールバック: notified_at 列が未適用（migration 前）
+    // -------------------------------------------------------------------
+    test('notified_at 列未適用(42703) + 過去クーポンあり → email,code で再取得し旧 dedup でスキップ（重複防止）', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      // 1回目(notified_at 含む select)が 42703、2回目(email,code フォールバック)が過去クーポン1件
+      // 施設を1件に絞る（gte の Once モックを 2 回ぶんで使い切るため）
+      mockFacilitiesSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'Salon 0', slug: 'salon-0' }] }),
+        }),
+      });
+      const gteMock = jest.fn()
+        .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "notified_at" does not exist' } })
+        .mockResolvedValueOnce({ data: [{ email: 'atrisk@example.com', code: 'OLDCODE' }] });
+      mockCouponSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        gte: gteMock,
+      });
+      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return {
+          select: () => mockCouponSelect(),
+          insert: (...args: any[]) => mockCouponInsert(...args),
+          update: mockUpdate,
+        };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      // フォールバック取得が走る（2回 select）
+      expect(gteMock).toHaveBeenCalledTimes(2);
+      // 過去クーポン作成済み = 送信済み扱い → クーポン再作成もメールもしない（旧来の重複防止）
+      expect(mockCouponInsert).not.toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
+      // 列未適用なので update も呼ばない
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('notified_at 列未適用(42703) + 過去クーポンなし → 新規クーポン作成しメール送信、update は呼ばない', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      // 施設を1件に絞る（gte の Once モックを 2 回ぶんで使い切るため）
+      mockFacilitiesSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          range: jest.fn().mockResolvedValue({ data: [{ id: 'fac-0', name: 'Salon 0', slug: 'salon-0' }] }),
+        }),
+      });
+      const gteMock = jest.fn()
+        .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "notified_at" does not exist' } })
+        .mockResolvedValueOnce({ data: [] }); // フォールバック: 過去クーポンなし
+      mockCouponSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        gte: gteMock,
+      });
+      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return {
+          select: () => mockCouponSelect(),
+          insert: (...args: any[]) => mockCouponInsert(...args),
+          update: mockUpdate,
+        };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      expect(gteMock).toHaveBeenCalledTimes(2);
+      // 新規顧客 → クーポン作成 + メール送信（旧来動作）
+      expect(mockCouponInsert).toHaveBeenCalled();
+      expect(mockSend).toHaveBeenCalled();
+      // 列未適用なので update は呼ばない（送信成功後も skip）
+      expect(mockUpdate).not.toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
   });
 
   test('repeat customer aggregation updates firstVisit/lastVisit/name', async () => {

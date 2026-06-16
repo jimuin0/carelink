@@ -600,4 +600,70 @@ describe('GET /api/cron/birthday-coupon', () => {
     // null の場合でも通知を試みる（空集合扱い）
     expect(sendLineText).toHaveBeenCalled();
   });
+
+  // -----------------------------------------------------------------------
+  // デプロイ順序非依存フォールバック: birthday_notifications 取得失敗（migration 未適用）
+  // -----------------------------------------------------------------------
+  test('select error（テーブル未適用）+ 初回付与 → 通知は送るが記録 insert は呼ばない（旧来動作）', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setupDefaultMocks(1, 0, true, true, []); // 初回付与（insertErr=null）
+    // notif select が error を返す（テーブル不在）
+    mockNotifSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'relation "birthday_notifications" does not exist' } }),
+      }),
+    });
+    const { Resend } = require('resend');
+    const emailSend = jest.fn().mockResolvedValue({ success: true });
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') return { select: mockProfilesSelect };
+      if (table === 'user_points') return { insert: mockPointsInsert };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    // 初回付与なので通知は送る（旧来動作と同じ＝重複なし）
+    expect(emailSend).toHaveBeenCalled();
+    expect(sendLineText).toHaveBeenCalled();
+    // テーブル未適用なので記録 insert は呼ばない
+    expect(mockNotifInsert).not.toHaveBeenCalled();
+    // 警告ログを出す
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  test('select error（テーブル未適用）+ 23505（既付与）→ 再送せずスキップ（旧来の冪等動作・重複防止）', async () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    setupDefaultMocks(1, 1, true, true, []); // user-0 が 23505
+    mockNotifSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockResolvedValue({ data: null, error: { code: '42P01', message: 'relation "birthday_notifications" does not exist' } }),
+      }),
+    });
+    const { Resend } = require('resend');
+    const emailSend = jest.fn().mockResolvedValue({ success: true });
+    Resend.mockImplementation(() => ({ emails: { send: emailSend } }));
+    (sendLineText as jest.Mock).mockClear();
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'profiles') return { select: mockProfilesSelect };
+      if (table === 'user_points') return { insert: mockPointsInsert };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      if (table === 'birthday_notifications') return { select: mockNotifSelect, insert: mockNotifInsert };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.skipped).toBeGreaterThanOrEqual(1);
+    // テーブル未適用 + 既付与 → 旧来どおりスキップ（重複送信しない）
+    expect(emailSend).not.toHaveBeenCalled();
+    expect(sendLineText).not.toHaveBeenCalled();
+    expect(mockNotifInsert).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
 });

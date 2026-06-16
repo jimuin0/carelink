@@ -74,11 +74,19 @@ export async function GET(request: Request) {
     // 当年・全プロフィールの通知送達済みチャネルを一括取得してローカル Set に展開。
     // `${userId}:${channel}` 形式のキーで O(1) 検索。
     const profileIds = profiles.map((p) => p.id);
-    const { data: existingNotifications } = await supabase
+    const { data: existingNotifications, error: notifSelErr } = await supabase
       .from('birthday_notifications')
       .select('user_id, channel')
       .eq('year', birthdayYear)
       .in('user_id', profileIds);
+    // birthday_notifications が未適用（migration 前にコードが先行デプロイ）や取得失敗時は
+    // 送達管理ができない。再送ロジックを有効にすると notifiedSet が空のまま 23505（既付与）
+    // ユーザーへ毎 run 通知を送り重複が出るため、旧来の冪等動作（23505 はスキップ）に
+    // フォールバックする。これによりデプロイ順序に依存せず重複通知を防ぐ（発症前予防）。
+    const notificationsTableReady = !notifSelErr;
+    if (notifSelErr) {
+      console.warn('[birthday-coupon] birthday_notifications 取得失敗のため再送ロジックを無効化（migration 未適用の可能性）', { code: (notifSelErr as { code?: string }).code });
+    }
     const notifiedSet = new Set(
       (existingNotifications || []).map((n) => `${n.user_id}:${n.channel}`)
     );
@@ -101,6 +109,8 @@ export async function GET(request: Request) {
         if ((insertErr as { code?: string }).code === '23505') {
           // 既付与済み: ポイントは届いている。通知未送達チャネルがあれば再送するため
           // continue せずにそのまま通知ブロックへ進む。
+          // ただし送達管理テーブルが未適用なら重複送信を招くため旧来どおりスキップ。
+          if (!notificationsTableReady) { skipped++; continue; }
         } else {
           // DB エラー: 通知も安全に送れないためスキップ。
           console.error('[birthday-coupon] points insert error:', insertErr);
@@ -131,12 +141,16 @@ export async function GET(request: Request) {
               <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
             </body></html>`,
           });
-          // 送信成功: 送達記録を追加（失敗時は記録しないため翌 run で再送される）
-          await supabase.from('birthday_notifications').insert({
-            user_id: profile.id,
-            year: birthdayYear,
-            channel: 'email',
-          });
+          // 送信成功: 送達記録を追加（失敗時は記録しないため翌 run で再送される）。
+          // テーブル未適用時は記録できないため insert を呼ばない（初回付与時のみここに到達するため
+          // 旧来動作と同じく1通だけ送信される＝重複なし）。
+          if (notificationsTableReady) {
+            await supabase.from('birthday_notifications').insert({
+              user_id: profile.id,
+              year: birthdayYear,
+              channel: 'email',
+            });
+          }
           notifiedSet.add(`${profile.id}:email`);
         } catch (err) {
           console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
@@ -157,12 +171,14 @@ export async function GET(request: Request) {
               lineLink.line_user_id,
               `🎂 ${name}様、お誕生日おめでとうございます！\n\n本日のお誕生日を記念して、${BIRTHDAY_POINTS}ポイントをプレゼントしました🎁\n\n次回の予約にぜひご利用ください！\n${SITE_URL}/mypage/points`
             );
-            // 送信成功: 送達記録を追加
-            await supabase.from('birthday_notifications').insert({
-              user_id: profile.id,
-              year: birthdayYear,
-              channel: 'line',
-            });
+            // 送信成功: 送達記録を追加（テーブル未適用時は記録できないため skip）
+            if (notificationsTableReady) {
+              await supabase.from('birthday_notifications').insert({
+                user_id: profile.id,
+                year: birthdayYear,
+                channel: 'line',
+              });
+            }
             notifiedSet.add(`${profile.id}:line`);
           } catch (err) {
             console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err });
