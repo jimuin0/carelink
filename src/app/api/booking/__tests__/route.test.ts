@@ -258,6 +258,65 @@ describe('POST /api/booking', () => {
     expect(json.error).toContain('ポイント');
   });
 
+  test('価格を超える points_used はサーバ価格にクランプして控除（過剰控除防止・回帰防止）', async () => {
+    // menu 価格 8000 に対し points_used=10000 を送る。クランプで pointsUsed=8000・請求=0 になる。
+    // 旧コードは full 10000 を p_points_used に渡し 2000pt 過剰控除していた。
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    // facility_menus 価格ルックアップ（route は chain を直接 await するため thenable にする）
+    const menuLookupResult = { data: [{ id: menuId, price: 8000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = jest.fn(() => Promise.resolve(menuLookupResult));
+    menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
+
+    const balanceChain = fluent(null);
+    balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 10000 }] })); // 残高十分
+
+    const nullChain = fluent({ data: null });
+
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({
+      select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' } })) })),
+    }));
+
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 2000 }] })); // 控除後も非負
+
+    mockRpc.mockResolvedValue({ data: 'booking-clamp-1', error: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;  // conflict check
+      if (callNum === 2) return menuChain;      // facility_menus 価格ルックアップ
+      if (callNum === 3) return balanceChain;   // user_points 残高スナップショット
+      if (callNum === 4) return nullChain;      // facility_profiles (auto-confirm)
+      if (table === 'user_points' && callNum === 5) return deductionChain; // 控除 insert
+      if (table === 'user_points') return recheckChain;                    // 再検証
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 10000, total_price: 1 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // クランプ後: p_points_used=8000（10000 ではない）, p_total_price=0
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_points_used: 8000, p_total_price: 0 })
+    );
+    // 控除 insert も 8000（-8000）でなければならない
+    expect((deductionChain.insert as jest.Mock)).toHaveBeenCalledWith(
+      expect.objectContaining({ points: -8000 })
+    );
+  });
+
   test('未認証ユーザーがポイント利用→401', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 

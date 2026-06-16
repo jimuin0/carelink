@@ -149,10 +149,14 @@ export async function POST(request: Request) {
   }
 
   // Handle points deduction
-  const pointsUsed = parsed.data.points_used || 0;
-  if (pointsUsed > 0 && !user) {
+  const requestedPoints = parsed.data.points_used || 0;
+  if (requestedPoints > 0 && !user) {
     return NextResponse.json({ error: 'ポイント利用には認証が必要です' }, { status: 401 });
   }
+  // 価格を超えるポイントは利用できない（クライアントが価格変更後の stale な points_used を送ると、
+  // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
+  // 権威的なサーバ計算価格でクランプする。serverTotalPrice 不明時のみ要求値をそのまま用いる。
+  const pointsUsed = serverTotalPrice != null ? Math.min(requestedPoints, serverTotalPrice) : requestedPoints;
   // Snapshot current balance for CAS (compare-and-swap) check later
   let pointsBalanceSnapshot = 0;
   if (pointsUsed > 0 && user) {
