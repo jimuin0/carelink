@@ -17,18 +17,22 @@ function SettingsContent() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showGcalDisconnect, setShowGcalDisconnect] = useState(false);
   const [showLineUnlink, setShowLineUnlink] = useState(false);
+  // 取得失敗時に false（＝未連携）へ化けさせると、連携済みでも「未連携」と誤表示し
+  // ユーザーが不要な再連携をしかねない。失敗は明示してエラーと未連携を区別する。
+  const [gcalError, setGcalError] = useState(false);
+  const [lineError, setLineError] = useState(false);
 
   useEffect(() => {
     fetch('/api/google-calendar')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then(setGcal)
-      .catch(() => setGcal({ connected: false }));
+      .catch(() => setGcalError(true));
 
     // LINE連携状態を確認
     fetch('/api/profile')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => setLineLinked(!!d.profile?.line_user_id))
-      .catch(() => setLineLinked(false));
+      .catch(() => setLineError(true));
   }, []);
 
   const handleConnect = async () => {
@@ -91,7 +95,9 @@ function SettingsContent() {
         <p className="text-sm text-gray-500 mb-4">
           予約をGoogleカレンダーに自動で追加・同期できます。
         </p>
-        {gcal === null ? (
+        {gcalError ? (
+          <p role="alert" className="text-red-500 text-sm">連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
+        ) : gcal === null ? (
           <div className="h-10 bg-gray-100 rounded-lg animate-pulse" />
         ) : gcal.connected ? (
           <div className="space-y-3">
@@ -133,7 +139,9 @@ function SettingsContent() {
         <p className="text-sm text-gray-500 mb-4">
           LINEアプリからの予約確認・ポイント確認・クーポン閲覧ができるようになります。
         </p>
-        {lineLinked === null ? (
+        {lineError ? (
+          <p role="alert" className="text-red-500 text-sm">連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
+        ) : lineLinked === null ? (
           <div className="h-10 bg-gray-100 rounded-lg animate-pulse" />
         ) : lineLinked ? (
           <div className="space-y-3">

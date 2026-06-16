@@ -18,6 +18,8 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [cancelling, setCancelling] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [gcalConnected, setGcalConnected] = useState(false);
+  // 連携状態の取得失敗を握り潰すと、連携済みでも非連携扱いになる。失敗は明示する。
+  const [gcalError, setGcalError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
@@ -42,7 +44,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       fetch('/api/google-calendar')
         .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
         .then((d) => setGcalConnected(d.connected && !d.isExpired))
-        .catch(() => {});
+        .catch(() => setGcalError(true));
   }, [params.id]);
 
   useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
@@ -131,7 +133,11 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       </div>
       {/* カレンダー追加 */}
       {booking && booking.booking_date && booking.start_time && (
-        <div className="flex gap-2 mt-4">
+        <div className="mt-4">
+          {gcalError && (
+            <p role="alert" className="text-red-500 text-xs mb-2">カレンダー連携状態を取得できませんでした。時間をおいて再度お試しください。</p>
+          )}
+          <div className="flex gap-2">
           {gcalConnected ? (
             <button
               type="button"
@@ -182,6 +188,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           >
             📥 iCalダウンロード
           </a>
+          </div>
         </div>
       )}
       {canCancel && (
