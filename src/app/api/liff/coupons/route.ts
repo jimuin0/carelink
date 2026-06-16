@@ -3,14 +3,16 @@
  * LIFFページ用: ログイン中ユーザーが利用できる有効なクーポン一覧を返す
  * （お気に入り施設または過去に予約した施設のクーポン）
  *
- * user_id クエリパラメータは廃止。認証セッションから取得することで
- * 他ユーザーのクーポン一覧を参照できる IDOR を防止する。
+ * 認証は他の LIFF API（points / bookings）と同一の LINE access token 方式に統一する。
+ * LIFF 文脈には Supabase の cookie セッションが無く、cookie 認証だと常に 401 になり
+ * クーポンが表示されない（/api/liff/auth はセッション cookie を張らずプロフィールを返すのみ）。
+ * user_id はクライアント入力ではなく検証済みトークン由来の line_user_id から解決し、IDOR を防ぐ。
  */
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { verifyLineAccessToken } from '@/lib/line';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
@@ -18,14 +20,43 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
   }
 
-  // Authenticate the caller — never trust a client-supplied user_id.
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // LINE access token でユーザーを認証（クライアント入力の user_id は信頼しない）。
+  const authHeader = req.headers.get('Authorization');
+  const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  if (!accessToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
 
-  const userId = user.id;
+  // ★ audience(channel)検証: /v2/profile は発行元チャネルを検証しないため、
+  //   oauth2/v2.1/verify で自社チャネルID一致を必須化する（他チャネル発行トークンでの
+  //   line_user_id 詐称＝他人クーポン一覧の IDOR 閲覧を遮断）。fail-closed。
+  const tokenCheck = await verifyLineAccessToken(accessToken);
+  if (!tokenCheck.ok) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  // LINE Profile API でトークンを検証し line_user_id を取得
+  const lineRes = await fetch('https://api.line.me/v2/profile', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!lineRes.ok) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const lineProfile = await lineRes.json() as { userId: string };
 
   const admin = createServiceRoleClient();
+
+  // line_user_id から profiles の user_id を取得
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('line_user_id', lineProfile.userId)
+    .single();
+  if (!profile) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+  const userId = profile.id;
+
   const now = new Date().toISOString();
 
   // ユーザーが予約したことのある施設IDを取得
