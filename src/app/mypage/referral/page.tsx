@@ -10,6 +10,8 @@ export default function ReferralPage() {
   const [invitedCount, setInvitedCount] = useState(0);
   const [alreadyReferred, setAlreadyReferred] = useState(false);
   const [loading, setLoading] = useState(true);
+  // 取得失敗を握り潰すと「紹介コード未発行・0人」と障害が区別不能になるため明示する
+  const [loadError, setLoadError] = useState(false);
   const [inputCode, setInputCode] = useState('');
   const [applying, setApplying] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -24,7 +26,7 @@ export default function ReferralPage() {
         setAlreadyReferred(d.already_referred ?? false);
         setLoading(false);
       })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
   const copyCode = async () => {
@@ -76,6 +78,16 @@ export default function ReferralPage() {
       <div className="space-y-4 animate-pulse">
         <div className="h-8 bg-gray-200 rounded w-1/3" />
         <div className="h-32 bg-gray-200 rounded-2xl" />
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="text-center py-12">
+        <p role="alert" className="text-red-500 text-sm">
+          招待情報の取得に失敗しました。時間をおいて再度お試しください。
+        </p>
       </div>
     );
   }

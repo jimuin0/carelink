@@ -78,6 +78,9 @@ export default function BookingChangePage() {
       const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id || ''}&date=${date}&duration=${booking.duration}`, {
         signal: controller.signal,
       });
+      // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
+      // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
+      if (!res.ok) throw new Error();
       const data = await res.json();
       if (!controller.signal.aborted) setSlots(data.slots ?? []);
     } catch (e) {
