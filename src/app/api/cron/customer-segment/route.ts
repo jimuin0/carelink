@@ -170,38 +170,55 @@ export async function GET(request: Request) {
             const atRiskEmails = atRiskCandidates.map(([email]) => email);
 
             // Batch check for existing coupons (one query instead of N)
+            // code と notified_at も取得することで、クーポン作成済み・メール未送信（notified_at IS NULL）の
+            // ケースを検出し、翌 run でメール再送できるようにする。
             const cutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
             const { data: existingCoupons } = await supabase
               .from('user_coupon_codes')
-              .select('email')
+              .select('email, code, notified_at')
               .eq('facility_id', facility.id)
               .in('email', atRiskEmails)
               .eq('reason', 'at_risk')
               .gte('created_at', cutoff30d);
 
-            const alreadySentEmails = new Set((existingCoupons || []).map((c) => c.email));
+            // メール送達済み（notified_at IS NOT NULL）→ 完全スキップ
+            const alreadyNotifiedEmails = new Set(
+              (existingCoupons || []).filter((c) => c.notified_at !== null).map((c) => c.email)
+            );
+            // クーポン作成済みだがメール未送信（notified_at IS NULL）→ クーポン再作成せずメールを再送
+            const pendingCoupons = new Map(
+              (existingCoupons || []).filter((c) => c.notified_at === null).map((c) => [c.email, c.code])
+            );
 
             for (const [email, data] of atRiskCandidates) {
-              if (alreadySentEmails.has(email)) continue;
+              if (alreadyNotifiedEmails.has(email)) continue;
 
               const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-              const couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
               const validUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-              const { error: couponErr } = await supabase.from('user_coupon_codes').insert({
-                facility_id: facility.id,
-                email,
-                code: couponCode,
-                discount_type: 'fixed',
-                discount_value: 500,
-                reason: 'at_risk',
-                valid_until: validUntil,
-              });
-              if (couponErr) {
-                console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
-                continue;
+              let couponCode: string;
+              if (pendingCoupons.has(email)) {
+                // クーポン作成済み・メール未送信 → 既存コードを再利用（重複クーポン防止）
+                couponCode = pendingCoupons.get(email)!;
+              } else {
+                // 初回: クーポンを新規作成
+                couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
+                const { error: couponErr } = await supabase.from('user_coupon_codes').insert({
+                  facility_id: facility.id,
+                  email,
+                  code: couponCode,
+                  discount_type: 'fixed',
+                  discount_value: 500,
+                  reason: 'at_risk',
+                  valid_until: validUntil,
+                });
+                if (couponErr) {
+                  console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
+                  continue;
+                }
               }
 
+              // メール送信: 成功時のみ notified_at を更新（失敗時は未更新 → 翌 run で再送される）
               await resend.emails.send({
                 from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
                 to: email,
@@ -220,6 +237,16 @@ export async function GET(request: Request) {
                   </p>
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
+              }).then(async () => {
+                // 送信成功: notified_at を記録（失敗時はスキップ → 翌 run で再送）
+                await supabase
+                  .from('user_coupon_codes')
+                  .update({ notified_at: now.toISOString() })
+                  .eq('facility_id', facility.id)
+                  .eq('email', email)
+                  .eq('reason', 'at_risk')
+                  .gte('created_at', cutoff30d)
+                  .is('notified_at', null);
               }).catch((err) => console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err }));
             }
           }

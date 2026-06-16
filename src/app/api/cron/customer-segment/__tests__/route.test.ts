@@ -460,9 +460,16 @@ describe('GET /api/cron/customer-segment', () => {
         } else if (table === 'customer_segments') {
           return { upsert: (...args: any[]) => mockUpsert(...args) };
         } else if (table === 'user_coupon_codes') {
+          // update は notified_at 記録用のチェーン: .eq().eq().eq().gte().is()
+          const makeUpdateChain = () => ({
+            eq: jest.fn().mockReturnThis(),
+            gte: jest.fn().mockReturnThis(),
+            is: jest.fn().mockResolvedValue({ error: null }),
+          });
           return {
             select: () => mockCouponSelect(),
             insert: (...args: any[]) => mockCouponInsert(...args),
+            update: jest.fn().mockReturnValue(makeUpdateChain()),
           };
         }
       });
@@ -487,26 +494,25 @@ describe('GET /api/cron/customer-segment', () => {
       expect(mockSend).toHaveBeenCalled();
     });
 
-    test('alreadySentEmails.has(email) → skip coupon insert and email', async () => {
-      // Override: existing coupon found for this email
+    test('alreadyNotifiedEmails（notified_at あり）→ クーポン作成・メール送信をスキップ', async () => {
+      // notified_at が非 null → alreadyNotifiedEmails に含まれ完全スキップ
       mockCouponSelect = jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnThis(),
         in: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockResolvedValue({ data: [{ email: 'atrisk@example.com' }] }),
+        gte: jest.fn().mockResolvedValue({
+          data: [{ email: 'atrisk@example.com', code: 'BACK123', notified_at: '2026-03-01T00:00:00Z' }],
+        }),
       });
+      const makeUpdateChain = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
       mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'facility_profiles') {
-          return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
-        } else if (table === 'bookings') {
-          return mockBookingsSelect();
-        } else if (table === 'customer_segments') {
-          return { upsert: (...args: any[]) => mockUpsert(...args) };
-        } else if (table === 'user_coupon_codes') {
-          return {
-            select: () => mockCouponSelect(),
-            insert: (...args: any[]) => mockCouponInsert(...args),
-          };
-        }
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return {
+          select: () => mockCouponSelect(),
+          insert: (...args: any[]) => mockCouponInsert(...args),
+          update: jest.fn().mockReturnValue(makeUpdateChain()),
+        };
       });
 
       const res = await GET(makeRequest() as any);
@@ -514,6 +520,94 @@ describe('GET /api/cron/customer-segment', () => {
       expect(res.status).toBe(200);
       expect(mockCouponInsert).not.toHaveBeenCalled();
       expect(mockSend).not.toHaveBeenCalled();
+    });
+
+    test('クーポン作成済み・notified_at IS NULL → 既存コードを再利用してメール再送（重複クーポン作成なし）', async () => {
+      // pendingCoupons: クーポンは存在するが notified_at = null → email retry
+      mockCouponSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        gte: jest.fn().mockResolvedValue({
+          data: [{ email: 'atrisk@example.com', code: 'EXISTCD', notified_at: null }],
+        }),
+      });
+      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return {
+          select: () => mockCouponSelect(),
+          insert: (...args: any[]) => mockCouponInsert(...args),
+          update: mockUpdate,
+        };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      // 既存クーポンを再利用 → insert は呼ばない
+      expect(mockCouponInsert).not.toHaveBeenCalled();
+      // メールは送信する
+      expect(mockSend).toHaveBeenCalled();
+      // メール中に既存コード EXISTCD が含まれる
+      const htmlArg = mockSend.mock.calls[0][0].html;
+      expect(htmlArg).toContain('EXISTCD');
+    });
+
+    test('メール送信成功 → notified_at を update する', async () => {
+      const mockUpdate = jest.fn();
+      const updateChain = { eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) };
+      mockUpdate.mockReturnValue(updateChain);
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return {
+          select: () => mockCouponSelect(),
+          insert: (...args: any[]) => mockCouponInsert(...args),
+          update: mockUpdate,
+        };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      expect(mockSend).toHaveBeenCalled();
+      // 送信成功後に notified_at を update する
+      expect(mockUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ notified_at: expect.any(String) })
+      );
+    });
+
+    test('メール送信失敗 → notified_at を update しない（翌 run で再送される）', async () => {
+      mockSend = jest.fn().mockRejectedValue(new Error('send failed'));
+      const { Resend } = require('resend');
+      (Resend as jest.Mock).mockImplementation(() => ({ emails: { send: mockSend } }));
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return {
+          select: () => mockCouponSelect(),
+          insert: (...args: any[]) => mockCouponInsert(...args),
+          update: mockUpdate,
+        };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      // 送信失敗時は notified_at を update しない
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[customer-segment] email send failed'),
+        expect.anything()
+      );
+      consoleSpy.mockRestore();
     });
 
     test('coupon insert error → logs error and skips email', async () => {
@@ -870,6 +964,7 @@ describe('GET /api/cron/customer-segment', () => {
       gte: jest.fn().mockResolvedValue({ data: null }),
     });
     const mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
+    const makeUC = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
 
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
@@ -878,6 +973,7 @@ describe('GET /api/cron/customer-segment', () => {
       if (table === 'user_coupon_codes') return {
         select: () => mockCouponSelect(),
         insert: (...args: any[]) => mockCouponInsert(...args),
+        update: jest.fn().mockReturnValue(makeUC()),
       };
     });
 
@@ -1039,6 +1135,7 @@ describe('GET /api/cron/customer-segment', () => {
       gte: jest.fn().mockResolvedValue({ data: [] }),
     });
     const mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
+    const makeUpdateChain2 = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
 
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
@@ -1047,12 +1144,13 @@ describe('GET /api/cron/customer-segment', () => {
       if (table === 'user_coupon_codes') return {
         select: () => mockCouponSelect(),
         insert: (...args: any[]) => mockCouponInsert(...args),
+        update: jest.fn().mockReturnValue(makeUpdateChain2()),
       };
     });
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    // route は await resend.emails.send(...).catch() で待機するため
+    // route は await resend.emails.send(...).then(...).catch() で待機するため
     // GET() 解決後には既に .catch() が実行されている（setTimeout 不要）
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[customer-segment] email send failed'),
