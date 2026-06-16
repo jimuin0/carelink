@@ -196,6 +196,16 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
     return price;
   };
 
+  // メニュー/クーポン変更で価格が下がった場合に、設定済み pointsToUse を価格・残高でクランプし直す。
+  // これを怠ると「お支払い金額」が負表示になり、価格を超える points_used を送ってしまう（サーバ側でも
+  // クランプするが、表示の不整合と過剰送信を入口で防ぐ）。増加方向には触れない（手動利用を妨げない）。
+  useEffect(() => {
+    const price = calculatePrice();
+    const cap = Math.max(0, Math.min(availablePoints, price ?? 0));
+    setPointsToUse((prev) => Math.min(prev, cap));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMenus, selectedCoupon, selectedStaff, availablePoints]);
+
   // Generate date options (next 60 days)
   const dateOptions = Array.from({ length: 60 }, (_, i) => {
     const d = new Date();
