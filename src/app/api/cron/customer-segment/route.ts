@@ -11,7 +11,7 @@ import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { escSubject } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
-import { isMissingColumnError, type DbError } from '@/lib/db-fallback';
+import { isMissingColumnError, warnMissingColumnFallback, type DbError } from '@/lib/db-fallback';
 import { canonicalizeEmail } from '@/lib/email-canonical';
 
 export const dynamic = 'force-dynamic';
@@ -172,22 +172,47 @@ export async function GET(request: Request) {
             // Batch check for existing coupons (one query instead of N)
             // code と notified_at も取得することで、クーポン作成済み・メール未送信（notified_at IS NULL）の
             // ケースを検出し、翌 run でメール再送できるようにする。
+            // notified_at 列が未適用（migration 前にコードが先行デプロイ）の場合は 42703 で
+            // クエリ全体が失敗するため、旧来の列のみ（email, code）で再取得し、
+            // 「クーポン作成済み = 送信済み」の旧 dedup にフォールバックする。
+            // これによりデプロイ順序に依存せず、過去送信済み顧客への重複送信を防ぐ（発症前予防）。
+            type CouponRow = { email: string; code: string; notified_at?: string | null };
             const cutoff30d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
-            const { data: existingCoupons } = await supabase
+            const couponSel = await supabase
               .from('user_coupon_codes')
               .select('email, code, notified_at')
               .eq('facility_id', facility.id)
               .in('email', atRiskEmails)
               .eq('reason', 'at_risk')
               .gte('created_at', cutoff30d);
+            let existingCoupons = couponSel.data as CouponRow[] | null;
+            let notifiedColumnReady = true;
+            if (isMissingColumnError(couponSel.error as DbError | null)) {
+              notifiedColumnReady = false;
+              warnMissingColumnFallback('customer-segment user_coupon_codes.notified_at');
+              const fallbackSel = await supabase
+                .from('user_coupon_codes')
+                .select('email, code')
+                .eq('facility_id', facility.id)
+                .in('email', atRiskEmails)
+                .eq('reason', 'at_risk')
+                .gte('created_at', cutoff30d);
+              existingCoupons = fallbackSel.data as CouponRow[] | null;
+            }
 
-            // メール送達済み（notified_at IS NOT NULL）→ 完全スキップ
+            // メール送達済み → 完全スキップ。
+            // 列適用済み: notified_at IS NOT NULL のみ。列未適用: 作成済み全件（旧来の dedup）。
             const alreadyNotifiedEmails = new Set(
-              (existingCoupons || []).filter((c) => c.notified_at !== null).map((c) => c.email)
+              notifiedColumnReady
+                ? (existingCoupons || []).filter((c) => c.notified_at !== null).map((c) => c.email)
+                : (existingCoupons || []).map((c) => c.email)
             );
-            // クーポン作成済みだがメール未送信（notified_at IS NULL）→ クーポン再作成せずメールを再送
+            // クーポン作成済みだがメール未送信（notified_at IS NULL）→ クーポン再作成せずメールを再送。
+            // 列未適用時は notified_at を判定できないため pending 概念を持たない（旧来動作）。
             const pendingCoupons = new Map(
-              (existingCoupons || []).filter((c) => c.notified_at === null).map((c) => [c.email, c.code])
+              notifiedColumnReady
+                ? (existingCoupons || []).filter((c) => c.notified_at === null).map((c) => [c.email, c.code])
+                : []
             );
 
             for (const [email, data] of atRiskCandidates) {
@@ -238,7 +263,9 @@ export async function GET(request: Request) {
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
               }).then(async () => {
-                // 送信成功: notified_at を記録（失敗時はスキップ → 翌 run で再送）
+                // 送信成功: notified_at を記録（失敗時はスキップ → 翌 run で再送）。
+                // 列未適用時は update できないため skip（旧来は送信記録を持たない＝重複は旧 dedup が防ぐ）。
+                if (!notifiedColumnReady) return;
                 await supabase
                   .from('user_coupon_codes')
                   .update({ notified_at: now.toISOString() })
