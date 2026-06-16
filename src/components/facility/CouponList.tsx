@@ -4,9 +4,10 @@ import type { Coupon, FacilityMenu } from '@/types';
 const typeOrder = ['new_customer', 'repeat', 'limited_time', 'all'];
 
 export default function CouponList({ coupons, menus }: { coupons: Coupon[]; menus?: FacilityMenu[] }) {
-  const representativePrice = menus && menus.length > 0
-    ? Math.min(...menus.filter((m) => m.price != null).map((m) => m.price as number))
-    : null;
+  // 価格が設定されたメニューのみ対象。全メニューが price=null だと filter 後が空になり
+  // Math.min() が Infinity を返し、クーポンカードに「¥∞」と表示されてしまうため length で守る。
+  const pricedMenus = (menus ?? []).filter((m) => m.price != null).map((m) => m.price as number);
+  const representativePrice = pricedMenus.length > 0 ? Math.min(...pricedMenus) : null;
   if (coupons.length === 0) {
     return (
       <div className="text-center py-8">
