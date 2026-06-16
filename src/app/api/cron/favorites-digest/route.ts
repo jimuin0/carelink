@@ -209,14 +209,25 @@ export async function GET(request: Request) {
       });
       if (tokenErr) console.error('[favorites-digest] unsubscribe token insert failed', { userId: profile.id, err: tokenErr });
 
-      await sendFavoritesDigest({
-        userEmail: email,
-        userName: profile.display_name ?? undefined,
-        facilities: updatedFacilities,
-        unsubscribeToken: token,
-      }).catch((err) => console.error('[favorites-digest] email send failed', { userId: profile.id, err }));
-
-      sent++;
+      try {
+        await sendFavoritesDigest({
+          userEmail: email,
+          userName: profile.display_name ?? undefined,
+          facilities: updatedFacilities,
+          unsubscribeToken: token,
+        });
+        sent++;
+      } catch (err) {
+        console.error('[favorites-digest] email send failed', { userId: profile.id, err });
+        // 送信が一過性失敗した場合、claim（sent_week=thisWeek）を握ったままにすると
+        // 当該ユーザーはその週ずっと skip され恒久 miss になる。claim を直前の値へ戻し、
+        // 同週の再 run で再送できるようにする（review-request と同じ恒久 miss 防止方針）。
+        const { error: releaseErr } = await supabase
+          .from('profiles')
+          .update({ favorites_digest_sent_week: profile.favorites_digest_sent_week })
+          .eq('id', profile.id);
+        if (releaseErr) console.error('[favorites-digest] claim release failed', { userId: profile.id, err: releaseErr });
+      }
     }
 
     await logCronRun('favorites-digest', 'success', startedAt, { processed: sent, skipped });

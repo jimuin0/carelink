@@ -27,7 +27,8 @@ let mockSendEmail: jest.Mock;
 
 function setupDefaultMocks(
   recentCancelsCount: number = 1,
-  waitersPerSlot: number = 2
+  waitersPerSlot: number = 2,
+  releaseError: { message: string } | null = null
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
 
@@ -74,12 +75,14 @@ function setupDefaultMocks(
     }),
   });
 
-  // update chain: update({...}).eq(...).eq(...).select('id') or .lt(...).select('id')
+  // update chain: claim は .update().eq().eq().select('id')、release は await .update().eq()（直接 await）。
+  // 後者は updateChain をそのまま await して { error } を分解するため updateChain.error を持たせる。
   const updateChain: any = {};
   Object.assign(updateChain, {
     eq: jest.fn().mockReturnValue(updateChain),
     lt: jest.fn().mockReturnValue(updateChain),
     select: jest.fn().mockResolvedValue({ data: [{ id: 'waiter-claimed' }], error: null, count: 0 }),
+    error: releaseError ?? undefined,
   });
   mockUpdateWaitlist = jest.fn().mockReturnValue(updateChain);
 
@@ -342,6 +345,31 @@ describe('GET /api/cron/waitlist-notify', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(mockSendEmail).not.toHaveBeenCalled();
+  });
+
+  test('メール送信失敗 → status を waiting に戻し再送可能にする（恒久 miss 防止・回帰防止）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockSendEmail.mockRejectedValue(new Error('send fail'));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    // claim('notified') の後、送信失敗で release('waiting' + notified_at/expires_at クリア)が呼ばれる
+    const updateArgs = (mockUpdateWaitlist as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(updateArgs).toContainEqual({ status: 'waiting', notified_at: null, expires_at: null });
+    errSpy.mockRestore();
+  });
+
+  test('メール送信失敗かつ claim 解放も失敗 → エラーログ（releaseErr 分岐）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupDefaultMocks(1, 2, { message: 'release boom' });
+    mockSendEmail.mockRejectedValue(new Error('send fail'));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(errSpy).toHaveBeenCalledWith('[waitlist-notify] claim release failed', expect.anything());
+    errSpy.mockRestore();
   });
 
   test('waiter without email → skip email send but still notify', async () => {

@@ -54,7 +54,8 @@ function setupDefaultMocks(
   couponsFound: number = 1,
   menusFound: number = 0,
   tokenInsertFails: boolean = false,
-  emailSendFails: boolean = false
+  emailSendFails: boolean = false,
+  releaseError: { message: string } | null = null
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
@@ -203,11 +204,15 @@ function setupDefaultMocks(
   mockProfilesSelect = jest.fn().mockReturnValue({
     in: jest.fn().mockReturnValue({ range: paged(profilesData) }),
   });
+  // eq の戻りは2用途を兼ねる:
+  //   claim:   .update().eq('id').neq(...).select('id') → { data: claimedData }
+  //   release: await .update().eq('id')（直接 await）→ オブジェクトを return → { error } 分解
   mockProfilesUpdate = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       neq: jest.fn().mockReturnValue({
         select: jest.fn().mockResolvedValue({ data: claimedData }),
       }),
+      error: releaseError ?? undefined,
     }),
   });
 
@@ -404,12 +409,29 @@ describe('GET /api/cron/favorites-digest', () => {
     expect(sendFavoritesDigest).toHaveBeenCalled();
   });
 
-  test('email send fails → logs error and continues', async () => {
+  test('email send fails → claim を解放（前の値へ復元）して再送可能にする（恒久 miss 防止・回帰防止）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     setupDefaultMocks(1, false, false, 1, 0, false, true);
 
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
+    // claim(初回 thisWeek セット) と release(前の値へ復元) で update が2回以上呼ばれる
+    const calls = (mockProfilesUpdate as jest.Mock).mock.calls.map((c) => c[0]);
+    // 復元: favorites_digest_sent_week を「直前の値（null=未送信）」に戻す
+    expect(calls).toContainEqual({ favorites_digest_sent_week: null });
+    errSpy.mockRestore();
+  });
+
+  test('email send fails かつ claim 解放も失敗 → エラーログ（releaseErr 分岐）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupDefaultMocks(1, false, false, 1, 0, false, true, { message: 'release boom' });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(errSpy).toHaveBeenCalledWith('[favorites-digest] claim release failed', expect.anything());
+    errSpy.mockRestore();
   });
 
   test('email includes new coupon count', async () => {
