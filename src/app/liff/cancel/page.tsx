@@ -47,16 +47,19 @@ function CancelContent() {
   const [cancelling, setCancelling] = useState(false);
   const [result, setResult] = useState<'success' | 'error' | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  // 取得失敗を握り潰すと「予約が見つかりません」と障害が区別不能になるため明示する
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (liff.status !== 'ready' || !bookingId) return;
     setLoading(true);
+    setLoadError(false);
     fetch(`/api/liff/bookings?booking_id=${bookingId}`, {
         headers: { Authorization: `Bearer ${liff.accessToken}` },
       })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setBooking(d.booking ?? null); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoadError(true); setLoading(false); });
   }, [liff, bookingId]);
 
   const handleCancel = useCallback(async () => {
@@ -82,6 +85,7 @@ function CancelContent() {
   if (liff.status === 'loading') return <LiffLoading />;
   if (liff.status === 'error') return <LiffError message={liff.message} />;
   if (liff.status === 'not_linked') return <LiffNotLinked />;
+  if (loadError) return <LiffError message="予約情報の取得に失敗しました。時間をおいて再度お試しください。" />;
 
   if (result === 'success') {
     return (

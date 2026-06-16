@@ -46,21 +46,25 @@ export default function LiffPointsPage() {
   const [logs, setLogs] = useState<PointLog[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  // 取得失敗を握り潰すと「0ポイント・履歴なし」と障害が区別不能になるため明示する
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (liff.status !== 'ready') return;
     setLoading(true);
+    setLoadError(false);
     fetch('/api/liff/points', {
         headers: { Authorization: `Bearer ${liff.accessToken}` },
       })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setLogs(d.logs || []); setTotal(d.total ?? 0); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoadError(true); setLoading(false); });
   }, [liff]);
 
   if (liff.status === 'loading') return <LiffLoading />;
   if (liff.status === 'error') return <LiffError message={liff.message} />;
   if (liff.status === 'not_linked') return <LiffNotLinked />;
+  if (loadError) return <LiffError message="ポイント情報の取得に失敗しました。時間をおいて再度お試しください。" />;
 
   return (
     <div className="p-4 max-w-lg mx-auto">

@@ -20,16 +20,19 @@ export default function LiffBookingsPage() {
   const liff = useLiff();
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(false);
+  // 取得失敗を握り潰すと「予約はありません」と障害が区別不能になるため明示する
+  const [loadError, setLoadError] = useState(false);
 
   useEffect(() => {
     if (liff.status !== 'ready') return;
     setLoading(true);
+    setLoadError(false);
     fetch('/api/liff/bookings', {
         headers: { Authorization: `Bearer ${liff.accessToken}` },
       })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setBookings(d.bookings || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoadError(true); setLoading(false); });
   }, [liff]);
 
   if (liff.status === 'loading') {
@@ -40,6 +43,9 @@ export default function LiffBookingsPage() {
   }
   if (liff.status === 'not_linked') {
     return <LiffNotLinked />;
+  }
+  if (loadError) {
+    return <LiffError message="予約情報の取得に失敗しました。時間をおいて再度お試しください。" />;
   }
 
   return (
