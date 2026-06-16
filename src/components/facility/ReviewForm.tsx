@@ -146,6 +146,9 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
     try {
       const compressed = await Promise.all(typeValid.map((f) => compressImage(f)));
       const combined = [...photos, ...compressed].slice(0, MAX_PHOTOS);
+      // combined 全件分の blob URL を作り直すため、既存 previews の旧 URL を先に revoke する。
+      // これを怠ると写真追加のたびに既存分の旧 URL が revoke されず、ドキュメント生存期間リークする。
+      photoPreviews.forEach((url) => URL.revokeObjectURL(url));
       setPhotos(combined);
       setPhotoPreviews(combined.map((f) => URL.createObjectURL(f)));
     } catch {
