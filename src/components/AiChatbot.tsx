@@ -48,8 +48,14 @@ export default function AiChatbot() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ messages: newMessages }),
       });
-      const data = await res.json();
-      const reply = data.reply || 'すみません、うまく回答できませんでした。';
+      // res.ok を検証せず data.reply を表示すると、HTTPエラー（429/400/503）でも
+      // フォールバック文言が「正常なAI返答」として表示され、障害がユーザーに伝わらない（成功偽装）。
+      const data: { reply?: string } = await res.json().catch(() => ({}));
+      const reply = res.ok
+        ? (data.reply || 'すみません、うまく回答できませんでした。')
+        : res.status === 429
+          ? '混み合っています。少し時間をおいて再度お試しください。'
+          : 'エラーが発生しました。もう一度お試しください。';
       setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
       if (!open) setUnread(true);
     } catch {

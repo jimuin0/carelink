@@ -44,8 +44,15 @@ export default function AiSupportWidget() {
           history: newMessages.slice(-8).map((m) => ({ role: m.role, content: m.content })),
         }),
       });
-      const data = await res.json();
-      setMessages((prev) => [...prev, { role: 'assistant', content: data.reply ?? 'エラーが発生しました' }]);
+      // res.ok を検証せず data.reply を表示すると、HTTPエラー（429/401/400/500）でも
+      // 一律フォールバック文言になり、障害（レート制限・認証切れ等）が運用に伝わらない（成功偽装）。
+      const data: { reply?: string } = await res.json().catch(() => ({}));
+      const reply = res.ok
+        ? (data.reply ?? 'エラーが発生しました')
+        : res.status === 429
+          ? 'リクエストが多すぎます。少し待って再度お試しください。'
+          : 'エラーが発生しました。もう一度お試しください。';
+      setMessages((prev) => [...prev, { role: 'assistant', content: reply }]);
     } catch {
       setMessages((prev) => [...prev, { role: 'assistant', content: '接続エラーが発生しました。もう一度お試しください。' }]);
     }
