@@ -94,15 +94,28 @@ export async function GET(request: Request) {
           // メール通知
           if (waiter.email && resend) {
             const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
-            await resend.emails.send({
-              from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
-              to: waiter.email,
-              subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
-              html: `<p>${esc(waiter.customer_name)}様</p>
+            try {
+              await resend.emails.send({
+                from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+                to: waiter.email,
+                subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
+                html: `<p>${esc(waiter.customer_name)}様</p>
 <p>キャンセル待ちしていた<strong>${esc(facility.name)}</strong>の<strong>${esc(waiter.date)} ${esc(waiter.start_time)}〜</strong>に空きが出ました！</p>
 <p>お早めにご予約ください。（この通知から48時間以内に予約されない場合、次の方へ順番が移ります）</p>
 <p><a href="${bookingUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">今すぐ予約する</a></p>`,
-            }).catch((err) => console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err }));
+              });
+            } catch (err) {
+              console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err });
+              // 送信が一過性失敗した場合、claim（status='notified'）を握ったままだと当該待ち客は
+              // 通知が届かないのに 48h 後に次の人へ順番が移り恒久 miss になる。status を 'waiting' に
+              // 戻し notified_at/expires_at をクリアして翌 run で再送する（恒久 miss 防止）。
+              const { error: releaseErr } = await supabase
+                .from('booking_waitlist')
+                .update({ status: 'waiting', notified_at: null, expires_at: null })
+                .eq('id', waiter.id);
+              if (releaseErr) console.error('[waitlist-notify] claim release failed', { waiterId: waiter.id, err: releaseErr });
+              continue; // 再送対象として残すため notified にはカウントしない
+            }
           }
 
           notified++;
