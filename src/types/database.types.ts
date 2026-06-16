@@ -245,6 +245,35 @@ export type Database = {
         }
         Relationships: []
       }
+      birthday_notifications: {
+        Row: {
+          user_id: string
+          year: number
+          notified_at: string
+          channel: string
+        }
+        Insert: {
+          user_id: string
+          year: number
+          notified_at?: string
+          channel: string
+        }
+        Update: {
+          user_id?: string
+          year?: number
+          notified_at?: string
+          channel?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "birthday_notifications_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       blog_authors: {
         Row: {
           created_at: string | null

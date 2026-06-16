@@ -1,8 +1,12 @@
 import { logCronRun } from '@/lib/cron-logger';
 /**
- * 誕生日クーポン自動送信 Cron（v8.14）
+ * 誕生日クーポン自動送信 Cron（v8.15）
  * GET /api/cron/birthday-coupon
  * 誕生日のユーザーに100ptボーナスとメール通知を送信
+ *
+ * v8.15 変更: ポイント付与済みでも通知失敗チャネルを翌 run で再送するよう改修。
+ *   birthday_notifications テーブルで送達済みチャネルを管理し、
+ *   失敗時は記録しないことで次回 run が再送を試みる（恒久 miss 解消）。
  */
 
 import { NextResponse } from 'next/server';
@@ -62,13 +66,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }
 
-    let sent = 0;
-    let skipped = 0;
-    const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
     const birthdayYear = jstNow.getUTCFullYear();
     // Reason includes the year so the partial unique index (user_id, reason WHERE reason LIKE 'birthday_%')
     // atomically prevents double-awarding even if two cron instances run concurrently.
     const birthdayReason = `birthday_${birthdayYear}`;
+
+    // 当年・全プロフィールの通知送達済みチャネルを一括取得してローカル Set に展開。
+    // `${userId}:${channel}` 形式のキーで O(1) 検索。
+    const profileIds = profiles.map((p) => p.id);
+    const { data: existingNotifications } = await supabase
+      .from('birthday_notifications')
+      .select('user_id, channel')
+      .eq('year', birthdayYear)
+      .in('user_id', profileIds);
+    const notifiedSet = new Set(
+      (existingNotifications || []).map((n) => `${n.user_id}:${n.channel}`)
+    );
+
+    let sent = 0;
+    let skipped = 0;
+    const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
     for (const profile of profiles) {
       const name = profile.display_name || 'お客様';
@@ -79,38 +96,55 @@ export async function GET(request: Request) {
         points: BIRTHDAY_POINTS,
         reason: birthdayReason,
       });
+
       if (insertErr) {
-        if ((insertErr as { code?: string }).code === '23505') { skipped++; continue; } // 既付与済み
-        console.error('[birthday-coupon] points insert error:', insertErr);
-        skipped++;
-        continue;
+        if ((insertErr as { code?: string }).code === '23505') {
+          // 既付与済み: ポイントは届いている。通知未送達チャネルがあれば再送するため
+          // continue せずにそのまま通知ブロックへ進む。
+        } else {
+          // DB エラー: 通知も安全に送れないためスキップ。
+          console.error('[birthday-coupon] points insert error:', insertErr);
+          skipped++;
+          continue;
+        }
       }
 
-      // メール送信（ポイント付与は取引性のため上で常に実施。メールは配信停止者には送らない）
-      if (resend && profile.email && !profile.email_unsubscribed) {
-        await resend.emails.send({
-          from: FROM,
-          to: profile.email,
-          subject: '🎂 お誕生日おめでとうございます！CareLink より',
-          html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:20px;">
-            <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0ea5e9;font-size:20px;">CareLink</strong></div>
-            <div style="text-align:center;padding:32px;background:linear-gradient(135deg,#fef9c3,#fff);border-radius:16px;margin-bottom:24px;">
-              <p style="font-size:32px;margin:0 0 8px;">🎂</p>
-              <p style="font-size:24px;font-weight:bold;color:#0ea5e9;margin:0;">${name}様、お誕生日おめでとうございます！</p>
-            </div>
-            <p>本日のお誕生日を記念して、<strong>${BIRTHDAY_POINTS}ポイント</strong>をプレゼントしました🎁</p>
-            <p>ポイントは次回の予約時にお使いいただけます。ぜひお気に入りの施設を予約してお楽しみください！</p>
-            <p style="text-align:center;margin-top:24px;">
-              <a href="${SITE_URL}/mypage/points" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">ポイントを確認する</a>
-            </p>
-            <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;" />
-            <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
-          </body></html>`,
-        }).catch((err) => console.error('[birthday-coupon] email send failed', { userId: profile.id, err }));
+      // メール通知（未送達かつ送信可能な場合のみ）
+      if (resend && profile.email && !profile.email_unsubscribed && !notifiedSet.has(`${profile.id}:email`)) {
+        try {
+          await resend.emails.send({
+            from: FROM,
+            to: profile.email,
+            subject: '🎂 お誕生日おめでとうございます！CareLink より',
+            html: `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1e293b;line-height:1.6;max-width:600px;margin:0 auto;padding:20px;">
+              <div style="text-align:center;margin-bottom:24px;"><strong style="color:#0ea5e9;font-size:20px;">CareLink</strong></div>
+              <div style="text-align:center;padding:32px;background:linear-gradient(135deg,#fef9c3,#fff);border-radius:16px;margin-bottom:24px;">
+                <p style="font-size:32px;margin:0 0 8px;">🎂</p>
+                <p style="font-size:24px;font-weight:bold;color:#0ea5e9;margin:0;">${name}様、お誕生日おめでとうございます！</p>
+              </div>
+              <p>本日のお誕生日を記念して、<strong>${BIRTHDAY_POINTS}ポイント</strong>をプレゼントしました🎁</p>
+              <p>ポイントは次回の予約時にお使いいただけます。ぜひお気に入りの施設を予約してお楽しみください！</p>
+              <p style="text-align:center;margin-top:24px;">
+                <a href="${SITE_URL}/mypage/points" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">ポイントを確認する</a>
+              </p>
+              <hr style="border:none;border-top:1px solid #e2e8f0;margin:32px 0 16px;" />
+              <p style="font-size:12px;color:#94a3b8;text-align:center;">このメールは <a href="${SITE_URL}" style="color:#0ea5e9;">CareLink</a> から自動送信されています。</p>
+            </body></html>`,
+          });
+          // 送信成功: 送達記録を追加（失敗時は記録しないため翌 run で再送される）
+          await supabase.from('birthday_notifications').insert({
+            user_id: profile.id,
+            year: birthdayYear,
+            channel: 'email',
+          });
+          notifiedSet.add(`${profile.id}:email`);
+        } catch (err) {
+          console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
+        }
       }
 
-      // LINE通知
-      if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+      // LINE通知（未送達かつ送信可能な場合のみ）
+      if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK && !notifiedSet.has(`${profile.id}:line`)) {
         const { data: lineLink } = await supabase
           .from('line_user_links')
           .select('line_user_id')
@@ -118,14 +152,30 @@ export async function GET(request: Request) {
           .maybeSingle();
 
         if (lineLink?.line_user_id) {
-          await sendLineText(
-            lineLink.line_user_id,
-            `🎂 ${name}様、お誕生日おめでとうございます！\n\n本日のお誕生日を記念して、${BIRTHDAY_POINTS}ポイントをプレゼントしました🎁\n\n次回の予約にぜひご利用ください！\n${SITE_URL}/mypage/points`
-          ).catch((err) => console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err }));
+          try {
+            await sendLineText(
+              lineLink.line_user_id,
+              `🎂 ${name}様、お誕生日おめでとうございます！\n\n本日のお誕生日を記念して、${BIRTHDAY_POINTS}ポイントをプレゼントしました🎁\n\n次回の予約にぜひご利用ください！\n${SITE_URL}/mypage/points`
+            );
+            // 送信成功: 送達記録を追加
+            await supabase.from('birthday_notifications').insert({
+              user_id: profile.id,
+              year: birthdayYear,
+              channel: 'line',
+            });
+            notifiedSet.add(`${profile.id}:line`);
+          } catch (err) {
+            console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err });
+          }
         }
       }
 
-      sent++;
+      if (!insertErr) {
+        sent++;
+      } else {
+        // 23505: ポイントは既付与済み（今回は通知のみ再送を試みた）
+        skipped++;
+      }
     }
 
     await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped });
