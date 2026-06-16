@@ -150,8 +150,10 @@ export default function RegisterPage() {
           nearest_station: data.nearest_station || null,
           business_hours: data.business_hours || null,
           regular_holiday: data.regular_holiday || null,
-          seat_count: data.seat_count && !isNaN(data.seat_count) ? data.seat_count : null,
-          staff_count: data.staff_count && !isNaN(data.staff_count) ? data.staff_count : null,
+          // 0 は有効値（席数/スタッフ数 0）。`data.seat_count &&` は 0 を falsy 扱いして
+          // null 化してしまうため、typeof number 判定にする（空欄は valueAsNumber で NaN → null）。
+          seat_count: typeof data.seat_count === 'number' && !isNaN(data.seat_count) ? data.seat_count : null,
+          staff_count: typeof data.staff_count === 'number' && !isNaN(data.staff_count) ? data.staff_count : null,
           has_parking: data.has_parking || false,
           features: data.features || [],
           pr_text: data.pr_text || null,
