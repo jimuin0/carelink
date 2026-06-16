@@ -5094,6 +5094,7 @@ export type Database = {
           email: string
           facility_id: string
           id: string
+          notified_at: string | null
           reason: string | null
           used_at: string | null
           valid_until: string
@@ -5106,6 +5107,7 @@ export type Database = {
           email: string
           facility_id: string
           id?: string
+          notified_at?: string | null
           reason?: string | null
           used_at?: string | null
           valid_until: string
@@ -5118,6 +5120,7 @@ export type Database = {
           email?: string
           facility_id?: string
           id?: string
+          notified_at?: string | null
           reason?: string | null
           used_at?: string | null
           valid_until?: string
