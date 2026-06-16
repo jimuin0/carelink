@@ -7,6 +7,23 @@ interface Props {
   regularHoliday?: string | null;
 }
 
+/**
+ * 当日の営業時間と現在時刻(HH:MM)から営業状態を判定する純粋関数（TZ非依存・テスト容易化のため分離）。
+ * close <= open は翌日にまたぐ深夜営業（例 20:00→翌02:00）。この場合 open〜24:00 と 00:00〜close の
+ * 2区間が営業時間になるため、単純な「open<=t<close」だと常に closed になる。OR 判定でラップアラウンドを扱う。
+ */
+export function computeBusinessStatus(
+  currentTime: string,
+  todayHours: { open: string; close: string } | null | undefined,
+): 'open' | 'closed' | 'holiday' {
+  if (!todayHours) return 'holiday';
+  const { open, close } = todayHours;
+  const isOpen = close > open
+    ? currentTime >= open && currentTime < close
+    : currentTime >= open || currentTime < close; // 深夜営業（翌日跨ぎ）
+  return isOpen ? 'open' : 'closed';
+}
+
 export default function BusinessStatusBadge({ businessHours }: Props) {
   const status = useMemo(() => {
     if (!businessHours) return 'unknown';
@@ -15,13 +32,11 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
     const today = days[now.getDay()];
     const todayHours = businessHours[today];
 
-    if (!todayHours) return 'holiday';
-
     const hours = now.getHours();
     const minutes = now.getMinutes();
     const currentTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
-    return currentTime >= todayHours.open && currentTime < todayHours.close ? 'open' : 'closed';
+    return computeBusinessStatus(currentTime, todayHours);
   }, [businessHours]);
 
   if (status === 'unknown') return null;
