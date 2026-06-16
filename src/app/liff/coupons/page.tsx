@@ -59,7 +59,9 @@ export default function LiffCouponsPage() {
   useEffect(() => {
     if (liff.status !== 'ready') return;
     setLoading(true);
-    fetch('/api/liff/coupons')
+    fetch('/api/liff/coupons', {
+      headers: { Authorization: `Bearer ${liff.accessToken}` },
+    })
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setCoupons(d.coupons || []); setLoading(false); })
       .catch(() => setLoading(false));
