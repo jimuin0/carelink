@@ -39,7 +39,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   const admin = createServiceRoleClient();
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, facility_id, start_time, end_time, menu_name, staff_name, notes, facility_profiles(name, address, phone)')
+    .select('id, user_id, facility_id, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
     .eq('id', params.id)
     .single();
 
@@ -52,16 +52,22 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     name: string; address?: string; phone?: string
   } | null;
 
+  // bookings に menu_name/staff_name 列は無く、menu_id/staff_id 経由で取得する（embed）
+  const menu = (Array.isArray(booking.menu) ? booking.menu[0] : booking.menu) as { name: string } | null;
+  const staff = (Array.isArray(booking.staff) ? booking.staff[0] : booking.staff) as { name: string } | null;
+  const menuName = menu?.name ?? null;
+  const staffName = staff?.name ?? null;
+
   const facilityName = facility?.name ?? 'CareLink 予約';
   const startTime = booking.start_time ? toIcalDate(booking.start_time) : '';
   const endTime = booking.end_time ? toIcalDate(booking.end_time) : '';
   const uid = `carelink-${booking.id}@carelink-jp.com`;
   const now = toIcalDate(new Date().toISOString());
 
-  const summary = `${facilityName} - ${booking.menu_name ?? '施術'}`;
+  const summary = `${facilityName} - ${menuName ?? '施術'}`;
   const description = [
-    booking.menu_name && `メニュー: ${booking.menu_name}`,
-    booking.staff_name && `担当: ${booking.staff_name}`,
+    menuName && `メニュー: ${menuName}`,
+    staffName && `担当: ${staffName}`,
     facility?.phone && `電話: ${facility.phone}`,
     `予約ID: ${booking.id.slice(0, 8)}`,
   ].filter(Boolean).join('\n');

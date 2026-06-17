@@ -29,8 +29,10 @@ export default function AdminReviewsPage() {
     if (filter !== 'all') query = query.eq('status', filter);
     setLoadError(false);
     const { data, error } = await query;
-    if (error) { setLoadError(true); return; }
-    setReviews((data ?? []) as FacilityReview[]);
+    if (error) { setLoadError(true); return [] as FacilityReview[]; }
+    const list = (data ?? []) as FacilityReview[];
+    setReviews(list);
+    return list;
   }, [filter]);
 
   // user→membership→facilityId→口コミ＋返信取得 の全工程。リトライ時も facilityId を再導出するため
@@ -44,15 +46,19 @@ export default function AdminReviewsPage() {
     if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
     if (!membership) { setLoading(false); return; }
     setFacilityId(membership.facility_id);
-    await loadReviews(membership.facility_id);
+    const loaded = await loadReviews(membership.facility_id);
     // 返信は補助情報（無ければ非表示）。主表示の口コミは loadReviews 側で error 処理済みのため
     // ここでの失敗は致命的でなく、取得できた分のみ表示する。
+    // review_replies に facility_id 列は無いため、当施設の口コミ ID 群で review_id を絞る。
+    const reviewIds = loaded.map((r) => r.id);
     // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-    const { data: replies } = await supabase
-      .from('review_replies')
-      .select('id, review_id, content, created_at')
-      .eq('facility_id', membership.facility_id)
-      .order('created_at');
+    const { data: replies } = reviewIds.length
+      ? await supabase
+          .from('review_replies')
+          .select('id, review_id, content, created_at')
+          .in('review_id', reviewIds)
+          .order('created_at')
+      : { data: [] as { id: string; review_id: string; content: string; created_at: string }[] };
     if (replies) {
       const map: Record<string, typeof replies> = {};
       for (const r of replies) {

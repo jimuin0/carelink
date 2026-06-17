@@ -47,9 +47,8 @@ function setupDefaultMocks(
           facility_id: 'fac-123',
           start_time: '2026-05-10T10:00:00Z',
           end_time: '2026-05-10T11:00:00Z',
-          menu_name: 'Eyelash Extension',
-          staff_name: 'Alice',
-          notes: 'No allergies',
+          menu: { name: 'Eyelash Extension' },
+          staff: { name: 'Alice' },
           facility_profiles: [
             {
               name: 'Salon ABC',
@@ -254,9 +253,8 @@ describe('GET /api/booking/[id]/ical', () => {
         facility_id: 'fac-123',
         start_time: '2026-05-10T10:00:00Z',
         end_time: '2026-05-10T11:00:00Z',
-        menu_name: 'Eyelash',
-        staff_name: 'Bob',
-        notes: null,
+        menu: { name: 'Eyelash' },
+        staff: { name: 'Bob' },
         facility_profiles: null,
       },
     });
@@ -377,9 +375,8 @@ describe('GET /api/booking/[id]/ical', () => {
         facility_id: 'fac-123',
         start_time: '2026-05-10T10:00:00Z',
         end_time: '2026-05-10T11:00:00Z',
-        menu_name: 'M',
-        staff_name: 'S',
-        notes: null,
+        menu: { name: 'M' },
+        staff: { name: 'S' },
         facility_profiles: { name: 'Salon Obj', address: '住所Obj', phone: 'tel-obj' },
       },
     });
@@ -402,9 +399,8 @@ describe('GET /api/booking/[id]/ical', () => {
         facility_id: 'fac-123',
         start_time: null,
         end_time: null,
-        menu_name: null,
-        staff_name: null,
-        notes: null,
+        menu: null,
+        staff: null,
         facility_profiles: { name: 'Salon NoOptional', address: null, phone: null },
       },
     });

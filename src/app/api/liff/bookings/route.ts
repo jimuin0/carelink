@@ -57,24 +57,35 @@ export async function GET(req: NextRequest) {
   const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (bookingId && !uuidRe.test(bookingId)) return NextResponse.json({ error: 'Invalid booking_id' }, { status: 400 });
 
+  // bookings に menu_name 列は無く menu_id 経由で取得（embed）。
+  // 既存の出力形（menu_name フラット）を維持するため取得後に平坦化する。
+  const SELECT = 'id, booking_date, start_time, end_time, menu:facility_menus(name), status, total_price, facility_profiles(name)';
+  type RawBooking = { menu?: { name: string } | { name: string }[] | null } & Record<string, unknown>;
+  const flatten = (b: RawBooking) => {
+    const m = Array.isArray(b.menu) ? b.menu[0] : b.menu;
+    const { menu, ...rest } = b;
+    void menu;
+    return { ...rest, menu_name: m?.name ?? null };
+  };
+
   if (bookingId) {
     const { data: booking } = await admin
       .from('bookings')
-      .select('id, booking_date, start_time, end_time, menu_name, status, total_price, facility_profiles(name)')
+      .select(SELECT)
       .eq('id', bookingId)
       .eq('user_id', userId)
       .single();
-    return NextResponse.json({ booking: booking ?? null });
+    return NextResponse.json({ booking: booking ? flatten(booking as RawBooking) : null });
   }
 
   const { data: bookings } = await admin
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, menu_name, status, total_price, facility_profiles(name)')
+    .select(SELECT)
     .eq('user_id', userId)
     .order('booking_date', { ascending: false })
     .limit(20);
 
-  return NextResponse.json({ bookings: bookings ?? [] });
+  return NextResponse.json({ bookings: (bookings ?? []).map((b) => flatten(b as RawBooking)) });
   } catch (e) {
     console.error('[liff/bookings] unexpected error:', e);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
