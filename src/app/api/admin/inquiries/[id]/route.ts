@@ -16,23 +16,23 @@ const ticketUpdateSchema = z.object({
   ticket_notes: z.string().max(2000).optional().nullable(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+// contacts はプラットフォーム宛の問い合わせで facility_id 列を持たない（一覧も施設横断で表示）。
+// 旧実装は facility_members による施設スコープ認可＋contacts.facility_id 絞りだったが、
+// (1) contacts に facility_id 列が無く UPDATE が常に失敗、(2) 呼び出し側が facility_id を
+// 送らないため常に 401、と二重に壊れていた。プラットフォーム管理者認可（registrations 等と
+// 同方式）に統一し、id のみで更新する。
+async function getPlatformAdminUser(): Promise<string | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const facilityId = request.nextUrl.searchParams.get('facility_id');
-  if (!facilityId || !UUID_REGEX.test(facilityId)) return null;
-
-  const { data } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .eq('facility_id', facilityId)
-    .in('role', ['owner', 'admin'])
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('is_platform_admin')
+    .eq('id', user.id)
     .single();
 
-  return data?.facility_id ?? null;
+  return profile?.is_platform_admin ? user.id : null;
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -47,8 +47,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const adminUserId = await getPlatformAdminUser();
+  if (!adminUserId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = ticketUpdateSchema.safeParse(body);
@@ -60,12 +60,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
 
   const admin = createServiceRoleClient();
-  // Include facility_id in the WHERE clause to prevent cross-facility IDOR
+  // contacts は施設横断のプラットフォーム問い合わせ。プラットフォーム管理者のみ到達できるため id で更新。
   const { error } = await admin
     .from('contacts')
     .update(payload)
-    .eq('id', params.id)
-    .eq('facility_id', facilityId);
+    .eq('id', params.id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ ok: true });

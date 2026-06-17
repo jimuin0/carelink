@@ -72,31 +72,20 @@ export async function POST(request: Request) {
 
   const { data: { user } } = await authClient.auth.getUser();
 
-  // 24h内に同一施設への投稿チェック
+  // 24h内に同一施設への投稿チェック。
+  // facility_reviews に user_id 列は存在しない（設計上一度も追加されていない）ため、
+  // ログイン有無を問わず reviewer_ip で判定する（reviewer_ip は投稿時に常に保存される）。
+  // 旧実装はログイン時に user_id で絞っており、存在しない列参照で 400 → 重複防止が無効だった。
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  if (user) {
-    const { data: recent } = await supabase
-      .from('facility_reviews')
-      .select('id')
-      .eq('facility_id', parsed.data.facility_id)
-      .eq('user_id', user.id)
-      .gte('created_at', since)
-      .limit(1);
-    if (recent && recent.length > 0) {
-      return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
-    }
-  } else {
-    // 未ログインの場合はIPで24h制限
-    const { data: recentByIp } = await supabase
-      .from('facility_reviews')
-      .select('id')
-      .eq('facility_id', parsed.data.facility_id)
-      .eq('reviewer_ip', ip)
-      .gte('created_at', since)
-      .limit(1);
-    if (recentByIp && recentByIp.length > 0) {
-      return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
-    }
+  const { data: recent } = await supabase
+    .from('facility_reviews')
+    .select('id')
+    .eq('facility_id', parsed.data.facility_id)
+    .eq('reviewer_ip', ip)
+    .gte('created_at', since)
+    .limit(1);
+  if (recent && recent.length > 0) {
+    return NextResponse.json({ error: '同じ施設への口コミは24時間に1回までです' }, { status: 429 });
   }
 
   // 来店確認
@@ -131,7 +120,9 @@ export async function POST(request: Request) {
       comment: parsed.data.comment || null,
       photo_urls: parsed.data.photo_urls?.length ? parsed.data.photo_urls : null,
       reviewer_ip: ip,
-      ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
+      // facility_reviews に user_id 列は無い。来店確認フラグのみ保存（ログイン時）。
+      // 旧実装は user_id を insert しており列が無いため 400 → ログインユーザーの投稿が全失敗していた。
+      ...(user ? { is_verified_visit: isVerifiedVisit } : {}),
     })
     .select('id')
     .single();
