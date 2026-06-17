@@ -41,6 +41,7 @@ export default function AdminSettingsPage() {
   const [address, setAddress] = useState('');
   const [building, setBuilding] = useState('');
   const [accessInfo, setAccessInfo] = useState('');
+  const [nearestStation, setNearestStation] = useState('');
 
   // Contact
   const [phone, setPhone] = useState('');
@@ -92,6 +93,7 @@ export default function AdminSettingsPage() {
         setAddress(data.address || '');
         setBuilding(data.building || '');
         setAccessInfo(data.access_info || '');
+        setNearestStation(data.nearest_station || '');
         setPhone(data.phone || '');
         setWebsiteUrl(data.website_url || '');
         setSeatCount(data.seat_count?.toString() || '');
@@ -174,6 +176,7 @@ export default function AdminSettingsPage() {
           address,
           building: building || null,
           access_info: accessInfo || null,
+          nearest_station: nearestStation || null,
           phone: phone || null,
           website_url: websiteUrl || null,
           seat_count: seatCount ? parseInt(seatCount, 10) : null,
@@ -324,6 +327,10 @@ export default function AdminSettingsPage() {
           <div>
             <label htmlFor="fac-access" className="form-label">アクセス情報</label>
             <SbInput id="fac-access" value={accessInfo} onChange={(e) => setAccessInfo(e.target.value)} placeholder="例: 渋谷駅から徒歩3分" maxLength={200} />
+          </div>
+          <div>
+            <label htmlFor="fac-station" className="form-label">最寄り駅</label>
+            <SbInput id="fac-station" value={nearestStation} onChange={(e) => setNearestStation(e.target.value)} maxLength={100} />
           </div>
         </div>
       </section>
