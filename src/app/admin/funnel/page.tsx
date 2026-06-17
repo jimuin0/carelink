@@ -25,15 +25,13 @@ export default async function FunnelPage() {
   const since = jstMonthStartIso(-1);
 
   // ファネル各ステップのデータ
+  // NOTE: ページビュー（施設ページ閲覧）は記録テーブルが未実装のため、
+  //       予約開始を起点としたファネルにしている。計測基盤の追加は別途設計。
   const [
-    { count: pageViews },
     { count: bookingStarts },
     { count: bookingCompleted },
     { count: reviewPosted },
   ] = await Promise.all([
-    // 施設ページビュー
-    admin.from('facility_view_logs').select('id', { count: 'exact', head: true })
-      .eq('facility_id', facilityId).gte('viewed_at', since),
     // 予約開始（全ステータス）
     admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since),
@@ -42,23 +40,16 @@ export default async function FunnelPage() {
       .eq('facility_id', facilityId).gte('created_at', since)
       .in('status', ['confirmed', 'completed']),
     // レビュー投稿
-    admin.from('reviews').select('id', { count: 'exact', head: true })
+    admin.from('facility_reviews').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since),
   ]);
 
-  const totalViews = pageViews ?? 0;
   const totalBookings = bookingStarts ?? 0;
   const confirmedBookings = bookingCompleted ?? 0;
   const reviews = reviewPosted ?? 0;
 
-  // 推定ファネル（施設ページビューを基準）
+  // 推定ファネル（予約開始を基準）
   const steps = [
-    {
-      label: '施設ページ閲覧',
-      count: totalViews,
-      color: 'bg-sky-500',
-      description: '過去30日間',
-    },
     {
       label: '予約開始',
       count: totalBookings,
@@ -116,7 +107,7 @@ export default async function FunnelPage() {
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-xl font-bold">コンバージョンファネル</h1>
-        <p className="text-xs text-gray-400 mt-0.5">閲覧から予約・レビューまでの転換率</p>
+        <p className="text-xs text-gray-400 mt-0.5">予約開始から確定・レビューまでの転換率</p>
       </div>
 
       {/* ファネルチャート */}
@@ -156,11 +147,11 @@ export default async function FunnelPage() {
         </div>
 
         {/* 総合コンバージョン率 */}
-        {totalViews > 0 && confirmedBookings > 0 && (
+        {totalBookings > 0 && confirmedBookings > 0 && (
           <div className="mt-5 p-3 bg-green-50 rounded-lg">
             <p className="text-sm font-medium text-green-800">
-              閲覧→予約確定の総合転換率:{' '}
-              <span className="text-lg font-bold">{Math.round((confirmedBookings / totalViews) * 100)}%</span>
+              予約開始→予約確定の総合転換率:{' '}
+              <span className="text-lg font-bold">{Math.round((confirmedBookings / totalBookings) * 100)}%</span>
             </p>
           </div>
         )}
