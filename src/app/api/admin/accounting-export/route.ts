@@ -75,8 +75,12 @@ export async function GET(request: NextRequest) {
   // 全件をエクスポートする（会計データは完全性が必須）。
   // 旧実装は .limit(5000) で、対象期間の確定/完了予約が5000件を超えると会計データが
   // 黙って欠損していた。fetchAllPaged で created_at 順に全件ページング取得する。
+  // bookings に menu_name 列は無く menu_id 経由で取得（embed）。total_amount 列も無いため
+  // 実列 total_price をエイリアスで total_amount として取得し、menu_name は取得後に平坦化する。
   type BookingRow = {
-    id: string; created_at: string; menu_name: string | null; total_amount: number | null;
+    id: string; created_at: string;
+    menu: { name: string } | { name: string }[] | null;
+    total_amount: number | null;
     status: string;
     profiles: { display_name?: string; email?: string } | { display_name?: string; email?: string }[] | null;
   };
@@ -84,7 +88,7 @@ export async function GET(request: NextRequest) {
     async (offset, limit) => {
       let q = admin
         .from('bookings')
-        .select('id, created_at, menu_name, total_amount, status, profiles(display_name, email)')
+        .select('id, created_at, menu:facility_menus(name), total_amount:total_price, status, profiles(display_name, email)')
         .eq('facility_id', facilityId)
         .in('status', ['confirmed', 'completed'])
         .order('created_at');
@@ -97,6 +101,12 @@ export async function GET(request: NextRequest) {
   );
   if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
 
+  // embed した menu を従来の menu_name フラット形へ平坦化
+  const rows = bookings.map((b) => ({
+    ...b,
+    menu_name: (Array.isArray(b.menu) ? b.menu[0] : b.menu)?.name ?? null,
+  }));
+
   let csv = '';
   let filename = '';
 
@@ -105,7 +115,7 @@ export async function GET(request: NextRequest) {
     filename = `carelink_freee_${from ?? 'all'}.csv`;
     const header = ['取引日', '収支区分', '管理番号', '取引先', '勘定科目', '税区分', '金額', '税計算区分', '消費税額', '備考'];
     csv = '\uFEFF' + header.join(',') + '\n';
-    for (const b of bookings) {
+    for (const b of rows) {
       const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
       const amount = b.total_amount ?? 0;
       const tax = Math.round(amount * 10 / 110);
@@ -127,7 +137,7 @@ export async function GET(request: NextRequest) {
     filename = `carelink_mf_${from ?? 'all'}.csv`;
     const header = ['日付', '借方勘定科目', '借方補助科目', '借方税区分', '借方金額', '貸方勘定科目', '貸方補助科目', '貸方税区分', '貸方金額', '摘要'];
     csv = '\uFEFF' + header.join(',') + '\n';
-    for (const b of bookings) {
+    for (const b of rows) {
       const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
       const amount = b.total_amount ?? 0;
       csv += toCsvRow([
@@ -148,7 +158,7 @@ export async function GET(request: NextRequest) {
     filename = `carelink_bookings_${from ?? 'all'}.csv`;
     const header = ['予約ID', '日付', '顧客名', 'メール', 'メニュー', '金額', 'ステータス'];
     csv = '\uFEFF' + header.join(',') + '\n';
-    for (const b of bookings) {
+    for (const b of rows) {
       const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string; email?: string } | null;
       csv += toCsvRow([
         b.id,

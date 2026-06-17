@@ -112,7 +112,9 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
 
   let query = admin
     .from('bookings')
-    .select('id, booking_date, start_time, end_time, status, customer_name, customer_phone, total_price, menu_name, staff_name, notes, created_at, updated_at', { count: 'exact' })
+    // bookings の実列に合わせる: customer_phone→phone / notes→note はエイリアスで出力名維持、
+    // menu_name/staff_name は列が無いため menu_id/staff_id 経由で embed し後段で平坦化する。
+    .select('id, booking_date, start_time, end_time, status, customer_name, customer_phone:phone, total_price, menu:facility_menus(name), staff:staff_profiles(name), notes:note, created_at, updated_at', { count: 'exact' })
     .eq('facility_id', facilityId)
     .order('booking_date', { ascending: false })
     .range(offset, offset + limit - 1);
@@ -124,6 +126,19 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
 
+  // embed した menu/staff を従来の menu_name/staff_name フラット形へ戻す（外部API契約維持）
+  type RawRow = {
+    menu?: { name: string } | { name: string }[] | null;
+    staff?: { name: string } | { name: string }[] | null;
+  } & Record<string, unknown>;
+  const rows = ((data ?? []) as RawRow[]).map((b) => {
+    const m = Array.isArray(b.menu) ? b.menu[0] : b.menu;
+    const s = Array.isArray(b.staff) ? b.staff[0] : b.staff;
+    const { menu, staff, ...rest } = b;
+    void menu; void staff;
+    return { ...rest, menu_name: m?.name ?? null, staff_name: s?.name ?? null };
+  });
+
   return NextResponse.json({
     api_version: API_VERSION,
     facility_id: facilityId,
@@ -133,7 +148,7 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
       total: count ?? 0,
       total_pages: Math.ceil((count ?? 0) / limit),
     },
-    data: data ?? [],
+    data: rows,
   }, {
     headers: {
       'X-API-Version': API_VERSION,

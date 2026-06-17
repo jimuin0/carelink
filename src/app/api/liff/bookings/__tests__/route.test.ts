@@ -75,7 +75,7 @@ function setupDefaultMocks(
             booking_date: '2026-05-10',
             start_time: '10:00',
             end_time: '11:00',
-            menu_name: 'Eyelash',
+            menu: [{ name: 'Eyelash' }], // 配列形 embed
             status: 'confirmed',
             total_price: 5000,
             facility_profiles: { name: 'Salon A' },
@@ -90,7 +90,7 @@ function setupDefaultMocks(
           booking_date: '2026-05-05',
           start_time: '10:00',
           end_time: '11:00',
-          menu_name: 'Eyelash',
+          menu: null, // menu 未設定（非配列・null）→ menu_name=null パスを検証
           status: 'confirmed',
           total_price: 5000,
           facility_profiles: { name: 'Test Salon' },

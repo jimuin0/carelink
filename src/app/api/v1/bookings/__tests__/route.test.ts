@@ -33,7 +33,10 @@ function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
           }),
         };
       } else if (table === 'bookings') {
-        const result = { data: [{ id: 'booking-1', facility_id: 'fac-123', booking_date: '2026-05-10', start_time: '10:00', end_time: '11:00', menu_name: 'Eyelash', status: 'confirmed', total_price: 5000 }], error: null, count: 1 };
+        const result = { data: [
+          { id: 'booking-1', facility_id: 'fac-123', booking_date: '2026-05-10', start_time: '10:00', end_time: '11:00', menu: [{ name: 'Eyelash' }], staff: [{ name: 'Bob' }], status: 'confirmed', total_price: 5000 }, // 配列形 embed
+          { id: 'booking-2', facility_id: 'fac-123', booking_date: '2026-05-11', start_time: '10:00', end_time: '11:00', menu: null, staff: null, status: 'confirmed', total_price: 5000 }, // null embed → menu_name/staff_name=null パス
+        ], error: null, count: 2 };
         const chain: any = { gte: jest.fn(), lte: jest.fn(), eq: jest.fn(), then: (r: any) => Promise.resolve(result).then(r), catch: (r: any) => Promise.resolve(result).catch(r) };
         chain.gte.mockReturnValue(chain);
         chain.lte.mockReturnValue(chain);
