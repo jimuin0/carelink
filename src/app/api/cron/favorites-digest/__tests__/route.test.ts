@@ -189,11 +189,10 @@ function setupDefaultMocks(
       }),
     }),
   });
+  // facility_menus は is_active 列が無く絞り込みを廃止 → .in().gte().range()
   mockMenusSelect = jest.fn().mockReturnValue({
     in: jest.fn().mockReturnValue({
-      gte: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({ range: paged(menusData) }),
-      }),
+      gte: jest.fn().mockReturnValue({ range: paged(menusData) }),
     }),
   });
   // facilities: .in().range()
@@ -341,7 +340,7 @@ describe('GET /api/cron/favorites-digest', () => {
     expect(mockCouponsSelect).toHaveBeenCalled();
   });
 
-  test('filters only active menus (is_active=true)', async () => {
+  test('新メニュー追加施設を検出（facility_menus に is_active 列が無いため絞り込みは廃止）', async () => {
     setupDefaultMocks(1, false, false, 0, 1);
 
     await GET(makeRequest() as any);
@@ -635,9 +634,7 @@ describe('GET /api/cron/favorites-digest', () => {
   test('facility_menus query returns null → newMenuFacilities が空のまま処理', async () => {
     mockMenusSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
-        gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: null, error: null })) }),
-        }),
+        gte: jest.fn().mockReturnValue({ range: jest.fn(() => Promise.resolve({ data: null, error: null })) }),
       }),
     });
     mockFromDelegate.mockImplementation((table: string) => {
@@ -781,9 +778,7 @@ describe('GET /api/cron/favorites-digest', () => {
     mockMenusSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ facility_id: 'fac-1' }] : [], error: null })),
-          }),
+          range: jest.fn((from: number) => Promise.resolve({ data: from === 0 ? [{ facility_id: 'fac-1' }] : [], error: null })),
         }),
       }),
     });

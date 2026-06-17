@@ -67,14 +67,14 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   // Get unique customers from bookings for this facility
   let query = admin
     .from('bookings')
-    .select('customer_name, customer_phone, customer_email, user_id', { count: 'exact' })
+    .select('customer_name, customer_phone:phone, customer_email:email, user_id', { count: 'exact' })
     .eq('facility_id', principal.facility_id)
     .not('customer_name', 'is', null)
     .order('created_at', { ascending: false });
 
   if (search) {
     const safeSearch = search.replace(/[%_\\]/g, '\\$&').replace(/[,()]/g, '').slice(0, 100);
-    query = query.or(`customer_name.ilike.%${safeSearch}%,customer_phone.ilike.%${safeSearch}%`);
+    query = query.or(`customer_name.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`);
   }
 
   const { data, error, count } = await query.range(offset, offset + limit - 1);
