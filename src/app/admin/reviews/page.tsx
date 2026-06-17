@@ -118,7 +118,8 @@ export default function AdminReviewsPage() {
       if (!user) return;
       const { data, error } = await supabase
         .from('review_replies')
-        .insert({ review_id: reviewId, user_id: user.id, content: text, facility_id: facilityId })
+        // review_replies に facility_id 列は無い（review_id 経由で施設に紐づく）→ 付けると 400 になるため除外
+        .insert({ review_id: reviewId, user_id: user.id, content: text })
         .select('id, content, created_at')
         .single();
       if (error) throw error;

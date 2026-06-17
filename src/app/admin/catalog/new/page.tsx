@@ -37,6 +37,8 @@ export default function NewCatalogPage() {
       body: JSON.stringify({
         name: title,
         description: description || null,
+        // タグはカンマ区切り入力 → 配列に変換して treatment_catalogs.tags(text[]) へ保存
+        tags: tags ? tags.split(',').map((t) => t.trim()).filter(Boolean) : null,
       }),
     });
 

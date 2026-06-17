@@ -63,7 +63,7 @@ export async function POST(request: NextRequest) {
     href: parsed.data.href ?? null,
     is_active: parsed.data.is_active ?? true,
     sort_order: parsed.data.sort_order ?? 0,
-    updated_at: new Date().toISOString(),
+    // feature_articles に updated_at 列は存在しない（created_at のみ）→ 書き込むと 400 になるため付けない
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

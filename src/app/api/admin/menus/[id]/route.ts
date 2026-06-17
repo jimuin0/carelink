@@ -73,7 +73,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const { data, error } = await admin
     .from('facility_menus')
-    .update({ ...parsed.data, photo_url: parsed.data.photo_url || null, updated_at: new Date().toISOString() })
+    // facility_menus に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
+    .update({ ...parsed.data, photo_url: parsed.data.photo_url || null })
     .eq('id', params.id)
     .eq('facility_id', ctx.facilityId)
     .select()

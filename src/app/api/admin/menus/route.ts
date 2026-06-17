@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
     ...parsed.data,
     photo_url: parsed.data.photo_url || null,
     sort_order: parsed.data.sort_order ?? (count ?? 0),
-    updated_at: new Date().toISOString(),
+    // facility_menus に updated_at 列は存在しない（created_at のみ）。書き込むと 400 になるため付けない。
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

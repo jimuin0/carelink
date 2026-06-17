@@ -2,10 +2,9 @@
  * @jest-environment node
  *
  * Tests for POST /api/admin/catalog
- * Key assertions:
- *   - Non-member → 401 (IDOR prevention)
- *   - name min 1, price 0-9999999, duration_minutes 0-1440
- *   - DB failure → 500
+ * treatment_catalogs は Before/After 症例カタログ（実列: title, description, tags[]）。
+ * 受け取った name は title へ保存する。price/category/duration_minutes/is_published は
+ * 当テーブルに列が無いため schema からも削除済み。
  */
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
@@ -53,14 +52,14 @@ function memberSingle(data: unknown) {
   };
 }
 
-function insertSingle(data: unknown, error: unknown = null) {
-  return {
-    insert: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({
-        single: jest.fn(() => Promise.resolve({ data, error })),
-      }),
+// insert の引数を捕捉できるよう mock を返す
+function insertCapture(data: unknown, error: unknown = null) {
+  const insert = jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      single: jest.fn(() => Promise.resolve({ data, error })),
     }),
-  };
+  });
+  return { mock: { insert }, client: { insert } };
 }
 
 beforeEach(() => {
@@ -89,58 +88,77 @@ test('POST: 非管理者 → 401', async () => {
   expect(res.status).toBe(401);
 });
 
+test('POST: facility_id が不正UUID → 401', async () => {
+  const res = await POST(makeRequest(validBody(), null));
+  expect(res.status).toBe(401);
+});
+
 test('POST: name が空 → 400', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   const res = await POST(makeRequest(validBody({ name: '' })));
   expect(res.status).toBe(400);
 });
 
-test('POST: price が負数 → 400', async () => {
+test('POST: name が 200文字 → 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest(validBody({ price: -1 })));
+  mockAdminFrom.mockReturnValue(insertCapture({ id: 'c1' }).client);
+  const res = await POST(makeRequest(validBody({ name: 'あ'.repeat(200) })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: name が 201文字 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ name: 'a'.repeat(201) })));
   expect(res.status).toBe(400);
 });
 
-test('POST: price が 10000000 → 400', async () => {
+test('POST: description が 2001文字 → 400', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest(validBody({ price: 10000000 })));
+  const res = await POST(makeRequest(validBody({ description: 'a'.repeat(2001) })));
   expect(res.status).toBe(400);
 });
 
-test('POST: duration_minutes が 1441 → 400', async () => {
+test('POST: tags が配列 → 201', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest(validBody({ duration_minutes: 1441 })));
+  mockAdminFrom.mockReturnValue(insertCapture({ id: 'c1' }).client);
+  const res = await POST(makeRequest(validBody({ tags: ['ボブ', 'カラー'] })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: tags が21件 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const res = await POST(makeRequest(validBody({ tags: Array(21).fill('x') })));
   expect(res.status).toBe(400);
+});
+
+test('POST: insert に title(=name) と tags が渡る', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const cap = insertCapture({ id: 'c1' });
+  mockAdminFrom.mockReturnValue(cap.client);
+  await POST(makeRequest(validBody({ name: '症例A', description: '説明', tags: ['t1'] })));
+  const arg = cap.mock.insert.mock.calls[0][0];
+  expect(arg.title).toBe('症例A');
+  expect(arg.description).toBe('説明');
+  expect(arg.tags).toEqual(['t1']);
+  // 存在しない列は書き込まない
+  expect('name' in arg).toBe(false);
+  expect('price' in arg).toBe(false);
 });
 
 test('POST: DB挿入失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle(null, { message: 'DB error' }));
+  mockAdminFrom.mockReturnValue(insertCapture(null, { message: 'DB error' }).client);
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(500);
 });
 
 test('POST: 正常作成 → 201 with item', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'catalog-1', name: 'テストカタログ' }));
+  mockAdminFrom.mockReturnValue(insertCapture({ id: 'catalog-1', title: '症例A' }).client);
   const res = await POST(makeRequest(validBody()));
   const json = await res.json();
   expect(res.status).toBe(201);
-  expect(json.item).toBeDefined();
-});
-
-test('POST: price=0 → 201', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'catalog-1' }));
-  const res = await POST(makeRequest(validBody({ price: 0 })));
-  expect(res.status).toBe(201);
-});
-
-test('POST: duration_minutes=1440 → 201', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'catalog-1' }));
-  const res = await POST(makeRequest(validBody({ duration_minutes: 1440 })));
-  expect(res.status).toBe(201);
+  expect(json.item.id).toBe('catalog-1');
 });
 
 test('POST: CSRF エラー → 403', async () => {
@@ -148,65 +166,4 @@ test('POST: CSRF エラー → 403', async () => {
   (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(403);
-});
-
-test('POST: name が 100文字 → 201', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1' }));
-  const res = await POST(makeRequest(validBody({ name: 'あ'.repeat(100) })));
-  expect(res.status).toBe(201);
-});
-
-test('POST: name が 101文字 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest(validBody({ name: 'a'.repeat(101) })));
-  expect(res.status).toBe(400);
-});
-
-test('POST: description が 1001文字 → 400', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  const res = await POST(makeRequest(validBody({ description: 'a'.repeat(1001) })));
-  expect(res.status).toBe(400);
-});
-
-test('POST: price が 9999999 → 201', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1' }));
-  const res = await POST(makeRequest(validBody({ price: 9999999 })));
-  expect(res.status).toBe(201);
-});
-
-test('POST: duration_minutes が 0 → 201', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1' }));
-  const res = await POST(makeRequest(validBody({ duration_minutes: 0 })));
-  expect(res.status).toBe(201);
-});
-
-test('POST: facility_id が不正UUID → 401', async () => {
-  const url = new URL('http://localhost/api/admin/catalog');
-  url.searchParams.set('facility_id', 'bad-uuid');
-  const req = new NextRequest(url.toString(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(validBody()),
-  });
-  const res = await POST(req);
-  expect(res.status).toBe(401);
-});
-
-test('POST: is_published=true → 201', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1', is_published: true }));
-  const res = await POST(makeRequest(validBody({ is_published: true })));
-  expect(res.status).toBe(201);
-});
-
-test('POST: レスポンスが { item: ... } 形式', async () => {
-  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'c1', name: 'テストカタログ' }));
-  const res = await POST(makeRequest(validBody()));
-  const json = await res.json();
-  expect(json.item).toBeDefined();
-  expect(json.item.id).toBe('c1');
 });
