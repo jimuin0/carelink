@@ -26,6 +26,7 @@ const settingsSchema = z.object({
   address: z.string().max(100).optional().nullable(),
   building: z.string().max(100).optional().nullable(),
   access_info: z.string().max(200).optional().nullable(),
+  nearest_station: z.string().max(100).optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
   website_url: z.string().url().max(200).optional().nullable().or(z.literal('')),
   seat_count: z.number().int().min(0).max(9999).optional().nullable(),
