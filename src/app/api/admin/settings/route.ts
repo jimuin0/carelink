@@ -37,6 +37,8 @@ const settingsSchema = z.object({
   business_hours: z.record(z.string(), businessHoursDaySchema).optional().nullable(),
   booking_auto_confirm: z.boolean().optional(),
   booking_buffer_minutes: z.number().int().min(0).max(120).optional(),
+  // サロンボードの時間軸の区切り幅（分）。15/30/60 のみ（DB CHECK と一致）。
+  board_slot_minutes: z.union([z.literal(15), z.literal(30), z.literal(60)]).optional(),
 });
 
 const statusSchema = z.object({

@@ -16,15 +16,15 @@ jest.mock('next/navigation', () => ({ useRouter: () => ({ refresh: jest.fn() }) 
 const rows: BoardRow[] = [{ key: 's1', name: '佐藤', position: null, nominationFee: 0, chips: [] }];
 const menuShort: BoardMenu[] = [{ id: 'm1', name: 'カット', price: 5000, duration_minutes: 30 }];
 
-function setup(menus: BoardMenu[] = menuShort) {
+function setup(menus: BoardMenu[] = menuShort, slotMinutes = 60) {
   return render(
-    <BoardScheduleGrid facilityId="f1" date="2026-07-01" openHour={8} closeHour={22} rows={rows} menus={menus} />,
+    <BoardScheduleGrid facilityId="f1" date="2026-07-01" openHour={8} closeHour={22} rows={rows} menus={menus} slotMinutes={slotMinutes} />,
   );
 }
 
 function setupRows(boardRows: BoardRow[]) {
   return render(
-    <BoardScheduleGrid facilityId="f1" date="2026-07-01" openHour={8} closeHour={22} rows={boardRows} menus={menuShort} />,
+    <BoardScheduleGrid facilityId="f1" date="2026-07-01" openHour={8} closeHour={22} rows={boardRows} menus={menuShort} slotMinutes={60} />,
   );
 }
 
@@ -45,6 +45,21 @@ test('空き帯クリックでモーダルが開く（クリック位置→開�
   fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 0 });
   expect(await screen.findByText('新規予約（佐藤）')).toBeInTheDocument();
   expect(screen.getByText(/08:00〜/)).toBeInTheDocument();
+});
+
+test('slotMinutes=60 では 08:40 相当クリックが 08:00 にスナップ（1時間刻み）', async () => {
+  // width=840, totalMin=840 → clientX=40 が開店+40分(08:40)。slot=60 で floor→08:00。
+  setup(menuShort, 60);
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 40 });
+  expect(await screen.findByText('新規予約（佐藤）')).toBeInTheDocument();
+  expect(screen.getByText(/08:00〜/)).toBeInTheDocument();
+});
+
+test('slotMinutes=30 では 08:40 相当クリックが 08:30 にスナップ（店舗設定の刻みが反映）', async () => {
+  setup(menuShort, 30);
+  fireEvent.click(screen.getByRole('button', { name: /新規予約を追加/ }), { clientX: 40 });
+  expect(await screen.findByText('新規予約（佐藤）')).toBeInTheDocument();
+  expect(screen.getByText(/08:30〜/)).toBeInTheDocument();
 });
 
 test('スクロール/ドラッグ（pointer 移動量>しきい値）はタップ扱いせずモーダルを開かない（T10）', () => {

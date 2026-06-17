@@ -217,6 +217,19 @@ test('PATCH: booking_buffer_minutes が 120 (上限ぴったり) → 200', async
   expect(res.status).toBe(200);
 });
 
+test('PATCH: board_slot_minutes が許可外(45) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: '施設', board_slot_minutes: 45 }));
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: board_slot_minutes が許可値(30) → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({ name: '施設', board_slot_minutes: 30 }));
+  expect(res.status).toBe(200);
+});
+
 test('PATCH: business_hours の hours が null → ループスキップして 200', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(updateChain());

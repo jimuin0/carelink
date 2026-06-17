@@ -56,6 +56,8 @@ export default function AdminSettingsPage() {
   const [facilityStatus, setFacilityStatus] = useState<'draft' | 'published' | 'suspended'>('draft');
   const [autoConfirm, setAutoConfirm] = useState(false);
   const [bufferMinutes, setBufferMinutes] = useState(0);
+  // サロンボードの時間軸の区切り幅（分）。既定 60。
+  const [boardSlotMinutes, setBoardSlotMinutes] = useState(60);
   const [publishToggling, setPublishToggling] = useState(false);
   const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
 
@@ -101,6 +103,7 @@ export default function AdminSettingsPage() {
         setFacilityStatus(data.status || 'draft');
         setAutoConfirm(data.booking_auto_confirm ?? false);
         setBufferMinutes(data.booking_buffer_minutes ?? 0);
+        setBoardSlotMinutes(data.board_slot_minutes ?? 60);
         if (data.business_hours) {
           const bh = data.business_hours as BusinessHours;
           const closed: string[] = [];
@@ -182,6 +185,7 @@ export default function AdminSettingsPage() {
           business_hours: businessHours,
           booking_auto_confirm: autoConfirm,
           booking_buffer_minutes: bufferMinutes,
+          board_slot_minutes: boardSlotMinutes,
         }),
       });
 
@@ -416,6 +420,26 @@ export default function AdminSettingsPage() {
             >
               {[0, 5, 10, 15, 20, 30, 45, 60].map((m) => (
                 <option key={m} value={m}>{m === 0 ? 'なし' : `${m}分`}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+        <div className="mt-4 border-t pt-4">
+          <label htmlFor="board-slot-minutes" className="block text-sm font-medium text-gray-800 mb-1">
+            サロンボードの時間刻み
+          </label>
+          <p className="text-xs text-gray-500 mb-2">
+            予約管理のサロンボード（スタッフ×時間軸）の区切り幅です。空き帯クリック時の時刻スナップもこの単位になります。
+          </p>
+          <div className="flex items-center gap-3">
+            <select
+              id="board-slot-minutes"
+              value={boardSlotMinutes}
+              onChange={(e) => setBoardSlotMinutes(parseInt(e.target.value, 10))}
+              className="form-input w-40"
+            >
+              {[15, 30, 60].map((m) => (
+                <option key={m} value={m}>{`${m}分`}</option>
               ))}
             </select>
           </div>
