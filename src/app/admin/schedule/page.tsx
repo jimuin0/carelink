@@ -166,8 +166,13 @@ export default async function AdminSchedulePage(props: Props) {
       {/* ガント本体 */}
       <div className="bg-white border rounded-b-xl overflow-x-auto">
         <div className="min-w-[900px]">
-          {/* 時間軸ヘッダ */}
-          <div className="flex border-b bg-sky-50/60 sticky z-20" style={{ top: 'var(--admin-topnav-h, 0px)' }}>
+          {/* 時間軸ヘッダ
+              縦 sticky にしない: 親が overflow-x-auto（横スクロール）のため、縦 sticky に
+              すると sticky の包含ブロックがこのスクロールコンテナになり、ページ縦スクロール時に
+              ヘッダが盤面トップに固定されず行（例: 2人目）の上へ「降りてきて」重なる不具合が出る。
+              通常フローの先頭要素にすることで、ヘッダは常に盤面最上段に並び、行へ重なり得ない。
+              スタッフ列の横 sticky（sticky left-0）は横スクロール追従のため維持する。 */}
+          <div className="flex border-b bg-sky-50">
             <div className="w-36 shrink-0 px-3 py-2 text-xs font-bold text-gray-600 border-r sticky left-0 z-30 bg-sky-50">スタッフ</div>
             <div className="flex-1 relative h-8">
               {hours.map((h, i) => (
