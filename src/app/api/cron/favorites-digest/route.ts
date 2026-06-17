@@ -103,11 +103,12 @@ export async function GET(request: Request) {
       const { rows: newMenus } = await fetchAllPaged<{ facility_id: string }>(
         async (offset, limit) => {
           const { data, error } = await supabase
+            // facility_menus に is_active 列は存在しない（公開メニュー表示も is_published 等で絞らず全件表示）。
+            // 存在しない列での絞り込みは PostgREST 400 になり新メニュー判定が無音で死ぬため除去（#176 と同方針）。
             .from('facility_menus')
             .select('facility_id')
             .in('facility_id', idChunk)
             .gte('created_at', since)
-            .eq('is_active', true)
             .range(offset, offset + limit - 1);
           return { data: data as { facility_id: string }[] | null, error };
         },

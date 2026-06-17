@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
   const admin = createServiceRoleClient();
   const { data, error } = await admin
     .from('salons')
-    .select('id, name, email, phone, status, created_at')
+    .select('id, name:facility_name, email, phone, status, created_at')
     .order('created_at', { ascending: false })
     .limit(100);
 
