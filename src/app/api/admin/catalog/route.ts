@@ -8,13 +8,14 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
+// treatment_catalogs は Before/After 等の症例カタログ（実列: title, description, tags[],
+// before_photo_url, after_photo_url）。旧 schema は name/price/category/duration_minutes/
+// is_published を treatment_catalogs に insert しており、これらの列が存在しないため作成が
+// 常に 400 で失敗していた。フォームの入力（タイトル=name / 説明 / タグ）に合わせて実列へ保存する。
 const catalogSchema = z.object({
-  name: z.string().min(1).max(100),
-  description: z.string().max(1000).optional().nullable(),
-  category: z.string().max(50).optional().nullable(),
-  price: z.number().int().min(0).max(9999999).optional().nullable(),
-  duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
-  is_published: z.boolean().optional(),
+  name: z.string().min(1).max(200), // フォームは title を name として送信 → treatment_catalogs.title へ
+  description: z.string().max(2000).optional().nullable(),
+  tags: z.array(z.string().max(50)).max(20).optional().nullable(),
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
@@ -55,12 +56,9 @@ export async function POST(request: NextRequest) {
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('treatment_catalogs').insert({
     facility_id: auth.facilityId,
-    name: parsed.data.name,
+    title: parsed.data.name,
     description: parsed.data.description ?? null,
-    category: parsed.data.category ?? null,
-    price: parsed.data.price ?? null,
-    duration_minutes: parsed.data.duration_minutes ?? null,
-    is_published: parsed.data.is_published ?? false,
+    tags: parsed.data.tags ?? null,
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
@@ -72,7 +70,7 @@ export async function POST(request: NextRequest) {
     action: 'create',
     tableName: 'treatment_catalogs',
     recordId: data.id,
-    newValues: { name: parsed.data.name, is_published: parsed.data.is_published ?? false },
+    newValues: { title: parsed.data.name },
     ipAddress: auditIp,
     userAgent: ua,
   });

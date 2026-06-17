@@ -61,7 +61,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const admin = createServiceRoleClient();
   const { data, error } = await admin
     .from('feature_articles')
-    .update({ ...parsed.data, image_url: parsed.data.image_url || null, updated_at: new Date().toISOString() })
+    // feature_articles に updated_at 列は無い（created_at のみ）→ 書き込むと 400 になるため付けない
+    .update({ ...parsed.data, image_url: parsed.data.image_url || null })
     .eq('id', params.id)
     .select()
     .single();
