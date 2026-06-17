@@ -41,6 +41,7 @@ export default function BoardScheduleGrid({
   closeHour,
   rows,
   menus,
+  slotMinutes,
 }: {
   facilityId: string;
   date: string;
@@ -48,10 +49,19 @@ export default function BoardScheduleGrid({
   closeHour: number;
   rows: BoardRow[];
   menus: BoardMenu[];
+  /** 時間軸の区切り幅（分）。店舗設定 board_slot_minutes（15/30/60）。グリッド罫線と
+   *  空き帯クリック時のスナップ単位の両方に使う（表示とスナップを一致させる）。 */
+  slotMinutes: number;
 }) {
   const router = useRouter();
   const totalMin = (closeHour - openHour) * 60;
-  const hours = Array.from({ length: closeHour - openHour }, (_, i) => openHour + i);
+  const openMinAxis = openHour * 60;
+  // 区切り罫線の位置（分オフセット）。openMin から slotMinutes 刻みで closeMin 手前まで。
+  // 15/30/60 はいずれも 60 を割り切るため、毎時ラベル（ヘッダ側）と必ず整合する。
+  const gridMarks = Array.from(
+    { length: Math.max(1, Math.round(totalMin / slotMinutes)) },
+    (_, i) => i * slotMinutes,
+  );
   // 担当変更(M3)・指名料(M1)用にスタッフ選択肢を行から導出
   const staffOptions: StaffOption[] = rows.map((r) => ({ key: r.key, name: r.name, nominationFee: r.nominationFee }));
 
@@ -62,7 +72,7 @@ export default function BoardScheduleGrid({
   });
 
   function openModal(row: BoardRow, startMin: number) {
-    setPreset({ staffKey: row.key, start: minutesToTime(snapToSlot(startMin)) });
+    setPreset({ staffKey: row.key, start: minutesToTime(snapToSlot(startMin, slotMinutes)) });
     setModalOpen(true);
   }
 
@@ -137,9 +147,16 @@ export default function BoardScheduleGrid({
               onKeyDown={(e) => handleTrackKeyDown(e, row)}
               title="クリック / Enter で新規予約"
             >
-              {hours.map((h, i) => (
-                <div key={h} className="absolute top-0 bottom-0 border-l border-gray-100" style={{ left: `${(i / hours.length) * 100}%` }} />
-              ))}
+              {gridMarks.map((m) => {
+                const onHour = (openMinAxis + m) % 60 === 0;
+                return (
+                  <div
+                    key={m}
+                    className={`absolute top-0 bottom-0 border-l ${onHour ? 'border-gray-200' : 'border-gray-100'}`}
+                    style={{ left: `${(m / totalMin) * 100}%` }}
+                  />
+                );
+              })}
               {inWindow.map((b, idx) => {
                 const rawStart = timeToMinutes(b.start_time);
                 const rawEnd = timeToMinutes(b.end_time);
@@ -180,6 +197,7 @@ export default function BoardScheduleGrid({
           facilityId={facilityId}
           date={date}
           closeHour={closeHour}
+          slotMinutes={slotMinutes}
           menus={menus}
           staffOptions={staffOptions}
           preset={preset}
@@ -199,6 +217,7 @@ function BoardBookingModal({
   facilityId,
   date,
   closeHour,
+  slotMinutes,
   menus,
   staffOptions,
   preset,
@@ -209,6 +228,7 @@ function BoardBookingModal({
   facilityId: string;
   date: string;
   closeHour: number;
+  slotMinutes: number;
   menus: BoardMenu[];
   staffOptions: StaffOption[];
   preset: { staffKey: string; start: string };
@@ -452,7 +472,7 @@ function BoardBookingModal({
               type="time"
               value={startTime}
               onChange={(e) => setStartTime(e.target.value)}
-              step={1800}
+              step={slotMinutes * 60}
               className="border border-gray-300 rounded-md px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
             />
           </div>

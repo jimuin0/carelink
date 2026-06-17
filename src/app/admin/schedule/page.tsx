@@ -50,6 +50,18 @@ export default async function AdminSchedulePage(props: Props) {
     .single();
   if (!membership) notFound();
 
+  // 時間軸の区切り幅（店舗設定 board_slot_minutes）。15/30/60 のみ許可・既定 60。
+  // 取得失敗（列未追加＝migration 未適用 等）や想定外値は 60 にフォールバックし、
+  // サロンボード本体は決して落とさない（設定は非クリティカル）。
+  const ALLOWED_SLOT_MINUTES = [15, 30, 60] as const;
+  const { data: slotRow } = await supabase
+    .from('facility_profiles')
+    .select('board_slot_minutes')
+    .eq('id', membership.facility_id)
+    .maybeSingle();
+  const rawSlot = (slotRow as { board_slot_minutes?: number | null } | null)?.board_slot_minutes;
+  const slotMinutes = ALLOWED_SLOT_MINUTES.includes(rawSlot as 15 | 30 | 60) ? (rawSlot as number) : 60;
+
   const date = searchParams.date && isValidIsoDate(searchParams.date)
     ? searchParams.date
     : todayJst();
@@ -178,6 +190,7 @@ export default async function AdminSchedulePage(props: Props) {
             closeHour={CLOSE_HOUR}
             rows={boardRows}
             menus={boardMenus}
+            slotMinutes={slotMinutes}
           />
 
           {staff.length === 0 && (
