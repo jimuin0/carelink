@@ -47,8 +47,8 @@ function setupDefaultMocks(
           facility_id: 'fac-123',
           start_time: '2026-05-10T10:00:00Z',
           end_time: '2026-05-10T11:00:00Z',
-          menu: { name: 'Eyelash Extension' },
-          staff: { name: 'Alice' },
+          menu: [{ name: 'Eyelash Extension' }],
+          staff: [{ name: 'Alice' }],
           facility_profiles: [
             {
               name: 'Salon ABC',

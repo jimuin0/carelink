@@ -161,7 +161,7 @@ test('GET: freee形式 → 200 text/csv + BOM', async () => {
   mockAdminFrom.mockReturnValue(bookingQueryChain([{
     id: 'booking-1',
     created_at: '2026-01-15T10:00:00Z',
-    menu: { name: 'カット' },    total_amount: 3300,
+    menu: [{ name: 'カット' }],    total_amount: 3300, // 配列形 embed（to-one が配列で返るケース）も検証
     status: 'completed',
     profiles: { display_name: '田中花子', email: null },
   }]));
