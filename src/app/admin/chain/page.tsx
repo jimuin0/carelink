@@ -70,12 +70,11 @@ export default async function ChainManagementPage() {
     .select('facility_id, created_at')
     .in('facility_id', facilityIds);
 
-  // レビュー統計
+  // レビュー統計（公開済レビューのみ。`public_reviews` ビューが status='published' を事前フィルタ済）
   const { data: reviews } = await admin
-    .from('reviews')
+    .from('public_reviews' as 'facility_reviews')
     .select('facility_id, rating')
-    .in('facility_id', facilityIds)
-    .eq('is_approved', true);
+    .in('facility_id', facilityIds);
 
   // NPS
   const { data: npsData } = await admin

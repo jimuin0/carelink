@@ -97,7 +97,7 @@ function setup(opts: any = {}) {
           return { select: campaignSelect, insert: mockCampaignInsert, update: mockCampaignUpdate };
         case 'bookings':
           return { select: jest.fn().mockReturnValue(makeChain({ count: bookingsCount })) };
-        case 'reviews':
+        case 'facility_reviews':
           return { select: jest.fn().mockReturnValue(makeChain({ count: reviewsCount })) };
         case 'facility_profiles':
           return { select: jest.fn().mockReturnValue(makeChain({ count: facilitiesCount })) };

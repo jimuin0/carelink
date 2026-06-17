@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
       .lt('created_at', startOfMonth);
 
     const { count: newReviews } = await admin
-      .from('reviews')
+      .from('facility_reviews')
       .select('id', { count: 'exact', head: true })
       .gte('created_at', startOfLastMonth)
       .lt('created_at', startOfMonth);

@@ -86,7 +86,7 @@ export async function GET(request: Request) {
       const { rows: newCoupons } = await fetchAllPaged<{ facility_id: string; id: string }>(
         async (offset, limit) => {
           const { data, error } = await supabase
-            .from('facility_coupons')
+            .from('coupons')
             .select('facility_id, id')
             .in('facility_id', idChunk)
             .gte('created_at', since)

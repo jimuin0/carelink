@@ -219,7 +219,7 @@ function setupDefaultMocks(
   mockFromDelegate.mockImplementation((table: string) => {
     if (table === 'favorites') {
       return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-    } else if (table === 'facility_coupons') {
+    } else if (table === 'coupons') {
       return { select: (...args: any[]) => mockCouponsSelect(...args) };
     } else if (table === 'facility_menus') {
       return { select: (...args: any[]) => mockMenusSelect(...args) };
@@ -562,7 +562,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -606,7 +606,7 @@ describe('GET /api/cron/favorites-digest', () => {
   });
 
   // Branch coverage: line 70 - newCoupons が null の場合の for-of スキップ
-  test('facility_coupons query returns null → couponCountMap が空のまま処理', async () => {
+  test('coupons query returns null → couponCountMap が空のまま処理', async () => {
     mockCouponsSelect = jest.fn().mockReturnValue({
       in: jest.fn().mockReturnValue({
         gte: jest.fn().mockReturnValue({
@@ -616,7 +616,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -642,7 +642,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -664,7 +664,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -743,7 +743,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -794,7 +794,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -842,7 +842,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
@@ -882,7 +882,7 @@ describe('GET /api/cron/favorites-digest', () => {
     });
     mockFromDelegate.mockImplementation((table: string) => {
       if (table === 'favorites') return { select: (...args: any[]) => mockFavoritesSelect(...args) };
-      if (table === 'facility_coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
+      if (table === 'coupons') return { select: (...args: any[]) => mockCouponsSelect(...args) };
       if (table === 'facility_menus') return { select: (...args: any[]) => mockMenusSelect(...args) };
       if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
       if (table === 'profiles') return {
