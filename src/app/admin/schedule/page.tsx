@@ -1,5 +1,7 @@
 import { notFound } from 'next/navigation';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import type { Database } from '@/types/database.types';
 import Link from 'next/link';
 import { statusGanttClass, bookingStatusLabel } from '@/lib/booking-status';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
@@ -52,8 +54,16 @@ export default async function AdminSchedulePage(props: Props) {
     ? searchParams.date
     : todayJst();
 
+  // 生成済みDBスキーマ型を効かせたクライアント。これにより staff_profiles /
+  // facility_menus への列指定が tsc（CI: `tsc --noEmit`）で検証され、存在しない列
+  // （例: facility_menus.is_active）を参照した場合はマージ前にビルドが失敗する＝
+  // 「存在しない列を本番まで素通りさせる」クラスのバグを発症前に遮断する。
+  // bookings は埋め込み（menu:facility_menus(name)）の生成型と既存の手動キャストが
+  // 競合するため、本 PR のスコープを越えないよう従来の supabase（非型付き）に据え置く。
+  const db = supabase as SupabaseClient<Database>;
+
   const [{ data: staffRows, error: staffErr }, { data: bookingRows, error: bookingErr }, { data: menuRows, error: menuErr }] = await Promise.all([
-    supabase
+    db
       .from('staff_profiles')
       .select('id, name, position, nomination_fee')
       .eq('facility_id', membership.facility_id)
@@ -66,11 +76,14 @@ export default async function AdminSchedulePage(props: Props) {
       .eq('booking_date', date)
       .neq('status', 'cancelled')
       .order('start_time', { ascending: true }),
-    supabase
+    db
       .from('facility_menus')
+      // facility_menus に is_active 列は存在しない（is_featured / is_published のみ）。
+      // 公開/有効トグルは UI・API ともに無く、他のメニュー取得（/api/admin/menus・
+      // /api/admin/bookings・packages）は facility_id のみで全件取得する。本ボードの
+      // 新規予約モーダルも同一集合を出すのが正なので、ここも facility_id だけで取得する。
       .select('id, name, price, duration_minutes')
       .eq('facility_id', membership.facility_id)
-      .eq('is_active', true)
       .order('sort_order', { ascending: true }),
   ]);
 
