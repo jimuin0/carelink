@@ -164,3 +164,120 @@ export interface HpbMenuDurationRow {
   updated_at: string;
   created_at: string;
 }
+
+/** 反映時に facility_menus.category に入れる固定値(HPB に category 概念が無いため)。後から管理画面で編集可。 */
+export const HPB_APPLIED_CATEGORY = 'メニュー';
+
+/** override 優先の実効値(管理画面の手直しが取得値より優先)。 */
+function effectiveValues(row: HpbMenuDurationRow): {
+  name: string;
+  duration: number | null;
+  price: number | null;
+  description: string | null;
+} {
+  return {
+    name: row.name_override ?? row.name,
+    duration: row.duration_min_override ?? row.duration_min,
+    price: row.price_override ?? row.price,
+    description: row.description_override ?? row.description,
+  };
+}
+
+/** facility_menus への一括反映結果。 */
+export interface ApplyHpbResult {
+  inserted: number; // 新規作成(非公開で作成)
+  updated: number; // 既存 HPB 由来メニューの値を更新
+  hidden: number; // is_hidden により紐付く既存メニューを非公開化
+  skipped: number; // name が空で反映対象外
+}
+
+/**
+ * hpb_menu_durations を facility_menus へ反映(同期)。再反映で二重作成しない(hpb_ref_id 紐付け)。
+ * - is_hidden=false: override 適用後の値で facility_menus を更新(既存) or 新規作成。
+ *   新規は category='メニュー'・is_published=false(非公開=下書き)で作成→管理画面で公開ON。
+ *   既存行は値列(name/price/duration_minutes/description)のみ更新し、
+ *   is_published(神原の公開判断)・category・sort_order は温存(上書きしない)。
+ * - is_hidden=true: 紐付く facility_menus 行があれば is_published=false(客から隠す)。
+ * - name(override後)が空の行はスキップ(不完全データを実メニューに流さない)。
+ * DB エラー時は Error を throw(呼び出し側で 500)。再実行は冪等(hpb_ref_id で既存判定)。
+ */
+export async function applyHpbMenusToFacilityMenus(
+  admin: SupabaseClient,
+  facilityId: string,
+): Promise<ApplyHpbResult> {
+  const hpbRows = await listHpbMenus(admin, facilityId);
+  if (hpbRows === null) throw new Error('listHpbMenus failed');
+
+  // 既存の HPB 由来 facility_menus を hpb_ref_id で索引(手入力メニューは hpb_ref_id=null で対象外)。
+  const refIds = hpbRows.map((r) => r.ref_id);
+  const existingByRef = new Map<string, string>();
+  if (refIds.length > 0) {
+    const { data, error } = await admin
+      .from('facility_menus')
+      .select('id, hpb_ref_id')
+      .eq('facility_id', facilityId)
+      .in('hpb_ref_id', refIds);
+    if (error) throw new Error('facility_menus read failed');
+    for (const r of (data ?? []) as { id: string; hpb_ref_id: string | null }[]) {
+      if (r.hpb_ref_id) existingByRef.set(r.hpb_ref_id, r.id);
+    }
+  }
+
+  let inserted = 0;
+  let updated = 0;
+  let hidden = 0;
+  let skipped = 0;
+  const toInsert: Record<string, unknown>[] = [];
+
+  for (const row of hpbRows) {
+    const existingId = existingByRef.get(row.ref_id);
+    if (row.is_hidden) {
+      if (existingId) {
+        const { error } = await admin
+          .from('facility_menus')
+          .update({ is_published: false })
+          .eq('id', existingId);
+        if (error) throw new Error('hide update failed');
+        hidden++;
+      }
+      continue;
+    }
+    const e = effectiveValues(row);
+    if (!e.name.trim()) {
+      skipped++;
+      continue;
+    }
+    if (existingId) {
+      const { error } = await admin
+        .from('facility_menus')
+        .update({
+          name: e.name,
+          price: e.price,
+          duration_minutes: e.duration,
+          description: e.description,
+        })
+        .eq('id', existingId);
+      if (error) throw new Error('value update failed');
+      updated++;
+    } else {
+      toInsert.push({
+        facility_id: facilityId,
+        hpb_ref_id: row.ref_id,
+        category: HPB_APPLIED_CATEGORY,
+        name: e.name,
+        price: e.price,
+        duration_minutes: e.duration,
+        description: e.description,
+        is_published: false,
+      });
+    }
+  }
+
+  if (toInsert.length > 0) {
+    const { error } = await admin.from('facility_menus').insert(toInsert);
+    if (error) throw new Error('insert failed');
+    inserted = toInsert.length;
+  }
+
+  return { inserted, updated, hidden, skipped };
+}

@@ -44,6 +44,8 @@ export default async function ComparePage(props: Props) {
       .select('price')
       .eq('facility_id', f.id)
       .not('price', 'is', null)
+      // 非公開メニューは比較ページの価格帯に含めない。null/true は表示(既存維持)。
+      .or('is_published.is.null,is_published.eq.true')
       .order('price');
     const prices = (menus || []).map((m) => m.price).filter((p): p is number => p !== null && p > 0);
     return { id: f.id, min: prices[0] ?? null, max: prices[prices.length - 1] ?? null };

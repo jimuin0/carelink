@@ -97,10 +97,12 @@ export interface FacilityMenu {
   duration_minutes: number | null;
   photo_url: string | null;
   is_featured: boolean;
+  is_published?: boolean | null;
   sort_order: number;
   insurance_covered?: boolean;
   insurance_note?: string | null;
   insurance_price?: number | null;
+  hpb_ref_id?: string | null;
 }
 
 export interface FacilityPhoto {

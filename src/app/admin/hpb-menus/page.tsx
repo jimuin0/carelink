@@ -46,6 +46,7 @@ export default function AdminHpbMenusPage() {
   const [savedSlnId, setSavedSlnId] = useState<string | null>(null);
   const [savingSln, setSavingSln] = useState(false);
   const [scraping, setScraping] = useState(false);
+  const [applying, setApplying] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [editForm, setEditForm] = useState<EditForm | null>(null);
   const [saving, setSaving] = useState(false);
@@ -127,6 +128,27 @@ export default function AdminHpbMenusPage() {
       setToast({ type: 'error', message: '取得に失敗しました' });
     } finally {
       setScraping(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!facilityId || applying) return;
+    setApplying(true);
+    try {
+      const res = await fetch(`/api/admin/hpb-menus/apply?facility_id=${facilityId}`, { method: 'POST' });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        setToast({ type: 'error', message: json?.error || '反映に失敗しました' });
+        return;
+      }
+      setToast({
+        type: 'success',
+        message: `メニューへ反映: 新規${json.inserted}件（非公開で作成）/ 更新${json.updated}件 / 非表示化${json.hidden}件 / スキップ${json.skipped}件`,
+      });
+    } catch {
+      setToast({ type: 'error', message: '反映に失敗しました' });
+    } finally {
+      setApplying(false);
     }
   };
 
@@ -238,6 +260,23 @@ export default function AdminHpbMenusPage() {
           <p className="text-gray-400">まだ取得していません。店舗IDを保存して「HPBから取得」を押してください。</p>
         </div>
       ) : (
+        <>
+        <div className="bg-white rounded-xl shadow-sm p-5 mb-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={handleApply}
+              disabled={applying}
+              className="btn-primary px-5 !py-2.5"
+            >
+              {applying ? '反映中...' : 'お客様メニューへ一括反映'}
+            </button>
+            <span className="text-xs text-gray-500">
+              非表示を除く全件をお客様メニューへ反映します。反映したメニューは<b>非公開（下書き）</b>で作られ、
+              メニュー編集で公開ONにするまでお客様には表示されません。
+            </span>
+          </div>
+        </div>
         <div className="bg-white rounded-xl shadow-sm divide-y">
           {menus.map((m) => {
             const name = m.name_override ?? m.name;
@@ -269,6 +308,7 @@ export default function AdminHpbMenusPage() {
             );
           })}
         </div>
+        </>
       )}
 
       {/* 編集モーダル */}

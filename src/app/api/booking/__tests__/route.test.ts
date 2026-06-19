@@ -273,7 +273,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuLookupResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
 
     const balanceChain = fluent(null);
@@ -350,7 +351,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuLookupResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
 
     const nullChain = fluent({ data: null });
@@ -391,7 +393,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     const couponChain = fluent({ data: { discount_type: 'percentage', discount_value: 20, is_active: true, valid_from: null, valid_until: null }, error: null });
@@ -508,7 +511,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     const couponChain = fluent({ data: { discount_type: 'fixed', discount_value: 1500, is_active: true, valid_from: null, valid_until: null } });
@@ -545,7 +549,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     const couponChain = fluent({ data: { discount_type: 'special_price', discount_value: 3000, is_active: true, valid_from: null, valid_until: null } });
@@ -582,7 +587,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     // Inactive coupon
@@ -616,7 +622,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     // Expired coupon (valid_until in the past)
@@ -649,7 +656,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     mockFrom.mockImplementation((_, callN = { n: 0 }) => {
@@ -688,7 +696,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     // Staff nomination fee chain
@@ -727,7 +736,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     const nullChain = fluent({ data: null });
@@ -1122,7 +1132,8 @@ describe('POST /api/booking', () => {
         return {
           select: jest.fn().mockReturnThis(),
           in: jest.fn().mockReturnThis(),
-          eq: jest.fn().mockResolvedValue({ data: [{ id: MENU_UUID, price: 5000 }], error: null }),
+          eq: jest.fn().mockReturnThis(),
+          or: jest.fn().mockResolvedValue({ data: [{ id: MENU_UUID, price: 5000 }], error: null }),
         };
       }
       if (callNum === 7) return fluent({ data: { line_user_id: 'U_line_menu' } });
@@ -1295,7 +1306,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     let callNum = 0;
@@ -1325,7 +1337,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     const nullChain = fluent({ data: null });
@@ -1360,7 +1373,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     // valid_from は未来 → まだ有効期間に入っていない
@@ -1402,7 +1416,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     const balanceChain = fluent(null);
@@ -1696,7 +1711,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     // Staff nomination fee (null → skip addition)
@@ -1750,7 +1766,8 @@ describe('POST /api/booking', () => {
     const menuHandler = jest.fn(() => menuChain);
     menuChain.select = menuHandler;
     menuChain.in = menuHandler;
-    menuChain.eq = jest.fn(() => Promise.resolve(menuResult));
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
     menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
 
     // discount_type = 'mystery' → no if/else branch matches → price unchanged
