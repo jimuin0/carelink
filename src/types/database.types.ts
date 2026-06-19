@@ -587,6 +587,7 @@ export type Database = {
           payment_status: string | null
           phone: string | null
           points_used: number | null
+          review_request_sent_at: string | null
           source: string
           staff_id: string | null
           start_time: string
@@ -614,6 +615,7 @@ export type Database = {
           payment_status?: string | null
           phone?: string | null
           points_used?: number | null
+          review_request_sent_at?: string | null
           source?: string
           staff_id?: string | null
           start_time: string
@@ -641,6 +643,7 @@ export type Database = {
           payment_status?: string | null
           phone?: string | null
           points_used?: number | null
+          review_request_sent_at?: string | null
           source?: string
           staff_id?: string | null
           start_time?: string
@@ -3800,9 +3803,11 @@ export type Database = {
           display_name: string
           email: string | null
           email_unsubscribed: boolean | null
+          favorites_digest_sent_week: string | null
           gender: string | null
           id: string
           is_platform_admin: boolean
+          line_user_id: string | null
           phone: string | null
           prefecture: string | null
           role: string | null
@@ -3816,9 +3821,11 @@ export type Database = {
           display_name?: string
           email?: string | null
           email_unsubscribed?: boolean | null
+          favorites_digest_sent_week?: string | null
           gender?: string | null
           id: string
           is_platform_admin?: boolean
+          line_user_id?: string | null
           phone?: string | null
           prefecture?: string | null
           role?: string | null
@@ -3832,9 +3839,11 @@ export type Database = {
           display_name?: string
           email?: string | null
           email_unsubscribed?: boolean | null
+          favorites_digest_sent_week?: string | null
           gender?: string | null
           id?: string
           is_platform_admin?: boolean
+          line_user_id?: string | null
           phone?: string | null
           prefecture?: string | null
           role?: string | null
@@ -6029,6 +6038,13 @@ export type Database = {
         Returns: {
           d: string
           slots: number
+        }[]
+      }
+      get_public_columns: {
+        Args: Record<PropertyKey, never>
+        Returns: {
+          table_name: string
+          column_name: string
         }[]
       }
       get_unique_customers: {
