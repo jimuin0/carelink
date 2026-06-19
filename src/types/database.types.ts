@@ -2053,6 +2053,7 @@ export type Database = {
           google_rating: number | null
           google_review_count: number | null
           header_photo_url: string | null
+          hpb_sln_id: string | null
           id: string
           is_seed: boolean | null
           latitude: number | null
@@ -2114,6 +2115,7 @@ export type Database = {
           google_rating?: number | null
           google_review_count?: number | null
           header_photo_url?: string | null
+          hpb_sln_id?: string | null
           id?: string
           is_seed?: boolean | null
           latitude?: number | null
@@ -2175,6 +2177,7 @@ export type Database = {
           google_rating?: number | null
           google_review_count?: number | null
           header_photo_url?: string | null
+          hpb_sln_id?: string | null
           id?: string
           is_seed?: boolean | null
           latitude?: number | null
@@ -2943,6 +2946,71 @@ export type Database = {
             columns: ["staff_id"]
             isOneToOne: false
             referencedRelation: "staff_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      hpb_menu_durations: {
+        Row: {
+          created_at: string
+          description: string | null
+          description_override: string | null
+          duration_min: number | null
+          duration_min_override: number | null
+          facility_id: string
+          is_hidden: boolean
+          kind: string
+          name: string
+          name_override: string | null
+          price: number | null
+          price_override: number | null
+          ref_id: string
+          store_id: string
+          target: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          description_override?: string | null
+          duration_min?: number | null
+          duration_min_override?: number | null
+          facility_id: string
+          is_hidden?: boolean
+          kind?: string
+          name: string
+          name_override?: string | null
+          price?: number | null
+          price_override?: number | null
+          ref_id: string
+          store_id: string
+          target?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          description_override?: string | null
+          duration_min?: number | null
+          duration_min_override?: number | null
+          facility_id?: string
+          is_hidden?: boolean
+          kind?: string
+          name?: string
+          name_override?: string | null
+          price?: number | null
+          price_override?: number | null
+          ref_id?: string
+          store_id?: string
+          target?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hpb_menu_durations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
             referencedColumns: ["id"]
           },
         ]
