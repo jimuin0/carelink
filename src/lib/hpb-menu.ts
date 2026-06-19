@@ -82,6 +82,54 @@ export async function scrapeAndSaveFacility(
   return { slnId, fetched: rows.length, ...saved };
 }
 
+/**
+ * facility の HPB 店舗ID(hpb_sln_id)を設定。空/nullで未設定に戻す。
+ * Returns: 成功 true / DB エラー false。
+ */
+export async function setFacilitySlnId(
+  admin: SupabaseClient,
+  facilityId: string,
+  slnId: string | null,
+): Promise<boolean> {
+  const { error } = await admin
+    .from('facility_profiles')
+    .update({ hpb_sln_id: slnId, updated_at: new Date().toISOString() })
+    .eq('id', facilityId);
+  return !error;
+}
+
+/**
+ * 管理画面の手直し(*_override / is_hidden)を1行に反映(facility_id,ref_id 指定)。
+ * 生の取得値(name/duration_min/price/description)は触らない=再取得で消えない手直し層。
+ * Returns: { ok, notFound }。ok=更新成功 / notFound=該当行なし / 両 false=DB エラー。
+ */
+export async function updateHpbMenuOverride(
+  admin: SupabaseClient,
+  facilityId: string,
+  refId: string,
+  patch: HpbMenuOverridePatch,
+): Promise<{ ok: boolean; notFound: boolean }> {
+  const { data, error } = await admin
+    .from(TABLE)
+    .update(patch)
+    .eq('facility_id', facilityId)
+    .eq('ref_id', refId)
+    .select('ref_id')
+    .maybeSingle();
+  if (error) return { ok: false, notFound: false };
+  if (!data) return { ok: false, notFound: true };
+  return { ok: true, notFound: false };
+}
+
+/** 管理画面で書き換える手直し列(部分更新)。 */
+export interface HpbMenuOverridePatch {
+  name_override?: string | null;
+  duration_min_override?: number | null;
+  price_override?: number | null;
+  description_override?: string | null;
+  is_hidden?: boolean;
+}
+
 /** 管理画面用: facility の HPB メニュー一覧(手直し列含む)。エラー時 null。 */
 export async function listHpbMenus(
   admin: SupabaseClient,
