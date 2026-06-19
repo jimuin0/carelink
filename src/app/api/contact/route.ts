@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { withRoute } from '@/lib/with-route';
+import { sendNotify } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,19 +46,18 @@ export const POST = withRoute(async (request) => {
   }
 
   // Slack通知（fire-and-forget）
-  fetch(new URL('/api/notify', request.url).toString(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    signal: AbortSignal.timeout(10000),
-    body: JSON.stringify({
-      type: 'contact',
-      data: {
-        name: parsed.data.name,
-        inquiry_type: parsed.data.inquiry_type,
-        email: parsed.data.email,
-        message: parsed.data.message,
-      },
-    }),
+  // server-to-server の HTTP fetch は Origin/Referer を持たず /api/notify の CSRF で 403 になり
+  // 通知が無音欠落していたため、共有ロジック sendNotify を直接呼ぶ（HTTP 往復を排除）。
+  sendNotify({
+    type: 'contact',
+    data: {
+      name: parsed.data.name,
+      inquiry_type: parsed.data.inquiry_type,
+      email: parsed.data.email,
+      message: parsed.data.message,
+    },
+  }).then((r) => {
+    if (!r.ok) console.error('[contact] Slack notification failed', { error: r.error });
   }).catch((err) => console.error('[contact] Slack notification failed', { err }));
 
   return NextResponse.json({ success: true });
