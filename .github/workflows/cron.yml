@@ -19,6 +19,7 @@ on:
     - cron: '30 * * * *'   # waitlist-notify        hourly (offset to avoid collision)
     - cron: '*/15 * * * *' # webhook-retry          every 15 min
     - cron: '20 17 * * *'  # hpb-menu-scrape        JST 02:20 daily (minute 20=他cronと衝突回避)
+    - cron: '40 17 * * *'  # schema-drift-check     JST 02:40 daily (minute 40=他cronと衝突回避)
     # newsletter-digest（月次）は専用 workflow newsletter-digest.yml に分離。
     # 理由: GitHub の best-effort スケジュールでは、高頻度 `*/15` と月1回 `0 16 1 * *` が同時刻に
     # 衝突すると GitHub が run を単一 schedule に帰属させ月次がドロップする（2026-06 に実際に未送信）。
@@ -57,6 +58,7 @@ jobs:
             "30 * * * *")    P="/api/cron/waitlist-notify" ;;
             "*/15 * * * *")  P="/api/cron/webhook-retry" ;;
             "20 17 * * *")   P="/api/cron/hpb-menu-scrape" ;;
+            "40 17 * * *")   P="/api/cron/schema-drift-check" ;;
             # newsletter-digest は専用 workflow newsletter-digest.yml が担当（衝突ドロップ回避）。
             *) echo "Unknown schedule: $TRIGGER_CRON"; exit 1 ;;
           esac
