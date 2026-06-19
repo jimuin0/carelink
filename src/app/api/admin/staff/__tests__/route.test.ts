@@ -241,3 +241,47 @@ test('POST: レートリミット params (20/60s)', async () => {
   expect(call[2]).toBe(20);
   expect(call[3]).toBe(60_000);
 });
+
+// staff_profiles.insert(obj).select().single() と staff_schedules.insert(array) を
+// 単一の from() モックで両対応する（insert 引数が配列なら schedule 用と判定）。
+function staffWithScheduleMock(opts: {
+  staffId?: string;
+  scheduleInsert: jest.Mock;
+  deleteEq?: jest.Mock;
+}) {
+  const obj: Record<string, unknown> = {
+    insert: jest.fn((arg: unknown) =>
+      Array.isArray(arg)
+        ? opts.scheduleInsert(arg)
+        : {
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: opts.staffId ?? 'staff-1' }, error: null })),
+            }),
+          }
+    ),
+  };
+  if (opts.deleteEq) obj.delete = jest.fn(() => ({ eq: opts.deleteEq }));
+  return obj;
+}
+
+test('POST: 正常作成時にデフォルト勤務スケジュール(全7日09:00-19:00)を seed する', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const scheduleInsert = jest.fn(() => Promise.resolve({ error: null }));
+  mockAdminFrom.mockReturnValue(staffWithScheduleMock({ scheduleInsert }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(201);
+  const rows = scheduleInsert.mock.calls[0][0] as Array<{ staff_id: string; day_of_week: number; start_time: string; end_time: string }>;
+  expect(rows).toHaveLength(7);
+  expect(rows.map((r) => r.day_of_week)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+  expect(rows.every((r) => r.staff_id === 'staff-1' && r.start_time === '09:00' && r.end_time === '19:00')).toBe(true);
+});
+
+test('POST: スケジュール seed 失敗時はスタッフを削除して 500', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const deleteEq = jest.fn(() => Promise.resolve({ error: null }));
+  const scheduleInsert = jest.fn(() => Promise.resolve({ error: { message: 'seed fail' } }));
+  mockAdminFrom.mockReturnValue(staffWithScheduleMock({ scheduleInsert, deleteEq }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(500);
+  expect(deleteEq).toHaveBeenCalledWith('id', 'staff-1');
+});

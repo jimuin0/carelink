@@ -72,6 +72,22 @@ export async function POST(request: NextRequest) {
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
+  // 新規スタッフにデフォルト勤務スケジュール(全7日 09:00-19:00)を自動付与する。
+  // これが無いと get_available_slots が予約枠を一切返さず、施設を公開しても
+  // 客が1枠も予約できない（スケジュール画面の表示デフォルトと同一値で seed し UI と整合）。
+  // seed に失敗した場合は枠ゼロ状態を残さないようスタッフ作成ごとロールバックする。
+  const scheduleRows = Array.from({ length: 7 }, (_, day) => ({
+    staff_id: data.id,
+    day_of_week: day,
+    start_time: '09:00',
+    end_time: '19:00',
+  }));
+  const { error: scheduleErr } = await admin.from('staff_schedules').insert(scheduleRows);
+  if (scheduleErr) {
+    await admin.from('staff_profiles').delete().eq('id', data.id);
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
+
   const { ua } = getRequestContext(request);
   void writeAuditLog({
     userId: auth.userId,

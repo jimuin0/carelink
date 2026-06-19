@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
+import { headers } from 'next/headers';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
 import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
@@ -173,6 +174,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     redirect('/auth/login?redirect=/admin');
   }
 
+  // 現在のパス（middleware が x-pathname を注入）。施設作成前のオーナーが
+  // アクセスする /admin/onboarding をメンバーシップ判定から除外するために使う。
+  const pathname = (await headers()).get('x-pathname') ?? '';
+  const isOnboarding = pathname === '/admin/onboarding';
+
   // マルチ施設対応: ユーザーが所属する全施設を取得
   const { data: memberships } = await supabase
     .from('facility_members')
@@ -181,6 +187,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
     .in('role', ['owner', 'admin']);
 
   if (!memberships || memberships.length === 0) {
+    // 施設未作成のオーナーは onboarding 画面で施設を作成する必要がある。
+    // middleware も /admin/onboarding を保護対象から除外しており（設計意図）、
+    // ここで除外しないと layout が page より先に /mypage へ飛ばし施設作成導線が断たれる。
+    // フル管理ナビは施設前提のため、onboarding ではナビなしで画面本体のみ表示する。
+    if (isOnboarding) {
+      return <>{children}</>;
+    }
     redirect('/mypage');
   }
 

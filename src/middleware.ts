@@ -85,6 +85,9 @@ export async function middleware(request: NextRequest) {
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set('x-nonce', nonce);
   requestHeaders.set('Content-Security-Policy', cspHeader);
+  // 現在のパスをサーバーコンポーネントに渡す（AdminLayout が /admin/onboarding を
+  // メンバーシップ判定から除外するために使用。施設未作成オーナーの施設作成導線を確保）。
+  requestHeaders.set('x-pathname', request.nextUrl.pathname);
   const setCsp = (res: NextResponse): NextResponse => {
     res.headers.set('Content-Security-Policy', cspHeader);
     return res;

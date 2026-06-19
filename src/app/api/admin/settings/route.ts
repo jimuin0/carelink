@@ -87,6 +87,28 @@ export async function PATCH(request: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
     const admin = createServiceRoleClient();
+
+    // 公開(published)に切り替える時のみ、必須項目の充足をサーバー側で検証する。
+    // 空の施設が検索結果に出て予約ページで行き止まりになる事故を防ぐ
+    // （UI が「メニューと写真を登録すると公開できます」と案内する前提条件の実装）。
+    if (parsed.data.status === 'published') {
+      const [menuCount, photoCount, staffCount] = await Promise.all([
+        admin.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId),
+        admin.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId),
+        admin.from('staff_profiles').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId).eq('is_active', true),
+      ]);
+      if (menuCount.error || photoCount.error || staffCount.error) {
+        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      }
+      const missing: string[] = [];
+      if ((menuCount.count ?? 0) < 1) missing.push('メニューを1つ以上登録してください');
+      if ((photoCount.count ?? 0) < 1) missing.push('写真を1枚以上登録してください');
+      if ((staffCount.count ?? 0) < 1) missing.push('スタッフを1人以上登録してください');
+      if (missing.length > 0) {
+        return NextResponse.json({ error: '公開するには次の項目が必要です', missing }, { status: 400 });
+      }
+    }
+
     const { error } = await admin
       .from('facility_profiles')
       .update({ status: parsed.data.status, updated_at: new Date().toISOString() })
