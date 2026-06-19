@@ -19,11 +19,11 @@ jest.mock('@/lib/rate-limit', () => ({
 jest.mock('@supabase/supabase-js');
 // Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない）。
 // server-to-server fetch は CSRF で 403 になるため fetch 経由をやめた回帰の検証。
-jest.mock('@/app/api/notify/route', () => ({ sendNotify: jest.fn() }));
+jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { sendNotify } from '@/app/api/notify/route';
+import { sendNotify } from '@/lib/notify';
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;

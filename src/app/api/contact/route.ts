@@ -9,7 +9,7 @@ import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { withRoute } from '@/lib/with-route';
-import { sendNotify } from '@/app/api/notify/route';
+import { sendNotify } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
