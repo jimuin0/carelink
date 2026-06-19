@@ -15,6 +15,8 @@ import {
   saveHpbRows,
   scrapeAndSaveFacility,
   listHpbMenus,
+  setFacilitySlnId,
+  updateHpbMenuOverride,
 } from '../hpb-menu';
 import { fetchStoreRows } from '../hpb-scraper';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -138,6 +140,51 @@ describe('scrapeAndSaveFacility', () => {
     const res = await scrapeAndSaveFacility(asAdmin(from), FACILITY, customFetch);
     expect(res).toEqual({ slnId: 'H1', fetched: 2, ok: 2, skipped: 0, failed: 0 });
     expect(fetchStoreRows).toHaveBeenCalledWith('H1', customFetch);
+  });
+});
+
+function updateChain(error: unknown) {
+  return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error }) }) };
+}
+
+function overrideUpdateChain(data: unknown, error: unknown = null) {
+  const maybeSingle = jest.fn().mockResolvedValue({ data, error });
+  // update().eq().eq().select().maybeSingle()
+  const chain = {
+    update: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    select: jest.fn().mockReturnThis(),
+    maybeSingle,
+  };
+  return chain;
+}
+
+describe('setFacilitySlnId', () => {
+  test('returns true on success', async () => {
+    const from = jest.fn().mockReturnValue(updateChain(null));
+    expect(await setFacilitySlnId(asAdmin(from), FACILITY, 'H1')).toBe(true);
+  });
+  test('returns false on db error', async () => {
+    const from = jest.fn().mockReturnValue(updateChain({ message: 'db' }));
+    expect(await setFacilitySlnId(asAdmin(from), FACILITY, null)).toBe(false);
+  });
+});
+
+describe('updateHpbMenuOverride', () => {
+  test('ok when row updated', async () => {
+    const from = jest.fn().mockReturnValue(overrideUpdateChain({ ref_id: 'CP1' }));
+    expect(await updateHpbMenuOverride(asAdmin(from), FACILITY, 'CP1', { is_hidden: true }))
+      .toEqual({ ok: true, notFound: false });
+  });
+  test('notFound when no row matched', async () => {
+    const from = jest.fn().mockReturnValue(overrideUpdateChain(null));
+    expect(await updateHpbMenuOverride(asAdmin(from), FACILITY, 'CP1', { name_override: 'x' }))
+      .toEqual({ ok: false, notFound: true });
+  });
+  test('db error → both false', async () => {
+    const from = jest.fn().mockReturnValue(overrideUpdateChain(null, { message: 'db' }));
+    expect(await updateHpbMenuOverride(asAdmin(from), FACILITY, 'CP1', { price_override: 100 }))
+      .toEqual({ ok: false, notFound: false });
   });
 });
 
