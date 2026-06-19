@@ -26,7 +26,7 @@ export default function TabNavigation({ tabs }: Props) {
     <div>
       {/* Sentinel for sticky detection */}
       <div ref={sentinelRef} className="h-0" />
-      <div className={`sticky top-0 z-30 bg-white transition-shadow ${isSticky ? 'shadow-md' : ''}`}>
+      <div className={`sticky top-14 z-30 bg-white transition-shadow ${isSticky ? 'shadow-md' : ''}`}>
         <div className="flex border-b border-gray-200 px-4 sm:px-6 overflow-x-auto scrollbar-hide" role="tablist">
           {tabs.map((tab) => (
             <button

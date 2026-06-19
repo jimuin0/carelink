@@ -19,6 +19,8 @@ function escapeHtml(str: string): string {
 export default function MapView({ facilities }: Props) {
   const mapRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [loadError, setLoadError] = useState(false);
+  const [retryKey, setRetryKey] = useState(0);
   const mapInstanceRef = useRef<L.Map | null>(null);
 
   useEffect(() => {
@@ -82,7 +84,9 @@ export default function MapView({ facilities }: Props) {
       setMapReady(true);
     };
 
-    loadMap().catch(() => {});
+    // 読み込み失敗(オフライン/タイル取得失敗等)を握り潰すと「読み込み中」が永久固着するため、
+    // エラー状態を立てて利用者に再読み込みを案内する。
+    loadMap().catch(() => setLoadError(true));
 
     return () => {
       if (mapInstanceRef.current) {
@@ -90,16 +94,34 @@ export default function MapView({ facilities }: Props) {
         mapInstanceRef.current = null;
       }
     };
-  }, [facilities]);
+  }, [facilities, retryKey]);
+
+  const retry = () => {
+    setLoadError(false);
+    setMapReady(false);
+    setRetryKey((k) => k + 1);
+  };
 
   const validCount = facilities.filter((f) => f.latitude != null && f.longitude != null).length;
 
   return (
     <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
       <div ref={mapRef} style={{ height: '500px', width: '100%', display: mapReady ? 'block' : 'none' }} />
-      {!mapReady && (
+      {!mapReady && !loadError && (
         <div className="flex items-center justify-center h-[500px] bg-gray-100">
           <p className="text-gray-400 text-sm">地図を読み込み中...</p>
+        </div>
+      )}
+      {loadError && (
+        <div className="flex flex-col items-center justify-center h-[500px] bg-gray-100 gap-3">
+          <p className="text-gray-500 text-sm">地図を読み込めませんでした</p>
+          <button
+            type="button"
+            onClick={retry}
+            className="px-4 py-2 text-sm rounded-full border border-gray-300 bg-white text-gray-700 hover:border-sky-300 hover:text-sky-600 transition-colors"
+          >
+            再読み込み
+          </button>
         </div>
       )}
       {mapReady && validCount === 0 && (
