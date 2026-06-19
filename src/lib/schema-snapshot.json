@@ -439,6 +439,7 @@
     "description",
     "duration_minutes",
     "facility_id",
+    "hpb_ref_id",
     "id",
     "insurance_covered",
     "insurance_note",

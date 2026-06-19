@@ -1821,6 +1821,7 @@ export type Database = {
           description: string | null
           duration_minutes: number | null
           facility_id: string
+          hpb_ref_id: string | null
           id: string
           insurance_covered: boolean | null
           insurance_note: string | null
@@ -1844,6 +1845,7 @@ export type Database = {
           description?: string | null
           duration_minutes?: number | null
           facility_id: string
+          hpb_ref_id?: string | null
           id?: string
           insurance_covered?: boolean | null
           insurance_note?: string | null
@@ -1867,6 +1869,7 @@ export type Database = {
           description?: string | null
           duration_minutes?: number | null
           facility_id?: string
+          hpb_ref_id?: string | null
           id?: string
           insurance_covered?: boolean | null
           insurance_note?: string | null

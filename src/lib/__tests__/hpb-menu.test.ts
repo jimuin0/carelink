@@ -17,6 +17,9 @@ import {
   listHpbMenus,
   setFacilitySlnId,
   updateHpbMenuOverride,
+  applyHpbMenusToFacilityMenus,
+  HPB_APPLIED_CATEGORY,
+  type HpbMenuDurationRow,
 } from '../hpb-menu';
 import { fetchStoreRows } from '../hpb-scraper';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -197,5 +200,191 @@ describe('listHpbMenus', () => {
   test('returns null on error', async () => {
     const from = jest.fn().mockReturnValue(menuListChain(null, { message: 'db' }));
     expect(await listHpbMenus(asAdmin(from), FACILITY)).toBeNull();
+  });
+});
+
+// ─── applyHpbMenusToFacilityMenus ───
+function hpbRow(over: Partial<HpbMenuDurationRow> = {}): HpbMenuDurationRow {
+  return {
+    facility_id: FACILITY,
+    ref_id: 'CP1',
+    kind: 'coupon',
+    store_id: 'H1',
+    name: 'メニューA',
+    target: '全員',
+    duration_min: 70,
+    price: 6900,
+    description: '説明',
+    name_override: null,
+    duration_min_override: null,
+    price_override: null,
+    description_override: null,
+    is_hidden: false,
+    updated_at: '',
+    created_at: '',
+    ...over,
+  };
+}
+
+interface ApplyOpts {
+  hpbRows: HpbMenuDurationRow[] | null;
+  hpbError?: unknown;
+  existing?: { id: string; hpb_ref_id: string | null }[] | null;
+  existingError?: unknown;
+  updateErrors?: unknown[];
+  insertError?: unknown;
+}
+
+function makeApplyAdmin(o: ApplyOpts) {
+  const updateQueue = [...(o.updateErrors ?? [])];
+  const insert = jest.fn().mockResolvedValue({ error: o.insertError ?? null });
+  const updateEq = jest.fn().mockImplementation(() =>
+    Promise.resolve({ error: updateQueue.length ? updateQueue.shift() : null }),
+  );
+  const fm = {
+    select: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        in: jest.fn().mockResolvedValue({ data: o.existing ?? null, error: o.existingError ?? null }),
+      }),
+    }),
+    update: jest.fn().mockReturnValue({ eq: updateEq }),
+    insert,
+  };
+  const from = jest.fn((table: string) => {
+    if (table === 'hpb_menu_durations') return menuListChain(o.hpbRows, o.hpbError ?? null);
+    return fm;
+  });
+  return { admin: asAdmin(from), fm, insert, updateEq };
+}
+
+describe('applyHpbMenusToFacilityMenus', () => {
+  test('listHpbMenus が null → throw', async () => {
+    const { admin } = makeApplyAdmin({ hpbRows: null, hpbError: { message: 'db' } });
+    await expect(applyHpbMenusToFacilityMenus(admin, FACILITY)).rejects.toThrow('listHpbMenus failed');
+  });
+
+  test('行ゼロ → 何もせず 0 件', async () => {
+    const { admin, insert } = makeApplyAdmin({ hpbRows: [] });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ inserted: 0, updated: 0, hidden: 0, skipped: 0 });
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  test('facility_menus 読み取りエラー → throw', async () => {
+    const { admin } = makeApplyAdmin({ hpbRows: [hpbRow()], existingError: { message: 'db' } });
+    await expect(applyHpbMenusToFacilityMenus(admin, FACILITY)).rejects.toThrow('facility_menus read failed');
+  });
+
+  test('新規メニュー → is_published=false / category=メニュー で insert', async () => {
+    const { admin, insert } = makeApplyAdmin({ hpbRows: [hpbRow()], existing: [] });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ inserted: 1, updated: 0, hidden: 0, skipped: 0 });
+    expect(insert).toHaveBeenCalledWith([
+      {
+        facility_id: FACILITY,
+        hpb_ref_id: 'CP1',
+        category: HPB_APPLIED_CATEGORY,
+        name: 'メニューA',
+        price: 6900,
+        duration_minutes: 70,
+        description: '説明',
+        is_published: false,
+      },
+    ]);
+  });
+
+  test('existing が null でも空配列扱いで insert', async () => {
+    const { admin, insert } = makeApplyAdmin({ hpbRows: [hpbRow()], existing: null });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res.inserted).toBe(1);
+    expect(insert).toHaveBeenCalled();
+  });
+
+  test('hpb_ref_id null の既存行は索引に入れず新規扱い', async () => {
+    const { admin, insert } = makeApplyAdmin({
+      hpbRows: [hpbRow()],
+      existing: [{ id: 'm1', hpb_ref_id: null }],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res.inserted).toBe(1);
+    expect(insert).toHaveBeenCalled();
+  });
+
+  test('insert エラー → throw', async () => {
+    const { admin } = makeApplyAdmin({ hpbRows: [hpbRow()], existing: [], insertError: { message: 'db' } });
+    await expect(applyHpbMenusToFacilityMenus(admin, FACILITY)).rejects.toThrow('insert failed');
+  });
+
+  test('override 優先の値で既存行を更新(value列のみ)', async () => {
+    const { admin, fm, updateEq, insert } = makeApplyAdmin({
+      hpbRows: [
+        hpbRow({
+          name_override: 'X',
+          duration_min_override: 80,
+          price_override: 5000,
+          description_override: 'D',
+        }),
+      ],
+      existing: [{ id: 'm1', hpb_ref_id: 'CP1' }],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ inserted: 0, updated: 1, hidden: 0, skipped: 0 });
+    expect(fm.update).toHaveBeenCalledWith({
+      name: 'X',
+      price: 5000,
+      duration_minutes: 80,
+      description: 'D',
+    });
+    expect(updateEq).toHaveBeenCalledWith('id', 'm1');
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  test('value 更新エラー → throw', async () => {
+    const { admin } = makeApplyAdmin({
+      hpbRows: [hpbRow()],
+      existing: [{ id: 'm1', hpb_ref_id: 'CP1' }],
+      updateErrors: [{ message: 'db' }],
+    });
+    await expect(applyHpbMenusToFacilityMenus(admin, FACILITY)).rejects.toThrow('value update failed');
+  });
+
+  test('is_hidden=true + 既存あり → is_published=false で非公開化', async () => {
+    const { admin, fm } = makeApplyAdmin({
+      hpbRows: [hpbRow({ is_hidden: true })],
+      existing: [{ id: 'm1', hpb_ref_id: 'CP1' }],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ inserted: 0, updated: 0, hidden: 1, skipped: 0 });
+    expect(fm.update).toHaveBeenCalledWith({ is_published: false });
+  });
+
+  test('is_hidden=true + 非公開化エラー → throw', async () => {
+    const { admin } = makeApplyAdmin({
+      hpbRows: [hpbRow({ is_hidden: true })],
+      existing: [{ id: 'm1', hpb_ref_id: 'CP1' }],
+      updateErrors: [{ message: 'db' }],
+    });
+    await expect(applyHpbMenusToFacilityMenus(admin, FACILITY)).rejects.toThrow('hide update failed');
+  });
+
+  test('is_hidden=true + 既存なし → 何もしない', async () => {
+    const { admin, fm, insert } = makeApplyAdmin({
+      hpbRows: [hpbRow({ is_hidden: true })],
+      existing: [],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ inserted: 0, updated: 0, hidden: 0, skipped: 0 });
+    expect(fm.update).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+  });
+
+  test('override 後の name が空 → skip', async () => {
+    const { admin, insert } = makeApplyAdmin({
+      hpbRows: [hpbRow({ name_override: '   ' })],
+      existing: [],
+    });
+    const res = await applyHpbMenusToFacilityMenus(admin, FACILITY);
+    expect(res).toEqual({ inserted: 0, updated: 0, hidden: 0, skipped: 1 });
+    expect(insert).not.toHaveBeenCalled();
   });
 });

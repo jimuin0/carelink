@@ -155,6 +155,8 @@ export async function getFacilityMenus(facilityId: string) {
     .from('facility_menus')
     .select('*')
     .eq('facility_id', facilityId)
+    // 非公開(is_published=false)は客向けに出さない。null/true は従来どおり表示(既存メニュー維持)。
+    .or('is_published.is.null,is_published.eq.true')
     .order('sort_order');
   return { menus: (data || []) as FacilityMenu[], error };
 }

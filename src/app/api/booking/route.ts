@@ -89,7 +89,9 @@ export async function POST(request: Request) {
       .from('facility_menus')
       .select('id, price')
       .in('id', menuIdsToPrice)
-      .eq('facility_id', parsed.data.facility_id);
+      .eq('facility_id', parsed.data.facility_id)
+      // 非公開(is_published=false)メニューは予約不可。見つからない扱いになり下の allValid で 400。
+      .or('is_published.is.null,is_published.eq.true');
 
     // Only count menus that actually belong to this facility (prevent foreign-facility injection)
     const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
