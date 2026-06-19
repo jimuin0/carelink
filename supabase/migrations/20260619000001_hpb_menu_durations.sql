@@ -36,6 +36,8 @@ CREATE TABLE IF NOT EXISTS hpb_menu_durations (
 ALTER TABLE hpb_menu_durations ENABLE ROW LEVEL SECURITY;
 
 -- 施設メンバーのみ自施設の HPB メニューを操作できる(API は service_role 経由だが多層防御)。
+-- CREATE POLICY は IF NOT EXISTS 非対応のため、再実行安全化のため先に DROP する。
+DROP POLICY IF EXISTS "hpb_menu_durations_member_all" ON hpb_menu_durations;
 CREATE POLICY "hpb_menu_durations_member_all" ON hpb_menu_durations
   FOR ALL USING (
     facility_id IN (
