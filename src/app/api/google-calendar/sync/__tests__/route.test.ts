@@ -57,10 +57,6 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function upsertChain(error: unknown = null) {
-  return { upsert: jest.fn(() => Promise.resolve({ error })) };
-}
-
 const FUTURE_DATE = new Date(Date.now() + 60 * 60 * 1000).toISOString();
 
 const BOOKING_DATA = {
@@ -70,7 +66,7 @@ const BOOKING_DATA = {
   start_time: '10:00:00',
   duration_minutes: 60,
   facility_profiles: { name: 'テスト施設', address: '東京都' },
-  menus: { name: 'テストメニュー' },
+  menu: { name: 'テストメニュー' },
 };
 
 const TOKEN_ROW = {
@@ -347,7 +343,7 @@ test('POST: facility_profiles が配列の場合も正常に処理', async () =>
   const bookingWithArrayProfile = {
     ...BOOKING_DATA,
     facility_profiles: [{ name: '施設A', address: '東京都渋谷区' }],
-    menus: [{ name: 'カット' }],
+    menu: [{ name: 'カット' }],
   };
 
   let callNum = 0;
@@ -417,7 +413,7 @@ test('POST: facility_profiles が null → facilityName が undefined → デフ
   const bookingWithNullProfile = {
     ...BOOKING_DATA,
     facility_profiles: null,
-    menus: null,
+    menu: null,
   };
 
   let callNum = 0;

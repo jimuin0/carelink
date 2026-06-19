@@ -359,6 +359,22 @@ describe('POST /api/contact', () => {
     expect(res.status).toBe(200);
   });
 
+  test('Slack notification が ok:false を返しても 200（通知失敗はログのみ）', async () => {
+    (sendNotify as jest.Mock).mockResolvedValue({ ok: false, error: 'not_configured' });
+
+    const res = await POST(
+      makeRequest({
+        name: 'Test',
+        email: 'test@example.com',
+        inquiry_type: 'support',
+        message: 'Help',
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(sendNotify).toHaveBeenCalledWith(expect.objectContaining({ type: 'contact' }));
+  });
+
   test('rate limit params (3 req/min per IP)', async () => {
     (checkRateLimit as jest.Mock).mockClear();
 
