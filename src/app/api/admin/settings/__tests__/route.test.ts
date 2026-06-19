@@ -64,6 +64,33 @@ function updateChain(error: unknown = null) {
   };
 }
 
+// 公開ガードの count クエリ（.select('id',{count,head}).eq(...) / staff は .eq().eq()）を
+// thenable で表現。await すると { count, error } に解決する。select/eq は自身を返す。
+function countChain(count: number | null, error: unknown = null) {
+  const obj: Record<string, unknown> = {};
+  obj.select = jest.fn(() => obj);
+  obj.eq = jest.fn(() => obj);
+  obj.then = (resolve: (v: { count: number | null; error: unknown }) => unknown) => resolve({ count, error });
+  return obj;
+}
+
+// 公開ガードは facility_menus / facility_photos / staff_profiles を count し、その後
+// facility_profiles を update する。テーブル名でディスパッチ（順序・消費数に非依存＝
+// mockReturnValueOnce のキュー残留による次テストへの漏れを防ぐ）。
+function publishMocks(opts: { menu?: number | null; photo?: number | null; staff?: number | null; countError?: unknown; updateError?: unknown } = {}) {
+  // undefined は既定1(充足)、null は明示的にそのまま渡す（route の `?? 0` 分岐検証用）。
+  const m = opts.menu === undefined ? 1 : opts.menu;
+  const p = opts.photo === undefined ? 1 : opts.photo;
+  const s = opts.staff === undefined ? 1 : opts.staff;
+  const e = opts.countError ?? null;
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_menus') return countChain(m, e);
+    if (table === 'facility_photos') return countChain(p, e);
+    if (table === 'staff_profiles') return countChain(s, e);
+    return updateChain(opts.updateError ?? null); // facility_profiles
+  });
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -122,13 +149,47 @@ test('PATCH: booking_buffer_minutes > 120 → 400', async () => {
 
 // ─── Status action ────────────────────────────────────────────────────────────
 
-test('PATCH: ?action=status published → 200', async () => {
+test('PATCH: ?action=status published（必須項目充足）→ 200', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(updateChain());
+  publishMocks({ menu: 1, photo: 1, staff: 1 });
   const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+test('PATCH: published でメニュー0件 → 400（公開ガード）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: null, photo: 1, staff: 1 });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toContain('メニューを1つ以上登録してください');
+});
+
+test('PATCH: published で写真0件 → 400（公開ガード）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: 1, photo: null, staff: 1 });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toContain('写真を1枚以上登録してください');
+});
+
+test('PATCH: published でスタッフ0件（count=null）→ 400（公開ガード）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ menu: 1, photo: 1, staff: null });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.missing).toContain('スタッフを1人以上登録してください');
+});
+
+test('PATCH: published で count 取得エラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  publishMocks({ countError: { message: 'count fail' } });
+  const res = await PATCH(makePatchRequest({ status: 'published' }, { facility_id: FACILITY_UUID, action: 'status' }));
+  expect(res.status).toBe(500);
 });
 
 test('PATCH: ?action=status 無効なステータス → 400', async () => {
