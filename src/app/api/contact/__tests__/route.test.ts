@@ -17,9 +17,13 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(),
 }));
 jest.mock('@supabase/supabase-js');
+// Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない）。
+// server-to-server fetch は CSRF で 403 になるため fetch 経由をやめた回帰の検証。
+jest.mock('@/app/api/notify/route', () => ({ sendNotify: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { sendNotify } from '@/app/api/notify/route';
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;
@@ -38,9 +42,7 @@ function setupDefaultMocks(insertSucceeds: boolean = true) {
     }),
   });
 
-  global.fetch = jest.fn().mockResolvedValue(
-    new Response(JSON.stringify({ ok: true }), { status: 200 })
-  );
+  (sendNotify as jest.Mock).mockResolvedValue({ ok: true, ts: '123.456' });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -250,7 +252,7 @@ describe('POST /api/contact', () => {
   });
 
   test('inserts to contacts table', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         name: 'Test User',
         email: 'test@example.com',
@@ -269,7 +271,7 @@ describe('POST /api/contact', () => {
   });
 
   test('optional phone field included when provided', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         name: 'Test',
         email: 'test@example.com',
@@ -313,7 +315,7 @@ describe('POST /api/contact', () => {
   });
 
   test('sends Slack notification (fire-and-forget)', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         name: 'Test',
         email: 'test@example.com',
@@ -322,15 +324,14 @@ describe('POST /api/contact', () => {
       }) as any
     );
 
-    // Slack notification should be sent
-    expect(global.fetch).toHaveBeenCalledWith(
-      expect.stringContaining('/api/notify'),
-      expect.anything()
+    // Slack notification should be sent via sendNotify (no HTTP round-trip)
+    expect(sendNotify).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'contact' })
     );
   });
 
   test('Slack notification includes contact type', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         name: 'Test',
         email: 'test@example.com',
@@ -339,13 +340,12 @@ describe('POST /api/contact', () => {
       }) as any
     );
 
-    const fetchCall = (global.fetch as jest.Mock).mock.calls[0];
-    const body = JSON.parse(fetchCall[1].body);
-    expect(body.type).toBe('contact');
+    const call = (sendNotify as jest.Mock).mock.calls[0];
+    expect(call[0].type).toBe('contact');
   });
 
   test('Slack notification error → still returns 200 (fire-and-forget)', async () => {
-    (global.fetch as jest.Mock).mockRejectedValue(new Error('Network error'));
+    (sendNotify as jest.Mock).mockRejectedValue(new Error('Network error'));
 
     const res = await POST(
       makeRequest({

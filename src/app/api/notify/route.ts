@@ -89,43 +89,62 @@ function buildSlackMessage(payload: NotifyPayload): string {
   }
 }
 
-export const POST = withRoute(async (request) => {
-  // Phase 7a: Bot Token + chat.postMessage 経由に変更
-  // SLACK_BOT_TOKEN + SLACK_DEFAULT_CHANNEL 未設定時は 500 を返す
-  if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_DEFAULT_CHANNEL) {
-    return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
-  }
+const payloadSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string().max(200), business_type: z.string().max(100), representative_name: z.string().max(100), phone: z.string().max(30), email: z.string().max(254), address: z.string().max(300).optional(), desired_start_date: z.string().max(30).optional() }) }),
+  z.object({ type: z.literal('contact'), data: z.object({ name: z.string().max(100), inquiry_type: z.string().max(100), email: z.string().max(254), message: z.string().max(2000) }) }),
+  z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string().max(200), name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), message: z.string().max(2000) }) }),
+  z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string().max(200), contact_name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), business_type: z.string().max(100) }) }),
+]);
 
+/**
+ * サーバー内部から直接 Slack 通知を送るための共有ロジック。
+ *
+ * 旧構成では contact など同一サーバーのルートが /api/notify へ HTTP fetch していたが、
+ * notify が withRoute(csrf:true) 化された後、server-to-server fetch は Origin/Referer を
+ * 持たないため CSRF で 403 になり通知が無音欠落していた（管理者がお問い合わせに気づけない）。
+ * メッセージ整形ロジックを一箇所に保ちつつ HTTP 往復を排し、サーバー側からは本関数を直接呼ぶ。
+ *
+ * @returns ok=true で送信成功。設定不備・検証失敗・Slack エラーは ok=false と error を返す（throw しない）。
+ */
+export async function sendNotify(
+  input: unknown
+): Promise<{ ok: boolean; ts?: string; error?: string }> {
+  if (!process.env.SLACK_BOT_TOKEN || !process.env.SLACK_DEFAULT_CHANNEL) {
+    return { ok: false, error: 'not_configured' };
+  }
+  const result = payloadSchema.safeParse(input);
+  if (!result.success) {
+    return { ok: false, error: 'invalid_payload' };
+  }
+  const payload = result.data as NotifyPayload;
+  const text = buildSlackMessage(payload);
+  const blocks = buildSlackBlocks(payload, text);
+  const slackResult = await postToSlack({ text, blocks });
+  if (!slackResult.ok) {
+    console.error('[notify] Slack post failed', { error: slackResult.error });
+    return { ok: false, error: slackResult.error };
+  }
+  return { ok: true, ts: slackResult.ts };
+}
+
+export const POST = withRoute(async (request) => {
   const body = await request.json().catch(() => null);
   if (!body) return NextResponse.json({ error: '無効なリクエストです' }, { status: 400 });
 
-  const payloadSchema = z.discriminatedUnion('type', [
-    z.object({ type: z.literal('salon'), data: z.object({ facility_name: z.string().max(200), business_type: z.string().max(100), representative_name: z.string().max(100), phone: z.string().max(30), email: z.string().max(254), address: z.string().max(300).optional(), desired_start_date: z.string().max(30).optional() }) }),
-    z.object({ type: z.literal('contact'), data: z.object({ name: z.string().max(100), inquiry_type: z.string().max(100), email: z.string().max(254), message: z.string().max(2000) }) }),
-    z.object({ type: z.literal('facility_inquiry'), data: z.object({ facility_name: z.string().max(200), name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), message: z.string().max(2000) }) }),
-    z.object({ type: z.literal('facility'), data: z.object({ facility_name: z.string().max(200), contact_name: z.string().max(100), email: z.string().max(254), phone: z.string().max(30), business_type: z.string().max(100) }) }),
-  ]);
-
-  const result = payloadSchema.safeParse(body);
-  if (!result.success) {
-    return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
-  }
-
-  const payload = result.data as NotifyPayload;
-  const text = buildSlackMessage(payload);
-
-  // Phase 7b: 通知種別に応じて管理画面リンクボタンを追加（Block Kit）
-  // 種別ごとのチャンネル振り分けは将来 env 追加で可能（Phase 7a は単一チャンネル）
-  const blocks = buildSlackBlocks(payload, text);
-  const slackResult = await postToSlack({ text, blocks });
-
-  if (!slackResult.ok) {
-    // 内部 Slack エラーコードはクライアントに返さずサーバーログにのみ記録する
-    console.error('[notify] Slack post failed', { error: slackResult.error });
+  const r = await sendNotify(body);
+  if (!r.ok) {
+    if (r.error === 'invalid_payload') {
+      return NextResponse.json({ error: 'Invalid payload' }, { status: 400 });
+    }
+    if (r.error === 'not_configured') {
+      // Phase 7a: Bot Token + chat.postMessage 経由。未設定時は 500
+      return NextResponse.json({ error: '通知の送信に失敗しました' }, { status: 500 });
+    }
+    // 内部 Slack エラーコードはクライアントに返さずサーバーログにのみ記録する（sendNotify 内で記録済み）
     return NextResponse.json({ error: 'Slack通知の送信に失敗しました' }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, ts: slackResult.ts });
+  return NextResponse.json({ ok: true, ts: r.ts });
 }, {
   csrf: true,
   rateLimit: { limiter: notifyRateLimit, limit: 5, windowMs: 60_000, prefix: 'notify' },

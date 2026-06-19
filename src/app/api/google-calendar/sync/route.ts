@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   // Verify booking ownership
   const { data: booking } = await admin
     .from('bookings')
-    .select('*, facility_profiles(name, address, phone), menus(name)')
+    .select('*, facility_profiles(name, address, phone), menu:facility_menus(name)')
     .eq('id', bookingId)
     .eq('user_id', user.id)
     .single();
@@ -82,9 +82,9 @@ export async function POST(req: NextRequest) {
   const facilityName = Array.isArray(booking.facility_profiles)
     ? booking.facility_profiles[0]?.name
     : (booking.facility_profiles as { name?: string } | null)?.name;
-  const menuName = Array.isArray(booking.menus)
-    ? booking.menus[0]?.name
-    : (booking.menus as { name?: string } | null)?.name;
+  const menuName = Array.isArray(booking.menu)
+    ? booking.menu[0]?.name
+    : (booking.menu as { name?: string } | null)?.name;
 
   const startDt = new Date(`${booking.booking_date}T${booking.start_time}`);
   const endDt = new Date(startDt.getTime() + (booking.duration_minutes || 60) * 60 * 1000);
