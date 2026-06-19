@@ -127,6 +127,9 @@ export default function AdminSettingsPage() {
     setSelectedFeatures((prev) =>
       prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]
     );
+    // 特徴ピルは <button>(onClick) のため、フォームの <div onChange> 経由では dirty にならない。
+    // 未保存ガードをすり抜けて編集が黙って失われるのを防ぐため、ここで明示的に dirty を立てる。
+    setDirty(true);
   };
 
   const toggleClosed = (day: string) => {
