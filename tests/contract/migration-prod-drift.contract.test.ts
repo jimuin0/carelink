@@ -81,13 +81,19 @@ const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([]);
 
 function migrationDefinedTables(): Set<string> {
   const tables = new Set<string>();
-  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql'));
-  const re = /CREATE TABLE (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*)/gi;
+  // ファイル名昇順＝適用順。CREATE TABLE を add、DROP TABLE を delete として
+  // 出現順に「ネット適用」した最終状態が「migration が本番に存在させるつもりのテーブル」。
+  // これにより「CREATE したが後の migration で DROP したテーブル」（＝意図的削除）を
+  // prod に在るべきとして誤検知しない（DROP を無視すると永久に未適用ドリフト誤報になる）。
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+  // CREATE TABLE [IF NOT EXISTS] [public.]x → add / DROP TABLE [IF EXISTS] [public.]x → delete
+  const re = /(CREATE|DROP) TABLE (?:IF (?:NOT )?EXISTS )?(?:public\.)?([a-z_][a-z0-9_]*)/gi;
   for (const file of files) {
     const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
     let m: RegExpExecArray | null;
     while ((m = re.exec(sql)) !== null) {
-      tables.add(m[1]);
+      if (/^drop$/i.test(m[1])) tables.delete(m[2]);
+      else tables.add(m[2]);
     }
   }
   return tables;
