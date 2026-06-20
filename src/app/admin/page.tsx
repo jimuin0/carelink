@@ -60,9 +60,9 @@ export default async function AdminDashboard() {
   const completedSteps = onboardingSteps.filter(s => s.done).length;
   const showOnboarding = completedSteps < 5;
 
-  // 週間予約状況（本日から7日間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
-  // （PostgREST は GROUP BY 非対応のため。範囲は7日固定で転送量は小さい）。
-  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+  // 予約状況（本日から14日間＝2週間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
+  // （PostgREST は GROUP BY 非対応のため。範囲は14日固定で転送量は小さい）。
+  const weekDates = Array.from({ length: 14 }, (_, i) => addDays(today, i));
 
   const [
     { count: todayBookings, error: todayErr },
@@ -74,14 +74,14 @@ export default async function AdminDashboard() {
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
     supabase.from('customer_visits').select('customer_email', { count: 'exact', head: true }).eq('facility_id', facilityId),
     supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
-      .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[6]),
+      .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[13]),
   ]);
   // KPI の取得失敗を 0 に偽装しない（error.tsx に委ねる）
   if (todayErr || pendingErr || customerErr || weekErr) {
     throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? customerErr ?? weekErr)?.message}`);
   }
 
-  // 週間予約状況: 日付→件数。cancelled は除外済み。
+  // 予約状況（2週間）: 日付→件数。cancelled は除外済み。
   const weekCounts = new Map<string, number>();
   for (const r of (weekRows ?? []) as { booking_date: string }[]) {
     weekCounts.set(r.booking_date, (weekCounts.get(r.booking_date) ?? 0) + 1);
@@ -133,8 +133,8 @@ export default async function AdminDashboard() {
         </Link>
       </div>
 
-      {/* 週間予約状況（本日から7日間） */}
-      <SbCard title="週間予約状況" className="mb-6">
+      {/* 予約状況（本日から14日間＝2週間・grid-cols-7 で2行に並ぶ） */}
+      <SbCard title="予約状況（2週間）" className="mb-6">
         <div className="grid grid-cols-7 gap-1.5">
           {weekData.map(({ date, dow, count }) => {
             const isToday = date === today;
