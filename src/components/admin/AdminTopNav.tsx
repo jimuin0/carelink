@@ -65,14 +65,14 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
     <div ref={navRef} className="hidden lg:block sticky top-0 z-40 shadow">
       {/* 1段目: 主要タブ（primary グラデーション帯） */}
       <div className="bg-gradient-to-b from-sky-600 to-sky-700">
-        <div className="flex items-stretch px-2">
+        <div className="flex items-stretch gap-1.5 px-3">
           {groups.map((g) => {
             const active = g.key === activeGroup?.key;
             return (
               <Link
                 key={g.key}
                 href={g.items[0]?.href ?? '/admin'}
-                className={`px-4 py-3 text-[13px] font-bold border-b-[3px] transition-colors whitespace-nowrap ${
+                className={`px-6 py-3.5 text-sm font-bold border-b-[3px] transition-colors whitespace-nowrap ${
                   active
                     ? 'bg-white/95 text-sky-700 border-amber-400 rounded-t-md'
                     : 'text-white/90 border-transparent hover:bg-white/10'
@@ -86,14 +86,14 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
       </div>
       {/* 2段目: サブメニュー（アクティブグループの項目） */}
       <div className="bg-sky-50 border-b border-sky-100">
-        <div className="flex items-center gap-1 px-3 py-2.5 overflow-x-auto">
+        <div className="flex items-center gap-2 px-3 py-2.5 overflow-x-auto">
           {activeGroup?.items.map((item) => {
             const active = matchScore(pathname, item.href) >= 0;
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`px-3 py-1 text-xs font-semibold rounded-full whitespace-nowrap transition-colors ${
+                className={`px-4 py-1.5 text-[13px] font-semibold rounded-full whitespace-nowrap transition-colors ${
                   active
                     ? 'bg-sky-600 text-white shadow-sm'
                     : 'text-sky-800 hover:bg-sky-100'
