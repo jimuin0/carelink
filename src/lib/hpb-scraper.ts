@@ -32,9 +32,21 @@ const USER_AGENT =
 /** HPB へ HTTP GET する関数の型(本番は httpFetch・テストは差し替え)。 */
 export type FetchFn = (url: string) => Promise<{ status: number; text: string }>;
 
-/** 本番用の FetchFn。Node 標準 fetch を使い、UA を付ける。 */
+/**
+ * 1 リクエストのタイムアウト(ms)。HPB は通常 1〜2 秒で応答するため十分。
+ * これが無いと、1 件でも HPB が無応答だと fetch が無限に待ち、cron(maxDuration 60s)の
+ * 施設間 time-budget(施設"間"でしか効かない)を素通りして関数ごと強制終了→ run 全体が
+ * 失敗し success ログも残らない、という発症前リスクになる。本タイムアウトで単一ハングを
+ * 必ず有限時間で打ち切る(打ち切り時は呼び出し側が break/continue=既存データは非破壊)。
+ */
+const FETCH_TIMEOUT_MS = 10_000;
+
+/** 本番用の FetchFn。Node 標準 fetch を使い、UA を付ける。タイムアウトで単一ハングを遮断。 */
 export const httpFetch: FetchFn = async (url) => {
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  const res = await fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
   return { status: res.status, text: await res.text() };
 };
 
