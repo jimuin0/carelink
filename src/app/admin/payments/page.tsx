@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface PaymentSession {
   id: string;
@@ -93,7 +94,7 @@ export default function AdminPaymentsPage() {
   const totalPaid = sessions.filter((s) => s.status === 'paid').reduce((sum, s) => sum + s.amount, 0);
   const totalRefunded = sessions.filter((s) => s.status === 'refunded').reduce((sum, s) => sum + s.amount, 0);
 
-  if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-40 bg-gray-200 rounded-xl" /></div>;
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（既定値で実入金設定を上書きする金銭事故を防ぐ）
   if (loadError) {

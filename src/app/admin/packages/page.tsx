@@ -6,6 +6,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface ServicePackage {
   id: string;
@@ -164,9 +165,7 @@ export default function PackagesPage() {
     }
   };
 
-  if (loading) {
-    return <div className="py-12 text-center"><div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>;
-  }
+  if (loading) return <AdminPageLoading />;
 
   return (
     <div className="space-y-5 max-w-4xl">

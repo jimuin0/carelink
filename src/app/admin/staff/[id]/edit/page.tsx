@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export default function EditStaffPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -89,9 +90,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
     }
   };
 
-  if (loading) {
-    return <div className="bg-white rounded-xl p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
-  }
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
   if (loadError) {

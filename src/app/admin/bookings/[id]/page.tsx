@@ -8,6 +8,7 @@ import LoadError from '@/components/admin/LoadError';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
 import { statusBannerClass, bookingStatusLabel } from '@/lib/booking-status';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 // ステータス変更ボタンに表示する選択肢（既存挙動を維持。遷移可否は API 側で検証）
 const STATUS_OPTIONS = ['pending', 'confirmed', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'] as const;
@@ -101,9 +102,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
     }
   };
 
-  if (loading) {
-    return <div className="bg-white rounded-xl p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
-  }
+  if (loading) return <AdminPageLoading />;
 
   if (loadError) {
     return (

@@ -6,6 +6,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge } from '@/components/admin/SbUi';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface Plan {
   id: string;
@@ -142,7 +143,7 @@ export default function SubscriptionPlansPage() {
     load();
   };
 
-  if (loading) return <div className="py-12 text-center"><div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>;
+  if (loading) return <AdminPageLoading />;
 
   return (
     <div className="space-y-5 max-w-4xl">

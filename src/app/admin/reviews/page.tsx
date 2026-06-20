@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import type { FacilityReview } from '@/types';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export default function AdminReviewsPage() {
   const [reviews, setReviews] = useState<FacilityReview[]>([]);
@@ -99,14 +100,7 @@ export default function AdminReviewsPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        {[...Array(3)].map((_, i) => <div key={i} className="h-24 bg-gray-200 rounded-xl" />)}
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   const submitReply = async (reviewId: string) => {
     const text = replyText[reviewId]?.trim();

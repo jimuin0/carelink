@@ -9,6 +9,7 @@ import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
 import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import type { FacilityMenu } from '@/types';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 const categories = ['カット', 'カラー', 'パーマ', 'トリートメント', 'ヘッドスパ', 'セット', 'エクステ', 'ネイル', 'まつげ', 'エステ', 'リラクゼーション', '鍼灸', '整体', '介護', 'その他'];
 
@@ -159,14 +160,7 @@ export default function AdminMenusPage() {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        {[...Array(3)].map((_, i) => <div key={i} className="h-20 bg-gray-200 rounded-xl" />)}
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   const grouped = menus.reduce<Record<string, FacilityMenu[]>>((acc, m) => {
     (acc[m.category] = acc[m.category] || []).push(m);

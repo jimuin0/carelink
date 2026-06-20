@@ -6,6 +6,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge } from '@/components/admin/SbUi';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface ApiKey {
   id: string;
@@ -105,7 +106,7 @@ export default function ApiKeysPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (loading) return <div className="animate-pulse space-y-4"><div className="h-8 bg-gray-200 rounded w-1/3" /><div className="h-40 bg-gray-200 rounded-xl" /></div>;
+  if (loading) return <AdminPageLoading />;
 
   return (
     <div className="space-y-6 max-w-3xl">

@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 const SECTION_TEMPLATES = {
   paragraph: '{"type":"paragraph","text":"テキストをここに入力"}',
@@ -127,13 +128,7 @@ export default function EditPlatformBlogPage(props: Props) {
     router.push('/admin/platform-blog');
   };
 
-  if (loading) {
-    return (
-      <div className="py-12 text-center">
-        <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
   if (loadError) {

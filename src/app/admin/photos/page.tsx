@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
 import type { FacilityPhoto } from '@/types';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 const photoTypes: { value: FacilityPhoto['photo_type']; label: string }[] = [
   { value: 'main', label: 'メイン' },
@@ -157,14 +158,7 @@ export default function AdminPhotosPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        <div className="grid grid-cols-3 gap-4">{[...Array(6)].map((_, i) => <div key={i} className="aspect-square bg-gray-200 rounded-xl" />)}</div>
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   const grouped = photoTypes.map((pt) => ({
     ...pt,
