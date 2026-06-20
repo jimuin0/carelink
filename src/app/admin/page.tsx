@@ -1,7 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { SbPageHeader, SbStatCard, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
+import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
 import { todayJst, addDays, dayOfWeekUtc } from '@/lib/admin-date';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -67,18 +67,16 @@ export default async function AdminDashboard() {
   const [
     { count: todayBookings, error: todayErr },
     { count: pendingBookings, error: pendingErr },
-    { count: totalCustomers, error: customerErr },
     { data: weekRows, error: weekErr },
   ] = await Promise.all([
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
-    supabase.from('customer_visits').select('customer_email', { count: 'exact', head: true }).eq('facility_id', facilityId),
     supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
       .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[13]),
   ]);
-  // KPI の取得失敗を 0 に偽装しない（error.tsx に委ねる）
-  if (todayErr || pendingErr || customerErr || weekErr) {
-    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? customerErr ?? weekErr)?.message}`);
+  // 取得失敗を 0 に偽装しない（error.tsx に委ねる）
+  if (todayErr || pendingErr || weekErr) {
+    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? weekErr)?.message}`);
   }
 
   // 予約状況（2週間）: 日付→件数。cancelled は除外済み。
@@ -201,12 +199,6 @@ export default async function AdminDashboard() {
           </div>
         </Link>
       )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <SbStatCard label="今日の予約" value={todayBookings ?? 0} unit="件" href="/admin/bookings" accent="sky" />
-        <SbStatCard label="確認待ち" value={pendingBookings ?? 0} unit="件" href="/admin/bookings?status=pending" accent="amber" />
-        <SbStatCard label="来店数" value={totalCustomers ?? 0} unit="人" href="/admin/customers" accent="emerald" />
-      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SbCard title="クイックアクション">
