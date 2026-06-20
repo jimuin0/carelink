@@ -1,23 +1,12 @@
+import Spinner from '@/components/Spinner';
+
+// 読み込み中の表示。以前は「旧ダッシュボード形状の灰色スケルトン」で、実際の画面と食い違い
+// 「壊れて何も出ていない」ように見えていた。実内容に依存しない明快なスピナー表示に統一する。
 export default function AdminLoading() {
   return (
-    <div className="animate-pulse py-6">
-      <div className="h-7 bg-gray-200 rounded w-40 mb-6" />
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="bg-white rounded-xl p-4 space-y-2">
-            <div className="h-4 bg-gray-100 rounded w-20" />
-            <div className="h-6 bg-gray-200 rounded w-16" />
-          </div>
-        ))}
-      </div>
-      <div className="bg-white rounded-xl p-6">
-        <div className="h-5 bg-gray-200 rounded w-32 mb-4" />
-        <div className="space-y-3">
-          {[0, 1, 2].map((i) => (
-            <div key={i} className="h-12 bg-gray-100 rounded" />
-          ))}
-        </div>
-      </div>
+    <div className="flex flex-col items-center justify-center py-24 text-gray-400" role="status" aria-live="polite">
+      <Spinner className="w-8 h-8 text-sky-500" label="読み込み中" />
+      <p className="mt-3 text-sm">読み込み中...</p>
     </div>
   );
 }
