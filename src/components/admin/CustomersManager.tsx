@@ -41,6 +41,18 @@ const EMPTY_FORM: FormState = { id: null, name: '', name_kana: '', email: '', ph
 
 const GENDER_LABEL: Record<string, string> = { male: '男性', female: '女性', other: 'その他' };
 
+// HPB「お客様情報一覧」型の検索条件。CareLink の顧客マスターにある項目のみ（来店区分・年代・
+// ダイレクト会員などデータ非保持の項目は除外）。
+type SearchState = {
+  name: string; kana: string; phone: string; email: string; gender: string;
+  visitMin: string; visitMax: string; lastFrom: string; lastTo: string; birthday: string;
+};
+const EMPTY_SEARCH: SearchState = {
+  name: '', kana: '', phone: '', email: '', gender: '',
+  visitMin: '', visitMax: '', lastFrom: '', lastTo: '', birthday: '',
+};
+const includesCI = (v: string | null, q: string) => !q || (v ?? '').toLowerCase().includes(q.toLowerCase());
+
 export default function CustomersManager({
   facilityId,
   customers,
@@ -55,6 +67,29 @@ export default function CustomersManager({
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // HPB お客様情報一覧型の検索（入力=draft、「検索する」で適用=search）。データはクライアントに
+  // 全件あるため即時フィルタ（往復なし）。
+  const [draft, setDraft] = useState<SearchState>(EMPTY_SEARCH);
+  const [search, setSearch] = useState<SearchState>(EMPTY_SEARCH);
+  const sd = (k: keyof SearchState) => (e: { target: { value: string } }) => setDraft((d) => ({ ...d, [k]: e.target.value }));
+  const applySearch = () => setSearch(draft);
+  const clearSearch = () => { setDraft(EMPTY_SEARCH); setSearch(EMPTY_SEARCH); };
+
+  const matchCustomer = (c: MasterCustomer) =>
+    includesCI(c.name, search.name) &&
+    includesCI(c.name_kana, search.kana) &&
+    includesCI(c.phone, search.phone) &&
+    includesCI(c.email, search.email) &&
+    (!search.gender || c.gender === search.gender) &&
+    (!search.visitMin || c.visit_count >= Number(search.visitMin)) &&
+    (!search.visitMax || c.visit_count <= Number(search.visitMax)) &&
+    (!search.lastFrom || (!!c.last_visit && c.last_visit >= search.lastFrom)) &&
+    (!search.lastTo || (!!c.last_visit && c.last_visit <= search.lastTo)) &&
+    includesCI(c.birthday, search.birthday);
+  const filtered = customers.filter(matchCustomer);
+  // 未登録（来店履歴のみ）は名前・メールのみで突合（他項目は保持していない）。
+  const filteredUnregistered = unregistered.filter((u) => includesCI(u.name, search.name) && includesCI(u.email, search.email));
 
   const openCreate = (prefill?: Partial<FormState>) => setForm({ ...EMPTY_FORM, ...prefill });
   const openEdit = (c: MasterCustomer) =>
@@ -145,10 +180,71 @@ export default function CustomersManager({
         </button>
       </div>
 
+      {/* 検索パネル（HPB お客様情報一覧型） */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">氏名</label>
+            <SbInput value={draft.name} onChange={sd('name')} aria-label="氏名" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">フリガナ</label>
+            <SbInput value={draft.kana} onChange={sd('kana')} aria-label="フリガナ" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">電話番号</label>
+            <SbInput value={draft.phone} onChange={sd('phone')} aria-label="電話番号" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">メールアドレス</label>
+            <SbInput value={draft.email} onChange={sd('email')} aria-label="メールアドレス" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">性別</label>
+            <select value={draft.gender} onChange={sd('gender')} className="form-input" aria-label="性別">
+              <option value="">すべて</option>
+              <option value="male">男性</option>
+              <option value="female">女性</option>
+              <option value="other">その他</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">誕生日</label>
+            <SbInput value={draft.birthday} onChange={sd('birthday')} aria-label="誕生日" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">来店回数</label>
+            <div className="flex items-center gap-1">
+              <SbInput type="number" value={draft.visitMin} onChange={sd('visitMin')} className="!w-20" aria-label="来店回数（最小）" />
+              <span className="text-gray-400 text-sm">〜</span>
+              <SbInput type="number" value={draft.visitMax} onChange={sd('visitMax')} className="!w-20" aria-label="来店回数（最大）" />
+              <span className="text-gray-500 text-sm">回</span>
+            </div>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="block text-xs font-medium text-gray-600 mb-1">最終来店日</label>
+            <div className="flex items-center gap-2">
+              <SbInput type="date" value={draft.lastFrom} onChange={sd('lastFrom')} className="!w-auto" aria-label="最終来店日（開始）" />
+              <span className="text-gray-400 text-sm">〜</span>
+              <SbInput type="date" value={draft.lastTo} onChange={sd('lastTo')} className="!w-auto" aria-label="最終来店日（終了）" />
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mt-4">
+          <button type="button" onClick={clearSearch} className="text-sm text-gray-500 hover:underline">条件をクリア</button>
+          <button type="button" onClick={applySearch} className="btn-primary ml-auto !py-2.5 !px-8">検索する</button>
+        </div>
+      </div>
+
       {customers.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
           <p className="text-gray-400">登録済みの顧客がいません</p>
           <p className="text-xs text-gray-400 mt-1">「顧客を追加」から登録できます</p>
+        </div>
+      ) : filtered.length === 0 ? (
+        <div className="bg-white rounded-xl p-8 text-center">
+          <p className="text-gray-400">条件に合う顧客がいません</p>
+          <p className="text-xs text-gray-400 mt-1">「条件をクリア」で全件表示に戻せます</p>
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
@@ -161,7 +257,7 @@ export default function CustomersManager({
               <SbTh align="center">操作</SbTh>
             </SbThead>
             <SbTbody>
-              {customers.map((c) => (
+              {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <SbTd className="font-medium">
                     {c.name}
@@ -189,7 +285,7 @@ export default function CustomersManager({
       )}
 
       {/* 来店履歴ありだがマスター未登録の顧客＝ワンクリックで登録フォームへ */}
-      {unregistered.length > 0 && (
+      {filteredUnregistered.length > 0 && (
         <div className="mt-6">
           <h2 className="text-sm font-bold text-gray-700 mb-2">来店履歴から未登録のお客様</h2>
           <div className="bg-white rounded-xl shadow-sm overflow-x-auto">
@@ -202,7 +298,7 @@ export default function CustomersManager({
                 <SbTh align="center">操作</SbTh>
               </SbThead>
               <SbTbody>
-                {unregistered.map((u) => (
+                {filteredUnregistered.map((u) => (
                   <tr key={u.email || u.name} className="hover:bg-gray-50">
                     <SbTd className="font-medium">{u.name}</SbTd>
                     <SbTd className="text-gray-500">{u.email || '—'}</SbTd>
