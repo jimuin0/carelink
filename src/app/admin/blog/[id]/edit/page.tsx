@@ -193,15 +193,17 @@ export default function EditBlogPage() {
           <label htmlFor="publish" className="text-sm">公開する</label>
         </div>
 
+        {/* 破壊操作(削除)は左端に離し、主動線(戻る・保存する)を右にまとめる。
+            削除を右下から外すことで、右下固定のAIサポートウィジェットとの被りも解消する。 */}
         <div className="flex items-center gap-3 pt-4">
-          <button type="button" onClick={() => router.push('/admin/blog')} className="text-sm text-gray-500 hover:underline">
-            戻る
-          </button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-3">
-            {saving ? '保存中...' : '保存する'}
-          </button>
           <button type="button" onClick={handleDelete} className="text-sm text-red-500 hover:underline">
             削除
+          </button>
+          <button type="button" onClick={() => router.push('/admin/blog')} className="ml-auto text-sm text-gray-500 hover:underline">
+            戻る
+          </button>
+          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary !py-3 !px-8">
+            {saving ? '保存中...' : '保存する'}
           </button>
         </div>
       </div>
