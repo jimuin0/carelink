@@ -294,14 +294,15 @@ function SortLink({ current, value, label, searchParams }: {
   params.set('sort', value);
 
   return (
-    <a
+    <Link
       href={`/search?${params.toString()}`}
+      scroll={false}
       className={`text-sm px-3 py-1.5 rounded-full ${
         current === value ? 'bg-sky-100 text-sky-700 font-bold' : 'text-gray-500 hover:bg-gray-100'
       }`}
     >
       {label}
-    </a>
+    </Link>
   );
 }
 

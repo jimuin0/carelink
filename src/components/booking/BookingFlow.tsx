@@ -385,7 +385,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                     type="button"
                     key={date}
                     onClick={() => setSelectedDate(date)}
-                    className={`p-2 rounded-lg border text-center transition-colors ${
+                    className={`min-h-[44px] flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-colors ${
                       isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                     }`}
                   >
@@ -427,7 +427,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                         type="button"
                         key={slot.slot_start}
                         onClick={() => setSelectedSlot(slot)}
-                        className={`p-2.5 rounded-xl border text-center transition-colors ${
+                        className={`min-h-[44px] flex items-center justify-center p-2.5 rounded-xl border text-center transition-colors ${
                           isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                         }`}
                       >

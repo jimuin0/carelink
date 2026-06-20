@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, useId } from 'react';
 
 interface ConfirmDialogProps {
   open: boolean;
@@ -23,6 +23,7 @@ export default function ConfirmDialog({
 }: ConfirmDialogProps) {
   const dialogRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -75,11 +76,11 @@ export default function ConfirmDialog({
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="confirm-dialog-title"
+      aria-labelledby={titleId}
     >
       <div className="fixed inset-0 bg-black/50" onClick={onCancel} aria-hidden="true" />
       <div ref={dialogRef} className="relative bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
-        <h3 id="confirm-dialog-title" className="text-lg font-bold mb-2">{title}</h3>
+        <h3 id={titleId} className="text-lg font-bold mb-2">{title}</h3>
         <p className="text-gray-600 text-sm mb-6">{message}</p>
         <div className="flex gap-3">
           <button
