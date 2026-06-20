@@ -2,7 +2,9 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader, SbStatCard, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
-import { todayJst } from '@/lib/admin-date';
+import { todayJst, addDays, dayOfWeekUtc } from '@/lib/admin-date';
+
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
 export default async function AdminDashboard() {
   const supabase = await createServerSupabaseAuthClient();
@@ -58,19 +60,37 @@ export default async function AdminDashboard() {
   const completedSteps = onboardingSteps.filter(s => s.done).length;
   const showOnboarding = completedSteps < 5;
 
+  // 週間予約状況（本日から7日間）の日付一覧。各日の件数は1クエリ取得→JST日付で JS 集計する
+  // （PostgREST は GROUP BY 非対応のため。範囲は7日固定で転送量は小さい）。
+  const weekDates = Array.from({ length: 7 }, (_, i) => addDays(today, i));
+
   const [
     { count: todayBookings, error: todayErr },
     { count: pendingBookings, error: pendingErr },
     { count: totalCustomers, error: customerErr },
+    { data: weekRows, error: weekErr },
   ] = await Promise.all([
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
     supabase.from('customer_visits').select('customer_email', { count: 'exact', head: true }).eq('facility_id', facilityId),
+    supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
+      .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[6]),
   ]);
   // KPI の取得失敗を 0 に偽装しない（error.tsx に委ねる）
-  if (todayErr || pendingErr || customerErr) {
-    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? customerErr)?.message}`);
+  if (todayErr || pendingErr || customerErr || weekErr) {
+    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? customerErr ?? weekErr)?.message}`);
   }
+
+  // 週間予約状況: 日付→件数。cancelled は除外済み。
+  const weekCounts = new Map<string, number>();
+  for (const r of (weekRows ?? []) as { booking_date: string }[]) {
+    weekCounts.set(r.booking_date, (weekCounts.get(r.booking_date) ?? 0) + 1);
+  }
+  const weekData = weekDates.map((d) => ({
+    date: d,
+    dow: dayOfWeekUtc(d),
+    count: weekCounts.get(d) ?? 0,
+  }));
 
   return (
     <div>
@@ -79,6 +99,65 @@ export default async function AdminDashboard() {
         description="本日の予約状況と店舗セットアップの概要"
         actions={<SbButtonLink href="/admin/schedule">サロンボードを見る</SbButtonLink>}
       />
+
+      {/* ヒーローアクションカード（サロンボード型・CareLink 色） */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+        <Link
+          href="/admin/schedule"
+          className="group flex items-center gap-4 rounded-2xl bg-gradient-to-br from-sky-500 to-sky-600 text-white p-5 shadow-sm hover:shadow-md transition-shadow"
+        >
+          <span className="shrink-0 w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </span>
+          <span className="min-w-0">
+            <span className="block text-lg font-bold">本日のスケジュール</span>
+            <span className="block text-xs text-white/70 tracking-widest">TODAY&apos;S SCHEDULE</span>
+          </span>
+          <svg className="w-5 h-5 text-white/80 ml-auto shrink-0 group-hover:translate-x-0.5 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+        </Link>
+        <Link
+          href={`/admin/bookings?date=${today}`}
+          className="group flex items-center gap-4 rounded-2xl bg-gradient-to-br from-sky-600 to-sky-700 text-white p-5 shadow-sm hover:shadow-md transition-shadow"
+        >
+          <span className="shrink-0 w-12 h-12 rounded-xl bg-white/20 flex items-center justify-center">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" /></svg>
+          </span>
+          <span className="min-w-0">
+            <span className="block text-lg font-bold">本日の予約一覧</span>
+            <span className="block text-xs text-white/70 tracking-widest">TODAY&apos;S RESERVE LIST</span>
+          </span>
+          <span className="ml-auto shrink-0 flex items-center gap-1">
+            <span className="text-2xl font-extrabold tabular-nums">{todayBookings ?? 0}</span>
+            <span className="text-xs text-white/80">件</span>
+          </span>
+        </Link>
+      </div>
+
+      {/* 週間予約状況（本日から7日間） */}
+      <SbCard title="週間予約状況" className="mb-6">
+        <div className="grid grid-cols-7 gap-1.5">
+          {weekData.map(({ date, dow, count }) => {
+            const isToday = date === today;
+            const [, m, d] = date.split('-');
+            return (
+              <Link
+                key={date}
+                href={`/admin/schedule?date=${date}`}
+                className={`flex flex-col items-center justify-center rounded-lg border py-2 transition-colors ${
+                  isToday ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-200' : 'border-gray-100 hover:bg-sky-50'
+                }`}
+              >
+                <span className="text-[11px] text-gray-400">{Number(m)}/{Number(d)}</span>
+                <span className={`text-xs font-bold ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
+                  {WEEKDAY_LABELS[dow]}
+                </span>
+                <span className="mt-1 text-base font-extrabold text-gray-800 tabular-nums leading-none">{count}</span>
+                <span className="text-[10px] text-gray-400">件</span>
+              </Link>
+            );
+          })}
+        </div>
+      </SbCard>
 
       {/* オンボーディング進捗 */}
       {showOnboarding && (
