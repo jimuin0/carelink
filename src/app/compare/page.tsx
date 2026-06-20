@@ -83,7 +83,7 @@ export default async function ComparePage(props: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr>
-              <th className="w-24" />
+              <th className="w-24 sticky left-0 bg-white z-20" />
               {facilities.map((f) => (
                 <th key={f.id} className="p-2 text-center min-w-[200px]">
                   <Link href={`/facility/${f.slug}`} className="block group">
@@ -105,14 +105,14 @@ export default async function ComparePage(props: Props) {
           <tbody>
             {rows.map((row) => (
               <tr key={row.label} className="border-t border-gray-100">
-                <td className="py-3 pr-3 text-gray-500 font-medium whitespace-nowrap">{row.label}</td>
+                <td className="py-3 pr-3 text-gray-500 font-medium whitespace-nowrap sticky left-0 bg-white z-10">{row.label}</td>
                 {facilities.map((f) => (
                   <td key={f.id} className="py-3 px-2 text-center">{row.render(f)}</td>
                 ))}
               </tr>
             ))}
             <tr className="border-t border-gray-100">
-              <td className="py-3" />
+              <td className="py-3 sticky left-0 bg-white z-10" />
               {facilities.map((f) => (
                 <td key={f.id} className="py-3 px-2 text-center">
                   <Link href={`/facility/${f.slug}/booking`} className="btn-primary text-xs !py-2 !px-4">
