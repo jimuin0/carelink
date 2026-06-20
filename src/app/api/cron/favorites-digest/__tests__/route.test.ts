@@ -894,4 +894,34 @@ describe('GET /api/cron/favorites-digest', () => {
     const json = await res.json();
     expect(json.processed).toBe(0);
   });
+
+  test('実時間予算超過 → 残りユーザーを deferred して打ち切り', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-05-15T00:00:00Z'));
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    // 送信対象を2ユーザーにする（既定 favorites は user-1/user-2 とも fac-1 に紐付き、fac-1 はクーポンあり）。
+    const paged2 = jest.fn().mockImplementation((from: number) => Promise.resolve({
+      data: from === 0
+        ? [
+            { id: 'user-1', display_name: 'User 1', email_unsubscribed: false, favorites_digest_sent_week: null },
+            { id: 'user-2', display_name: 'User 2', email_unsubscribed: false, favorites_digest_sent_week: null },
+          ]
+        : [],
+      error: null,
+    }));
+    mockProfilesSelect.mockReturnValue({ in: jest.fn().mockReturnValue({ range: paged2 }) });
+    mockListUsersDelegate.mockResolvedValue({
+      data: { users: [{ id: 'user-1', email: 'user1@example.com' }, { id: 'user-2', email: 'user2@example.com' }] },
+    });
+    // 1人目の送信中に 60 秒進める → 2人目のループ先頭で予算超過 → break。
+    (sendFavoritesDigest as jest.Mock).mockImplementationOnce(() => {
+      jest.advanceTimersByTime(60_000);
+      return Promise.resolve(undefined);
+    });
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+    expect(json.deferred).toBe(1);
+    warnSpy.mockRestore();
+    jest.useRealTimers();
+  });
 });

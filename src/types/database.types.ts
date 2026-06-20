@@ -6043,6 +6043,10 @@ export type Database = {
           slots: number
         }[]
       }
+      aggregate_daily_revenue: {
+        Args: { p_date: string }
+        Returns: number
+      }
       get_public_columns: {
         Args: Record<PropertyKey, never>
         Returns: {
