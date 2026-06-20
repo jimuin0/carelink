@@ -76,7 +76,6 @@ const navGroups: NavGroup[] = [
       { href: '/admin', label: 'ダッシュボード' },
       { href: '/admin/schedule', label: 'サロンボード' },
       { href: '/admin/bookings', label: '予約一覧' },
-      { href: '/admin/bookings/calendar', label: '予約台帳' },
       { href: '/admin/group-bookings', label: 'グループ予約' },
       { href: '/admin/telehealth', label: 'オンライン相談' },
       { href: '/admin/treatment-records', label: '施術記録' },
