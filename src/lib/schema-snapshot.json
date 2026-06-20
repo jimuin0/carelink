@@ -238,6 +238,19 @@
     "staff_name",
     "visit_date"
   ],
+  "customers": [
+    "birthday",
+    "created_at",
+    "email",
+    "facility_id",
+    "gender",
+    "id",
+    "name",
+    "name_kana",
+    "notes",
+    "phone",
+    "updated_at"
+  ],
   "daily_revenue_summary": [
     "booking_count",
     "cancelled_count",

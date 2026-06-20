@@ -1051,6 +1051,56 @@ export type Database = {
           },
         ]
       }
+      customers: {
+        Row: {
+          birthday: string | null
+          created_at: string
+          email: string | null
+          facility_id: string
+          gender: string | null
+          id: string
+          name: string
+          name_kana: string | null
+          notes: string | null
+          phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          birthday?: string | null
+          created_at?: string
+          email?: string | null
+          facility_id: string
+          gender?: string | null
+          id?: string
+          name: string
+          name_kana?: string | null
+          notes?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          birthday?: string | null
+          created_at?: string
+          email?: string | null
+          facility_id?: string
+          gender?: string | null
+          id?: string
+          name?: string
+          name_kana?: string | null
+          notes?: string | null
+          phone?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customers_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       daily_revenue_summary: {
         Row: {
           booking_count: number | null
