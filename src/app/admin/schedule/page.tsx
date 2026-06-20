@@ -3,7 +3,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import type { Database } from '@/types/database.types';
 import Link from 'next/link';
-import { statusGanttClass, bookingStatusLabel } from '@/lib/booking-status';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
 import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
 
@@ -13,16 +12,13 @@ import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
  * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）
  * - 列: 時間軸 OPEN_HOUR〜CLOSE_HOUR（30分グリッド）
  * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=sky / 完了=グレー、@/lib/booking-status に集約）で帯表示、クリックで予約詳細へ
- * - 上部: 日付送り（◀ 当日 ▶・今日）、下部: 月内日付ストリップ
+ * - 上部: 日付送り（◀ 前日 / 翌日 ▶・今日）
  */
 
 export const dynamic = 'force-dynamic';
 
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 22;
-
-// ガント上に現れるステータスのみ凡例に出す（cancelled / cancel_fee_paid は帯に出ない）
-const LEGEND_STATUSES = ['pending', 'confirmed', 'completed', 'no_show'] as const;
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -137,9 +133,6 @@ export default async function AdminSchedulePage(props: Props) {
   // 時間軸ヘッダ（1時間刻み）
   const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
 
-  // 月内日付ストリップ
-  const [y, m] = date.split('-').map(Number);
-  const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
   const today = todayJst();
 
   return (
@@ -153,13 +146,6 @@ export default async function AdminSchedulePage(props: Props) {
           {date !== today && (
             <Link href="/admin/schedule" className="ml-2 px-3 py-1 text-xs font-bold rounded-full bg-sky-600 text-white hover:bg-sky-700">今日</Link>
           )}
-        </div>
-        <div className="ml-auto flex items-center gap-2 text-xs">
-          {/* 凡例 */}
-          {LEGEND_STATUSES.map((k) => (
-            <span key={k} className={`px-2 py-0.5 rounded border ${statusGanttClass(k)}`}>{bookingStatusLabel(k)}</span>
-          ))}
-          <Link href={`/admin/bookings?date=${date}`} className="ml-2 px-3 py-1.5 rounded border border-sky-300 text-sky-700 font-bold hover:bg-sky-50">予約一覧</Link>
         </div>
       </div>
 
@@ -203,29 +189,6 @@ export default async function AdminSchedulePage(props: Props) {
               アクティブなスタッフが登録されていません。<Link href="/admin/staff/new" className="text-sky-600 underline">スタッフを登録</Link>すると、スタッフ別のスケジュールが表示されます。
             </div>
           )}
-        </div>
-      </div>
-
-      {/* 月内日付ストリップ（HPB下部の日付送り） */}
-      <div className="mt-3 bg-white border rounded-xl px-3 py-2 overflow-x-auto">
-        <div className="flex items-center gap-1 min-w-max">
-          <span className="text-xs font-bold text-gray-500 pr-2">{m}月</span>
-          {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
-            const ds = `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-            const active = ds === date;
-            const isToday = ds === today;
-            return (
-              <Link
-                key={d}
-                href={`/admin/schedule?date=${ds}`}
-                className={`w-7 h-7 inline-flex items-center justify-center rounded-full text-xs font-bold transition-colors ${
-                  active ? 'bg-sky-600 text-white' : isToday ? 'border border-sky-400 text-sky-700' : 'text-gray-600 hover:bg-sky-50'
-                }`}
-              >
-                {d}
-              </Link>
-            );
-          })}
         </div>
       </div>
     </div>

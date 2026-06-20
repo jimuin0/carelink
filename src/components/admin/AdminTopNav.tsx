@@ -72,7 +72,7 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
               <Link
                 key={g.key}
                 href={g.items[0]?.href ?? '/admin'}
-                className={`px-4 py-2.5 text-[13px] font-bold border-b-[3px] transition-colors whitespace-nowrap ${
+                className={`px-4 py-3 text-[13px] font-bold border-b-[3px] transition-colors whitespace-nowrap ${
                   active
                     ? 'bg-white/95 text-sky-700 border-amber-400 rounded-t-md'
                     : 'text-white/90 border-transparent hover:bg-white/10'
@@ -86,7 +86,7 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
       </div>
       {/* 2段目: サブメニュー（アクティブグループの項目） */}
       <div className="bg-sky-50 border-b border-sky-100">
-        <div className="flex items-center gap-1 px-3 py-1.5 overflow-x-auto">
+        <div className="flex items-center gap-1 px-3 py-2.5 overflow-x-auto">
           {activeGroup?.items.map((item) => {
             const active = matchScore(pathname, item.href) >= 0;
             return (
