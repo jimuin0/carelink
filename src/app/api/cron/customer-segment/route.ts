@@ -15,6 +15,10 @@ import { isMissingColumnError, warnMissingColumnFallback, type DbError } from '@
 import { canonicalizeEmail } from '@/lib/email-canonical';
 
 export const dynamic = 'force-dynamic';
+// 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
+export const maxDuration = 60;
+// 施設ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌 run へ繰延。
+const SEGMENT_BUDGET_MS = 50 * 1000;
 
 function classifySegment(totalVisits: number, daysSinceLastVisit: number): string {
   if (totalVisits >= 5 && daysSinceLastVisit <= 30) return 'vip';
@@ -62,8 +66,17 @@ export async function GET(request: Request) {
     const twoYearsAgo = new Date(now.getTime() - 2 * 365 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     let count = 0;
     let skipped = 0;
+    let deferred = 0;
 
+    const loopStart = Date.now();
     for (const facility of facilities) {
+      // 時間予算超過で残りを翌週 run へ繰延（ハード timeout で全停止するより graceful。
+      // RFM は毎週再計算されるため繰延分は次サイクルで回復する）。
+      if (Date.now() - loopStart > SEGMENT_BUDGET_MS) {
+        deferred = facilities.length - count - skipped;
+        console.warn('[customer-segment] time budget exceeded, deferring rest to next run', { deferred });
+        break;
+      }
       // 完了済み予約からメール別に集計（直近2年分・全件）。
       // 旧実装は .limit(2000) で繁忙施設の集計が頭打ち（RFM が途中のデータでしか算出されず不正確）だった。
       // fetchAllPaged で全件ページング取得し切り捨てを解消（同ファイルの施設取得と同じ方式・全ロジックはJS）。
@@ -283,8 +296,8 @@ export async function GET(request: Request) {
       count++;
     }
 
-    await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped });
-    return NextResponse.json({ processed: count, skipped });
+    await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped, meta: { deferred } });
+    return NextResponse.json({ processed: count, skipped, deferred });
   } catch (e) {
     console.error('[customer-segment] Error:', e);
     await logCronRun('customer-segment', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

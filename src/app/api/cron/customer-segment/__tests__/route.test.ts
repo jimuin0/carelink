@@ -1279,3 +1279,16 @@ describe('GET /api/cron/customer-segment', () => {
     expect(rows[0].total_visits).toBe(2);
   });
 });
+
+test('実時間予算超過 → 残り施設を deferred して打ち切り', async () => {
+  const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  // 既定2施設。1施設目の upsert 中に 60 秒進める → 2施設目のループ先頭で予算超過 → break。
+  (mockUpsert as jest.Mock).mockImplementationOnce(() => {
+    jest.advanceTimersByTime(60_000);
+    return Promise.resolve({ data: [], error: null });
+  });
+  const res = await GET(makeRequest() as any);
+  const json = await res.json();
+  expect(json.deferred).toBe(1);
+  warnSpy.mockRestore();
+});

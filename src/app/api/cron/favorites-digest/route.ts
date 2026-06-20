@@ -12,6 +12,10 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
+// 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
+export const maxDuration = 60;
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら残りを翌 run へ繰延。
+const DIGEST_BUDGET_MS = 50 * 1000;
 
 /** Returns the ISO week string "YYYY-WNN" for a given date. */
 function isoWeek(date: Date): string {
@@ -165,7 +169,16 @@ export async function GET(request: Request) {
       if (users.length < 1000) break; // 端数ページ＝最終ページ
     }
 
+    let deferred = 0;
+    const loopStart = Date.now();
     for (const profile of profiles) {
+      // 時間予算超過で残りを翌 run へ繰延（ハード timeout で全停止するより graceful。
+      // sent_week の CAS により未送ユーザーのみ次回処理され二重送信もしない）。
+      if (Date.now() - loopStart > DIGEST_BUDGET_MS) {
+        deferred = profiles.length - sent - skipped;
+        console.warn('[favorites-digest] time budget exceeded, deferring rest to next run', { deferred });
+        break;
+      }
       if (profile.email_unsubscribed) { skipped++; continue; }
       // Skip if already sent this week (idempotency for double-fire)
       if (profile.favorites_digest_sent_week === thisWeek) { skipped++; continue; }
@@ -231,8 +244,8 @@ export async function GET(request: Request) {
       }
     }
 
-    await logCronRun('favorites-digest', 'success', startedAt, { processed: sent, skipped });
-    return NextResponse.json({ processed: sent, skipped });
+    await logCronRun('favorites-digest', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
+    return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {
     console.error('favorites-digest error', e);
     await logCronRun('favorites-digest', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
