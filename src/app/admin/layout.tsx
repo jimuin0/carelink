@@ -27,10 +27,8 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/coupons', label: 'クーポン', icon: 'M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z' },
   { href: '/admin/packages', label: '回数券', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
   { href: '/admin/subscription-plans', label: '月額プラン', icon: 'M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15' },
-  { href: '/admin/medical-docs', label: '医療書類', icon: 'M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z' },
   { href: '/admin/jobs', label: '求人', icon: 'M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { href: '/admin/jobs/applications', label: '求人応募', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
-  { href: '/admin/community', label: 'コミュニティ', icon: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z' },
   { href: '/admin/tutorials', label: 'チュートリアル', icon: 'M15 10l4.553-2.069A1 1 0 0121 8.87v6.26a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z' },
   { href: '/admin/manual', label: '操作マニュアル', icon: 'M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253' },
   { href: '/admin/blog', label: '施設ブログ', icon: 'M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z' },
@@ -40,7 +38,6 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/treatment-plans', label: '治療計画', icon: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4' },
   { href: '/admin/qa', label: 'Q&A', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
   { href: '/admin/features', label: '特集', icon: 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z' },
-  { href: '/admin/chat', label: 'チャット', icon: 'M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z' },
   { href: '/admin/inquiries', label: '問い合わせ', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { href: '/admin/registrations', label: '施設登録', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', platformAdmin: true },
   { href: '/admin/line-richmenu', label: 'LINEリッチメニュー', icon: 'M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2h4a1 1 0 110 2h-1v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6H3a1 1 0 110-2h4zM9 6v10h2V6H9zm4 0v10h2V6h-2z' },
@@ -90,18 +87,15 @@ const navGroups: NavGroup[] = [
     key: 'customers', label: 'お客様管理',
     items: [
       { href: '/admin/customers', label: '顧客一覧' },
-      { href: '/admin/chat', label: 'チャット' },
       { href: '/admin/inquiries', label: '問い合わせ' },
-      { href: '/admin/medical-docs', label: '医療書類' },
-      { href: '/admin/community', label: 'コミュニティ' },
     ],
   },
   {
     key: 'listing', label: '掲載管理',
     items: [
       { href: '/admin/photos', label: '写真' },
-      { href: '/admin/menus', label: 'メニュー' },
       { href: '/admin/coupons', label: 'クーポン' },
+      { href: '/admin/menus', label: 'メニュー' },
       { href: '/admin/packages', label: '回数券' },
       { href: '/admin/subscription-plans', label: '月額プラン' },
       { href: '/admin/reviews', label: '口コミ' },
@@ -220,7 +214,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       </div>
 
       {/* ブランドバー（HPB サロンボード型・desktop） */}
-      <div className="hidden lg:flex items-center justify-between bg-white border-b px-4 py-2">
+      <div className="hidden lg:flex items-center justify-between bg-white border-b px-4 py-3">
         <div className="flex items-center gap-4">
           <Link href="/admin" className="flex items-center gap-2">
             <span className="inline-flex items-center justify-center w-8 h-8 rounded bg-sky-600 text-white text-sm font-black">CL</span>
