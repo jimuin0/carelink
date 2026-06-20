@@ -150,53 +150,6 @@
     "updated_at",
     "user_id"
   ],
-  "chat_messages": [
-    "content",
-    "created_at",
-    "id",
-    "is_read",
-    "room_id",
-    "sender_id"
-  ],
-  "chat_rooms": [
-    "created_at",
-    "facility_id",
-    "id",
-    "last_message_at",
-    "user_id"
-  ],
-  "community_likes": [
-    "created_at",
-    "id",
-    "post_id",
-    "reply_id",
-    "user_id"
-  ],
-  "community_posts": [
-    "author_id",
-    "body",
-    "category",
-    "created_at",
-    "id",
-    "is_locked",
-    "is_pinned",
-    "last_reply_at",
-    "like_count",
-    "reply_count",
-    "title",
-    "updated_at",
-    "view_count"
-  ],
-  "community_replies": [
-    "author_id",
-    "body",
-    "created_at",
-    "id",
-    "is_solution",
-    "like_count",
-    "post_id",
-    "updated_at"
-  ],
   "contact_replies": [
     "author_id",
     "author_name",

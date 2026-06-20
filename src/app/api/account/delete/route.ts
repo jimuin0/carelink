@@ -53,7 +53,6 @@ export async function POST(request: NextRequest) {
       adminSupabase.from('referral_codes').delete().eq('user_id', user.id),
       adminSupabase.from('review_helpful').delete().eq('user_id', user.id),
       adminSupabase.from('user_preferred_staff').delete().eq('user_id', user.id),
-      adminSupabase.from('community_likes').delete().eq('user_id', user.id),
       adminSupabase.from('google_calendar_tokens').delete().eq('user_id', user.id),
       adminSupabase.from('user_packages').delete().eq('user_id', user.id),
       adminSupabase.from('user_subscriptions').delete().eq('user_id', user.id),
