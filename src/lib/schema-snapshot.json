@@ -674,35 +674,6 @@
     "updated_at",
     "user_id"
   ],
-  "group_booking_members": [
-    "created_at",
-    "group_booking_id",
-    "guest_email",
-    "guest_name",
-    "guest_phone",
-    "id",
-    "is_organizer",
-    "joined_at",
-    "status",
-    "user_id"
-  ],
-  "group_bookings": [
-    "booking_date",
-    "confirmed_members",
-    "created_at",
-    "end_time",
-    "facility_id",
-    "id",
-    "menu_id",
-    "notes",
-    "organizer_id",
-    "share_code",
-    "staff_id",
-    "start_time",
-    "status",
-    "total_members",
-    "updated_at"
-  ],
   "hpb_menu_durations": [
     "created_at",
     "description",
@@ -1204,23 +1175,6 @@
     "name",
     "slug",
     "sort_order"
-  ],
-  "telehealth_sessions": [
-    "booking_id",
-    "created_at",
-    "duration_minutes",
-    "facility_id",
-    "fee",
-    "id",
-    "meeting_url",
-    "patient_notes",
-    "platform",
-    "room_id",
-    "scheduled_at",
-    "session_notes",
-    "staff_id",
-    "status",
-    "user_id"
   ],
   "treatment_catalogs": [
     "after_photo_url",
