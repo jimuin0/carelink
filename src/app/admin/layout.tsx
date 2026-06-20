@@ -168,12 +168,20 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const pathname = (await headers()).get('x-pathname') ?? '';
   const isOnboarding = pathname === '/admin/onboarding';
 
-  // マルチ施設対応: ユーザーが所属する全施設を取得
-  const { data: memberships } = await supabase
-    .from('facility_members')
-    .select('role, facility_id, facility_profiles(name)')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin']);
+  // マルチ施設対応: ユーザーが所属する全施設と、プラットフォーム管理者判定を並列取得する。
+  // 両クエリは user.id にのみ依存し互いに独立なので、直列にせず1往復に詰める（リロード毎の体感速度改善）。
+  const [{ data: memberships }, { data: profile }] = await Promise.all([
+    supabase
+      .from('facility_members')
+      .select('role, facility_id, facility_profiles(name)')
+      .eq('user_id', user.id)
+      .in('role', ['owner', 'admin']),
+    supabase
+      .from('profiles')
+      .select('is_platform_admin')
+      .eq('id', user.id)
+      .single(),
+  ]);
 
   if (!memberships || memberships.length === 0) {
     // 施設未作成のオーナーは onboarding 画面で施設を作成する必要がある。
@@ -190,11 +198,6 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const membership = memberships[0];
   const facilityName = (membership.facility_profiles as unknown as { name: string } | null)?.name ?? null;
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
   const isPlatformAdmin = profile?.is_platform_admin === true;
 
   const visibleNavItems = navItems.filter((item) => !item.platformAdmin || isPlatformAdmin);
