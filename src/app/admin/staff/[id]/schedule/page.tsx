@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 const DAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -161,9 +162,7 @@ export default function StaffSchedulePage() {
     }
   };
 
-  if (loading) {
-    return <div className="bg-white rounded-xl p-6 animate-pulse"><div className="h-6 bg-gray-200 rounded w-1/3" /></div>;
-  }
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（既定シフトで実スケジュールを上書きする事故を防ぐ）
   if (loadError) {

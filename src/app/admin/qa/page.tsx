@@ -6,6 +6,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface QAItem {
   id: string;
@@ -140,14 +141,7 @@ export default function AdminQAPage() {
 
   const pendingCount = qaList.filter((q) => q.status === 'pending').length;
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        {[...Array(3)].map((_, i) => <div key={i} className="h-24 bg-gray-200 rounded-xl" />)}
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   return (
     <div>

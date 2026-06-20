@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbInput } from '@/components/admin/SbUi';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export default function CouponEditPage() {
   const params = useParams();
@@ -132,13 +133,7 @@ export default function CouponEditPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-sky-600" />
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
   if (loadError) {

@@ -5,6 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 type TabId = 'setup' | 'audit' | 'reviews' | 'posts';
 
@@ -186,7 +187,7 @@ export default function AdminGbpPage() {
     setToast({ type: 'success', message: 'GBP投稿済みとしてマークしました' });
   };
 
-  if (loading) return <div className="animate-pulse space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-24 bg-gray-200 rounded-xl" />)}</div>;
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時は設定フォームを描画しない（空値で実GBP設定を上書きする事故を防ぐ）
   if (loadError) {

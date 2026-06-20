@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface Flag {
   key: string;
@@ -46,7 +47,7 @@ export default function AbTestsPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  if (loading) return <div className="py-12 text-center"><div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" /></div>;
+  if (loading) return <AdminPageLoading />;
 
   return (
     <div className="space-y-5 max-w-4xl">

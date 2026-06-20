@@ -6,6 +6,7 @@ import Toast from '@/components/Toast';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge, SbInput } from '@/components/admin/SbUi';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 /** hpb_menu_durations 1行(GET /api/admin/hpb-menus のレスポンス)。 */
 interface HpbMenu {
@@ -201,14 +202,7 @@ export default function AdminHpbMenusPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        {[...Array(3)].map((_, i) => <div key={i} className="h-16 bg-gray-200 rounded-xl" />)}
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   return (
     <div>

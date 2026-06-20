@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export default function AdminQrCodePage() {
   const [facilitySlug, setFacilitySlug] = useState<string | null>(null);
@@ -63,14 +64,7 @@ export default function AdminQrCodePage() {
     window.print();
   };
 
-  if (loading) {
-    return (
-      <div className="animate-pulse space-y-4">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        <div className="h-64 bg-gray-200 rounded-xl" />
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   if (loadError) {
     return (

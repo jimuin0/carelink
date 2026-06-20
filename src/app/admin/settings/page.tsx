@@ -10,6 +10,7 @@ import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbPageHeader, SbBadge, SbInput } from '@/components/admin/SbUi';
 import dynamic from 'next/dynamic';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
@@ -209,16 +210,7 @@ export default function AdminSettingsPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-4 animate-pulse">
-        <div className="h-8 bg-gray-200 rounded w-1/3" />
-        <div className="bg-white rounded-xl p-6 space-y-4">
-          {[...Array(6)].map((_, i) => <div key={i} className="h-10 bg-gray-200 rounded" />)}
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <AdminPageLoading />;
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実データを上書きする事故を防ぐ）
   if (loadError) {
