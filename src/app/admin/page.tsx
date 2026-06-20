@@ -145,12 +145,16 @@ export default async function AdminDashboard() {
                   isToday ? 'border-sky-400 bg-sky-50 ring-1 ring-sky-200' : 'border-gray-100 hover:bg-sky-50'
                 }`}
               >
-                <span className="text-[11px] text-gray-400">{Number(m)}/{Number(d)}</span>
-                <span className={`text-xs font-bold ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
-                  {WEEKDAY_LABELS[dow]}
+                <span className="flex items-baseline gap-0.5">
+                  <span className="text-[11px] text-gray-400">{Number(m)}/{Number(d)}</span>
+                  <span className={`text-xs font-bold ${dow === 0 ? 'text-red-500' : dow === 6 ? 'text-sky-600' : 'text-gray-600'}`}>
+                    ({WEEKDAY_LABELS[dow]})
+                  </span>
                 </span>
-                <span className="mt-1 text-base font-extrabold text-gray-800 tabular-nums leading-none">{count}</span>
-                <span className="text-[10px] text-gray-400">件</span>
+                <span className="flex items-baseline gap-0.5 mt-1">
+                  <span className="text-base font-extrabold text-gray-800 tabular-nums leading-none">{count}</span>
+                  <span className="text-[10px] text-gray-400">件</span>
+                </span>
               </Link>
             );
           })}
