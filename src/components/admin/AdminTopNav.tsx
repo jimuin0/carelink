@@ -65,17 +65,17 @@ export default function AdminTopNav({ groups }: { groups: NavGroup[] }) {
     <div ref={navRef} className="hidden lg:block sticky top-0 z-40 shadow">
       {/* 1段目: 主要タブ（primary グラデーション帯） */}
       <div className="bg-gradient-to-b from-sky-600 to-sky-700">
-        <div className="flex items-stretch gap-1.5 px-3">
+        <div className="flex items-stretch px-3">
           {groups.map((g) => {
             const active = g.key === activeGroup?.key;
             return (
               <Link
                 key={g.key}
                 href={g.items[0]?.href ?? '/admin'}
-                className={`px-6 py-3.5 text-sm font-bold border-b-[3px] transition-colors whitespace-nowrap ${
+                className={`px-6 py-3.5 text-sm font-bold transition-colors whitespace-nowrap ${
                   active
-                    ? 'bg-white/95 text-sky-700 border-amber-400 rounded-t-md'
-                    : 'text-white/90 border-transparent hover:bg-white/10'
+                    ? 'bg-sky-50 text-sky-700'
+                    : 'text-white/90 hover:bg-white/10'
                 }`}
               >
                 {g.label}
