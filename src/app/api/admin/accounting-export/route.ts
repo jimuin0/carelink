@@ -67,6 +67,7 @@ export async function GET(request: NextRequest) {
   type BookingRow = {
     id: string; booking_date: string;
     menu: { name: string } | { name: string }[] | null;
+    menu_ids: string[] | null;
     total_amount: number | null;
     status: string;
     profiles: { display_name?: string; email?: string } | { display_name?: string; email?: string }[] | null;
@@ -79,7 +80,7 @@ export async function GET(request: NextRequest) {
       // なっていた（8体監査 A3）。
       let q = admin
         .from('bookings')
-        .select('id, booking_date, menu:facility_menus(name), total_amount:total_price, status, profiles(display_name, email)')
+        .select('id, booking_date, menu:facility_menus(name), menu_ids, total_amount:total_price, status, profiles(display_name, email)')
         .eq('facility_id', facilityId)
         .eq('status', 'completed')
         .order('booking_date');
@@ -92,11 +93,38 @@ export async function GET(request: NextRequest) {
   );
   if (error) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
 
-  // embed した menu を従来の menu_name フラット形へ平坦化
-  const rows = bookings.map((b) => ({
-    ...b,
-    menu_name: (Array.isArray(b.menu) ? b.menu[0] : b.menu)?.name ?? null,
-  }));
+  // 複数メニュー予約は menu_ids 列に全メニューが入る（menu_id は先頭1件のみ＝embed した menu も
+  // 先頭名のみ）。会計CSVのメニュー名を全件にするため、menu_ids の全IDの名前をまとめて1クエリで
+  // 取得して名前解決する（8体監査 A6 の追検証）。金額(total_price)は元々全メニュー合算で正しく、
+  // ここは表示の完全化のみ。
+  const multiMenuIds = Array.from(
+    new Set(bookings.flatMap((b) => (b.menu_ids && b.menu_ids.length > 1 ? b.menu_ids : []))),
+  );
+  const menuNameMap = new Map<string, string>();
+  if (multiMenuIds.length > 0) {
+    const { data: menuRows } = await admin
+      .from('facility_menus')
+      .select('id, name')
+      .eq('facility_id', facilityId)
+      .in('id', multiMenuIds);
+    for (const m of (menuRows ?? []) as { id: string; name: string }[]) {
+      menuNameMap.set(m.id, m.name);
+    }
+  }
+
+  // embed した menu を従来の menu_name フラット形へ平坦化。複数メニュー時は menu_ids 順に全名を
+  // 「、」連結（解決できた名前が1件も無ければ embed フォールバック＝表示が空になるのを防ぐ）。
+  const rows = bookings.map((b) => {
+    const embedded = (Array.isArray(b.menu) ? b.menu[0] : b.menu)?.name ?? null;
+    let menu_name = embedded;
+    if (b.menu_ids && b.menu_ids.length > 1) {
+      const names = b.menu_ids
+        .map((id) => menuNameMap.get(id))
+        .filter((n): n is string => Boolean(n));
+      if (names.length > 0) menu_name = names.join('、');
+    }
+    return { ...b, menu_name };
+  });
 
   let csv = '';
   let filename = '';
