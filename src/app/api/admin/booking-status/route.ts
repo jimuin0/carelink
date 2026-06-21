@@ -5,6 +5,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
+import { reverseCompletionSideEffects } from '@/lib/booking-completion-reversal';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -107,6 +108,13 @@ export async function POST(request: Request) {
     }
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+    }
+
+    // completed から離脱（誤完了→no_show 修正等）した場合、完了時に付与した来店記録・ポイントを取り消す。
+    // completed からの許可遷移は no_show のみ（completed→completed は上の「既にそのステータス」で弾かれる）
+    // ため、origin が completed か否かの単一条件で足りる。
+    if (booking.status === 'completed') {
+      await reverseCompletionSideEffects(createServiceRoleClient(), bookingId);
     }
 
     void writeAuditLog({
