@@ -64,6 +64,24 @@ function bookingQueryChain(data: unknown[], error: unknown = null) {
   return chain;
 }
 
+// 複数メニューの名前解決クエリ（admin.from('facility_menus').select().eq().in() を await）用のモック。
+function menuLookupChain(data: unknown, error: unknown = null) {
+  const chain: Record<string, jest.Mock> = {};
+  const self = () => chain;
+  chain.select = jest.fn(self);
+  chain.eq = jest.fn(self);
+  chain.in = jest.fn(() => Promise.resolve({ data, error }));
+  return chain;
+}
+
+// admin.from をテーブル名でディスパッチ（bookings=ページング, facility_menus=名前解決）。
+function dispatchAdminFrom(bookingData: unknown[], menuData: unknown, menuError: unknown = null) {
+  return (table: string) =>
+    table === 'facility_menus'
+      ? menuLookupChain(menuData, menuError)
+      : bookingQueryChain(bookingData);
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -404,4 +422,90 @@ test('GET: generic形式 profiles未定義 → csvEscape の ?? \'\' false分岐
   const csv = await res.text();
   // Should contain the header row and a data row (even if fields are empty)
   expect(csv).toContain('予約ID');
+});
+
+// ─── 複数メニュー（menu_ids）の会計CSV 名前解決（8体監査 A6 追検証）────────────────
+const MENU1 = '44444444-4444-4444-4444-444444444444';
+const MENU2 = '55555555-5555-5555-5555-555555555555';
+
+test('GET: 複数メニュー予約 → menu_ids 全名を「、」連結で出力', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(dispatchAdminFrom(
+    [{
+      id: 'b-multi',
+      booking_date: '2026-05-01',
+      menu: { name: 'カット' }, // embed は先頭1件のみ
+      menu_ids: [MENU1, MENU2],
+      total_amount: 8800,
+      status: 'completed',
+      profiles: { display_name: '複数太郎', email: 'multi@example.com' },
+    }],
+    [{ id: MENU1, name: 'カット' }, { id: MENU2, name: 'カラー' }],
+  ));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  // 先頭1件('カット')ではなく全件連結が出力される
+  expect(csv).toContain('カット、カラー');
+});
+
+test('GET: 複数メニューだが名前解決クエリが空 → embed フォールバック', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  // menu_ids は複数だが facility_menus が削除済み等で名前が1件も解決できない（names.length===0）
+  mockAdminFrom.mockImplementation(dispatchAdminFrom(
+    [{
+      id: 'b-multi-gone',
+      booking_date: '2026-05-02',
+      menu: { name: 'カット' },
+      menu_ids: [MENU1, MENU2],
+      total_amount: 5000,
+      status: 'completed',
+      profiles: { display_name: '解決不能', email: 'x@example.com' },
+    }],
+    [], // 解決結果ゼロ
+  ));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('カット'); // embed フォールバック
+  expect(csv).not.toContain('カット、'); // 連結はしていない
+});
+
+test('GET: 複数メニューだが名前解決クエリが null データ → embed フォールバック', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  // menuRows が null（?? [] の右辺分岐）
+  mockAdminFrom.mockImplementation(dispatchAdminFrom(
+    [{
+      id: 'b-multi-null',
+      booking_date: '2026-05-03',
+      menu: { name: 'パーマ' },
+      menu_ids: [MENU1, MENU2],
+      total_amount: 6000,
+      status: 'completed',
+      profiles: { display_name: 'ヌル', email: 'n@example.com' },
+    }],
+    null,
+  ));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('パーマ'); // embed フォールバック
+});
+
+test('GET: menu_ids が1件のみ → 名前解決クエリは走らず embed を使う', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  // menu_ids.length<=1 のため multiMenuIds は空＝facility_menus クエリ自体が走らない
+  mockAdminFrom.mockReturnValue(bookingQueryChain([{
+    id: 'b-single',
+    booking_date: '2026-05-04',
+    menu: { name: 'カット' },
+    menu_ids: [MENU1],
+    total_amount: 3300,
+    status: 'completed',
+    profiles: { display_name: '単一', email: 's@example.com' },
+  }]));
+  const res = await GET(makeGetRequest({ facility_id: FACILITY_UUID, format: 'generic' }));
+  expect(res.status).toBe(200);
+  const csv = await res.text();
+  expect(csv).toContain('カット');
 });
