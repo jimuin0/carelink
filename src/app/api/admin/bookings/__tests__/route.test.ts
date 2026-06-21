@@ -95,6 +95,7 @@ function setupAdminTables(opts: {
   menus?: unknown;
   staff?: unknown;
   facility?: unknown;
+  bookingsUpdateError?: unknown;
 } = {}) {
   const menus = opts.menus ?? [{ id: MENU_UUID, name: 'カット', price: 5000 }];
   const facility = opts.facility ?? { name: 'テストサロン' };
@@ -102,9 +103,13 @@ function setupAdminTables(opts: {
     if (table === 'facility_menus') return menusChain(menus);
     if (table === 'staff_profiles') return staffChain(opts.staff ?? null);
     if (table === 'facility_profiles') return facilityChain(facility);
+    // 複数メニュー時の menu_ids 永続化 update().eq()。
+    if (table === 'bookings') return { update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: opts.bookingsUpdateError ?? null })) })) };
     return {};
   });
 }
+
+const MENU_UUID2 = '44444444-4444-4444-8444-444444444445';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -173,6 +178,24 @@ test('スタッフ指定が他施設（未検出） → 400', async () => {
   setupAdminTables({ staff: null });
   const res = await POST(makeRequest(validBody({ staff_id: STAFF_UUID })) as never);
   expect(res.status).toBe(400);
+});
+
+test('複数メニュー → menu_ids を保存 → 201', async () => {
+  setupAdminTables({ menus: [{ id: MENU_UUID, name: 'カット', price: 5000 }, { id: MENU_UUID2, name: 'カラー', price: 3000 }] });
+  const res = await POST(makeRequest(validBody({ menu_ids: [MENU_UUID, MENU_UUID2] })) as never);
+  expect(res.status).toBe(201);
+});
+
+test('複数メニューで menu_ids 保存が失敗 → warn のみ・201', async () => {
+  setupAdminTables({
+    menus: [{ id: MENU_UUID, name: 'カット', price: 5000 }, { id: MENU_UUID2, name: 'カラー', price: 3000 }],
+    bookingsUpdateError: { message: 'persist fail' },
+  });
+  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const res = await POST(makeRequest(validBody({ menu_ids: [MENU_UUID, MENU_UUID2] })) as never);
+  expect(res.status).toBe(201);
+  expect(errSpy).toHaveBeenCalled();
+  errSpy.mockRestore();
 });
 
 test('スタッフ指定（指名料あり） → 201・指名料加算', async () => {

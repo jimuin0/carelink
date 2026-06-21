@@ -56,7 +56,12 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (data) {
         setBooking(data as Booking);
-        if (data.menu_id) {
+        if (data.menu_ids && data.menu_ids.length > 1) {
+          // 複数メニュー予約は menu_ids の全メニュー名を「、」で連結表示（A6・menu_id 単独だと1件目のみ）。
+          // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+          const { data: menus } = await supabase.from('facility_menus').select('name').in('id', data.menu_ids);
+          if (menus && menus.length > 0) setMenuName(menus.map((m) => m.name).join('、'));
+        } else if (data.menu_id) {
           // メニュー名は補助表示。取得失敗時は名称未表示で予約詳細本体は継続表示する。
           // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
           const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', data.menu_id).single();
