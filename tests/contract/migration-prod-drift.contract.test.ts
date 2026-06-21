@@ -77,7 +77,12 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
  * 2026-06-15 時点で空＝関数ドリフト 0（get_unique_customers [T20] は本番適用済み＝
  * database.types.ts に反映済みのため本リストから除去）。
  */
-const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([]);
+const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
+  // 2026-06-21: 予約変更の TOCTOU/指名なし容量を根治する新 RPC（PR #218）。
+  // 神原が Supabase SQL Editor で 20260621000002/20260621000003 を適用後、database.types.ts を
+  // 再生成すれば prodFunctions に現れる→本リストから削除すること。
+  'change_booking_atomic',
+]);
 
 function migrationDefinedTables(): Set<string> {
   const tables = new Set<string>();
