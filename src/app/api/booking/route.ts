@@ -112,7 +112,7 @@ export async function POST(request: Request) {
         const nowIso = new Date().toISOString();
         const { data: coupon } = await supabase
           .from('coupons')
-          .select('discount_type, discount_value, is_active, valid_from, valid_until')
+          .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
           .eq('id', parsed.data.coupon_id)
           .eq('facility_id', parsed.data.facility_id)
           .single();
@@ -127,7 +127,12 @@ export async function POST(request: Request) {
           } else if (coupon.discount_type === 'fixed') {
             serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
           } else if (coupon.discount_type === 'special_price') {
-            serverTotalPrice = coupon.discount_value;
+            // special_price 型は専用列 special_price に実額が入る（discount_value は null）。
+            // 旧実装は discount_value を読み serverTotalPrice=null となり金額/売上/会計/ポイントが全壊していた。
+            // special_price が数値の時のみ採用（万一 null の場合はメニュー定価を維持し NULL 伝播を防ぐ）。
+            if (typeof coupon.special_price === 'number') {
+              serverTotalPrice = coupon.special_price;
+            }
           }
         } else {
           // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン

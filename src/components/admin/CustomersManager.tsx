@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { SbInput, SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
+import { csvEscape } from '@/lib/csv';
 
 export interface MasterCustomer {
   id: string;
@@ -164,7 +165,13 @@ export default function CustomersManager({
 
   const csvHref = `data:text/csv;charset=utf-8,${encodeURIComponent(
     '﻿' + 'お客様名,フリガナ,メール,電話,来店回数,最終来店\n' +
-    customers.map((c) => `${c.name},${c.name_kana ?? ''},${c.email ?? ''},${c.phone ?? ''},${c.visit_count},${c.last_visit ?? ''}`).join('\n')
+    customers
+      .map((c) =>
+        [c.name, c.name_kana ?? '', c.email ?? '', c.phone ?? '', c.visit_count, c.last_visit ?? '']
+          .map(csvEscape)
+          .join(','),
+      )
+      .join('\n')
   )}`;
 
   return (

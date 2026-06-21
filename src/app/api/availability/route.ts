@@ -4,6 +4,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { todayJst } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,12 +54,14 @@ export async function GET(request: Request) {
 
     // Calculate date range for the month
     const daysInMonth = new Date(year, month, 0).getDate();
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // 「過去日」判定は JST の YYYY-MM-DD 文字列比較で行う。旧実装はサーバ(Vercel=UTC)の
+    // new Date()+setHours を JST 日付文字列と比較しており、JST 0:00〜8:59 に当日を過去扱い
+    // →「満枠」誤表示していた（UTC/JST 混在バグ）。dateStrFor と todayJst() は同形式。
+    const todayStr = todayJst();
 
     const dateStrFor = (day: number) =>
       `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    const isPast = (dateStr: string) => new Date(dateStr + 'T00:00:00+09:00') < today;
+    const isPast = (dateStr: string) => dateStr < todayStr;
     // 旧実装はスタッフループの早期 break により slots を実質 3 前後に丸めていた。集約後も
     // status 閾値（>=3 available / >=1 few / 0 full）と表示 regime（RemainingSlots）を一致させるため 3 で丸める。
     const summarize = (total: number): { slots: number; status: 'available' | 'few' | 'full' } => {

@@ -8,6 +8,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { csvEscape } from '@/lib/csv';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { fetchAllPaged } from '@/lib/paginate';
@@ -15,15 +16,6 @@ import { fetchAllPaged } from '@/lib/paginate';
 function toJST(isoString: string) {
   const d = new Date(isoString);
   return d.toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-}
-
-function csvEscape(val: string | number | null | undefined): string {
-  // 呼び出し元がすべて ?? '' / ?? 0 で前処理済みのため null/undefined は到達不可
-  const s = String(/* istanbul ignore next */ val ?? '');
-  // Prefix formula-trigger characters to prevent CSV injection
-  const safe = /^[=+\-@|]/.test(s) ? `'${s}` : s;
-  if (safe.includes(',') || safe.includes('"') || safe.includes('\n')) return `"${safe.replace(/"/g, '""')}"`;
-  return safe;
 }
 
 function toCsvRow(cols: (string | number | null | undefined)[]): string {
