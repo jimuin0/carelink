@@ -2,11 +2,11 @@ import { NextResponse } from 'next/server';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
-import { safeCaptureException } from '@/lib/safe';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { withRoute } from '@/lib/with-route';
+import { applyCompletionSideEffects } from '@/lib/booking-completion';
 
 export const dynamic = 'force-dynamic';
 
@@ -87,52 +87,10 @@ export const POST = withRoute(async (request) => {
       ipAddress: ip,
     });
 
-    // Fetch menu name and staff name for customer_visits
-    let menuName: string | null = null;
-    let staffName: string | null = null;
-
-    if (booking.menu_id) {
-      const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).single();
-      menuName = menu?.name || null;
-    }
-    if (booking.staff_id) {
-      const { data: staff } = await supabase.from('staff_profiles').select('name').eq('id', booking.staff_id).single();
-      staffName = staff?.name || null;
-    }
-
-    // Insert customer visit record
-    const { error: visitError } = await supabase.from('customer_visits').insert({
-      facility_id: membership.facility_id,
-      booking_id: booking.id,
-      customer_email: booking.email,
-      customer_name: booking.customer_name,
-      visit_date: booking.booking_date,
-      menu_name: menuName,
-      staff_name: staffName,
-      amount: booking.total_price,
-    });
-    if (visitError) {
-      safeCaptureException(visitError, 'booking-complete');
-    }
-
-    // Calculate and insert points (1 point per 100 yen)
-    let pointsEarned = 0;
-    if (booking.user_id && booking.total_price && booking.total_price > 0) {
-      pointsEarned = Math.floor(booking.total_price / 100);
-      if (pointsEarned > 0) {
-        // user_points has no INSERT policy for authenticated clients; use service_role
-        const serviceSupabase = createServiceRoleClient();
-        const { error: pointError } = await serviceSupabase.from('user_points').insert({
-          user_id: booking.user_id,
-          points: pointsEarned,
-          reason: '来店ポイント',
-          booking_id: booking.id,
-        });
-        if (pointError) {
-          safeCaptureException(pointError, 'booking-complete');
-        }
-      }
-    }
+    // 来店記録(customer_visits)と来店ポイントの付与は applyCompletionSideEffects に集約し、
+    // 管理画面のステータス変更経由の完了(/api/admin/booking-status)と完全に同一処理にする。
+    // （supabase は既に service_role クライアント。）
+    const pointsEarned = await applyCompletionSideEffects(supabase, booking);
 
     return NextResponse.json({ success: true, points_earned: pointsEarned });
 }, {

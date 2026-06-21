@@ -138,9 +138,12 @@ function setupSuccessMock(fromStatus: string) {
     if (table === 'facility_members') {
       return membershipChain(memberData);
     }
-    // completed からの離脱時に呼ばれる反転（customer_visits / user_points を booking_id で削除）。
+    // completed への進入時は付与（insert）、離脱時は反転（delete）。両方を捌けるようにする。
     if (table === 'customer_visits' || table === 'user_points') {
-      return { delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      return {
+        delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+        insert: jest.fn(() => Promise.resolve({ error: null })),
+      };
     }
     // facility_profiles, facility_menus, staff_profiles
     return singleChain({ name: 'テスト施設' });
