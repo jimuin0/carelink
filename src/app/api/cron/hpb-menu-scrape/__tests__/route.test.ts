@@ -64,7 +64,7 @@ test('空リスト(data null) → 集計ゼロで success', async () => {
   mockAdminFrom.mockReturnValue(facChain(null));
   const res = await GET(req());
   const json = await res.json();
-  expect(json).toEqual({ facilities: 0, saved: 0, skipped: 0, failed: 0, deferred: 0 });
+  expect(json).toEqual({ facilities: 0, saved: 0, skipped: 0, failed: 0, deferred: 0, zeroFetch: 0 });
   expect((logCronRun as jest.Mock).mock.calls[0][1]).toBe('success');
 });
 
@@ -73,7 +73,24 @@ test('複数施設を集計', async () => {
   (scrapeAndSaveFacility as jest.Mock).mockResolvedValue(okResult);
   const res = await GET(req());
   const json = await res.json();
-  expect(json).toEqual({ facilities: 2, saved: 8, skipped: 2, failed: 0, deferred: 0 });
+  expect(json).toEqual({ facilities: 2, saved: 8, skipped: 2, failed: 0, deferred: 0, zeroFetch: 0 });
+});
+
+test('設定済み(slnIdあり)で0件取得 → zeroFetch++ (HPB構造変化/ID誤りの発症前検知)', async () => {
+  mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }]));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: 'H1', fetched: 0, ok: 0, skipped: 0, failed: 0 });
+  const json = await (await GET(req())).json();
+  expect(json.zeroFetch).toBe(1);
+  // logCronRun の meta にも zeroFetch が出る
+  const logArg = (logCronRun as jest.Mock).mock.calls[0][3];
+  expect(logArg.meta.zeroFetch).toBe(1);
+});
+
+test('slnId 未解決(null)の0件は zeroFetch に数えない (&& 短絡)', async () => {
+  mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }]));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue({ slnId: null, fetched: 0, ok: 0, skipped: 0, failed: 0 });
+  const json = await (await GET(req())).json();
+  expect(json.zeroFetch).toBe(0);
 });
 
 test('施設のscrape例外 → catchでfailed++', async () => {

@@ -34,7 +34,10 @@ export async function GET(request: Request) {
   }
 
   const list = facilities ?? [];
-  const results = { facilities: 0, saved: 0, skipped: 0, failed: 0, deferred: 0 };
+  // zeroFetch = hpb_sln_id 設定済みなのに 1 件も取得できなかった施設数。
+  // = HPB の HTML 構造変化 / 店舗ID 誤り の発症前シグナル(以前は取れていたメニューが静かに陳腐化
+  //   するのを検知する。取得0は saveHpbRows が DB 非書込なので既存データは壊れない=可視化だけが課題)。
+  const results = { facilities: 0, saved: 0, skipped: 0, failed: 0, deferred: 0, zeroFetch: 0 };
   const loopStart = Date.now();
 
   for (let i = 0; i < list.length; i++) {
@@ -52,6 +55,14 @@ export async function GET(request: Request) {
       results.saved += r.ok;
       results.skipped += r.skipped;
       results.failed += r.failed;
+      // 設定済み(slnId あり)なのに 0 件取得 = HPB 構造変化 / 店舗ID 誤り の疑い(発症前検知)。
+      if (r.slnId && r.fetched === 0) {
+        results.zeroFetch++;
+        console.warn('[hpb-menu-scrape] configured facility returned 0 menus (HPB構造変化 or 店舗ID誤りの疑い)', {
+          facilityId: facility.id,
+          sln: r.slnId,
+        });
+      }
     } catch (e) {
       results.failed++;
       console.error('[hpb-menu-scrape] facility scrape failed', {
@@ -64,7 +75,7 @@ export async function GET(request: Request) {
   await logCronRun('hpb-menu-scrape', 'success', startedAt, {
     processed: results.saved,
     skipped: results.skipped,
-    meta: { facilities: results.facilities, failed: results.failed, deferred: results.deferred },
+    meta: { facilities: results.facilities, failed: results.failed, deferred: results.deferred, zeroFetch: results.zeroFetch },
   });
   return NextResponse.json(results);
 }
