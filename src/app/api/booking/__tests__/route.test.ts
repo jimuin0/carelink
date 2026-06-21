@@ -798,6 +798,44 @@ describe('POST /api/booking', () => {
     );
   });
 
+  test('複数メニューで menu_ids 保存が失敗 → warn のみ・成功継続', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId1 = '323e4567-e89b-12d3-a456-426614174001';
+    const menuId2 = '323e4567-e89b-12d3-a456-426614174002';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId1, price: 3000 }, { id: menuId2, price: 2000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    // menu_ids 永続化の update().eq() だけエラーを返す（他メソッドは fluent と同様）チェーン。
+    // 何番目の from 呼び出しが menu_ids 更新かに依存せず、update 経路だけをエラー化する。
+    const restErr = fluent({ data: null });
+    restErr.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'persist fail' } })) }));
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      return restErr;
+    });
+
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await POST(makeRequest({ ...validBooking, menu_ids: [menuId1, menuId2] }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
   test('ポイント成功（CAS通過）→200', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-2' } } });
 

@@ -119,6 +119,13 @@ export async function POST(request: NextRequest) {
   const newId: string = rpcResult || '';
   if (!newId) return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
 
+  // 複数メニュー予約は menu_ids 列に全メニューを保存（menu_id には先頭1件しか入らず表示が1件目のみに
+  // なる・A6）。料金・所要時間は合算済みで正しい。失敗は致命でないため warn のみ。単一時はスキップ。
+  if (d.menu_ids.length > 1) {
+    const { error: menuIdsErr } = await admin.from('bookings').update({ menu_ids: d.menu_ids }).eq('id', newId);
+    if (menuIdsErr) console.error('[admin-bookings] menu_ids persist failed', { bookingId: newId, err: menuIdsErr.message });
+  }
+
   void writeAuditLog({
     userId,
     facilityId: d.facility_id,

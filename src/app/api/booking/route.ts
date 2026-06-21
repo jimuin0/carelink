@@ -226,6 +226,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
 
+  // 複数メニュー予約は menu_ids 列に全メニューを保存する。create_booking_atomic は p_menu_id(単一)
+  // しか受けず menu_id には先頭1件しか入らないため、保存しないと予約詳細の表示が1件目のみになる（A6）。
+  // 料金・所要時間は既に全メニュー合算で正しい。失敗は致命でない（menu_id への単一フォールバックで
+  // 表示は機能する）ため warn のみ。単一メニュー時は menu_id で足りるのでスキップ。
+  if (menuIdsToPrice.length > 1) {
+    const svc = createServiceRoleClient();
+    const { error: menuIdsErr } = await svc.from('bookings').update({ menu_ids: menuIdsToPrice }).eq('id', newBookingId);
+    if (menuIdsErr) console.error('[booking] menu_ids persist failed', { bookingId: newBookingId, err: menuIdsErr.message });
+  }
+
   // Points deduction with CAS (compare-and-swap) to prevent race conditions:
   // Insert the deduction row via service_role (user_points has no INSERT policy for anon client),
   // then verify the running balance is still non-negative.
