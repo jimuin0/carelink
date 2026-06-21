@@ -5475,6 +5475,16 @@ export type Database = {
         }
         Returns: string
       }
+      change_booking_atomic: {
+        Args: {
+          p_booking_date: string
+          p_booking_id: string
+          p_end_time: string
+          p_start_time: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       create_blog_author_atomic: {
         Args: { p_facility_id: string; p_name: string }
         Returns: string
