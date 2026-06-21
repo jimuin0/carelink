@@ -205,12 +205,24 @@ test('DELETE: 不正なUUID → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+// 公開ガード（最後のメニュー削除で行き止まり防止）用に facility_profiles.status を返すチェーン。
+function statusChain(status: string) {
+  return { select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { status } })) })) })) };
+}
+// facility_menus の count select（公開ガード）。
+function menusCountSelect(count: number | null) {
+  return { select: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ count })) })) };
+}
+
 test('DELETE: DELETEのWHEREにfacility_idが含まれる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const innerEq = jest.fn(() => Promise.resolve({ error: null }));
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
   const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
-  mockAdminFrom.mockReturnValue({ delete: deleteMock });
+  // status=draft なら公開ガードを通り抜け、delete が実行される。
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_profiles' ? statusChain('draft') : { delete: deleteMock }
+  );
 
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(200);
@@ -220,9 +232,40 @@ test('DELETE: DELETEのWHEREにfacility_idが含まれる', async () => {
 
 test('DELETE: DB削除失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  mockAdminFrom.mockReturnValue(deleteSingleChain({ message: 'DB error' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_profiles' ? statusChain('draft') : deleteSingleChain({ message: 'DB error' })
+  );
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 公開中に最後のメニューを削除 → 400（行き止まり防止）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_profiles' ? statusChain('published') : menusCountSelect(1)
+  );
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: 公開中でメニュー数が取得不能（count=null）→ 400（フェイルセーフ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_profiles' ? statusChain('published') : menusCountSelect(null)
+  );
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('DELETE: 公開中でもメニューが複数あれば削除可 → 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_profiles'
+      ? statusChain('published')
+      : { ...menusCountSelect(3), delete: jest.fn(() => ({ eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) })) }
+  );
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(200);
 });
 
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────

@@ -112,6 +112,28 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!ctx) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+
+  // 公開中の施設で最後のメニューを削除すると、公開のまま予約不能（メニュー0件の行き止まり）になる。
+  // 公開ガード（公開にはメニュー≥1 が必須）と整合させ、公開中は最後の1件の削除を拒否する
+  // （先に施設を非公開にするか別のメニューを追加してもらう。サイレント非公開化より明示的で安全）。
+  const { data: facility } = await admin
+    .from('facility_profiles')
+    .select('status')
+    .eq('id', ctx.facilityId)
+    .single();
+  if (facility?.status === 'published') {
+    const { count } = await admin
+      .from('facility_menus')
+      .select('id', { count: 'exact', head: true })
+      .eq('facility_id', ctx.facilityId);
+    if ((count ?? 0) <= 1) {
+      return NextResponse.json(
+        { error: '公開中は最後のメニューを削除できません。先に施設を非公開にするか、別のメニューを追加してください。' },
+        { status: 400 }
+      );
+    }
+  }
+
   const { error } = await admin
     .from('facility_menus')
     .delete()
