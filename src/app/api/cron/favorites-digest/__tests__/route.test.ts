@@ -60,10 +60,12 @@ function setupDefaultMocks(
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
   (generateUnsubscribeToken as jest.Mock).mockReturnValue('unsubscribe-token-123');
-  (sendFavoritesDigest as jest.Mock).mockResolvedValue(undefined);
+  // sendFavoritesDigest は送達可否を boolean で返す（safeSend 仕様）。成功=true。
+  (sendFavoritesDigest as jest.Mock).mockResolvedValue(true);
 
   if (emailSendFails) {
-    (sendFavoritesDigest as jest.Mock).mockRejectedValue(new Error('Email send failed'));
+    // 送信失敗は throw ではなく false 返却で表現される。
+    (sendFavoritesDigest as jest.Mock).mockResolvedValue(false);
   }
 
   mockFavoritesSelect = jest.fn().mockResolvedValue({
@@ -916,7 +918,7 @@ describe('GET /api/cron/favorites-digest', () => {
     // 1人目の送信中に 60 秒進める → 2人目のループ先頭で予算超過 → break。
     (sendFavoritesDigest as jest.Mock).mockImplementationOnce(() => {
       jest.advanceTimersByTime(60_000);
-      return Promise.resolve(undefined);
+      return Promise.resolve(true); // 1人目は送信成功（boolean 仕様）→ sent=1 → 残り1人 deferred
     });
     const res = await GET(makeRequest() as any);
     const json = await res.json();

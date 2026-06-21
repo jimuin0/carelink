@@ -137,12 +137,13 @@ export async function GET(request: Request) {
 
           if (!profile?.email) { noContact = true; }
           else {
-            await sendOnboardingFollowEmail({
+            // 実際の送達可否で delivered を決める。safeSend は throw せず false を返すため、
+            // ここで true 固定にすると送信失敗時も claim 解放（再送）が発火しない恒久 miss になる。
+            delivered = await sendOnboardingFollowEmail({
               ownerEmail: profile.email,
               facilityName: facility.name,
               missingSteps,
             });
-            delivered = true;
           }
         }
       } catch (facilityErr) {

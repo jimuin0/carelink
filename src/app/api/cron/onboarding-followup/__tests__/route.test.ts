@@ -115,9 +115,11 @@ function setupDefaultMocks(
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
-  (sendOnboardingFollowEmail as jest.Mock).mockResolvedValue(undefined);
+  // sendOnboardingFollowEmail は送達可否を boolean で返す（safeSend 仕様）。成功=true→claim維持。
+  (sendOnboardingFollowEmail as jest.Mock).mockResolvedValue(true);
   if (emailSendFails) {
-    (sendOnboardingFollowEmail as jest.Mock).mockRejectedValue(new Error('Email failed'));
+    // 送信失敗は throw ではなく false 返却で表現される（本番の safeSend は throw しない）→ claim 解放で再送。
+    (sendOnboardingFollowEmail as jest.Mock).mockResolvedValue(false);
   }
 
   const facilities = facilitiesFound > 0

@@ -86,12 +86,19 @@ function wrapHtml(body: string, unsubscribeToken?: string): string {
 // テスト用にpure関数をexport
 export { esc, escSubject, formatDate, formatTime };
 
-/** メール送信ラッパー（エラーログ付き） */
-async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string) {
+/**
+ * メール送信ラッパー（エラーログ付き）。
+ * 戻り値: 送信成功=true / 例外を握り潰した場合=false。
+ * 「失敗時は翌 run で再送」する cron（onboarding-followup / favorites-digest）は、この戻り値で
+ * 実際の送達可否を判定する。再throwすると他の一括送信が巻き込まれて止まるため throw はしない。
+ */
+async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string): Promise<boolean> {
   try {
     await resend.emails.send(params);
+    return true;
   } catch (e) {
     safeCaptureException(e, `email:${context}`);
+    return false;
   }
 }
 
@@ -255,10 +262,11 @@ export async function sendOnboardingFollowEmail(data: {
   missingSteps: string[];
 }) {
   const resend = getResend();
-  if (!resend) return;
+  // API キー未設定は送達不可＝false（cron 側で未送信扱い）。
+  if (!resend) return false;
   const facility = esc(data.facilityName);
   const missing = data.missingSteps.map(s => `<li>${esc(s)}</li>`).join('');
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.ownerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}の設定があと少しです`),
@@ -301,7 +309,8 @@ export async function sendFavoritesDigest(data: {
   unsubscribeToken?: string;
 }) {
   const resend = getResend();
-  if (!resend) return;
+  // API キー未設定は送達不可＝false（cron 側で未送信扱い）。
+  if (!resend) return false;
 
   const name = esc(data.userName || 'お客様');
   const facilityRows = data.facilities.map((f) => {
@@ -318,7 +327,7 @@ export async function sendFavoritesDigest(data: {
     `;
   }).join('');
 
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.userEmail,
     subject: escSubject(`【CareLink】お気に入り施設の新着情報があります`),
