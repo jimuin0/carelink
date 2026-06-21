@@ -76,37 +76,31 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       return NextResponse.json({ error: 'この予約は変更できません' }, { status: 400 });
     }
 
-    // Double-booking check: verify the slot is still available
-    if (booking.staff_id) {
-      const { data: conflict } = await supabase
-        .from('bookings')
-        .select('id')
-        .eq('staff_id', booking.staff_id)
-        .eq('booking_date', parsed.data.booking_date)
-        .in('status', ['pending', 'confirmed'])
-        .neq('id', params.id)
-        .lt('start_time', parsed.data.end_time)
-        .gt('end_time', parsed.data.start_time)
-        .limit(1);
-
-      if (conflict && conflict.length > 0) {
-        return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
-      }
-    }
-
-    // Update booking
-    const { error } = await supabase
-      .from('bookings')
-      .update({
-        booking_date: parsed.data.booking_date,
-        start_time: parsed.data.start_time,
-        end_time: parsed.data.end_time,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.id)
-      .eq('user_id', user.id);
+    // 競合チェック＋UPDATE を change_booking_atomic で同一トランザクション・同一 advisory lock
+    // 下に実行（TOCTOU 解消）。指名なし(staff_id NULL)もアクティブ施術者数までの容量判定を行う
+    // （旧実装は指名なしの競合チェックを完全スキップしていた）。所有権・状態も RPC 内で再検査。
+    const { error } = await supabase.rpc('change_booking_atomic', {
+      p_booking_id: params.id,
+      p_user_id: user.id,
+      p_booking_date: parsed.data.booking_date,
+      p_start_time: parsed.data.start_time,
+      p_end_time: parsed.data.end_time,
+    });
 
     if (error) {
+      const msg = error.message || '';
+      if (msg.includes('BOOKING_CONFLICT')) {
+        return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
+      }
+      if (msg.includes('BOOKING_NOT_FOUND')) {
+        return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
+      }
+      if (msg.includes('BOOKING_FORBIDDEN')) {
+        return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+      }
+      if (msg.includes('BOOKING_NOT_CHANGEABLE')) {
+        return NextResponse.json({ error: 'この予約は変更できません' }, { status: 400 });
+      }
       return NextResponse.json({ error: '変更に失敗しました' }, { status: 500 });
     }
 

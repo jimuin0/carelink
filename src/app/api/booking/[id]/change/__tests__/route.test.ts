@@ -40,9 +40,10 @@ const CONFIRMED_BOOKING = {
 
 const mockFrom = jest.fn();
 const mockGetUser = jest.fn();
+const mockRpc = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
-  createServerClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }),
+  createServerClient: () => ({ from: mockFrom, rpc: mockRpc, auth: { getUser: mockGetUser } }),
 }));
 const mockAdminFrom = jest.fn().mockReturnValue({
   select: jest.fn().mockReturnThis(),
@@ -90,21 +91,13 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function updateChain(error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
-      }),
-    }),
-  };
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  // change_booking_atomic はデフォルト成功（error:null）。競合/失敗テストで上書きする。
+  mockRpc.mockResolvedValue({ error: null });
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -169,70 +162,64 @@ test('completed予約は変更不可 → 400', async () => {
 
 // ─── Double-booking check ─────────────────────────────────────────────────────
 
-test('スタッフの同一時間帯に既存予約あり → 409', async () => {
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(CONFIRMED_BOOKING); // booking lookup
-    // conflict check — returns 1 conflicting booking
-    return {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(),
-      neq: jest.fn().mockReturnThis(),
-      lt: jest.fn().mockReturnThis(),
-      gt: jest.fn().mockReturnThis(),
-      limit: jest.fn(() => Promise.resolve({ data: [{ id: 'conflict-booking' }], error: null })),
-    };
-  });
+test('同一時間帯に既存予約あり（RPCがBOOKING_CONFLICT）→ 409', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING)); // booking lookup
+  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_CONFLICT: この時間帯は既に予約が入っています' } });
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(409);
 });
 
 // ─── Update path ─────────────────────────────────────────────────────────────
 
-test('UPDATE DB失敗 → 500', async () => {
-  let callNum = 0;
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
-    // no conflict
-    if (callNum === 2) return {
-      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
-      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
-      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
-    };
-    return updateChain({ message: 'DB error' });
-  });
+test('RPC が CONFLICT 以外のエラー → 500', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({ error: { message: 'DB error' } });
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(500);
 });
 
-test('正常変更 → 200 success:true, user_idをWHEREに含む（IDOR defence-in-depth）', async () => {
-  let callNum = 0;
-  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
-  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
-  const updateMock = jest.fn().mockReturnValue({ eq: outerEq });
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
-    // no conflict
-    if (callNum === 2) return {
-      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
-      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
-      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
-      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
-    };
-    return { update: updateMock };
-  });
+test('RPC が BOOKING_NOT_CHANGEABLE（状態が並行変化）→ 400', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_NOT_CHANGEABLE' } });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(400);
+});
 
+test('RPC が BOOKING_NOT_FOUND → 404', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_NOT_FOUND' } });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('RPC が BOOKING_FORBIDDEN → 403', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_FORBIDDEN' } });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(403);
+});
+
+test('RPC エラーに message が無い → 500（message ?? "" フォールバック）', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  mockRpc.mockResolvedValue({ error: {} });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(500);
+});
+
+test('正常変更 → 200 success:true, RPC に p_user_id を渡す（IDOR defence-in-depth）', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
   const res = await POST(makeRequest(), makeProps());
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.success).toBe(true);
-  // user_id must be in WHERE clause for IDOR defence-in-depth
-  expect(innerEq).toHaveBeenCalledWith('user_id', USER_ID);
+  // 所有権検証は change_booking_atomic 内で p_user_id により行う（IDOR defence-in-depth）。
+  expect(mockRpc).toHaveBeenCalledWith('change_booking_atomic', expect.objectContaining({
+    p_booking_id: BOOKING_UUID,
+    p_user_id: USER_ID,
+    p_booking_date: VALID_BODY.booking_date,
+    p_start_time: VALID_BODY.start_time,
+    p_end_time: VALID_BODY.end_time,
+  }));
 });
 
 // ─── 深掘りテスト: 境界値・エッジケース ─────────────────────────────────────
@@ -279,18 +266,13 @@ test('no_show 予約は変更不可 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-test('staff_id なしの予約は競合チェックをスキップ → 200', async () => {
-  let callNum = 0;
-  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
-  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
-  mockFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain({ ...CONFIRMED_BOOKING, staff_id: null });
-    // 競合チェック呼ばれないのでそのまま update
-    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
-  });
+test('指名なし(staff_id null)予約も RPC で容量判定して変更可 → 200', async () => {
+  // 旧実装は指名なしの競合チェックを完全スキップしていた。現在は change_booking_atomic が
+  // アクティブ施術者数までの容量判定を行う（RPC 成功＝空きありで 200）。
+  mockFrom.mockReturnValue(singleChain({ ...CONFIRMED_BOOKING, staff_id: null }));
   const res = await POST(makeRequest(), makeProps());
   expect(res.status).toBe(200);
+  expect(mockRpc).toHaveBeenCalledWith('change_booking_atomic', expect.objectContaining({ p_booking_id: BOOKING_UUID }));
 });
 
 test('HH:MM:SS 形式の start_time も受け付ける', async () => {
