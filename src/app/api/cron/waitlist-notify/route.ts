@@ -8,6 +8,7 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { logCronRun } from '@/lib/cron-logger';
+import { errorMessage } from '@/lib/err';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { todayJst } from '@/lib/admin-date';
@@ -28,22 +29,33 @@ export async function GET(request: Request) {
     // 1. 通知から48時間以上経過した waiting→expired 遷移
     // 更新件数を得るには count オプションを .update() 側に渡す（指定しないと count は null）。
     // 旧実装は .select('id') のみで count を取り出していたため expired メタが常に null→0 だった。
-    const { count: expiredCount } = await supabase
+    const { count: expiredCount, error: expiredError } = await supabase
       .from('booking_waitlist')
       .update({ status: 'expired' }, { count: 'exact' })
       .eq('status', 'notified')
       .lt('notified_at', new Date(now.getTime() - 48 * 60 * 60 * 1000).toISOString())
       .select('id');
 
+    // expired 遷移は副次的クリーンアップ。失敗しても通知本体は続行するが、無音にせず可視化する。
+    if (expiredError) {
+      console.error('[waitlist-notify] expired transition failed', { err: errorMessage(expiredError) });
+    }
+
     // 2. キャンセルが発生したスロットのウェイトリストを検索
     // キャンセルされた予約（過去1時間以内にキャンセル）に対応するウェイトリストを探す
     const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
-    const { data: recentCancels } = await supabase
+    const { data: recentCancels, error: cancelsError } = await supabase
       .from('bookings')
       .select('facility_id, booking_date, start_time, end_time, updated_at')
       .eq('status', 'cancelled')
       .gte('updated_at', oneHourAgo)
       .gte('booking_date', todayJst()); // 過去日は無視（JST 暦日基準。UTC だと JST 早朝に前日が混入）
+
+    // 核データの取得失敗を握り潰すと「通知0件＝success」に化け無音スキップになる→error ログ＋500。
+    if (cancelsError) {
+      await logCronRun('waitlist-notify', 'error', startedAt, { error_msg: errorMessage(cancelsError) });
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
     let notified = 0;
 

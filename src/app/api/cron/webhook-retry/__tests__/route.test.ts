@@ -163,6 +163,15 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(json.processed).toBe(0);
   });
 
+  test('jobs 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
+    setupDefaultMocks(0);
+    mockJobsSelect.mockResolvedValue({ data: null, error: { message: 'db down' } });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    const { logCronRun } = require('@/lib/cron-logger');
+    expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'error')).toBe(true);
+  });
+
   test('pending jobs found → processes', async () => {
     setupDefaultMocks(1);
 

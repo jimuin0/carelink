@@ -1,4 +1,5 @@
 import { logCronRun } from '@/lib/cron-logger';
+import { errorMessage } from '@/lib/err';
 /**
  * お気に入り施設ダイジェスト Cron（v8.25）
  * GET /api/cron/favorites-digest
@@ -48,7 +49,7 @@ export async function GET(request: Request) {
   try {
     // お気に入りを持つユーザー一覧を全件ページング取得（旧 .limit(500) は500行超で一部ユーザーの
     // ダイジェストが恒常的に欠落していた・本番監査）。
-    const { rows: favUsers } = await fetchAllPaged<{ user_id: string; facility_id: string }>(
+    const { rows: favUsers, error: favUsersError } = await fetchAllPaged<{ user_id: string; facility_id: string }>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('favorites')
@@ -57,6 +58,13 @@ export async function GET(request: Request) {
         return { data: data as { user_id: string; facility_id: string }[] | null, error };
       },
     );
+
+    // 先頭ページで DB エラーが出ると rows=[] となり「0 件＝skipped 成功」に化けて無音スキップになる。
+    // error を error ログ＋500 で可視化する。
+    if (favUsersError) {
+      await logCronRun('favorites-digest', 'error', startedAt, { error_msg: errorMessage(favUsersError) });
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
     // favUsers は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!favUsers は到達不能=branch穴）。
     // ログ・返却は main 側のリッチ版（superset）に統一。

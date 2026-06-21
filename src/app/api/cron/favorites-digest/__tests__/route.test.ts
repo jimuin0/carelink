@@ -274,6 +274,16 @@ describe('GET /api/cron/favorites-digest', () => {
     expect(json.sent).toBe(0);
   });
 
+  test('favorites 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
+    setupDefaultMocks(0);
+    mockFavoritesSelect.mockReturnValue({
+      range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'error')).toBe(true);
+  });
+
   test('successful send → 200 with sent count', async () => {
     setupDefaultMocks(1, false, false, 1);
 

@@ -126,6 +126,17 @@ describe('GET /api/cron/customer-segment', () => {
     expect(res.status).toBe(401);
   });
 
+  test('facility 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
+    mockFacilitiesSelect.mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'error')).toBe(true);
+  });
+
   test('valid cron request → 200 with count', async () => {
     const res = await GET(makeRequest() as any);
 
