@@ -6,6 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
 import { reverseCompletionSideEffects } from '@/lib/booking-completion-reversal';
+import { applyCompletionSideEffects } from '@/lib/booking-completion';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -115,6 +116,15 @@ export async function POST(request: Request) {
     // ため、origin が completed か否かの単一条件で足りる。
     if (booking.status === 'completed') {
       await reverseCompletionSideEffects(createServiceRoleClient(), bookingId);
+    }
+
+    // completed へ「進入」した場合、来店記録(customer_visits)・来店ポイントを付与する。
+    // 以前は完了の副作用が未配線の /api/booking/complete にしか無く、実運用(ステータス
+    // ドロップダウン)経由の完了では customer_visits が一切積まれず、顧客一覧の来店実績が
+    // 常に空・来店ポイント未付与だった（8体監査の追検証で確定した本番無音バグの根治）。
+    // CAS 更新成功後＝confirmed→completed が1回だけ確定した後に呼ぶため重複付与しない。
+    if (status === 'completed') {
+      await applyCompletionSideEffects(supabase, booking);
     }
 
     void writeAuditLog({
