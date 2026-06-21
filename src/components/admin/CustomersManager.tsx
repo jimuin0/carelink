@@ -267,7 +267,7 @@ export default function CustomersManager({
               {filtered.map((c) => (
                 <tr key={c.id} className="hover:bg-gray-50">
                   <SbTd className="font-medium">
-                    {c.name}
+                    <a href={`/admin/customers/${c.id}`} className="text-sky-700 hover:underline">{c.name}</a>
                     {c.name_kana && <span className="block text-xs text-gray-400">{c.name_kana}</span>}
                     {c.gender && <span className="ml-1 text-xs text-gray-400">（{GENDER_LABEL[c.gender] ?? c.gender}）</span>}
                   </SbTd>

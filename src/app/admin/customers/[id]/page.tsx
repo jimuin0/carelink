@@ -2,20 +2,19 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCustomerVisits } from '@/lib/admin';
 import Breadcrumb from '@/components/Breadcrumb';
+import { UUID_REGEX } from '@/lib/constants';
 
 interface Props {
-  params: Promise<{ email: string }>;
+  params: Promise<{ id: string }>;
 }
 
 export default async function CustomerDetailPage(props: Props) {
   const params = await props.params;
-  let email: string;
-  try {
-    email = decodeURIComponent(params.email);
-  } catch {
-    notFound();
-  }
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) notFound();
+  const id = params.id;
+  // 顧客は master の id(UUID)で識別する。旧実装は email を URL パスに載せており、ブラウザ履歴・
+  // アクセスログ・リファラに PII(メール)が平文で残っていた（8体監査 A5#3）。email は URL から外し
+  // サーバ側でのみ扱う。
+  if (!UUID_REGEX.test(id)) notFound();
 
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -29,14 +28,28 @@ export default async function CustomerDetailPage(props: Props) {
     .single();
   if (!membership) notFound();
 
-  const visits = await getCustomerVisits(membership.facility_id, email);
+  // 施設スコープで顧客マスターを取得（他施設の顧客は見せない）。
+  const { data: customer } = await supabase
+    .from('customers')
+    .select('name, email')
+    .eq('id', id)
+    .eq('facility_id', membership.facility_id)
+    .single();
+  if (!customer) notFound();
+
+  // 来店履歴は email キー。email 未登録の顧客で getCustomerVisits を空 email で呼ぶと施設の全来店が
+  // 返ってしまうため、email がある時のみ照会する。
+  const visits = customer.email
+    ? await getCustomerVisits(membership.facility_id, customer.email)
+    : [];
   const totalSpent = visits.reduce((sum, v) => sum + (v.amount ?? 0), 0);
 
   return (
     <div>
       <Breadcrumb jsonLd={false} items={[{ label: '顧客管理', href: '/admin/customers' }, { label: '顧客詳細' }]} />
       <h1 className="text-2xl font-bold mb-2">顧客詳細</h1>
-      <p className="text-sm text-gray-500 mb-6">{email}</p>
+      <p className="text-sm font-medium mb-1">{customer.name}</p>
+      {customer.email && <p className="text-sm text-gray-500 mb-6">{customer.email}</p>}
 
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="bg-white rounded-xl p-4 shadow-sm">
