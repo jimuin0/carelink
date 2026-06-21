@@ -223,16 +223,17 @@ export async function GET(request: Request) {
       });
       if (tokenErr) console.error('[favorites-digest] unsubscribe token insert failed', { userId: profile.id, err: tokenErr });
 
-      try {
-        await sendFavoritesDigest({
-          userEmail: email,
-          userName: profile.display_name ?? undefined,
-          facilities: updatedFacilities,
-          unsubscribeToken: token,
-        });
+      // sendFavoritesDigest は throw せず送達可否を boolean で返す（safeSend 仕様）。
+      const ok = await sendFavoritesDigest({
+        userEmail: email,
+        userName: profile.display_name ?? undefined,
+        facilities: updatedFacilities,
+        unsubscribeToken: token,
+      });
+      if (ok) {
         sent++;
-      } catch (err) {
-        console.error('[favorites-digest] email send failed', { userId: profile.id, err });
+      } else {
+        console.error('[favorites-digest] email send failed', { userId: profile.id });
         // 送信が一過性失敗した場合、claim（sent_week=thisWeek）を握ったままにすると
         // 当該ユーザーはその週ずっと skip され恒久 miss になる。claim を直前の値へ戻し、
         // 同週の再 run で再送できるようにする（review-request と同じ恒久 miss 防止方針）。
