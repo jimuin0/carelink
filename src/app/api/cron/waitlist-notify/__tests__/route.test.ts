@@ -141,6 +141,35 @@ describe('GET /api/cron/waitlist-notify', () => {
     expect(res.status).toBe(401);
   });
 
+  test('recentCancels 取得が DB エラー → 500（無音スキップにしない）', async () => {
+    setupDefaultMocks(0);
+    mockSelectCancels.mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        gte: jest.fn().mockReturnValue({
+          gte: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('expired 遷移が DB エラー → console.error（非致命・処理は継続）', async () => {
+    setupDefaultMocks(0); // recent cancels 0 ＝ claim update は呼ばれない
+    const errorChain: any = {};
+    Object.assign(errorChain, {
+      eq: jest.fn().mockReturnValue(errorChain),
+      lt: jest.fn().mockReturnValue(errorChain),
+      select: jest.fn().mockResolvedValue({ error: { message: 'expired fail' }, count: null }),
+    });
+    mockUpdateWaitlist.mockReturnValue(errorChain);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(errSpy).toHaveBeenCalled();
+    errSpy.mockRestore();
+  });
+
   test('finds recently cancelled bookings (1h window)', async () => {
     const res = await GET(makeRequest() as any);
 

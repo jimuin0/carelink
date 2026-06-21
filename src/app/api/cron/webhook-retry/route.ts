@@ -11,6 +11,7 @@ import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { errorMessage } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,13 +24,20 @@ export async function GET(request: Request) {
 
   try {
     // pending かつ scheduled_at が現在時刻以前のジョブを取得
-    const { data: jobs } = await supabase
+    const { data: jobs, error: jobsError } = await supabase
       .from('webhook_retry_queue')
       .select('*')
       .eq('status', 'pending')
       .lte('scheduled_at', new Date().toISOString())
       .order('scheduled_at', { ascending: true })
       .limit(50);
+
+    // DB エラーを握り潰すと「0 件＝skipped 成功」に化け、その run が無音でスキップされ Slack 通報も
+    // されない。error を error ログ＋500 で可視化する（発症前検知）。
+    if (jobsError) {
+      await logCronRun('webhook-retry', 'error', startedAt, { error_msg: errorMessage(jobsError) });
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
     if (!jobs || jobs.length === 0) {
       await logCronRun('webhook-retry', 'skipped', startedAt, { processed: 0, skipped: 0 });

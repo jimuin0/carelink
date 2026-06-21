@@ -1,4 +1,5 @@
 import { logCronRun } from '@/lib/cron-logger';
+import { errorMessage } from '@/lib/err';
 /**
  * 誕生日クーポン自動送信 Cron（v8.15）
  * GET /api/cron/birthday-coupon
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
     // 本日が誕生日の profiles を全件ページング取得（旧 .limit(500) は同日誕生日が500人超で501人目以降に
     // ポイント付与・通知漏れ。本番監査）。email_unsubscribed も取得しメール送信のみ抑止する。
     type BirthdayProfile = { id: string; email: string | null; display_name: string | null; email_unsubscribed: boolean | null };
-    const { rows: profiles } = await fetchAllPaged<BirthdayProfile>(
+    const { rows: profiles, error: profilesError } = await fetchAllPaged<BirthdayProfile>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('profiles')
@@ -58,6 +59,13 @@ export async function GET(request: Request) {
         return { data: data as BirthdayProfile[] | null, error };
       },
     );
+
+    // 先頭ページで DB エラーが出ると rows=[] となり「0 件＝skipped 成功」に化けて無音スキップになる。
+    // error を error ログ＋500 で可視化する。
+    if (profilesError) {
+      await logCronRun('birthday-coupon', 'error', startedAt, { error_msg: errorMessage(profilesError) });
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
     // profiles は fetchAllPaged の戻り（常に配列）なので length 判定のみ（!profiles は到達不能=branch穴になる）。
     // ログ・返却は main 側のリッチ版（processed/skipped/status/sent を全て返す superset）に統一。
@@ -167,19 +175,26 @@ export async function GET(request: Request) {
 
         if (lineLink?.line_user_id) {
           try {
-            await sendLineText(
+            // sendLineText はリトライ上限到達時に throw せず false を返す。戻り値を見ずに送達記録すると
+            // 全リトライ失敗でも「送達済み」となり翌 run の再送（v8.15）が LINE チャネルで成立しない。
+            const lineOk = await sendLineText(
               lineLink.line_user_id,
               `🎂 ${name}様、お誕生日おめでとうございます！\n\n本日のお誕生日を記念して、${BIRTHDAY_POINTS}ポイントをプレゼントしました🎁\n\n次回の予約にぜひご利用ください！\n${SITE_URL}/mypage/points`
             );
-            // 送信成功: 送達記録を追加（テーブル未適用時は記録できないため skip）
-            if (notificationsTableReady) {
-              await supabase.from('birthday_notifications').insert({
-                user_id: profile.id,
-                year: birthdayYear,
-                channel: 'line',
-              });
+            if (lineOk) {
+              // 送信成功: 送達記録を追加（テーブル未適用時は記録できないため skip）
+              if (notificationsTableReady) {
+                await supabase.from('birthday_notifications').insert({
+                  user_id: profile.id,
+                  year: birthdayYear,
+                  channel: 'line',
+                });
+              }
+              notifiedSet.add(`${profile.id}:line`);
+            } else {
+              // 送達失敗は記録せず notifiedSet にも入れない＝翌 run で再送される。
+              console.error('[birthday-coupon] LINE send failed (retries exhausted)', { userId: profile.id });
             }
-            notifiedSet.add(`${profile.id}:line`);
           } catch (err) {
             console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err });
           }

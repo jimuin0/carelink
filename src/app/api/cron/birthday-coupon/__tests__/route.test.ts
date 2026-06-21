@@ -50,7 +50,7 @@ function setupDefaultMocks(
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
-  (sendLineText as jest.Mock).mockResolvedValue(undefined);
+  (sendLineText as jest.Mock).mockResolvedValue(true); // 送達成功（boolean 仕様）。失敗テストで上書き。
 
   const profileData =
     birthdayProfiles > 0
@@ -151,6 +151,19 @@ describe('GET /api/cron/birthday-coupon', () => {
     const res = await GET(makeRequest('invalid') as any);
 
     expect(res.status).toBe(401);
+  });
+
+  test('profiles 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
+    mockProfilesSelect.mockReturnValue({
+      not: jest.fn().mockReturnValue({
+        filter: jest.fn().mockReturnValue({
+          range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+        }),
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect((logCronRun as jest.Mock).mock.calls.some((c: any[]) => c[1] === 'error')).toBe(true);
   });
 
   test('no birthday profiles today → 200 with sent=0', async () => {
@@ -411,6 +424,17 @@ describe('GET /api/cron/birthday-coupon', () => {
 
     expect(res.status).toBe(200);
     // LINE 失敗時は birthday_notifications に line チャンネルを insert しない
+    const lineInsertCalls = mockNotifInsert.mock.calls.filter(
+      (c: any[]) => c[0]?.channel === 'line'
+    );
+    expect(lineInsertCalls).toHaveLength(0);
+  });
+
+  test('LINE send が false（リトライ枯渇・throwなし）→ 通知記録をしない（翌 run で再送）', async () => {
+    setupDefaultMocks(1, 0, true);
+    (sendLineText as jest.Mock).mockResolvedValue(false); // setupDefaultMocks の後に上書き（true で潰されるため）
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
     const lineInsertCalls = mockNotifInsert.mock.calls.filter(
       (c: any[]) => c[0]?.channel === 'line'
     );

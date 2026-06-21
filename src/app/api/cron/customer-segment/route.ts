@@ -1,4 +1,5 @@
 import { logCronRun } from '@/lib/cron-logger';
+import { errorMessage } from '@/lib/err';
 /**
  * 顧客セグメント分析 Cron（v8.2）
  * GET /api/cron/customer-segment
@@ -43,7 +44,7 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   try {
     // 全公開施設を全件ページング取得（旧 .limit(200) は201施設目以降がRFM分析対象外だった・scale監査）
-    const { rows: facilities } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
+    const { rows: facilities, error: facilitiesError } = await fetchAllPaged<{ id: string; name: string; slug: string }>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('facility_profiles')
@@ -53,6 +54,13 @@ export async function GET(request: Request) {
         return { data: data as { id: string; name: string; slug: string }[] | null, error };
       },
     );
+
+    // 先頭ページで DB エラーが出ると fetchAllPaged は rows=[] を返すため「0 件＝skipped 成功」に
+    // 化けて無音スキップになる。error を error ログ＋500 で可視化する。
+    if (facilitiesError) {
+      await logCronRun('customer-segment', 'error', startedAt, { error_msg: errorMessage(facilitiesError) });
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
 
     if (facilities.length === 0) {
       await logCronRun('customer-segment', 'skipped', startedAt, { processed: 0, skipped: 0 });
