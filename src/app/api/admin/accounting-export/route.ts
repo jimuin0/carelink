@@ -13,11 +13,6 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { fetchAllPaged } from '@/lib/paginate';
 
-function toJST(isoString: string) {
-  const d = new Date(isoString);
-  return d.toLocaleDateString('ja-JP', { timeZone: 'Asia/Tokyo', year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-');
-}
-
 function toCsvRow(cols: (string | number | null | undefined)[]): string {
   return cols.map(csvEscape).join(',');
 }
@@ -70,7 +65,7 @@ export async function GET(request: NextRequest) {
   // bookings に menu_name 列は無く menu_id 経由で取得（embed）。total_amount 列も無いため
   // 実列 total_price をエイリアスで total_amount として取得し、menu_name は取得後に平坦化する。
   type BookingRow = {
-    id: string; created_at: string;
+    id: string; booking_date: string;
     menu: { name: string } | { name: string }[] | null;
     total_amount: number | null;
     status: string;
@@ -78,14 +73,18 @@ export async function GET(request: NextRequest) {
   };
   const { rows: bookings, error } = await fetchAllPaged<BookingRow>(
     async (offset, limit) => {
+      // 計上日は来店日(booking_date)基準・対象は completed のみ（ダッシュボード売上＝
+      // aggregate_daily_revenue の booking_date∧completed と一致させる）。旧実装は created_at
+      // (予約申込日)基準かつ confirmed(未来店)を含み、月跨ぎ予約の計上月ズレ・未実現売上の過大計上に
+      // なっていた（8体監査 A3）。
       let q = admin
         .from('bookings')
-        .select('id, created_at, menu:facility_menus(name), total_amount:total_price, status, profiles(display_name, email)')
+        .select('id, booking_date, menu:facility_menus(name), total_amount:total_price, status, profiles(display_name, email)')
         .eq('facility_id', facilityId)
-        .in('status', ['confirmed', 'completed'])
-        .order('created_at');
-      if (from) q = q.gte('created_at', from);
-      if (to) q = q.lte('created_at', to + 'T23:59:59Z');
+        .eq('status', 'completed')
+        .order('booking_date');
+      if (from) q = q.gte('booking_date', from);
+      if (to) q = q.lte('booking_date', to);
       const { data, error } = await q.range(offset, offset + limit - 1);
       return { data: data as BookingRow[] | null, error };
     },
@@ -112,7 +111,7 @@ export async function GET(request: NextRequest) {
       const amount = b.total_amount ?? 0;
       const tax = Math.round(amount * 10 / 110);
       csv += toCsvRow([
-        toJST(b.created_at),
+        b.booking_date,
         '収入',
         b.id.slice(0, 8),
         customer?.display_name ?? '',
@@ -133,7 +132,7 @@ export async function GET(request: NextRequest) {
       const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string } | null;
       const amount = b.total_amount ?? 0;
       csv += toCsvRow([
-        toJST(b.created_at),
+        b.booking_date,
         '現金',
         '',
         '対象外',
@@ -154,7 +153,7 @@ export async function GET(request: NextRequest) {
       const customer = (Array.isArray(b.profiles) ? b.profiles[0] : b.profiles) as { display_name?: string; email?: string } | null;
       csv += toCsvRow([
         b.id,
-        toJST(b.created_at),
+        b.booking_date,
         customer?.display_name ?? '',
         customer?.email ?? '',
         b.menu_name ?? '',
