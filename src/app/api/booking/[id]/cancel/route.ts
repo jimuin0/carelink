@@ -65,14 +65,23 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     return NextResponse.json({ error: 'この予約はキャンセルできません' }, { status: 400 });
   }
 
-  const { error } = await supabase
+  // CAS: 読み取った status を WHERE に含める（単一文の条件付き UPDATE＝原子的）。読み取り〜更新の間に
+  // 別経路（stripe webhook の cancel_fee_paid / admin の completed 等）が状態を変えていたら 0 行と
+  // なり 409 を返す。旧実装は status 条件も 0 行検査もなく、completed/cancel_fee_paid を cancelled で
+  // 握り潰す競合が成立し得た（8体監査 A4#5）。
+  const { data: cancelled, error } = await supabase
     .from('bookings')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', params.id)
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .eq('status', booking.status)
+    .select('id');
 
   if (error) {
     return NextResponse.json({ error: 'キャンセルに失敗しました' }, { status: 500 });
+  }
+  if (!cancelled || cancelled.length === 0) {
+    return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
   }
 
   // 監査ログ（非ブロッキング）
