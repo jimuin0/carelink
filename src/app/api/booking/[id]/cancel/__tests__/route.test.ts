@@ -95,7 +95,7 @@ describe('POST /api/booking/[id]/cancel', () => {
       }
       // update chain: from→update→eq→eq (two eq calls chained)
       // and subsequent calls for email lookups
-      const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
       const eqFirst = jest.fn(() => ({ eq: eqTerminal, then: (fn: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(fn) }));
       return {
         update: jest.fn(() => ({ eq: eqFirst })),
@@ -208,7 +208,7 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return {
         update: jest.fn(() => ({ eq: eqFirst })),
@@ -238,12 +238,58 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      const eqTerminal = jest.fn(() => Promise.resolve({ error: { message: 'DB error' } }));
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })) })) }));
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(500);
+  });
+
+  test('CAS: 更新0行（status が並行変化）data=[] → 409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'test@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [], error: null })) })) }));
+      const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
+      return { update: jest.fn(() => ({ eq: eqFirst })) };
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(409);
+  });
+
+  test('CAS: 更新結果 data=null → 409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'test@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: null, error: null })) })) }));
+      const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
+      return { update: jest.fn(() => ({ eq: eqFirst })) };
+    });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(409);
   });
 
 // ─── 深掘り: writeAuditLog 呼び出し確認 ─────────────────────────────────────
@@ -266,7 +312,7 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return {
         update: jest.fn(() => ({ eq: eqFirst })),
@@ -298,7 +344,7 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return {
         update: jest.fn(() => ({ eq: eqFirst })),
@@ -419,7 +465,7 @@ describe('POST /api/booking/[id]/cancel', () => {
       }
       if (callNum === 2) {
         // update → eq → eq
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       // email path: facility_profiles, facility_menus, facility_members
@@ -452,7 +498,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
@@ -492,7 +538,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -537,7 +583,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -582,7 +628,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -635,7 +681,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       // For supabase (non-admin) calls in email/LINE path: facility_profiles, facility_menus, facility_members
@@ -690,7 +736,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -733,7 +779,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -795,7 +841,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -844,7 +890,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -871,7 +917,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       // すべて null
@@ -899,7 +945,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') return fluent({ data: { name: 'Salon Y' } });
@@ -928,7 +974,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       // 3 回目以降の呼び出しで throw → email try/catch で握り潰し
@@ -957,7 +1003,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -1005,7 +1051,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') {
@@ -1067,7 +1113,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_menus') {
@@ -1137,7 +1183,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') {
@@ -1199,7 +1245,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
@@ -1261,7 +1307,7 @@ describe('POST /api/booking/[id]/cancel', () => {
         });
       }
       if (callNum === 2) {
-        const eqTerminal = jest.fn(() => Promise.resolve({ error: null }));
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       return fluent({ data: null });
