@@ -124,6 +124,7 @@
   ],
   "bookings": [
     "booking_date",
+    "charges",
     "coupon_id",
     "created_at",
     "customer_name",

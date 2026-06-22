@@ -571,6 +571,7 @@ export type Database = {
       bookings: {
         Row: {
           booking_date: string
+          charges: Json | null
           coupon_id: string | null
           created_at: string | null
           customer_name: string
@@ -599,6 +600,7 @@ export type Database = {
         }
         Insert: {
           booking_date: string
+          charges?: Json | null
           coupon_id?: string | null
           created_at?: string | null
           customer_name: string
@@ -627,6 +629,7 @@ export type Database = {
         }
         Update: {
           booking_date?: string
+          charges?: Json | null
           coupon_id?: string | null
           created_at?: string | null
           customer_name?: string
