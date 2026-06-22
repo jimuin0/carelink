@@ -48,12 +48,24 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { error } = await admin
+  const { data, error } = await admin
     .from('feature_flags')
     .update({ ...parsed.data, updated_at: new Date().toISOString() })
-    .eq('id', params.id);
+    .eq('id', params.id)
+    .select()
+    .single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) {
+    // 0件一致（存在しないID）は PostgREST が PGRST116 を返す → 404 で返す。
+    if ((error as { code?: string }).code === 'PGRST116') {
+      return NextResponse.json({ error: 'フラグが見つかりません' }, { status: 404 });
+    }
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
+  // .single() は0件一致時に必ず PGRST116 エラー（上で処理済み）を返すため、error=null かつ
+  // data=null は到達不能。万一の supabase 実装差異に備える防御的フォールバック。
+  /* istanbul ignore next -- 到達不能な防御コード（.single() は data か PGRST116 のいずれかを返す） */
+  if (!data) return NextResponse.json({ error: 'フラグが見つかりません' }, { status: 404 });
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({

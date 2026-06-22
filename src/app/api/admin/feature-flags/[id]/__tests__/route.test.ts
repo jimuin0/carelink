@@ -54,10 +54,14 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function updateChain(error: unknown = null) {
+function updateChain(error: unknown = null, data: unknown = { id: FLAG_UUID }) {
   return {
     update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+        }),
+      }),
     }),
   };
 }
@@ -140,6 +144,13 @@ test('UPDATE DB失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ message: 'DB error' }));
   const res = await PATCH(makeRequest({ enabled: true }), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('存在しないID（0件一致 PGRST116）→ 404', async () => {
+  mockAnonFrom.mockReturnValue(singleChain({ is_platform_admin: true }));
+  mockAdminFrom.mockReturnValue(updateChain({ code: 'PGRST116', message: 'no rows' }));
+  const res = await PATCH(makeRequest({ enabled: true }), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('rollout_pct: 0 と 100 は有効（境界値）', async () => {
