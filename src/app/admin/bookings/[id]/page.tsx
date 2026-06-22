@@ -13,6 +13,13 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 // ステータス変更ボタンに表示する選択肢（既存挙動を維持。遷移可否は API 側で検証）
 const STATUS_OPTIONS = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'] as const;
 
+// 退店レジ会計の明細行（/api/admin/booking-checkout と整合）
+type ChargeType = 'menu' | 'retail' | 'discount';
+type Charge = { type: ChargeType; name: string; amount: number };
+const CHARGE_TYPE_LABEL: Record<ChargeType, string> = { menu: 'メニュー', retail: '物販', discount: '割引' };
+// 会計できるのは確定/受付の予約のみ（API 側の前提と一致）
+const CHECKOUTABLE = ['confirmed', 'arrived'];
+
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00+09:00');
   const days = ['日', '月', '火', '水', '木', '金', '土'];
@@ -28,6 +35,10 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const [loadError, setLoadError] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 退店レジ会計
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [checkoutItems, setCheckoutItems] = useState<Charge[]>([]);
+  const [paid, setPaid] = useState('');
 
   const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
@@ -107,6 +118,64 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
     }
   };
 
+  // ── 退店レジ会計 ──
+  const openCheckout = () => {
+    if (!booking) return;
+    setCheckoutItems([{ type: 'menu', name: menuName || '施術', amount: booking.total_price ?? 0 }]);
+    setPaid('');
+    setCheckoutOpen(true);
+  };
+  const updateItem = (i: number, patch: Partial<Charge>) =>
+    setCheckoutItems((prev) => prev.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
+  const addItem = (type: ChargeType) =>
+    setCheckoutItems((prev) => [...prev, { type, name: type === 'discount' ? '割引' : '', amount: 0 }]);
+  const removeItem = (i: number) =>
+    setCheckoutItems((prev) => prev.filter((_, idx) => idx !== i));
+
+  const checkoutTotal = Math.max(
+    0,
+    checkoutItems.reduce((s, c) => s + (Number.isFinite(c.amount) ? c.amount : 0), 0),
+  );
+  const paidNum = paid.trim() === '' || !Number.isFinite(Number(paid)) ? null : Math.floor(Number(paid));
+  const change = paidNum !== null ? paidNum - checkoutTotal : null;
+
+  const handleCheckout = async () => {
+    if (updating || !booking) return;
+    if (checkoutItems.length === 0) {
+      setToast({ type: 'error', message: '明細を1件以上入力してください' });
+      return;
+    }
+    setUpdating(true);
+    try {
+      const res = await fetch('/api/admin/booking-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingId: booking.id,
+          items: checkoutItems.map((c) => ({
+            type: c.type,
+            name: c.name.trim() || CHARGE_TYPE_LABEL[c.type],
+            amount: Math.floor(c.amount) || 0,
+          })),
+          paid_amount: paidNum,
+          complete: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setToast({ type: 'error', message: data.error || '会計に失敗しました' });
+      } else {
+        setBooking((prev) => (prev ? { ...prev, status: 'completed', total_price: data.total_price } : null));
+        setCheckoutOpen(false);
+        setToast({ type: 'success', message: `会計を確定して完了しました（¥${(data.total_price ?? 0).toLocaleString()}）` });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   if (loading) return <AdminPageLoading />;
 
   if (loadError) {
@@ -162,6 +231,119 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             </button>
           </div>
           <p className="text-xs text-amber-600 mt-2">※ステータス変更時にお客様へメールが自動送信されます</p>
+        </div>
+      )}
+
+      {/* 退店レジ会計（確定/受付の予約のみ） */}
+      {CHECKOUTABLE.includes(booking.status) && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-5 mb-6">
+          {!checkoutOpen ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-bold text-emerald-800">退店・お会計</p>
+                <p className="text-xs text-emerald-600 mt-0.5">当日のメニュー・物販・割引を確定し、会計を締めて完了にします</p>
+              </div>
+              <button
+                type="button"
+                onClick={openCheckout}
+                disabled={updating}
+                className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+              >
+                会計する
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm font-bold text-emerald-800">退店・お会計</p>
+              <div className="space-y-2">
+                {checkoutItems.map((item, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <select
+                      value={item.type}
+                      onChange={(e) => updateItem(i, { type: e.target.value as ChargeType })}
+                      className="text-xs border border-gray-300 rounded-lg px-2 py-2 bg-white"
+                      aria-label="種別"
+                    >
+                      <option value="menu">メニュー</option>
+                      <option value="retail">物販</option>
+                      <option value="discount">割引</option>
+                    </select>
+                    <input
+                      type="text"
+                      value={item.name}
+                      onChange={(e) => updateItem(i, { name: e.target.value })}
+                      className="flex-1 text-sm border border-gray-300 rounded-lg px-3 py-2"
+                      aria-label={CHARGE_TYPE_LABEL[item.type] + '名'}
+                    />
+                    <input
+                      type="number"
+                      value={Number.isFinite(item.amount) ? item.amount : 0}
+                      onChange={(e) => {
+                        const v = Math.floor(Number(e.target.value)) || 0;
+                        updateItem(i, { amount: item.type === 'discount' ? -Math.abs(v) : v });
+                      }}
+                      className="w-28 text-sm text-right border border-gray-300 rounded-lg px-3 py-2"
+                      aria-label="金額"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeItem(i)}
+                      className="text-gray-400 hover:text-red-500 px-1"
+                      aria-label="行を削除"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => addItem('retail')} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-100">＋物販</button>
+                <button type="button" onClick={() => addItem('discount')} className="text-xs px-3 py-1.5 rounded-lg border border-emerald-300 text-emerald-700 hover:bg-emerald-100">＋割引</button>
+              </div>
+              <div className="border-t border-emerald-200 pt-3 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="font-bold text-emerald-900">合計</span>
+                  <span className="font-bold text-lg text-emerald-700">¥{checkoutTotal.toLocaleString()}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">お預かり</span>
+                  <input
+                    type="number"
+                    value={paid}
+                    onChange={(e) => setPaid(e.target.value)}
+                    className="w-32 text-sm text-right border border-gray-300 rounded-lg px-3 py-2"
+                    aria-label="お預かり金額（任意）"
+                  />
+                </div>
+                {change !== null && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">お釣り</span>
+                    <span className={`font-bold ${change < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                      {change < 0 ? `不足 ¥${Math.abs(change).toLocaleString()}` : `¥${change.toLocaleString()}`}
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCheckout}
+                  disabled={updating}
+                  className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+                >
+                  {updating ? '処理中...' : '会計を確定して完了'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCheckoutOpen(false)}
+                  disabled={updating}
+                  className="px-4 py-3 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+                >
+                  キャンセル
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
