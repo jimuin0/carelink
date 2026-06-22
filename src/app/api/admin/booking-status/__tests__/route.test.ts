@@ -694,3 +694,55 @@ describe('POST /api/admin/booking-status - notifications', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// ポイント返還（cancelled 進入時・金銭損失防止）
+// ---------------------------------------------------------------------------
+describe('POST /api/admin/booking-status - ポイント返還（cancelled）', () => {
+  function setupCancelRefund(pointsUsed: number, bookingUserId: string | null, insertResult: { error: unknown }) {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const pointsInsert = jest.fn(() => Promise.resolve(insertResult));
+    let bookingCall = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        bookingCall++;
+        if (bookingCall === 1) {
+          return fluent({ data: { ...bookingBase, status: 'confirmed', user_id: bookingUserId, points_used: pointsUsed } });
+        }
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+      if (table === 'user_points') {
+        return { insert: pointsInsert, delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      }
+      if (table === 'customer_visits') {
+        return { insert: jest.fn(() => Promise.resolve({ error: null })), delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      }
+      return singleChain({ name: 'テスト施設' });
+    });
+    return pointsInsert;
+  }
+
+  test('ポイント利用予約を cancelled に → 控除済みポイントを返還する', async () => {
+    const spy = setupCancelRefund(300, 'customer-1', { error: null });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 'customer-1', points: 300, booking_id: validBookingId, reason: 'キャンセル返還',
+    }));
+  });
+
+  test('返還 insert 失敗 → warn のみで 200', async () => {
+    const spy = setupCancelRefund(300, 'customer-1', { error: { message: 'insert fail' } });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalled();
+  });
+
+  test('ゲスト予約(user_id=null)はポイント返還しない（&& booking.user_id false 分岐）', async () => {
+    const spy = setupCancelRefund(300, null, { error: null });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+    expect(res.status).toBe(200);
+    expect(spy).not.toHaveBeenCalled();
+  });
+});

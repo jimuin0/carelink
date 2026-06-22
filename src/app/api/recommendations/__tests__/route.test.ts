@@ -168,6 +168,23 @@ describe('GET /api/recommendations', () => {
     expect(res.status).toBe(200);
   });
 
+  test('limit が非数値 → 既定6にフォールバック（Number.isFinite false 分岐）', async () => {
+    const url = 'http://localhost/api/recommendations?limit=abc';
+    const req = new Request(url, { method: 'GET', headers: { 'x-forwarded-for': '192.168.1.1' } });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(url), writable: true });
+    const res = await GET(req as any);
+    // NaN は弾かれ既定 6 で正常応答（不正クエリ化による 500 を予防）
+    expect(res.status).toBe(200);
+  });
+
+  test('limit が負数 → 1にクランプ（Math.max 分岐）', async () => {
+    const url = 'http://localhost/api/recommendations?limit=-5';
+    const req = new Request(url, { method: 'GET', headers: { 'x-forwarded-for': '192.168.1.1' } });
+    Object.defineProperty(req, 'nextUrl', { value: new URL(url), writable: true });
+    const res = await GET(req as any);
+    expect(res.status).toBe(200);
+  });
+
   test('exclude param adds facility to visitedIds', async () => {
     const res = await GET(makeRequest(6, 'fac-exclude') as any);
 

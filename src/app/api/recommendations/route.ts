@@ -21,7 +21,10 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ recommendations: [] });
 
-  const limit = Math.min(Number(request.nextUrl.searchParams.get('limit') ?? '6'), 12);
+  // limit は非数値（NaN）・負数・0 を弾いて 1〜12 に正規化する。未指定/不正は既定 6。
+  // NaN や負数のまま .limit() / limit*2 に渡すと PostgREST が不正クエリ化し 500 になる。
+  const rawLimit = Number(request.nextUrl.searchParams.get('limit'));
+  const limit = Number.isFinite(rawLimit) ? Math.min(Math.max(Math.floor(rawLimit), 1), 12) : 6;
   const excludeId = request.nextUrl.searchParams.get('exclude');
 
   const admin = createClient(

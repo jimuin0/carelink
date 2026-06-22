@@ -33,6 +33,10 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // DB の fields は Json 型のため、配列でない（null・オブジェクト等）異常データでも
+  // .map / .filter で例外→白画面にならないよう、ここで配列に正規化する。
+  const fields: FormField[] = Array.isArray(template.fields) ? template.fields : [];
+
   const setValue = (fieldId: string, value: unknown) => {
     setResponses((prev) => ({ ...prev, [fieldId]: value }));
   };
@@ -40,8 +44,9 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     // 必須フィールドチェック
-    const missing = template.fields.filter(
-      (f) => f.required && (responses[f.id] === undefined || responses[f.id] === '' || responses[f.id] === null)
+    const missing = fields.filter(
+      (f) => f.required && (responses[f.id] === undefined || responses[f.id] === '' || responses[f.id] === null ||
+        (Array.isArray(responses[f.id]) && (responses[f.id] as unknown[]).length === 0))
     );
     if (!customerName.trim()) {
       setError('お名前を入力してください');
@@ -126,15 +131,16 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
         </div>
 
         {/* 動的フィールド */}
-        {template.fields.map((field) => (
+        {fields.map((field) => (
           <div key={field.id}>
-            <label className="block text-sm font-bold text-gray-700 mb-1.5">
+            <label htmlFor={`intake-${field.id}`} className="block text-sm font-bold text-gray-700 mb-1.5">
               {field.label}
               {field.required && <span className="text-red-500 ml-0.5">*</span>}
             </label>
 
             {field.type === 'text' && (
               <input
+                id={`intake-${field.id}`}
                 type="text"
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
@@ -145,6 +151,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
 
             {field.type === 'textarea' && (
               <textarea
+                id={`intake-${field.id}`}
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
                 placeholder={field.placeholder}
@@ -156,6 +163,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
 
             {field.type === 'select' && field.options && (
               <select
+                id={`intake-${field.id}`}
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 bg-white"
@@ -167,8 +175,36 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
               </select>
             )}
 
+            {/* checkbox: options から複数選択（配列で保持）。未実装だと checkbox 型の
+                必須フィールドが入力欄なしで描画され送信不能になるため明示的に対応する。 */}
+            {field.type === 'checkbox' && field.options && (
+              <div className="space-y-2" role="group" aria-labelledby={`intake-${field.id}`}>
+                {field.options.map((opt) => {
+                  const selected = Array.isArray(responses[field.id]) ? (responses[field.id] as string[]) : [];
+                  const checked = selected.includes(opt);
+                  return (
+                    <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        value={opt}
+                        checked={checked}
+                        onChange={() =>
+                          setValue(
+                            field.id,
+                            checked ? selected.filter((v) => v !== opt) : [...selected, opt]
+                          )
+                        }
+                        className="text-sky-500"
+                      />
+                      <span className="text-sm text-gray-700">{opt}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+
             {field.type === 'radio' && field.options && (
-              <div className="space-y-2">
+              <div className="space-y-2" role="radiogroup" aria-labelledby={`intake-${field.id}`}>
                 {field.options.map((opt) => (
                   <label key={opt} className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -186,7 +222,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
             )}
 
             {field.type === 'boolean' && (
-              <div className="flex gap-4">
+              <div className="flex gap-4" role="radiogroup" aria-labelledby={`intake-${field.id}`}>
                 {['はい', 'いいえ'].map((opt) => (
                   <label key={opt} className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -205,6 +241,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
 
             {field.type === 'date' && (
               <input
+                id={`intake-${field.id}`}
                 type="date"
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}

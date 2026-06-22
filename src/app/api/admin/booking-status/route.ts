@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     // Fetch booking first to scope the permission check
     const { data: booking } = await supabase
       .from('bookings')
-      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, status')
+      .select('id, facility_id, user_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, status, points_used')
       .eq('id', bookingId)
       .single();
 
@@ -127,6 +127,25 @@ export async function POST(request: Request) {
     // CAS 更新成功後＝confirmed→completed が1回だけ確定した後に呼ぶため重複付与しない。
     if (status === 'completed') {
       await applyCompletionSideEffects(supabase, booking);
+    }
+
+    // cancelled へ「進入」した場合、予約作成時に控除した利用ポイントを返還する（金銭損失防止）。
+    // 顧客側キャンセル(/api/booking/[id]/cancel)と対称。CAS 更新成功後＝1予約あたり1回のみ到達するため
+    // 二重返還は起きない。元状態が cancelled の遷移は state machine で存在しない（cancelled は終端）。
+    // 失敗は致命でないため warn のみ（要手動照合）。
+    if (status === 'cancelled') {
+      const refundPoints = booking.points_used ?? 0;
+      if (refundPoints > 0 && booking.user_id) {
+        const { error: refundErr } = await supabase.from('user_points').insert({
+          user_id: booking.user_id,
+          points: refundPoints,
+          reason: 'キャンセル返還',
+          booking_id: booking.id,
+        });
+        if (refundErr) {
+          console.error('[admin-booking-status] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
+        }
+      }
     }
 
     void writeAuditLog({
