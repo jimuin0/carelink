@@ -13,8 +13,11 @@ CREATE TABLE IF NOT EXISTS feature_articles (
   href         TEXT,
   is_active    BOOLEAN NOT NULL DEFAULT TRUE,
   sort_order   INTEGER NOT NULL DEFAULT 0,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  -- 注: 本番 feature_articles は created_at のみで updated_at 列を持たない（database.types.ts /
+  --     schema-snapshot に updated_at が無く、アプリも書き込むと 400 になるため意図的に付けない
+  --     ＝api/admin/features/route.ts のコメント参照）。CREATE TABLE が updated_at を宣言したままだと
+  --     fresh rebuild で本番に存在しない列が生まれ migration↔本番が乖離するため、本番実態に合わせて削除。
 );
 
 ALTER TABLE feature_articles ENABLE ROW LEVEL SECURITY;
