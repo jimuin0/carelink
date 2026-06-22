@@ -506,4 +506,16 @@ describe('GET /api/google-calendar/callback', () => {
       expect.anything()
     );
   });
+
+  // Branch coverage: トークン upsert が失敗 → 成功扱いにせず gcal=error へ
+  test('token upsert が失敗 → redirect with gcal=error', async () => {
+    setupDefaultMocks(false, true, true, true, false);
+
+    const res = await GET(
+      makeRequest({ code: 'code-123', state: createValidState() }) as any
+    );
+
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toContain('gcal=error');
+  });
 });
