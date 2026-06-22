@@ -32,6 +32,14 @@ export default function AuthButton() {
     setMenuOpen(false);
   }, [pathname]);
 
+  // 開いているポップアップメニューを ESC で閉じられるようにする（WAI-ARIA APG の推奨）。
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [menuOpen]);
+
   const handleLogout = async () => {
     const supabase = createBrowserSupabaseClient();
     await supabase.auth.signOut();
@@ -71,6 +79,7 @@ export default function AuthButton() {
         onClick={() => setMenuOpen(!menuOpen)}
         className="flex items-center gap-2 min-h-[44px] min-w-[44px] justify-center"
         aria-label="ユーザーメニュー"
+        aria-haspopup="menu"
         aria-expanded={menuOpen}
       >
         <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center text-sm font-bold">
