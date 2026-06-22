@@ -11,7 +11,7 @@ import { statusBannerClass, bookingStatusLabel } from '@/lib/booking-status';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 // ステータス変更ボタンに表示する選択肢（既存挙動を維持。遷移可否は API 側で検証）
-const STATUS_OPTIONS = ['pending', 'confirmed', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'] as const;
+const STATUS_OPTIONS = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'] as const;
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00+09:00');

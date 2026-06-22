@@ -8,7 +8,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import BookingsSearchForm from '@/components/admin/BookingsSearchForm';
 
 const PER_PAGE = 20;
-const VALID_STATUSES = ['pending', 'confirmed', 'completed', 'cancelled', 'no_show'];
+const VALID_STATUSES = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'no_show'];
 
 interface Props {
   searchParams: Promise<{ from?: string; to?: string; status?: string; q?: string; staff?: string; page?: string }>;

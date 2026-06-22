@@ -17,27 +17,31 @@
 export type BookingStatus =
   | 'pending'
   | 'confirmed'
+  | 'arrived'
   | 'completed'
   | 'cancelled'
   | 'cancel_fee_paid'
   | 'no_show';
 
-export type StatusHue = 'amber' | 'sky' | 'gray' | 'red' | 'orange';
+export type StatusHue = 'amber' | 'sky' | 'emerald' | 'gray' | 'red' | 'orange';
 
 /** canon ラベル（フル表記に統一） */
 export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
   pending: '確認待ち',
   confirmed: '確定',
+  arrived: '受付',
   completed: '完了',
   cancelled: 'キャンセル',
   cancel_fee_paid: 'キャンセル料支払済',
   no_show: '無断キャンセル',
 };
 
-/** canon 色相。confirmed=sky は顧客予約画面（BookingFlow）と同じ青に統一 */
+/** canon 色相。confirmed=sky は顧客予約画面（BookingFlow）と同じ青に統一。arrived=emerald は
+ *  来店中を確定(sky)・完了(gray)と視覚的に区別する。 */
 export const BOOKING_STATUS_HUE: Record<BookingStatus, StatusHue> = {
   pending: 'amber',
   confirmed: 'sky',
+  arrived: 'emerald',
   completed: 'gray',
   cancelled: 'red',
   cancel_fee_paid: 'orange',
@@ -61,6 +65,7 @@ export function bookingStatusHue(status: string): StatusHue {
 const CHIP_CLASS: Record<StatusHue, string> = {
   amber: 'bg-amber-100 text-amber-800 border border-amber-300',
   sky: 'bg-sky-100 text-sky-800 border border-sky-300',
+  emerald: 'bg-emerald-100 text-emerald-800 border border-emerald-300',
   gray: 'bg-gray-100 text-gray-700 border border-gray-300',
   red: 'bg-red-100 text-red-800 border border-red-300',
   orange: 'bg-orange-100 text-orange-800 border border-orange-300',
@@ -70,6 +75,7 @@ const CHIP_CLASS: Record<StatusHue, string> = {
 const GANTT_CLASS: Record<StatusHue, string> = {
   amber: 'bg-amber-100 border-amber-400 text-amber-900',
   sky: 'bg-sky-100 border-sky-400 text-sky-900',
+  emerald: 'bg-emerald-100 border-emerald-400 text-emerald-900',
   gray: 'bg-gray-200 border-gray-400 text-gray-700',
   red: 'bg-red-100 border-red-400 text-red-800',
   orange: 'bg-orange-100 border-orange-400 text-orange-900',
@@ -79,6 +85,7 @@ const GANTT_CLASS: Record<StatusHue, string> = {
 const SOLID_CLASS: Record<StatusHue, string> = {
   amber: 'bg-amber-400 text-white',
   sky: 'bg-sky-500 text-white',
+  emerald: 'bg-emerald-500 text-white',
   gray: 'bg-gray-300 text-gray-600',
   red: 'bg-red-400 text-white',
   orange: 'bg-orange-400 text-white',
@@ -88,6 +95,7 @@ const SOLID_CLASS: Record<StatusHue, string> = {
 const BANNER_CLASS: Record<StatusHue, { text: string; bg: string }> = {
   amber: { text: 'text-amber-700', bg: 'bg-amber-50 border-amber-200' },
   sky: { text: 'text-sky-700', bg: 'bg-sky-50 border-sky-200' },
+  emerald: { text: 'text-emerald-700', bg: 'bg-emerald-50 border-emerald-200' },
   gray: { text: 'text-gray-500', bg: 'bg-gray-50 border-gray-200' },
   red: { text: 'text-red-700', bg: 'bg-red-50 border-red-200' },
   orange: { text: 'text-orange-700', bg: 'bg-orange-50 border-orange-200' },
