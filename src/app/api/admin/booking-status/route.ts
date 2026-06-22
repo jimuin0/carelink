@@ -14,14 +14,16 @@ import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
-const validStatuses = ['confirmed', 'completed', 'cancelled', 'no_show'];
+const validStatuses = ['confirmed', 'arrived', 'completed', 'cancelled', 'no_show'];
 
 // State machine: defines which transitions are permitted per current status.
 // Prevents: cancelled → confirmed (re-activating cancelled bookings to extort customers)
 // Prevents: completed → confirmed (which would allow re-awarding completion points)
+// arrived（受付＝来店中）は confirmed と completed の中間。受付スキップ（confirmed→completed）も維持。
 const allowedTransitions: Record<string, string[]> = {
   pending:    ['confirmed', 'cancelled'],
-  confirmed:  ['completed', 'cancelled', 'no_show'],
+  confirmed:  ['arrived', 'completed', 'cancelled', 'no_show'],
+  arrived:    ['completed', 'cancelled', 'no_show'],
   completed:  ['no_show'],          // only admin correction; cannot go back to confirmed
   cancelled:  [],                   // terminal state — no transitions allowed
   no_show:    ['cancelled'],        // allow correcting a no_show to cancelled
@@ -171,21 +173,25 @@ export async function POST(request: Request) {
       bookingId: booking.id,
     };
 
+    // arrived（受付＝来店中）は来店した客への内部操作のため、顧客への通知は送らない。
+    // それ以外のステータス変更は従来どおりメール＋Push で顧客へ通知する。
     // Send appropriate email
-    try {
-      if (status === 'confirmed') {
-        await sendBookingConfirmed(emailData);
-      } else if (status === 'cancelled') {
-        await sendBookingCancelled(emailData);
-      } else {
-        await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
+    if (status !== 'arrived') {
+      try {
+        if (status === 'confirmed') {
+          await sendBookingConfirmed(emailData);
+        } else if (status === 'cancelled') {
+          await sendBookingCancelled(emailData);
+        } else {
+          await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
+        }
+      } catch (e) {
+        safeCaptureException(e, 'booking-email');
       }
-    } catch (e) {
-      safeCaptureException(e, 'booking-email');
     }
 
     // Push notification to booking user
-    if (booking.user_id) {
+    if (booking.user_id && status !== 'arrived') {
       const statusLabels: Record<string, string> = {
         confirmed: '予約が確定しました',
         cancelled: '予約がキャンセルされました',
