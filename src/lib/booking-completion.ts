@@ -57,10 +57,13 @@ export async function applyCompletionSideEffects(
 
   // 来店ポイント（1ポイント=100円）。user_points は authenticated に INSERT ポリシーが無いため
   // service_role（admin）で挿入する。
+  // null/0/負値の total_price は floor 後の earned>0 という単一ガードで一括判定する
+  // （total_price>0 と pointsEarned>0 の多重ガードは境界が観測不能な等価変異を生むため避ける）。
   let pointsEarned = 0;
-  if (booking.user_id && booking.total_price && booking.total_price > 0) {
-    pointsEarned = Math.floor(booking.total_price / 100);
-    if (pointsEarned > 0) {
+  if (booking.user_id) {
+    const earned = Math.floor((booking.total_price ?? 0) / 100);
+    if (earned > 0) {
+      pointsEarned = earned;
       const { error: pointError } = await admin.from('user_points').insert({
         user_id: booking.user_id,
         points: pointsEarned,
