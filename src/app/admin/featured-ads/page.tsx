@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 import { SbBadge } from '@/components/admin/SbUi';
 
 type FeaturedSlot = {
@@ -33,6 +34,7 @@ const PLANS = [
 export default function FeaturedAdsPage() {
   const [slots, setSlots] = useState<FeaturedSlot[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
@@ -42,10 +44,11 @@ export default function FeaturedAdsPage() {
   const paymentStatus = searchParams.get('payment');
 
   const loadSlots = useCallback(() => {
+    setLoadError(false);
     fetch('/api/admin/featured-ads')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setSlots(d.slots || []); setLoading(false); })
-      .catch(() => setLoading(false));
+      .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
   useEffect(() => { loadSlots(); }, [loadSlots]);
@@ -209,6 +212,8 @@ export default function FeaturedAdsPage() {
         </div>
         {loading ? (
           <div className="p-8 text-center text-gray-400">読み込み中...</div>
+        ) : loadError ? (
+          <div className="p-6"><LoadError onRetry={() => { setLoading(true); loadSlots(); }} message="広告枠の読み込みに失敗しました" /></div>
         ) : slots.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             <p>まだ広告枠がありません</p>

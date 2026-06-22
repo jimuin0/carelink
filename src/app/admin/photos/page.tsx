@@ -27,6 +27,7 @@ export default function AdminPhotosPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [settingMain, setSettingMain] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // Upload form
@@ -145,16 +146,20 @@ export default function AdminPhotosPage() {
   };
 
   const setAsMain = async (photo: FacilityPhoto) => {
-    if (!facilityId) return;
+    if (!facilityId || settingMain) return;
+    setSettingMain(photo.id);
     try {
       const supabase = createBrowserSupabaseClient();
-      await supabase
+      const { error } = await supabase
         .from('facility_profiles')
         .update({ main_photo_url: photo.photo_url, updated_at: new Date().toISOString() })
         .eq('id', facilityId);
+      if (error) throw error;
       setToast({ type: 'success', message: 'メイン写真を設定しました' });
     } catch {
       setToast({ type: 'error', message: '設定に失敗しました' });
+    } finally {
+      setSettingMain(null);
     }
   };
 
@@ -218,11 +223,12 @@ export default function AdminPhotosPage() {
                     {photo.caption && (
                       <p className="text-xs text-gray-500 p-2 truncate">{photo.caption}</p>
                     )}
-                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100">
+                    <div className="absolute inset-0 bg-black/30 sm:bg-black/0 sm:group-hover:bg-black/40 transition-colors flex items-center justify-center gap-2 opacity-100 sm:opacity-0 sm:group-hover:opacity-100">
                       <button
                         type="button"
                         onClick={() => setAsMain(photo)}
-                        className="px-3 py-1.5 bg-white text-gray-800 text-xs font-bold rounded-lg hover:bg-sky-50"
+                        disabled={settingMain === photo.id}
+                        className="px-3 py-1.5 bg-white text-gray-800 text-xs font-bold rounded-lg hover:bg-sky-50 disabled:opacity-50"
                       >
                         メインに設定
                       </button>

@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -68,6 +69,8 @@ export default function AdminGbpPage() {
   const [showPostForm, setShowPostForm] = useState(false);
   const [newPost, setNewPost] = useState({ title: '', body: '', post_type: 'STANDARD', cta_type: '', cta_url: '' });
   const [savingPost, setSavingPost] = useState(false);
+  const [confirmDeletePostId, setConfirmDeletePostId] = useState<string | null>(null);
+  const [deletingPostId, setDeletingPostId] = useState<string | null>(null);
 
   const init = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -162,14 +165,22 @@ export default function AdminGbpPage() {
   };
 
   const deletePost = async (id: string) => {
-    const res = await fetch(`/api/admin/gbp/posts?id=${id}`, { method: 'DELETE' });
-    if (!res.ok) {
-      const e = await res.json().catch(() => null);
-      setToast({ type: 'error', message: e?.error ?? '操作に失敗しました' });
-      return;
+    if (deletingPostId) return;
+    setDeletingPostId(id);
+    try {
+      const res = await fetch(`/api/admin/gbp/posts?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) {
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: e?.error ?? '操作に失敗しました' });
+        return;
+      }
+      setPosts((prev) => prev.filter((p) => p.id !== id));
+      setToast({ type: 'success', message: '削除しました' });
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setDeletingPostId(null);
     }
-    setPosts((prev) => prev.filter((p) => p.id !== id));
-    setToast({ type: 'success', message: '削除しました' });
   };
 
   const markPublished = async (id: string) => {
@@ -664,8 +675,8 @@ export default function AdminGbpPage() {
                           </a>
                         </>
                       )}
-                      <button type="button" onClick={() => deletePost(post.id)}
-                              className="text-xs bg-red-50 text-red-500 px-3 py-1 rounded hover:bg-red-100">
+                      <button type="button" onClick={() => setConfirmDeletePostId(post.id)} disabled={deletingPostId === post.id}
+                              className="text-xs bg-red-50 text-red-500 px-3 py-1 rounded hover:bg-red-100 disabled:opacity-50">
                         削除
                       </button>
                     </div>
@@ -688,6 +699,19 @@ export default function AdminGbpPage() {
       )}
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmDeletePostId !== null}
+        title="GBP投稿を削除"
+        message="この投稿を削除しますか？削除すると元に戻せません。"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        onConfirm={() => {
+          const id = confirmDeletePostId;
+          setConfirmDeletePostId(null);
+          if (id) deletePost(id);
+        }}
+        onCancel={() => setConfirmDeletePostId(null)}
+      />
     </div>
   );
 }

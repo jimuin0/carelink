@@ -99,7 +99,7 @@ export default function MultiPhotoUpload({ slots, onChange }: MultiPhotoUploadPr
                 type="button"
                 onClick={() => handleRemove(i)}
                 aria-label={`${slot.label}の写真を削除`}
-                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600"
+                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center text-xs hover:bg-red-600 before:absolute before:-inset-2.5 before:content-['']"
               >
                 ×
               </button>

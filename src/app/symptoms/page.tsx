@@ -41,20 +41,26 @@ export default function SymptomsPage() {
     setError(null);
     setResult(null);
 
-    const res = await fetch('/api/symptoms/suggest', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symptoms: symptoms.trim(), prefecture: prefecture || undefined }),
-    });
+    try {
+      const res = await fetch('/api/symptoms/suggest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symptoms: symptoms.trim(), prefecture: prefecture || undefined }),
+      });
 
-    if (res.ok) {
-      const data = await res.json();
-      setResult(data.result);
-    } else {
-      const e = await res.json();
-      setError(e.error ?? 'エラーが発生しました');
+      if (res.ok) {
+        const data = await res.json();
+        setResult(data.result);
+      } else {
+        const e = await res.json().catch(() => null);
+        setError(e?.error ?? 'エラーが発生しました');
+      }
+    } catch {
+      // 通信失敗（オフライン等）でも無限ローディングにせず、再試行できるよう明示する
+      setError('通信に失敗しました。通信状況をご確認のうえ、再度お試しください。');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
@@ -70,8 +76,9 @@ export default function SymptomsPage() {
         {/* 入力フォーム */}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">症状・お悩みを入力</label>
+            <label htmlFor="symptoms-input" className="block text-sm font-medium text-gray-700 mb-2">症状・お悩みを入力</label>
             <textarea
+              id="symptoms-input"
               value={symptoms}
               onChange={(e) => setSymptoms(e.target.value)}
               rows={4}
@@ -79,12 +86,13 @@ export default function SymptomsPage() {
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400 resize-none"
               placeholder="例: 1週間前から右肩が重く、首を回すと痛みがある。デスクワークが多い。"
             />
-            <p className="text-xs text-gray-400 mt-1">{symptoms.length}/500文字</p>
+            <p className="text-xs text-gray-400 mt-1">{symptoms.length}/1000文字</p>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">都道府県（任意）</label>
+            <label htmlFor="prefecture-input" className="block text-sm font-medium text-gray-700 mb-2">都道府県（任意）</label>
             <input
+              id="prefecture-input"
               value={prefecture}
               onChange={(e) => setPrefecture(e.target.value)}
               className="w-full border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"

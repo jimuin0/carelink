@@ -39,28 +39,33 @@ export default function SymptomCheckerPage() {
     setSearching(true);
     setSearchError(false);
 
-    const { data: symptoms, error } = await supabase
-      .from('symptoms')
-      .select('id, name, slug, category')
-      .in('name', selected);
+    try {
+      const { data: symptoms, error } = await supabase
+        .from('symptoms')
+        .select('id, name, slug, category')
+        .in('name', selected);
 
-    // 取得失敗を「対応店舗なし」に偽装せず、検索失敗として明示する
-    if (error) { setSearchError(true); setSearching(false); setSearched(true); return; }
-    if (symptoms) {
-      const withCounts = await Promise.all(
-        symptoms.map(async (s) => {
-          const { count } = await supabase
-            .from('facility_symptoms')
-            .select('id', { count: 'exact', head: true })
-            .eq('symptom_id', s.id);
-          return { ...s, facilityCount: count ?? 0 };
-        })
-      );
-      setResults(withCounts.sort((a, b) => b.facilityCount - a.facilityCount));
+      // 取得失敗を「対応店舗なし」に偽装せず、検索失敗として明示する
+      if (error) { setSearchError(true); return; }
+      if (symptoms) {
+        const withCounts = await Promise.all(
+          symptoms.map(async (s) => {
+            const { count } = await supabase
+              .from('facility_symptoms')
+              .select('id', { count: 'exact', head: true })
+              .eq('symptom_id', s.id);
+            return { ...s, facilityCount: count ?? 0 };
+          })
+        );
+        setResults(withCounts.sort((a, b) => b.facilityCount - a.facilityCount));
+      }
+    } catch {
+      // ネットワーク reject 等でも検索失敗を明示し、無限ローディング固着を防ぐ
+      setSearchError(true);
+    } finally {
+      setSearching(false);
+      setSearched(true);
     }
-
-    setSearching(false);
-    setSearched(true);
   };
 
   return (

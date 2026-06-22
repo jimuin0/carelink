@@ -314,7 +314,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
               <div key={url} className="relative w-20 h-20 rounded-lg overflow-hidden bg-gray-100">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={url} alt={`口コミ投稿用プレビュー写真${i + 1}`} className="w-full h-full object-cover" />
-                <button type="button" onClick={() => removePhoto(i)} aria-label={`写真${i + 1}を削除`} className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded-full text-xs flex items-center justify-center">
+                <button type="button" onClick={() => removePhoto(i)} aria-label={`写真${i + 1}を削除`} className="absolute top-0.5 right-0.5 w-5 h-5 bg-black/60 text-white rounded-full text-xs flex items-center justify-center before:absolute before:-inset-2.5 before:content-['']">
                   ×
                 </button>
               </div>

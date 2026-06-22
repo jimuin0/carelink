@@ -68,14 +68,14 @@ export default function CookieConsent() {
               <button
                 type="button"
                 onClick={declineAll}
-                className="text-sm px-4 py-2 text-gray-300 hover:text-white transition-colors"
+                className="min-h-[44px] text-sm px-4 py-2 text-gray-300 hover:text-white transition-colors"
               >
                 必須のみ
               </button>
               <button
                 type="button"
                 onClick={acceptAll}
-                className="bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors"
+                className="min-h-[44px] bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors"
               >
                 すべて同意
               </button>
@@ -104,7 +104,7 @@ export default function CookieConsent() {
                 <button
                   type="button"
                   onClick={() => setPrefs((p) => ({ ...p, analytics: !p.analytics }))}
-                  className={`shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 ${prefs.analytics ? 'bg-sky-500' : 'bg-gray-600'}`}
+                  className={`relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${prefs.analytics ? 'bg-sky-500' : 'bg-gray-600'}`}
                   aria-label="分析Cookieを切り替え"
                 >
                   <span className={`block w-4 h-4 bg-white rounded-full transition-transform mx-1 ${prefs.analytics ? 'translate-x-4' : ''}`} />
@@ -120,7 +120,7 @@ export default function CookieConsent() {
                 <button
                   type="button"
                   onClick={() => setPrefs((p) => ({ ...p, marketing: !p.marketing }))}
-                  className={`shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 ${prefs.marketing ? 'bg-sky-500' : 'bg-gray-600'}`}
+                  className={`relative shrink-0 w-10 h-6 rounded-full transition-colors mt-0.5 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${prefs.marketing ? 'bg-sky-500' : 'bg-gray-600'}`}
                   aria-label="マーケティングCookieを切り替え"
                 >
                   <span className={`block w-4 h-4 bg-white rounded-full transition-transform mx-1 ${prefs.marketing ? 'translate-x-4' : ''}`} />
@@ -128,16 +128,16 @@ export default function CookieConsent() {
               </div>
             </div>
             <div className="flex flex-wrap gap-2 justify-end">
-              <button type="button" onClick={() => setShowDetails(false)} className="text-sm text-gray-400 hover:text-white px-3 py-2 transition-colors">
+              <button type="button" onClick={() => setShowDetails(false)} className="min-h-[44px] text-sm text-gray-400 hover:text-white px-3 py-2 transition-colors">
                 戻る
               </button>
-              <button type="button" onClick={declineAll} className="text-sm px-4 py-2 text-gray-300 hover:text-white transition-colors">
+              <button type="button" onClick={declineAll} className="min-h-[44px] text-sm px-4 py-2 text-gray-300 hover:text-white transition-colors">
                 必須のみ
               </button>
-              <button type="button" onClick={saveCustom} className="text-sm px-4 py-2 border border-white/30 rounded-full hover:bg-white/10 transition-colors">
+              <button type="button" onClick={saveCustom} className="min-h-[44px] text-sm px-4 py-2 border border-white/30 rounded-full hover:bg-white/10 transition-colors">
                 選択を保存
               </button>
-              <button type="button" onClick={acceptAll} className="bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors">
+              <button type="button" onClick={acceptAll} className="min-h-[44px] bg-white text-gray-900 font-bold text-sm px-6 py-2 rounded-full hover:bg-gray-100 transition-colors">
                 すべて同意
               </button>
             </div>

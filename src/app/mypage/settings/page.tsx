@@ -56,19 +56,35 @@ function SettingsContent() {
   };
 
   const handleDisconnect = async () => {
-    await fetch('/api/google-calendar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'disconnect' }),
-    });
-    setGcal({ connected: false });
+    try {
+      const res = await fetch('/api/google-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'disconnect' }),
+      });
+      if (res.ok) {
+        setGcal({ connected: false });
+        setToast({ type: 'success', message: 'Googleカレンダー連携を解除しました' });
+      } else {
+        setToast({ type: 'error', message: '解除に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '解除に失敗しました' });
+    }
   };
 
   const handleLineUnlink = async () => {
     setLineUnlinking(true);
     try {
-      await fetch('/api/liff/link', { method: 'DELETE' });
-      setLineLinked(false);
+      const res = await fetch('/api/liff/link', { method: 'DELETE' });
+      if (res.ok) {
+        setLineLinked(false);
+        setToast({ type: 'success', message: 'LINE連携を解除しました' });
+      } else {
+        setToast({ type: 'error', message: '解除に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '解除に失敗しました' });
     } finally {
       setLineUnlinking(false);
     }

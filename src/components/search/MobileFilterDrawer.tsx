@@ -28,7 +28,7 @@ export default function MobileFilterDrawer() {
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
-            className="p-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
+            className="min-w-[44px] min-h-[44px] flex items-center justify-center -mr-1.5 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100 transition-colors"
             aria-label="閉じる"
           >
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

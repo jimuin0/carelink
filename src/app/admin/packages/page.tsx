@@ -41,6 +41,7 @@ export default function PackagesPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -131,17 +132,24 @@ export default function PackagesPage() {
   };
 
   const handleToggleActive = async (pkg: ServicePackage) => {
-    if (!facilityId) return;
-    const res = await fetch(`/api/admin/packages/${pkg.id}?facility_id=${facilityId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_active: !pkg.is_active }),
-    });
-    if (res.ok) {
-      setPackages((prev) => prev.map((p) => p.id === pkg.id ? { ...p, is_active: !p.is_active } : p));
-    } else {
-      const e = await res.json().catch(() => ({}));
-      setToast({ type: 'error', message: e.error || '更新に失敗しました' });
+    if (!facilityId || togglingId) return;
+    setTogglingId(pkg.id);
+    try {
+      const res = await fetch(`/api/admin/packages/${pkg.id}?facility_id=${facilityId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !pkg.is_active }),
+      });
+      if (res.ok) {
+        setPackages((prev) => prev.map((p) => p.id === pkg.id ? { ...p, is_active: !p.is_active } : p));
+      } else {
+        const e = await res.json().catch(() => ({}));
+        setToast({ type: 'error', message: e.error || '更新に失敗しました' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setTogglingId(null);
     }
   };
 
@@ -283,8 +291,8 @@ export default function PackagesPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <button type="button" onClick={() => handleToggleActive(pkg)}
-                      className={`text-xs px-2 py-1 rounded-full font-medium ${pkg.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
+                    <button type="button" onClick={() => handleToggleActive(pkg)} disabled={togglingId === pkg.id}
+                      className={`text-xs px-2 py-1 rounded-full font-medium disabled:opacity-50 ${pkg.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-100 text-gray-500'}`}>
                       {pkg.is_active ? '公開中' : '非公開'}
                     </button>
                     <button type="button" onClick={() => handleDelete(pkg)} className="text-xs text-red-500 hover:underline">削除</button>

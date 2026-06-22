@@ -241,13 +241,13 @@ export default function RegisterPage() {
                 {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
               <div>
-                <label className="form-label">担当者直通電話 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('contact_phone')} onChange={handlePhoneChange('contact_phone')} maxLength={20} className="form-input" placeholder="090-1234-5678" />
+                <label htmlFor="reg-contact-phone" className="form-label">担当者直通電話 <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('contact_phone')} id="reg-contact-phone" onChange={handlePhoneChange('contact_phone')} maxLength={20} className="form-input" placeholder="090-1234-5678" />
                 {errors.contact_phone && <p className="form-error" role="alert">{errors.contact_phone.message}</p>}
               </div>
               <div>
-                <label className="form-label">WebサイトURL <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('website')} type="url" className="form-input" placeholder="https://example.com" maxLength={200} />
+                <label htmlFor="reg-website" className="form-label">WebサイトURL <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('website')} id="reg-website" type="url" className="form-input" placeholder="https://example.com" maxLength={200} />
                 {errors.website && <p className="form-error" role="alert">{errors.website.message}</p>}
               </div>
               <button type="button" onClick={nextStep} className="btn-primary w-full !py-3">次へ</button>
@@ -258,38 +258,38 @@ export default function RegisterPage() {
           {step === 2 && (
             <div className="space-y-5">
               <div>
-                <label className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
-                <input {...register('postal_code')} autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={7} inputMode="numeric" />
+                <label htmlFor="reg-postal-code" className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
+                <input {...register('postal_code')} id="reg-postal-code" autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={7} inputMode="numeric" />
                 {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
               </div>
               <div>
-                <label className="form-label">住所</label>
-                <input {...register('address')} autoComplete="street-address" className="form-input" placeholder="例：大阪府堺市堺区..." maxLength={200} />
+                <label htmlFor="reg-address" className="form-label">住所</label>
+                <input {...register('address')} id="reg-address" autoComplete="street-address" className="form-input" placeholder="例：大阪府堺市堺区..." maxLength={200} />
               </div>
               <div>
-                <label className="form-label">建物名・部屋番号 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('building_name')} className="form-input" placeholder="例：○○ビル 3F" maxLength={100} />
+                <label htmlFor="reg-building-name" className="form-label">建物名・部屋番号 <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('building_name')} id="reg-building-name" className="form-input" placeholder="例：○○ビル 3F" maxLength={100} />
               </div>
               <div>
-                <label className="form-label">最寄り駅 <span className="text-gray-400 text-xs font-normal">任意</span></label>
-                <input {...register('nearest_station')} className="form-input" placeholder="例：堺東駅 徒歩5分" maxLength={100} />
+                <label htmlFor="reg-nearest-station" className="form-label">最寄り駅 <span className="text-gray-400 text-xs font-normal">任意</span></label>
+                <input {...register('nearest_station')} id="reg-nearest-station" className="form-input" placeholder="例：堺東駅 徒歩5分" maxLength={100} />
               </div>
               <div>
-                <label className="form-label">営業時間</label>
-                <input {...register('business_hours')} className="form-input" placeholder="例：10:00〜20:00" maxLength={200} />
+                <label htmlFor="reg-business-hours" className="form-label">営業時間</label>
+                <input {...register('business_hours')} id="reg-business-hours" className="form-input" placeholder="例：10:00〜20:00" maxLength={200} />
               </div>
               <div>
-                <label className="form-label">定休日</label>
-                <input {...register('regular_holiday')} className="form-input" placeholder="例：毎週月曜日" maxLength={100} />
+                <label htmlFor="reg-regular-holiday" className="form-label">定休日</label>
+                <input {...register('regular_holiday')} id="reg-regular-holiday" className="form-input" placeholder="例：毎週月曜日" maxLength={100} />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="form-label">席数・ベッド数</label>
-                  <input {...register('seat_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                  <label htmlFor="reg-seat-count" className="form-label">席数・ベッド数</label>
+                  <input {...register('seat_count', { valueAsNumber: true })} id="reg-seat-count" type="number" min="0" className="form-input" />
                 </div>
                 <div>
-                  <label className="form-label">スタッフ数</label>
-                  <input {...register('staff_count', { valueAsNumber: true })} type="number" min="0" className="form-input" />
+                  <label htmlFor="reg-staff-count" className="form-label">スタッフ数</label>
+                  <input {...register('staff_count', { valueAsNumber: true })} id="reg-staff-count" type="number" min="0" className="form-input" />
                 </div>
               </div>
               <div>
@@ -330,8 +330,8 @@ export default function RegisterPage() {
           {step === 3 && (
             <div className="space-y-5">
               <div>
-                <label className="form-label">PR文 <span className="text-gray-400 text-xs font-normal">1000文字以内</span></label>
-                <textarea {...register('pr_text')} className="form-input min-h-[150px]" placeholder="施設のアピールポイントをご記入ください&#10;例：当院は開業20年の実績があり、..." maxLength={1000} />
+                <label htmlFor="reg-pr-text" className="form-label">PR文 <span className="text-gray-400 text-xs font-normal">1000文字以内</span></label>
+                <textarea {...register('pr_text')} id="reg-pr-text" className="form-input min-h-[150px]" placeholder="施設のアピールポイントをご記入ください&#10;例：当院は開業20年の実績があり、..." maxLength={1000} />
                 <div className="flex justify-between mt-1">
                   {errors.pr_text && <p className="form-error" role="alert">{errors.pr_text.message}</p>}
                   <p className="text-sm text-gray-400 ml-auto">{prText.length}/1000</p>
@@ -342,8 +342,8 @@ export default function RegisterPage() {
                 <MultiPhotoUpload slots={photoSlots} onChange={setPhotoFiles} />
               </div>
               <div>
-                <label className="form-label">掲載希望時期</label>
-                <select {...register('desired_start_date')} className="form-input">
+                <label htmlFor="reg-desired-start-date" className="form-label">掲載希望時期</label>
+                <select {...register('desired_start_date')} id="reg-desired-start-date" className="form-input">
                   {startDateOptions.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>

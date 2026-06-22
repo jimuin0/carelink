@@ -78,7 +78,7 @@ function Menu({ current, onSelect }: { current: Locale; onSelect: (l: Locale) =>
           key={locale}
           type="button"
           onClick={() => onSelect(locale)}
-          className={`w-full text-left flex items-center gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
+          className={`w-full text-left flex items-center min-h-[44px] gap-2 px-3 py-2 text-sm hover:bg-gray-50 transition-colors ${
             locale === current ? 'text-sky-600 font-bold' : 'text-gray-700'
           }`}
         >

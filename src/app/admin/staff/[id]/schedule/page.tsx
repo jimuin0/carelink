@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { SbInput } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
@@ -41,6 +42,8 @@ export default function StaffSchedulePage() {
   const [newOverrideStart, setNewOverrideStart] = useState('09:00');
   const [newOverrideEnd, setNewOverrideEnd] = useState('19:00');
   const [saving, setSaving] = useState(false);
+  const [addingOverride, setAddingOverride] = useState(false);
+  const [confirmDeleteOverrideId, setConfirmDeleteOverrideId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -120,7 +123,8 @@ export default function StaffSchedulePage() {
   };
 
   const handleAddOverride = async () => {
-    if (!newOverrideDate || !facilityId) return;
+    if (!newOverrideDate || !facilityId || addingOverride) return;
+    setAddingOverride(true);
     try {
       const body: Record<string, unknown> = {
         date: newOverrideDate,
@@ -145,6 +149,8 @@ export default function StaffSchedulePage() {
       setToast({ type: 'success', message: '特別日を追加しました' });
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setAddingOverride(false);
     }
   };
 
@@ -291,7 +297,7 @@ export default function StaffSchedulePage() {
                     <span className="ml-2 text-gray-600">{ov.start_time}〜{ov.end_time}</span>
                   )}
                 </div>
-                <button type="button" onClick={() => handleDeleteOverride(ov.id)} className="text-xs text-red-400 hover:text-red-600">削除</button>
+                <button type="button" onClick={() => setConfirmDeleteOverrideId(ov.id)} className="text-xs text-red-400 hover:text-red-600">削除</button>
               </div>
             ))}
           </div>
@@ -299,6 +305,19 @@ export default function StaffSchedulePage() {
       </div>
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={confirmDeleteOverrideId !== null}
+        title="特別日設定を削除"
+        message="この特別日設定を削除しますか？"
+        confirmLabel="削除する"
+        cancelLabel="キャンセル"
+        onConfirm={() => {
+          const id = confirmDeleteOverrideId;
+          setConfirmDeleteOverrideId(null);
+          if (id) handleDeleteOverride(id);
+        }}
+        onCancel={() => setConfirmDeleteOverrideId(null)}
+      />
     </div>
   );
 }

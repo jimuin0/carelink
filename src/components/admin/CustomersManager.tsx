@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import Modal from '@/components/Modal';
 import { SbInput, SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
 import { csvEscape } from '@/lib/csv';
 
@@ -324,10 +325,18 @@ export default function CustomersManager({
 
       {/* 追加・編集モーダル */}
       {form && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="customer-form-title">
-          <div className="fixed inset-0 bg-black/50" onClick={() => !saving && setForm(null)} aria-hidden="true" />
-          <div className="relative bg-white rounded-2xl shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6">
-            <h3 id="customer-form-title" className="text-lg font-bold mb-4">{form.id ? '顧客情報を編集' : '顧客を追加'}</h3>
+        <Modal
+          open={!!form}
+          onClose={() => { if (!saving) setForm(null); }}
+          title={form.id ? '顧客情報を編集' : '顧客を追加'}
+          maxWidthClass="max-w-md"
+          footer={
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setForm(null)} disabled={saving} className="btn-outline flex-1 !py-2.5">キャンセル</button>
+              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存する'}</button>
+            </div>
+          }
+        >
             <div className="space-y-3">
               <div>
                 <label htmlFor="cust-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
@@ -366,12 +375,7 @@ export default function CustomersManager({
                 <p className="text-xs text-gray-400 mt-1">施術履歴・好み・注意事項などを自由に記入できます</p>
               </div>
             </div>
-            <div className="flex gap-3 mt-5">
-              <button type="button" onClick={() => setForm(null)} disabled={saving} className="btn-outline flex-1 !py-2.5">キャンセル</button>
-              <button type="button" onClick={handleSave} disabled={saving} className="btn-primary flex-1 !py-2.5">{saving ? '保存中...' : '保存する'}</button>
-            </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       <ConfirmDialog

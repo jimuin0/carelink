@@ -21,7 +21,7 @@ export default function Toggle({ checked, onChange, disabled, label }: TogglePro
       aria-label={label}
       onClick={onChange}
       disabled={disabled}
-      className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-50 ${checked ? 'bg-sky-500' : 'bg-gray-300'}`}
+      className={`relative w-11 h-6 rounded-full transition-colors disabled:opacity-50 before:absolute before:-inset-y-2.5 before:inset-x-0 before:content-[''] ${checked ? 'bg-sky-500' : 'bg-gray-300'}`}
     >
       <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform shadow ${checked ? 'translate-x-5' : ''}`} />
     </button>
