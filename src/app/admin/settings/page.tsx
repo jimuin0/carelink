@@ -237,18 +237,25 @@ export default function AdminSettingsPage() {
                 const newStatus = facilityStatus === 'published' ? 'draft' : 'published';
                 if (newStatus === 'draft') { setShowUnpublishConfirm(true); return; }
                 setPublishToggling(true);
-                const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
-                  method: 'PATCH',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ status: newStatus }),
-                });
-                if (res.ok) {
-                  setFacilityStatus(newStatus);
-                  setToast({ type: 'success', message: '施設を公開しました！' });
-                } else {
-                  setToast({ type: 'error', message: '公開に失敗しました' });
+                // 通信エラーで fetch が throw してもボタンが「処理中...」のまま固着しないよう
+                // try/finally で必ずトグル状態を解除し、失敗はトーストで明示する。
+                try {
+                  const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status: newStatus }),
+                  });
+                  if (res.ok) {
+                    setFacilityStatus(newStatus);
+                    setToast({ type: 'success', message: '施設を公開しました！' });
+                  } else {
+                    setToast({ type: 'error', message: '公開に失敗しました' });
+                  }
+                } catch {
+                  setToast({ type: 'error', message: '通信エラーが発生しました' });
+                } finally {
+                  setPublishToggling(false);
                 }
-                setPublishToggling(false);
               }}
               disabled={publishToggling || !facilityId}
               className={`px-4 py-2 text-sm font-bold rounded-lg transition-colors ${facilityStatus === 'published' ? 'bg-gray-100 text-gray-600 hover:bg-gray-200' : 'bg-green-500 text-white hover:bg-green-600'}`}
@@ -615,18 +622,25 @@ export default function AdminSettingsPage() {
         onConfirm={async () => {
           setShowUnpublishConfirm(false);
           setPublishToggling(true);
-          const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status: 'draft' }),
-          });
-          if (res.ok) {
-            setFacilityStatus('draft');
-            setToast({ type: 'success', message: '施設を非公開にしました' });
-          } else {
-            setToast({ type: 'error', message: '非公開への変更に失敗しました' });
+          // 通信エラーで fetch が throw してもボタンが「処理中...」のまま固着しないよう
+          // try/finally で必ずトグル状態を解除し、失敗はトーストで明示する。
+          try {
+            const res = await fetch(`/api/admin/settings?facility_id=${facilityId}&action=status`, {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ status: 'draft' }),
+            });
+            if (res.ok) {
+              setFacilityStatus('draft');
+              setToast({ type: 'success', message: '施設を非公開にしました' });
+            } else {
+              setToast({ type: 'error', message: '非公開への変更に失敗しました' });
+            }
+          } catch {
+            setToast({ type: 'error', message: '通信エラーが発生しました' });
+          } finally {
+            setPublishToggling(false);
           }
-          setPublishToggling(false);
         }}
         onCancel={() => setShowUnpublishConfirm(false)}
       />

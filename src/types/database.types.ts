@@ -1886,6 +1886,9 @@ export type Database = {
         Row: {
           access_info: string | null
           address: string | null
+          board_slot_minutes: number
+          booking_auto_confirm: boolean | null
+          booking_buffer_minutes: number | null
           building: string | null
           business_hours: Json | null
           business_hours_text: string | null
@@ -1913,6 +1916,7 @@ export type Database = {
           hpb_sln_id: string | null
           id: string
           is_seed: boolean | null
+          is_verified: boolean
           latitude: number | null
           location: unknown
           logo_url: string | null
@@ -1920,6 +1924,8 @@ export type Database = {
           main_photo_url: string | null
           menu_remarks: string | null
           name: string
+          nearest_station: string | null
+          onboarding_email_sent_at: string | null
           owner_message: string | null
           owner_name: string | null
           owner_photo_url: string | null
@@ -1942,12 +1948,17 @@ export type Database = {
           stripe_account_id: string | null
           stripe_enabled: boolean
           updated_at: string | null
+          verified_at: string | null
+          verified_type: string | null
           view_count: number | null
           website_url: string | null
         }
         Insert: {
           access_info?: string | null
           address?: string | null
+          board_slot_minutes?: number
+          booking_auto_confirm?: boolean | null
+          booking_buffer_minutes?: number | null
           building?: string | null
           business_hours?: Json | null
           business_hours_text?: string | null
@@ -1975,6 +1986,7 @@ export type Database = {
           hpb_sln_id?: string | null
           id?: string
           is_seed?: boolean | null
+          is_verified?: boolean
           latitude?: number | null
           location?: unknown
           logo_url?: string | null
@@ -1982,6 +1994,8 @@ export type Database = {
           main_photo_url?: string | null
           menu_remarks?: string | null
           name: string
+          nearest_station?: string | null
+          onboarding_email_sent_at?: string | null
           owner_message?: string | null
           owner_name?: string | null
           owner_photo_url?: string | null
@@ -2004,12 +2018,17 @@ export type Database = {
           stripe_account_id?: string | null
           stripe_enabled?: boolean
           updated_at?: string | null
+          verified_at?: string | null
+          verified_type?: string | null
           view_count?: number | null
           website_url?: string | null
         }
         Update: {
           access_info?: string | null
           address?: string | null
+          board_slot_minutes?: number
+          booking_auto_confirm?: boolean | null
+          booking_buffer_minutes?: number | null
           building?: string | null
           business_hours?: Json | null
           business_hours_text?: string | null
@@ -2037,6 +2056,7 @@ export type Database = {
           hpb_sln_id?: string | null
           id?: string
           is_seed?: boolean | null
+          is_verified?: boolean
           latitude?: number | null
           location?: unknown
           logo_url?: string | null
@@ -2044,6 +2064,8 @@ export type Database = {
           main_photo_url?: string | null
           menu_remarks?: string | null
           name?: string
+          nearest_station?: string | null
+          onboarding_email_sent_at?: string | null
           owner_message?: string | null
           owner_name?: string | null
           owner_photo_url?: string | null
@@ -2066,6 +2088,8 @@ export type Database = {
           stripe_account_id?: string | null
           stripe_enabled?: boolean
           updated_at?: string | null
+          verified_at?: string | null
+          verified_type?: string | null
           view_count?: number | null
           website_url?: string | null
         }

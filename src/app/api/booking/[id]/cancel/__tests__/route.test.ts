@@ -108,6 +108,62 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(json.success).toBe(true);
   });
 
+  // ポイント利用予約のキャンセルで控除済みポイントを返還する（金銭損失防止）。
+  function setupRefundMock(pointsUsed: number, insertResult: { error: unknown }) {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const insertSpy = jest.fn(() => Promise.resolve(insertResult));
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'user_points') return { insert: insertSpy };
+      // LINE/LINE Works は無効化済みのため到達しないが、フォールバックの select チェーンを返す
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+            not: jest.fn().mockResolvedValue({ data: [] }),
+          }),
+          not: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [] }) }),
+        }),
+      };
+    });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'confirmed',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'test@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null, points_used: pointsUsed,
+          },
+        });
+      }
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+      const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
+      return {
+        update: jest.fn(() => ({ eq: eqFirst })),
+        select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
+      };
+    });
+    return insertSpy;
+  }
+
+  test('ポイント利用予約のキャンセルで控除済みポイントを返還する', async () => {
+    const insertSpy = setupRefundMock(300, { error: null });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    expect(insertSpy).toHaveBeenCalledWith(expect.objectContaining({
+      user_id: 'user-1', points: 300, booking_id: validId, reason: 'キャンセル返還',
+    }));
+  });
+
+  test('ポイント返還の insert 失敗は warn のみで成功継続', async () => {
+    const insertSpy = setupRefundMock(300, { error: { message: 'insert fail' } });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    expect(insertSpy).toHaveBeenCalled();
+  });
+
   test('認証なし→401', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 

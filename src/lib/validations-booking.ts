@@ -52,7 +52,7 @@ export const bookingSchema = z.object({
   phone: z.string().regex(phoneRegex, '正しい電話番号を入力してください').or(z.literal('')).optional().nullable(),
   note: z.string().max(500, '備考は500文字以内で入力してください').optional(),
   total_price: z.number().min(0).max(9999999).nullable(),
-  points_used: z.number().min(0).max(9999999).optional(),
+  points_used: z.number().int().min(0).max(9999999).optional(),
 });
 
 export type BookingFormData = z.infer<typeof bookingSchema>;

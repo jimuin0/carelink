@@ -53,7 +53,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   const { data: booking } = await supabase
     .from('bookings')
-    .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id')
+    .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, points_used')
     .eq('id', params.id)
     .single();
 
@@ -82,6 +82,25 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   }
   if (!cancelled || cancelled.length === 0) {
     return NextResponse.json({ error: 'ステータスが既に変更されています。ページを更新してください。' }, { status: 409 });
+  }
+
+  // ポイント返還（金銭損失防止）。予約作成時に points_used を控除済みのため、キャンセル成立時に
+  // 同額を補償行として戻す。CAS により本パスは1予約あたり1回しか到達しない（status 条件付き UPDATE が
+  // 成功した時のみ）ため、二重返還は起きない。失敗は致命でないため warn のみ（要手動照合）。
+  // user_points は authenticated に INSERT ポリシーが無いため service_role で挿入する。
+  // booking.user_id は上の所有権チェック（!== user.id で 403）により user.id と一致＝非 null 保証。
+  const refundPoints = booking.points_used ?? 0;
+  if (refundPoints > 0) {
+    const refundClient = createServiceRoleClient();
+    const { error: refundErr } = await refundClient.from('user_points').insert({
+      user_id: user.id,
+      points: refundPoints,
+      reason: 'キャンセル返還',
+      booking_id: booking.id,
+    });
+    if (refundErr) {
+      console.error('[cancel] point refund failed — manual cleanup needed', { bookingId: booking.id, points: refundPoints, err: refundErr.message });
+    }
   }
 
   // 監査ログ（非ブロッキング）

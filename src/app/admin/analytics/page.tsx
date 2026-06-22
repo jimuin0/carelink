@@ -43,6 +43,13 @@ export default async function AdminAnalyticsPage() {
     )
   );
 
+  // 取得失敗を「売上¥0・予約0件」に偽装しない。1ヶ月でも失敗したら error.tsx に委ね、
+  // 施設オーナーが過少な数値を実績と誤認するのを防ぐ（空と失敗を必ず区別する）。
+  const monthError = results.find((r) => r.error)?.error;
+  if (monthError) {
+    throw new Error(`売上分析のデータ取得に失敗しました: ${monthError.message}`);
+  }
+
   const months = monthConfigs.map((config, i) => {
     const data = results[i].data ?? [];
     const revenue = data.reduce((sum, b) => sum + (b.total_price ?? 0), 0);

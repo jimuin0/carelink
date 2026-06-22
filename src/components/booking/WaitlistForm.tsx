@@ -101,8 +101,9 @@ export default function WaitlistForm({
 
       <form onSubmit={handleSubmit} className="space-y-3">
         <div>
-          <label className="block text-xs font-bold text-gray-700 mb-1">お名前 <span className="text-red-500">*</span></label>
+          <label htmlFor="waitlist-name" className="block text-xs font-bold text-gray-700 mb-1">お名前 <span className="text-red-500">*</span></label>
           <input
+            id="waitlist-name"
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -113,8 +114,9 @@ export default function WaitlistForm({
           />
         </div>
         <div>
-          <label className="block text-xs font-bold text-gray-700 mb-1">メールアドレス <span className="text-red-500">*</span></label>
+          <label htmlFor="waitlist-email" className="block text-xs font-bold text-gray-700 mb-1">メールアドレス <span className="text-red-500">*</span></label>
           <input
+            id="waitlist-email"
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
