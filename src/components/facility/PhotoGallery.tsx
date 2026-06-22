@@ -25,7 +25,7 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
     else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); goPrev(); }
   }, [goNext, goPrev]);
 
-  // Close lightbox on Escape
+  // Close lightbox on Escape ＋ 背景スクロールロック（拡大表示中に背後がスクロールしないよう一元化）
   useEffect(() => {
     if (!lightboxOpen) return;
     const handler = (e: KeyboardEvent) => {
@@ -34,7 +34,11 @@ export default function PhotoGallery({ photos, facilityName }: { photos: Facilit
       else if (e.key === 'ArrowLeft') goPrev();
     };
     window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', handler);
+      document.body.style.overflow = '';
+    };
   }, [lightboxOpen, goNext, goPrev]);
 
   if (photos.length === 0) {

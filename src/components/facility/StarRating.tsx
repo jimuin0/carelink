@@ -12,7 +12,8 @@ interface Props {
 export default function StarRating({ value, onChange, readonly = false, size = 'md' }: Props) {
   const [hover, setHover] = useState(0);
   const starSize = size === 'sm' ? 'w-4 h-4' : 'w-6 h-6';
-  const btnSize = size === 'sm' ? 'min-w-[36px] min-h-[36px]' : 'min-w-[44px] min-h-[44px]';
+  // 操作可能な星は端末タップ最小44pxを常に確保（sm でも視覚サイズは小さいまま、ヒット領域のみ拡張）
+  const btnSize = 'min-w-[44px] min-h-[44px]';
 
   return (
     <div className="flex items-center" role={readonly ? 'img' : undefined} aria-label={readonly ? `${value}点` : undefined}>

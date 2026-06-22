@@ -77,7 +77,7 @@ export default function StationSearch() {
             <div className="p-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold">駅から探す</h3>
-                <button type="button" onClick={() => setOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="閉じる">&times;</button>
+                <button type="button" onClick={() => setOpen(false)} className="min-w-[44px] min-h-[44px] inline-flex items-center justify-center -mr-2 text-gray-400 hover:text-gray-600 text-xl" aria-label="閉じる">&times;</button>
               </div>
               <input
                 type="text"

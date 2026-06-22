@@ -87,26 +87,26 @@ export default function AuthButton() {
             </div>
             <Link
               href="/mypage"
-              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              className="flex items-center min-h-[44px] px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               マイページ
             </Link>
             <Link
               href="/mypage/favorites"
-              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              className="flex items-center min-h-[44px] px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               お気に入り
             </Link>
             <Link
               href="/mypage/profile"
-              className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
+              className="flex items-center min-h-[44px] px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
             >
               プロフィール編集
             </Link>
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
+              className="flex items-center w-full min-h-[44px] text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50"
             >
               ログアウト
             </button>

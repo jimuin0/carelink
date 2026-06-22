@@ -35,7 +35,7 @@ export default function StickySignupCta() {
             sessionStorage.setItem('sticky-cta-dismissed', '1');
             setShow(false);
           }}
-          className="shrink-0 w-8 h-8 flex items-center justify-center text-gray-400 hover:text-gray-600 text-lg"
+          className="shrink-0 w-11 h-11 flex items-center justify-center text-gray-400 hover:text-gray-600 text-lg"
           aria-label="閉じる"
         >
           ✕
