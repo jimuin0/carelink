@@ -33,9 +33,14 @@ export async function searchFacilities(params: SearchParams) {
   if (params.prefecture) query = query.eq('prefecture', params.prefecture);
   if (params.city) query = query.eq('city', params.city);
   if (params.keyword) {
-    const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&');
+    // LIKE ワイルドカード(% _ \)をエスケープしたうえで、PostgREST の .or() 区切り文字
+    // (, ( ) など)の注入を防ぐためパターン全体をダブルクォートで literal 化する
+    // （getFeaturedFacilities の orFilterValue と同じ fail-safe 方針）。
+    // クォート内でも % / _ は LIKE ワイルドカードとして機能するため、前方/後方一致は維持される。
+    const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
+    const pat = `"%${escaped}%"`;
     query = query.or(
-      `name.ilike.%${escaped}%,catch_copy.ilike.%${escaped}%,description.ilike.%${escaped}%,city.ilike.%${escaped}%,nearest_station.ilike.%${escaped}%`
+      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},nearest_station.ilike.${pat}`
     );
   }
 

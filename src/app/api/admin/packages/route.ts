@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
 
   const { data, error } = await admin
     .from('service_packages')
-    .select('*, menus(name)')
+    .select('*, menus:facility_menus(name)')
     .eq('facility_id', facilityId)
     .order('sort_order')
     .order('created_at');
