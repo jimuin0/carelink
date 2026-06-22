@@ -63,6 +63,12 @@ export async function POST(request: NextRequest) {
       adminSupabase.from('treatment_records').update({ user_id: null }).eq('user_id', user.id),
       adminSupabase.from('treatment_plans').update({ user_id: null }).eq('user_id', user.id),
       adminSupabase.from('bookings').update({ user_id: null }).eq('user_id', user.id),
+      // created_by が auth.users(id) を ON DELETE 指定なし(RESTRICT)で参照するテーブル。
+      // 当該ユーザーが作成した行が残っていると下の auth.admin.deleteUser が FK 違反で失敗し、
+      // アカウント削除が丸ごと 500 になる（個人情報保護法対応の致命的ブロック）。
+      // 監査用途の作成者参照のため、削除ではなく NULL 化して参照を切る。
+      adminSupabase.from('newsletter_campaigns').update({ created_by: null }).eq('created_by', user.id),
+      adminSupabase.from('api_keys').update({ created_by: null }).eq('created_by', user.id),
       // profiles は最後に削除
       adminSupabase.from('profiles').delete().eq('id', user.id),
     ]);

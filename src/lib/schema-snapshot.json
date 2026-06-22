@@ -482,6 +482,7 @@
     "google_rating",
     "google_review_count",
     "header_photo_url",
+    "hpb_scraped_at",
     "hpb_sln_id",
     "id",
     "is_seed",

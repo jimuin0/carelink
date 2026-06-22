@@ -20,12 +20,16 @@ export async function GET(request: Request) {
   const admin = createServiceRoleClient();
   const startedAt = new Date();
 
-  // hpb_sln_id が設定された施設のみ対象(更新が古い順で公平に回す)。
+  // hpb_sln_id が設定された施設のみ対象。
+  // 旧実装は .order('id') + .limit(200) で、200 件(実際は時間予算で処理できる件数)を超える
+  // HPB 連携施設が出ると id 後方が毎 run スクレイプ対象外になり恒久未更新(silent miss)だった。
+  // sync-google-ratings(gbp_synced_at)と対称に hpb_scraped_at 昇順(未処理=NULLS FIRST 優先)で
+  // 古い順ローテに変更し、処理ごとに hpb_scraped_at を更新して全施設を順繰りに回す(恒久 miss なし)。
   const { data: facilities, error } = await admin
     .from('facility_profiles')
     .select('id, hpb_sln_id')
     .not('hpb_sln_id', 'is', null)
-    .order('id', { ascending: true })
+    .order('hpb_scraped_at', { ascending: true, nullsFirst: true })
     .limit(LOAD_LIMIT);
 
   if (error) {
@@ -68,6 +72,22 @@ export async function GET(request: Request) {
       console.error('[hpb-menu-scrape] facility scrape failed', {
         facilityId: facility.id,
         err: e instanceof Error ? e.message : String(e),
+      });
+    }
+
+    // 処理ごとに hpb_scraped_at を必ず更新して rotation を進める(成功/失敗いずれも)。
+    // これを怠ると古い順 ORDER で同じ先頭集合が毎 run 選ばれ、取得失敗が続く施設が
+    // 先頭に居座って他施設のスクレイプを阻害する(=後方が恒久未処理)。
+    const { error: stampErr } = await admin
+      .from('facility_profiles')
+      .update({ hpb_scraped_at: new Date().toISOString() })
+      .eq('id', facility.id);
+    if (stampErr) {
+      // 更新できないと rotation が進まない(次回も先頭に残る)→ failed 計上＋可視化。
+      results.failed++;
+      console.error('[hpb-menu-scrape] scrape timestamp update failed', {
+        facilityId: facility.id,
+        err: stampErr.message,
       });
     }
   }

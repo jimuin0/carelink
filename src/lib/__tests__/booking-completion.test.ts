@@ -119,3 +119,40 @@ test('total_price が 0 → ポイント条件 false（user_id あり）', async
   expect(points).toBe(0);
   expect(pointCap.insert).toBeUndefined();
 });
+
+test('total_price が null → ポイント条件 false・visit.amount は null で記録', async () => {
+  const visitCap: { insert?: jest.Mock } = {};
+  const pointCap: { insert?: jest.Mock } = {};
+  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, visitCap, pointCap });
+  const points = await applyCompletionSideEffects(admin, { ...base, total_price: null });
+  expect(points).toBe(0);
+  expect(pointCap.insert).toBeUndefined(); // user_points に触れない
+  // 来店記録は price 不明でも積む（顧客台帳の漏れ防止）。amount は null のまま。
+  expect(visitCap.insert).toHaveBeenCalledWith(expect.objectContaining({ amount: null }));
+});
+
+test('total_price が 100 ちょうど → 1ポイント（境界 floor(100/100)=1・付与される）', async () => {
+  const pointCap: { insert?: jest.Mock } = {};
+  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
+  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 100 });
+  expect(points).toBe(1);
+  expect(pointCap.insert).toHaveBeenCalledWith(expect.objectContaining({
+    user_id: 'u1', points: 1, booking_id: 'b1', reason: '来店ポイント',
+  }));
+});
+
+test('total_price が 99 → floor で 0・user_points.insert は呼ばれない（99/100 境界）', async () => {
+  const pointCap: { insert?: jest.Mock } = {};
+  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
+  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 99 });
+  expect(points).toBe(0);
+  expect(pointCap.insert).toBeUndefined();
+});
+
+test('端数あり total_price 5099 → floor(5099/100)=50（端数切り捨て）', async () => {
+  const pointCap: { insert?: jest.Mock } = {};
+  const admin = makeAdmin({ menu: { name: 'カット' }, staff: { name: '佐藤' }, pointCap });
+  const points = await applyCompletionSideEffects(admin, { ...base, total_price: 5099 });
+  expect(points).toBe(50);
+  expect(pointCap.insert).toHaveBeenCalledWith(expect.objectContaining({ points: 50 }));
+});

@@ -37,4 +37,33 @@ describe('csvEscape', () => {
   test('数式トリガかつカンマ＝先頭無効化後にクォート', () => {
     expect(csvEscape('=a,b')).toBe('"\'=a,b"');
   });
+
+  // --- CSV インジェクション: TAB/CR 先頭（OWASP 準拠・Excel/Sheets が空白剥がし後に数式評価） ---
+  test('先頭 TAB のセルは \' を前置して無効化', () => {
+    // \t は数式トリガではないがクォート条件にも該当しないため、結果は "'\t..." そのまま
+    expect(csvEscape('\t=cmd')).toBe("'\t=cmd");
+  });
+
+  test('先頭 CR のセルは \' を前置し、CR を含むためクォートもされる', () => {
+    // 先頭 \r → 数式トリガとして \' 前置 → さらに \r を含むので RFC4180 クォート
+    expect(csvEscape('\r=cmd')).toBe('"\'\r=cmd"');
+  });
+
+  test('先頭 TAB のみ（数式なし）でも \' を前置', () => {
+    expect(csvEscape('\tplain')).toBe("'\tplain");
+  });
+
+  // --- CR を含む値は改行扱いでクォート（行分断防止・RFC4180） ---
+  test('CRLF を含む値はクォート（先頭が数式トリガでない場合）', () => {
+    expect(csvEscape('a\r\nb')).toBe('"a\r\nb"');
+  });
+
+  test('値中（先頭以外）の CR 単体もクォートされる', () => {
+    expect(csvEscape('a\rb')).toBe('"a\rb"');
+  });
+
+  // --- 先頭空白後の数式は無効化されない（既知の許容・空白は数式起動しない） ---
+  test('半角スペース先頭は数式トリガ扱いしない（スペースは Excel が剥がさない）', () => {
+    expect(csvEscape(' =cmd')).toBe(' =cmd');
+  });
 });
