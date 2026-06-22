@@ -13,6 +13,7 @@ import {
 const ALL_STATUSES: BookingStatus[] = [
   'pending',
   'confirmed',
+  'arrived',
   'completed',
   'cancelled',
   'cancel_fee_paid',
@@ -24,6 +25,7 @@ describe('booking-status: canon 定義', () => {
     expect(BOOKING_STATUS_LABEL).toEqual({
       pending: '確認待ち',
       confirmed: '確定',
+      arrived: '受付',
       completed: '完了',
       cancelled: 'キャンセル',
       cancel_fee_paid: 'キャンセル料支払済',
@@ -35,6 +37,7 @@ describe('booking-status: canon 定義', () => {
     expect(BOOKING_STATUS_HUE).toEqual({
       pending: 'amber',
       confirmed: 'sky',
+      arrived: 'emerald',
       completed: 'gray',
       cancelled: 'red',
       cancel_fee_paid: 'orange',

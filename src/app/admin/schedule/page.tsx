@@ -11,7 +11,7 @@ import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
  *
  * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）
  * - 列: 時間軸 OPEN_HOUR〜CLOSE_HOUR（30分グリッド）
- * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=sky / 完了=グレー、@/lib/booking-status に集約）で帯表示、クリックで予約詳細へ
+ * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=sky / 受付=emerald / 完了=グレー、@/lib/booking-status に集約）で帯表示、クリックで予約詳細へ
  * - 上部: 日付送り（◀ 前日 / 翌日 ▶・今日）
  */
 

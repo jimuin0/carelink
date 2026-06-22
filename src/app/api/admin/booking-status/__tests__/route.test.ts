@@ -240,9 +240,13 @@ describe('POST /api/admin/booking-status - state machine (valid transitions)', (
   test.each([
     ['pending',    'confirmed'],
     ['pending',    'cancelled'],
+    ['confirmed',  'arrived'],
     ['confirmed',  'completed'],
     ['confirmed',  'cancelled'],
     ['confirmed',  'no_show'],
+    ['arrived',    'completed'],
+    ['arrived',    'cancelled'],
+    ['arrived',    'no_show'],
     ['completed',  'no_show'],
     ['no_show',    'cancelled'],
   ])('%s → %s: valid transition → 200', async (fromStatus, toStatus) => {
@@ -264,13 +268,18 @@ describe('POST /api/admin/booking-status - state machine (invalid transitions)',
   test.each([
     ['pending',   'completed'],
     ['pending',   'no_show'],
+    ['pending',   'arrived'],    // 受付は確定後のみ（pending からは不可）
     ['confirmed', 'confirmed'],  // same-status (covered separately but consistent)
+    ['arrived',   'arrived'],    // same-status
+    ['completed', 'arrived'],    // 完了後に受付へ戻せない
     ['completed', 'confirmed'],
     ['completed', 'cancelled'],
+    ['cancelled', 'arrived'],
     ['cancelled', 'confirmed'],
     ['cancelled', 'completed'],
     ['cancelled', 'no_show'],
     ['cancelled', 'cancelled'],  // same-status terminal
+    ['no_show',   'arrived'],
     ['no_show',   'confirmed'],
     ['no_show',   'completed'],
     ['no_show',   'no_show'],    // same-status
@@ -370,6 +379,58 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(sendBookingStatusUpdate).toHaveBeenCalledTimes(1);
     const callArg = (sendBookingStatusUpdate as jest.Mock).mock.calls[0][0];
     expect(callArg.newStatus).toBe('no_show');
+  });
+
+  test('confirmed → arrived（受付）: 顧客通知なし・来店記録を積まない', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const visitInsert = jest.fn(() => Promise.resolve({ error: null }));
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: { ...bookingBase, status: 'confirmed' } });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+      if (table === 'customer_visits') {
+        return { insert: visitInsert, delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      }
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'arrived' }));
+    expect(res.status).toBe(200);
+    await Promise.resolve();
+    // 受付は来店中の内部操作 → 顧客へのメール・Push は送らない
+    expect(sendBookingConfirmed).not.toHaveBeenCalled();
+    expect(sendBookingCancelled).not.toHaveBeenCalled();
+    expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+    expect(sendPushToUser).not.toHaveBeenCalled();
+    // completed ではないため来店記録は積まない
+    expect(visitInsert).not.toHaveBeenCalled();
+  });
+
+  test('arrived → completed: 来店記録(customer_visits)が積まれる', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+    const visitInsert = jest.fn(() => Promise.resolve({ error: null }));
+    let callCount = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        callCount++;
+        if (callCount === 1) return fluent({ data: { ...bookingBase, status: 'arrived' } });
+        return updateChain({ data: [{ id: validBookingId }], error: null });
+      }
+      if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+      if (table === 'customer_visits') {
+        return { insert: visitInsert, delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      }
+      if (table === 'user_points') {
+        return { insert: jest.fn(() => Promise.resolve({ error: null })), delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      }
+      return singleChain({ name: 'テスト施設' });
+    });
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'completed' }));
+    expect(res.status).toBe(200);
+    expect(visitInsert).toHaveBeenCalled();
   });
 
   test('sendBookingConfirmed に正しい emailData が渡される', async () => {
