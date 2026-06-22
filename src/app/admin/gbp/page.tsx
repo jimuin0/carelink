@@ -510,7 +510,13 @@ export default function AdminGbpPage() {
                         <div>
                           <p className="font-medium text-gray-800">{review.author_name}</p>
                           <div className="flex items-center gap-2">
-                            <span className="text-amber-400 text-sm">{'★'.repeat(review.rating)}{'☆'.repeat(5 - review.rating)}</span>
+                            {(() => {
+                              // review.rating は Places API JSON 由来で未検証。負値・小数・>5 だと
+                              // String.repeat が RangeError を投げ、管理画面全体がクラッシュする。
+                              // 0〜5 の整数にクランプして描画を防御する。
+                              const filled = Math.max(0, Math.min(5, Math.round(review.rating || 0)));
+                              return <span className="text-amber-400 text-sm">{'★'.repeat(filled)}{'☆'.repeat(5 - filled)}</span>;
+                            })()}
                             <span className="text-xs text-gray-400">{review.relative_time_description}</span>
                           </div>
                         </div>

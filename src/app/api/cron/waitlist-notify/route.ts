@@ -86,6 +86,14 @@ export async function GET(request: Request) {
         if (!facility) continue;
 
         for (const waiter of waiters) {
+          // 通知手段が無い（email 未登録 or Resend 未設定）待ち客を claim すると、通知が一切
+          // 届かないのに status='notified' でスロットを 48h 占有し、次の待ち客へ順番が移らない
+          // 恒久 miss になる。さらに notified++ で「通知した」と誤集計される。送れない待ち客は
+          // claim せず skip し、本当に送れる次の待ち客へ順番が回るようにする（無音 miss 防止）。
+          if (!waiter.email || !resend) {
+            continue;
+          }
+
           // Atomic claim: only send if we win the status transition (CAS guard).
           // Two concurrent invocations seeing the same cancellation window will
           // each try to claim; only the first UPDATE matching .eq('status','waiting')
@@ -103,8 +111,8 @@ export async function GET(request: Request) {
 
           if (!claimed || claimed.length === 0) continue;
 
-          // メール通知
-          if (waiter.email && resend) {
+          // メール通知（claim 後に到達する時点で waiter.email/resend は確定で存在する）
+          {
             const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
             try {
               await resend.emails.send({
