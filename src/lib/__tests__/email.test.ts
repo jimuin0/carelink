@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -121,6 +121,19 @@ describe('sendNewBookingNotification', () => {
     const args = mockSend.mock.calls[0][0];
     expect(args.to).toBe('salon@example.com');
     expect(args.subject).toContain('新しい予約');
+  });
+});
+
+describe('sendBookingCancellationToFacility', () => {
+  test('施設メールに店向け文面で送信する（顧客名・メールを含む）', async () => {
+    await sendBookingCancellationToFacility({ ...baseData, facilityEmail: 'salon@example.com' });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('salon@example.com');
+    expect(args.subject).toContain('キャンセル');
+    expect(args.html).toContain('テスト太郎');
+    expect(args.html).toContain('test@example.com');
+    expect(args.html).toContain('/admin/bookings');
   });
 });
 
@@ -320,6 +333,7 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     await mod.sendBookingConfirmed(minData);
     await mod.sendBookingCancelled(minData);
     await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });
+    await mod.sendBookingCancellationToFacility({ ...minData, facilityEmail: 'f@f.com' });
     await mod.sendWelcomeEmail({ ownerEmail: 'o@o.com', facilityName: 'F' });
     await mod.sendOnboardingFollowEmail({ ownerEmail: 'o@o.com', facilityName: 'F', missingSteps: [] });
     await mod.sendBookingStatusUpdate({ ...minData, newStatus: 'confirmed' });

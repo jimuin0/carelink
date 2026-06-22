@@ -6,7 +6,7 @@ jest.mock('@/lib/rate-limit', () => ({
   mutationRateLimit: null,
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
-jest.mock('@/lib/email', () => ({ sendBookingCancelled: jest.fn() }));
+jest.mock('@/lib/email', () => ({ sendBookingCancelled: jest.fn(), sendBookingCancellationToFacility: jest.fn() }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn().mockResolvedValue(undefined) }));
@@ -536,8 +536,8 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: オーナーへのキャンセル通知 ──────────────────────────────────────
 
-  test('オーナーメールが存在する場合も sendBookingCancelled を呼ぶ', async () => {
-    const { sendBookingCancelled } = require('@/lib/email');
+  test('オーナーメールが存在する場合は顧客に sendBookingCancelled・店に sendBookingCancellationToFacility を呼ぶ', async () => {
+    const { sendBookingCancelled, sendBookingCancellationToFacility } = require('@/lib/email');
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
     let callNum = 0;
@@ -569,7 +569,11 @@ describe('POST /api/booking/[id]/cancel', () => {
 
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(200);
-    expect(sendBookingCancelled).toHaveBeenCalledTimes(2);
+    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(
+      expect.objectContaining({ facilityEmail: 'owner@example.com', customerEmail: 'c@example.com' })
+    );
   });
 
 // ─── 深掘り: LINE Works キャンセル通知 ──────────────────────────────────────

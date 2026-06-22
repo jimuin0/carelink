@@ -230,6 +230,28 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
   }, 'new_booking_notification');
 }
 
+/** 予約キャンセル通知（施設向け） */
+export async function sendBookingCancellationToFacility(data: BookingEmailData & { facilityEmail: string }) {
+  const resend = getResend();
+  if (!resend) return;
+  const name = esc(data.customerName);
+  const email = esc(data.customerEmail);
+  await safeSend(resend, {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】予約がキャンセルされました - ${data.customerName}様`),
+    html: wrapHtml(`
+      <p>下記のご予約がキャンセルされました。管理画面で予約状況をご確認ください。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お客様名</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
+      </table>
+      ${bookingDetailHtml(data)}
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/bookings" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+    `),
+  }, 'booking_cancellation_facility');
+}
+
 /** 予約ステータス変更通知（顧客向け） */
 /** 施設オーナー向けウェルカムメール（登録直後） */
 export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }) {

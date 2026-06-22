@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
-import { sendBookingCancelled } from '@/lib/email';
+import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -147,7 +147,9 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     if (owner) {
       const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', owner.user_id).single();
       if (ownerProfile?.email) {
-        void sendBookingCancelled({ ...emailData, customerEmail: ownerProfile.email });
+        // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
+        // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
+        void sendBookingCancellationToFacility({ ...emailData, facilityEmail: ownerProfile.email });
       }
     }
   } catch (err) {
