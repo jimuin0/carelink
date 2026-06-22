@@ -1,92 +1,158 @@
 # CareLink
 
 ## プロジェクト概要
-医療・福祉・美容 特化型 採用×集客プラットフォームのLP・関連ページ一式。
+医療・福祉・美容 施設向けの【予約管理・集客・採用】を統合したマルチテナント SaaS（旧 LP から予約管理プラットフォームへ移行済み）。施設オーナーが予約枠・メニュー・スタッフ・クーポンを管理し、来院者は施設検索・予約・問診・レビューを行う。決済は Stripe、メッセージングは LINE / LIFF、メールは Resend を使う。
+
+- フロント／API＝Next.js 15（App Router・Route Handler）/ デプロイ＝Vercel（本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）
+- DB／認証＝Supabase（Postgres・Auth・Storage・RLS・RPC）
+- 定期実行＝GitHub Actions cron（`.github/workflows/cron.yml`・14 ジョブ）が `/api/cron/*` を Bearer 認証で叩く
+- 本番 Supabase project ref＝`xzafxiupbflvgbarrihe`（middleware の CSP connect-src に明記）
 
 ## 技術スタック
-- Next.js 14（App Router）
-- TypeScript
-- Tailwind CSS
-- react-hook-form + zod（バリデーション）
-- Supabase（@supabase/supabase-js）
-- Vercel デプロイ
+- Next.js 15.5（App Router）/ React 18 / TypeScript 5
+- Tailwind CSS 3.4
+- react-hook-form 7 + zod 4（バリデーション）
+- Supabase＝`@supabase/supabase-js` 2 + `@supabase/ssr`（SSR Cookie 認証）
+- 決済＝Stripe（`stripe` / `@stripe/stripe-js`）
+- メッセージング＝`@line/liff`（LIFF）・LINE Messaging API・LINE WORKS
+- メール＝Resend / Web Push＝`web-push`（VAPID）
+- 地図＝Leaflet + `@react-map/japan` / グラフ＝Recharts / QR＝`qrcode`
+- AI＝`@anthropic-ai/sdk`（問い合わせサポート等）
+- 解析＝`@vercel/analytics` / `@vercel/speed-insights` / GA4 / Microsoft Clarity
+- テスト＝Jest 30（jsdom）・Playwright（E2E）・Stryker 9（ミューテーション）・fast-check（プロパティ）・k6（負荷）
+- Lint＝ESLint 8 + `eslint-config-next` + 自作 `eslint-plugin-carelink-safety`
+- pre-commit＝husky + lint-staged（`gitleaks protect` でシークレット流出防止）
 
 ## ディレクトリ構成
 ```
 src/
+├── middleware.ts            # CSP(nonce) 付与・/mypage・/admin 認証・admin membership キャッシュ
 ├── app/
-│   ├── layout.tsx          # ルートレイアウト（Header/Footer/GA4/Clarity）
-│   ├── page.tsx            # トップページ
-│   ├── loading.tsx         # ローディング
-│   ├── error.tsx           # エラー
-│   ├── not-found.tsx       # 404
-│   ├── sitemap.ts          # sitemap.xml
-│   ├── robots.ts           # robots.txt
-│   ├── salon/
-│   │   ├── layout.tsx      # メタデータ
-│   │   └── page.tsx        # 集客掲載LP（3ステップフォーム）
-│   ├── jobs/
-│   │   ├── layout.tsx      # メタデータ
-│   │   └── page.tsx        # 求職者登録LP（3ステップフォーム）
-│   ├── privacy/page.tsx    # プライバシーポリシー
-│   ├── terms/page.tsx      # 利用規約
-│   └── contact/page.tsx    # お問い合わせ
-├── components/
-│   ├── Header.tsx          # グローバルヘッダー
-│   ├── Footer.tsx          # グローバルフッター
-│   ├── FAQ.tsx             # アコーディオンFAQ
-│   ├── Toast.tsx           # 通知トースト
-│   ├── Spinner.tsx         # ローディングスピナー
-│   ├── StepIndicator.tsx   # フォームステップ表示
-│   └── PhotoUpload.tsx     # 写真アップロード（プレビュー付き）
-├── lib/
-│   ├── supabase.ts         # Supabaseクライアント
-│   └── validations.ts      # zodスキーマ・定数
-└── types/
-    └── index.ts            # 型定義
+│   ├── layout.tsx           # ルートレイアウト
+│   ├── page.tsx             # トップ
+│   ├── search/ compare/ ranking/ facility/ symptom/ symptom-checker/  # 来院者向け検索・比較・施設詳細
+│   ├── mypage/              # 予約者マイページ（要認証）
+│   ├── admin/               # 施設オーナー／プラットフォーム管理画面（要認証）
+│   ├── auth/                # ログイン・サインアップ
+│   ├── liff/ intake/        # LINE LIFF・問診フォーム
+│   ├── blog/ feature/ recruit/ jobs/ register/  # 集客・採用・記事
+│   ├── robots.ts sitemap.ts # SEO
+│   └── api/                 # Route Handler 群（下記「API ルート一覧」）
+├── components/              # UI コンポーネント
+├── lib/                     # 共通ロジック（withRoute・各種 supabase クライアント・csrf 等）
+└── types/                   # 型定義
+supabase/migrations/         # DB マイグレーション（145 本）
+.github/workflows/           # CI（ci.yml 他）・cron（cron.yml）
+load-tests/                  # k6 負荷テスト
+e2e/                         # Playwright E2E
 ```
 
-## 環境変数
-| 変数名 | 説明 |
+## セキュリティ・共通パターン（必ず踏襲）
+
+### API ルートの標準形＝`withRoute`（`src/lib/with-route.ts`）
+Route Handler は原則 `withRoute` で包む。内部で以下を【この順序】で実行し、書き忘れを物理的に防ぐ：
+1. CSRF 検証（`csrf` 既定 true・GET は false 指定）— `checkCsrf`：Origin/Referer の host が一致しなければ 403
+2. レート制限（`rateLimit` 指定時）— `checkRateLimit`：Supabase RPC `check_rate_limit` を優先、失敗時は in-memory フォールバック（fail-safe・本体を 500 化させない）
+3. 認証（`requireAuth: true` 指定時）— `auth.getUser()` で未認証は 401・通過時は `ctx.user` / `ctx.supabase` をハンドラへ注入
+4. ハンドラ本体
+5. 例外は必ず catch して 500 に変換し、`safeCaptureException` ＋ `alertCaughtError`（Slack 通知・fire-and-forget）。catch して 500 を返すと `instrumentation.ts` の onRequestError に伝播せず Slack 通知が漏れるため、catch 経路でも明示通知する。
+
+### middleware（`src/middleware.ts`）
+- 全応答に per-request nonce ベースの CSP を付与（`'strict-dynamic'` + nonce で `'unsafe-inline'` を script から排除）。`x-nonce` / `x-pathname` をサーバーコンポーネントへ伝搬。
+- 保護パス＝`PROTECTED_PATHS = ['/mypage', '/admin']`。未認証は `/auth/login?redirect=...` へ。
+- `/admin` は `facility_members` の `owner`/`admin` ロールのみ許可。`/admin/onboarding` は除外（施設未作成オーナーの作成導線を確保）。
+- admin メンバーシップは Cookie キャッシュ（キー `_cm_mbr_{userId16}`・値を `ADMIN_COOKIE_SECRET` で HMAC-SHA256 署名・TTL 300 秒）。未設定時はキャッシュ無効（DB 都度確認）。
+
+### cron 認証（`src/lib/cron-auth.ts`）
+`checkCronAuth`：`Authorization: Bearer ${CRON_SECRET}` を `timingSafeEqual`（定数時間・長さ不一致は別途 false）で検証。`CRON_SECRET` 未設定は 500。
+
+### 監査ログ（`src/lib/audit-logger.ts`）
+重要操作は `void writeAuditLog({...})`（fire-and-forget・失敗で本体を止めない）で `audit_logs` に記録。`diffValues` で変更フィールドのみ抽出。
+
+### Supabase クライアントの使い分け
+- `createServerSupabaseClient`（`supabase-server.ts`）＝anon。公開データの読み取り専用。書き込み・ユーザー固有データに使わない。
+- `createServiceRoleClient`（`supabase-server.ts`）＝service role。RLS バイパス。API ルート・cron などサーバー信頼文脈のみ。
+- `createServerSupabaseAuthClient`（`supabase-server-auth.ts`）＝SSR Cookie 認証。ログインユーザー文脈の読み書き。
+- ブラウザ＝`supabase-browser.ts`。
+
+## API ルート一覧（`src/app/api/`）
+- 公開・来院者系：`facilities` `facility` `salons` `availability` `slots` `booking` `waitlist` `options` `symptoms` `stations` `recommendations` `ab-test` `referral` `review` `nps` `report` `favorites` `profile` `account` `chat` `intake` `contact` `inquiry` `health` `og` `v1`
+- 認証・LINE：`auth` `liff` `line` `push` `notify`
+- 決済：`payment` `stripe`
+- 管理（`api/admin/`・施設オーナー／プラットフォーム）：`bookings` `booking-status` `booking-checkout` `booking-adjust-request` `customers` `staff` `menus` `catalog` `coupons` `packages` `user-packages` `subscription-plans` `user-subscriptions` `payments-settings` `accounting-export` `settings` `facility-verify` `registrations` `jobs` `job-applications` `featured-ads` `features` `feature-flags` `blog` `platform-blog` `qa` `review-summary` `moderation` `newsletter` `inquiries` `report` `gbp` `hpb-menus` `ai-support` `api-keys` `backup` `chain` `white-label` `subscription-plans`
+- cron（`api/cron/`・GitHub Actions から Bearer 認証で起動）：下記スケジュール参照
+- Google 連携：`google-calendar` / Slack：`slack`
+
+## cron スケジュール（`.github/workflows/cron.yml`・UTC 指定／JST 併記）
+| path | cron(UTC) | JST |
+|------|-----------|-----|
+| booking-reminder | `0 15 * * *` | 毎日 00:00 |
+| daily-summary | `0 6 * * *` | 毎日 15:00 |
+| customer-segment | `0 7 * * 0` | 日曜 16:00 |
+| review-request | `0 18 * * *` | 毎日 03:00 |
+| sync-google-ratings | `0 9 * * 0` | 日曜 18:00 |
+| onboarding-followup | `0 16 * * *` | 毎日 01:00 |
+| birthday-coupon | `0 14 * * *` | 毎日 23:00 |
+| flag-reviews | `0 * * * *` | 毎時 |
+| favorites-digest | `0 15 * * 1` | 月曜 00:00 |
+| waitlist-notify | `30 * * * *` | 毎時30分 |
+| webhook-retry | `*/15 * * * *` | 15分毎 |
+| hpb-menu-scrape | `20 17 * * *` | 毎日 02:20 |
+| schema-drift-check | `40 17 * * *` | 毎日 02:40 |
+
+## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正・全 80+ テーブル）
+- 予約：`bookings` `booking_menus` `booking_waitlist` `booking_calendar_events` `facility_daily_capacity` `facility_booking_suspensions`
+- 施設：`facilities` `facility_profiles` `facility_members` `facility_menus` `facility_photos` `facility_certifications` `facility_symptoms` `facility_qa` `facility_reviews` `facility_cancel_policies` `facility_line_settings` `facility_notification_settings` `facility_reminder_settings` `facility_entitlements` `facility_inquiries`
+- 顧客：`customers` `customer_visits` `customer_segments` `salon_customer_notes` `profiles` `favorites`
+- メニュー／クーポン／パッケージ：`coupons` `coupon_menus` `menu_staff` `option_catalog` `hpb_menu_durations` `package_usage_logs`
+- 決済・購読：`featured_slots` `subscription`・各 entitlement 系
+- 採用・集客：`job_postings` `job_applications` `job_seekers` `facility_jobs` `recruits` `blog_posts` `blog_authors` `platform_blog_posts` `feature_articles` `area_seo_contents` `areas`
+- レビュー・モデレーション：`public_reviews` `review_replies` `review_helpful` `moderation_queue` `nps_surveys`
+- 通知・連携：`line_user_links` `line_notification_logs` `push_subscriptions` `google_calendar_tokens` `newsletter_subscriptions` `newsletter_campaigns` `newsletter_send_log` `email_unsubscribe_tokens` `birthday_notifications`
+- 基盤：`audit_logs` `cron_logs` `rate_limit_buckets` `webhook`系 `api_keys` `feature_flags` `features` `ab_test_events` `referral_codes` `referral_uses` `contacts` `contact_replies` `intake_form_templates` `intake_form_responses` `daily_revenue_summary` `gbp_posts` `gbp_audit_cache`
+
+`schema-drift-check` cron が本番スキーマと `schema-snapshot.json` の差分を毎日 JST 02:40 に検知（マイグレーション未適用による無音バグの発症前予防）。CI の Contract Tests（`jest.config.contract.js`）も staging のドリフトをゲートする。
+
+## 環境変数（コード内 `process.env` 参照から抽出）
+| 変数名 | 用途 |
 |--------|------|
-| NEXT_PUBLIC_SUPABASE_URL | Supabase Project URL |
-| NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase anon key |
-| NEXT_PUBLIC_GA_ID | Google Analytics 4 測定ID（空なら無効） |
-| NEXT_PUBLIC_CLARITY_ID | Microsoft Clarity プロジェクトID（空なら無効） |
-| SUPABASE_SERVICE_ROLE_KEY | Supabase service_role キー（cron / 管理 API のサーバ側 DB 操作。RLS バイパス） |
-| CRON_SECRET | GitHub Actions cron → `/api/cron/*` 認証用 Bearer トークン（未設定で全 cron 401） |
-| CARELINK_BASE_URL | cron workflow が叩く本番ベース URL（例: https://carelink-jp.com） |
-| RESEND_API_KEY | Resend メール送信 API キー（未設定でメール系 cron は 503/送信スキップ） |
-| NEWSLETTER_UNSUBSCRIBE_SECRET | 月次ニュースレターの配信停止リンク HMAC 署名鍵。**newsletter-digest / unsubscribe で共通必須**（未設定で newsletter-digest は 503・送信不可）。一度設定したら変更しない（既存の配信停止リンク維持） |
+| NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY | Supabase（必須） |
+| SUPABASE_SERVICE_ROLE_KEY | service role（cron／管理 API のサーバ側 DB 操作・RLS バイパス・必須） |
+| NEXT_PUBLIC_APP_URL / NEXT_PUBLIC_BASE_URL / NEXT_PUBLIC_SITE_URL | 本番ベース URL（リダイレクト・OGP・sitemap 等） |
+| ADMIN_COOKIE_SECRET | /admin membership キャッシュの HMAC 署名鍵（未設定でキャッシュ無効） |
+| CRON_SECRET | GitHub Actions cron → `/api/cron/*` の Bearer 認証（未設定で全 cron 401／500） |
+| RESEND_API_KEY / EMAIL_FROM | メール送信（未設定でメール系 cron は送信スキップ） |
+| NEWSLETTER_UNSUBSCRIBE_SECRET | 月次ニュースレター配信停止リンクの HMAC 署名鍵（newsletter-digest／unsubscribe 共通・一度設定したら変更しない） |
+| STRIPE_SECRET_KEY / STRIPE_WEBHOOK_SECRET | 決済・Stripe webhook 署名検証 |
+| LINE_CHANNEL_ACCESS_TOKEN_CARELINK / LINE_CHANNEL_SECRET / LINE_CHANNEL_SECRET_CARELINK / LINE_LOGIN_CHANNEL_ID / NEXT_PUBLIC_LIFF_ID / NEXT_PUBLIC_LINE_CHANNEL_ID | LINE Messaging／LINE Login／LIFF |
+| LINE_WORKS_BOT_ID / LINE_WORKS_CLIENT_ID / LINE_WORKS_CLIENT_SECRET / LINE_WORKS_PRIVATE_KEY / LINE_WORKS_SERVICE_ACCOUNT | LINE WORKS 連携 |
+| SLACK_BOT_TOKEN / SLACK_SIGNING_SECRET / SLACK_DEFAULT_CHANNEL | Slack 通知・スラッシュコマンド署名検証 |
+| GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_MAPS_API_KEY | Google カレンダー連携・地図 |
+| ANTHROPIC_API_KEY | AI サポート |
+| RECAPTCHA_SECRET_KEY | reCAPTCHA 検証 |
+| VAPID_PRIVATE_KEY / NEXT_PUBLIC_VAPID_PUBLIC_KEY | Web Push |
+| NEXT_PUBLIC_GA_ID / NEXT_PUBLIC_CLARITY_ID | GA4／Clarity（空なら無効） |
+| NEXT_PUBLIC_GSC_VERIFICATION_APEX | Search Console 所有権確認 |
+| SUPER_ADMIN_USER_IDS | プラットフォーム super admin の user_id 群 |
 
-## Supabaseテーブル設計
+## テスト・CI（`.github/workflows/ci.yml`）
+- Lint & Type Check：`npm run lint` ＋ `npx tsc --noEmit`
+- Unit Tests + Coverage：`npm run test:coverage:ci`。`jest.config.js` の `coverageThreshold`＝branches【100】/ lines 80 / functions 75 / statements 80。測定対象＝`src/lib/**/*.ts` ＋ `src/app/api/**/*.{ts,tsx}`（JSX を返す Route Handler の測定漏れ防止）。下回ると Coverage Gate で fail。
+- E2E（Playwright）：`supabase start` → `npm run build` → `npm run test:e2e`（chromium / webkit）
+- Security Audit：`npm audit --audit-level=high`
+- Contract Tests（staging drift gate）：`npm run test:contract`（`jest.config.contract.js`）
+- 他ワークフロー：`mutation-l4.yml`（Stryker）・`health-monitor.yml`（外形監視）・`cron-constraints.yml` / `anon-write-policy-lint.yml` / `secdef-search-path-lint.yml` / `actionlint.yml`（静的ガード）・`deploy-watch.yml` / `vercel-preview-build.yml`
 
-### salons
-施設・サロンの掲載登録データ。
-主要カラム: facility_name, business_type, representative_name, contact_name, email, phone, photo_url, status
-
-### job_seekers
-求職者の登録データ。
-主要カラム: full_name, furigana, phone, email, job_type, certifications(TEXT[]), desired_employment_type(TEXT[]), photo_url, status
-
-### contacts
-お問い合わせデータ。
-カラム: name, email, inquiry_type, message
-
-### Storage
-バケット: carelink-uploads（public）
-パス: salons/[uuid]/photo.[ext], job_seekers/[uuid]/photo.[ext]
-
-## デプロイ手順
-1. GitHubリポジトリにpush
-2. Vercelにインポート → 環境変数を設定
-3. デプロイ完了
-
-## 開発コマンド
+## 開発コマンド（`package.json` scripts）
 ```bash
-npm run dev   # 開発サーバー起動
-npm run build # ビルド
-npm run lint  # ESLint
+npm run dev                 # 開発サーバー
+npm run build               # ビルド
+npm run lint                # ESLint
+npm test                    # Jest
+npm run test:coverage:ci    # カバレッジ（CI 同等）
+npm run test:e2e            # Playwright E2E
+npm run test:contract       # Contract（drift gate）
+npm run test:load           # k6 負荷（search-load）
 ```
 
 ## テスト品質スタック 現在地
@@ -100,3 +166,5 @@ npm run lint  # ESLint
 | L5 | fast-check プロパティベース | ✅ | 26テスト＋safeJsonLd プロパティ7件、バグ3件修正 2026-05-29／json-ld 追加 2026-05-30 |
 | L6 | npm audit / 認証テスト | ✅ | critical=0・high=0、認証バイパステスト 21件（HMAC検証・middleware） 2026-05-29 達成 |
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
+</content>
+</invoke>
