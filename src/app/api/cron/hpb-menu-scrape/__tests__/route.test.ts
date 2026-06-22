@@ -25,7 +25,11 @@ function req() {
   });
 }
 
-function facChain(data: unknown, error: unknown = null) {
+// admin.from('facility_profiles') は 2 用途で使われる:
+//  1. rotation 取得: .select().not().order().limit()
+//  2. 処理ごとの stamp: .update().eq()  (hpb_scraped_at ローテ前進)
+// 同じ返却オブジェクトで両方をサポートする。stampError を渡すと update().eq() が error を返す。
+function facChain(data: unknown, error: unknown = null, stampError: unknown = null) {
   return {
     select: jest.fn().mockReturnValue({
       not: jest.fn().mockReturnValue({
@@ -33,6 +37,9 @@ function facChain(data: unknown, error: unknown = null) {
           limit: jest.fn().mockResolvedValue({ data, error }),
         }),
       }),
+    }),
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockResolvedValue({ error: stampError }),
     }),
   };
 }
@@ -107,6 +114,15 @@ test('例外が Error 以外(string) でも String() で処理', async () => {
   (scrapeAndSaveFacility as jest.Mock).mockRejectedValue('str-error');
   const res = await GET(req());
   expect((await res.json()).failed).toBe(1);
+});
+
+test('hpb_scraped_at stamp 失敗 → failed++ (rotation 前進不能の可視化)', async () => {
+  // scrape は成功(failed=0)だが stamp(update().eq())が error → failed=1 になる。
+  mockAdminFrom.mockReturnValue(facChain([{ id: 'f1' }], null, { message: 'stamp-db' }));
+  (scrapeAndSaveFacility as jest.Mock).mockResolvedValue(okResult);
+  const json = await (await GET(req())).json();
+  expect(json.facilities).toBe(1);
+  expect(json.failed).toBe(1);
 });
 
 test('時間予算超過 → 残りを deferred', async () => {

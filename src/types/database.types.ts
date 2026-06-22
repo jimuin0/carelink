@@ -1913,6 +1913,7 @@ export type Database = {
           google_rating: number | null
           google_review_count: number | null
           header_photo_url: string | null
+          hpb_scraped_at: string | null
           hpb_sln_id: string | null
           id: string
           is_seed: boolean | null
@@ -1983,6 +1984,7 @@ export type Database = {
           google_rating?: number | null
           google_review_count?: number | null
           header_photo_url?: string | null
+          hpb_scraped_at?: string | null
           hpb_sln_id?: string | null
           id?: string
           is_seed?: boolean | null
@@ -2053,6 +2055,7 @@ export type Database = {
           google_rating?: number | null
           google_review_count?: number | null
           header_photo_url?: string | null
+          hpb_scraped_at?: string | null
           hpb_sln_id?: string | null
           id?: string
           is_seed?: boolean | null
