@@ -340,6 +340,9 @@ describe('GET /api/cron/review-request', () => {
 
   test('email send failure but LINE succeeds → delivered, no release', async () => {
     setupDefaultMocks(1, true, true, true);
+    // sendLineText returns true on successful delivery (it resolves false on failure,
+    // never throws unless the token env is unset). A successful LINE send must resolve true.
+    (sendLineText as jest.Mock).mockResolvedValue(true);
 
     const res = await GET(makeRequest() as any);
 
