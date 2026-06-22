@@ -145,11 +145,14 @@ export async function GET(request: Request) {
         if (lineLink?.line_user_id) {
           attempted = true;
           try {
-            await sendLineText(
+            // sendLineText はリトライ上限到達時に throw せず false を返す。戻り値を無視して
+            // delivered=true に固定すると、配信失敗でも claim 解放（再送）が発火せず sent_at が
+            // 立ったまま二度と再送されない（silent な恒久 miss）。戻り値で delivered を確定する。
+            const ok = await sendLineText(
               lineLink.line_user_id,
               `✨ ${facility.name}へのご来店ありがとうございました！\n\n口コミを投稿すると50ポイントプレゼント🎁\n\n👇 口コミを書く\n${reviewUrl}`
             );
-            delivered = true;
+            if (ok) delivered = true;
           } catch (err) {
             console.error('[review-request] LINE send failed', { bookingId: booking.id, err });
           }

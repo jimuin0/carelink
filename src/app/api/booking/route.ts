@@ -162,8 +162,14 @@ export async function POST(request: Request) {
   }
   // 価格を超えるポイントは利用できない（クライアントが価格変更後の stale な points_used を送ると、
   // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
-  // 権威的なサーバ計算価格でクランプする。serverTotalPrice 不明時のみ要求値をそのまま用いる。
-  const pointsUsed = serverTotalPrice != null ? Math.min(requestedPoints, serverTotalPrice) : requestedPoints;
+  // 権威的なサーバ計算価格でクランプする。
+  // メニュー未指定等で serverTotalPrice が不明な場合は価格上限でクランプできず、要求ポイントが
+  // そのまま控除されると null 価格（=実質 0 円）の予約に対してポイントが消失する（金銭損失）。
+  // 権威的価格が無いままポイント利用は許可しない（fail-closed）。
+  if (requestedPoints > 0 && serverTotalPrice == null) {
+    return NextResponse.json({ error: 'この予約ではポイントを利用できません' }, { status: 400 });
+  }
+  const pointsUsed = serverTotalPrice != null ? Math.min(requestedPoints, serverTotalPrice) : 0;
   // Snapshot current balance for CAS (compare-and-swap) check later
   let pointsBalanceSnapshot = 0;
   if (pointsUsed > 0 && user) {

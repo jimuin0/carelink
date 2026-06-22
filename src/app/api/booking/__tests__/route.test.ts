@@ -125,6 +125,22 @@ function fluent(resolvedValue: unknown) {
 // then: supabase.rpc('create_booking_atomic')
 // subsequent calls: notification lookups (all in try/catch — failures are suppressed)
 
+// 共有: ポイント利用テスト用のメニュー価格ルックアップ chain。
+// ポイント利用には権威的なサーバ価格（メニュー）が必須なため、CAS 系テストは
+// menu_id を付与し、conflict check の直後（mockFrom 呼び出し #2）でこの chain を返す。
+const POINTS_MENU_ID = '323e4567-e89b-12d3-a456-426614174000';
+function menuPriceChain(price: number) {
+  const result = { data: [{ id: POINTS_MENU_ID, price }], error: null };
+  const chain: Record<string, unknown> = {};
+  const handler = jest.fn(() => chain);
+  chain.select = handler;
+  chain.in = handler;
+  chain.eq = handler;
+  chain.or = handler;
+  chain.then = Promise.resolve(result).then.bind(Promise.resolve(result));
+  return chain;
+}
+
 describe('POST /api/booking', () => {
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -502,17 +518,18 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;   // conflict check (bookings)
-      if (callNum === 2) return balanceChain;    // user_points balance snapshot
-      if (callNum === 3) return nullChain;       // facility_profiles (auto-confirm)
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 3) return balanceChain;    // user_points balance snapshot
+      if (callNum === 4) return nullChain;       // facility_profiles (auto-confirm)
       // After RPC success:
-      if (table === 'user_points' && callNum === 4) return deductionChain; // insert deduction
-      if (table === 'user_points' && callNum === 5) return recheckChain;   // re-verify balance
+      if (table === 'user_points' && callNum === 5) return deductionChain; // insert deduction
+      if (table === 'user_points' && callNum === 6) return recheckChain;   // re-verify balance
       if (table === 'user_points') return deleteChain;                     // rollback deduction
       if (table === 'bookings') return cancelChain;                        // cancel booking
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('競合');
@@ -836,6 +853,40 @@ describe('POST /api/booking', () => {
     errSpy.mockRestore();
   });
 
+  // 権威的なサーバ価格が無い（メニュー未指定で serverTotalPrice=null）状態でポイント利用を
+  // 要求した場合、価格上限でクランプできず full 控除＝null 価格(=0円)予約に対するポイント消失
+  // （金銭損失）になるため fail-closed で 400 を返す。ポイントは一切控除されない。
+  test('メニュー未指定でポイント利用 → 400（ポイントは控除しない）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-no-menu-pts' } } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+
+    // user_points への insert が呼ばれたら検知するためのスパイ
+    const deductionInsert = jest.fn(() => ({
+      select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'should-not-happen' } })) })),
+    }));
+    const deductionChain: Record<string, unknown> = { insert: deductionInsert };
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (table === 'user_points') return deductionChain;
+      return nullChain;
+    });
+
+    // menu_id / menu_ids 共になし → serverTotalPrice=null
+    const res = await POST(makeRequest({ ...validBooking, menu_id: null, points_used: 100 }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('ポイント');
+    // RPC（予約作成）にもポイント控除 insert にも到達しないこと
+    expect(mockRpc).not.toHaveBeenCalled();
+    expect(deductionInsert).not.toHaveBeenCalled();
+  });
+
   test('ポイント成功（CAS通過）→200', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-2' } } });
 
@@ -863,14 +914,15 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      if (callNum === 2) return balanceChain;
-      if (callNum === 3) return nullChain;
-      if (table === 'user_points' && callNum === 4) return deductionChain;
-      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain;
+      if (table === 'user_points' && callNum === 5) return deductionChain;
+      if (table === 'user_points' && callNum === 6) return recheckChain;
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.bookingId).toBe('booking-cas-ok');
@@ -1322,16 +1374,17 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       upCall++;
       if (upCall === 1) return conflictChain;
-      if (upCall === 2) return balanceChain;
-      if (upCall === 3) return nullChain;
-      if (table === 'user_points' && upCall === 4) return deductionChain;
-      if (table === 'user_points' && upCall === 5) return recheckChain;
+      if (upCall === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (upCall === 3) return balanceChain;
+      if (upCall === 4) return nullChain;
+      if (table === 'user_points' && upCall === 5) return deductionChain;
+      if (table === 'user_points' && upCall === 6) return recheckChain;
       if (table === 'user_points') return rollbackPointsChain;
       if (table === 'bookings') return rollbackBookingChain;
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('競合');
@@ -1566,15 +1619,16 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      if (callNum === 2) return balanceChain;
-      if (callNum === 3) return nullChain;
-      if (table === 'user_points' && callNum === 4) return deductionChain;
-      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain;
+      if (table === 'user_points' && callNum === 5) return deductionChain;
+      if (table === 'user_points' && callNum === 6) return recheckChain;
       if (table === 'bookings') return cancelChain;
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('競合');
@@ -1618,16 +1672,17 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      if (callNum === 2) return balanceChain;
-      if (callNum === 3) return nullChain;
-      if (table === 'user_points' && callNum === 4) return deductionChain;
-      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain;
+      if (table === 'user_points' && callNum === 5) return deductionChain;
+      if (table === 'user_points' && callNum === 6) return recheckChain;
       if (table === 'user_points') return deleteChain;
       if (table === 'bookings') return cancelChain;
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[booking] point deduction rollback failed'),
@@ -1676,16 +1731,17 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      if (callNum === 2) return balanceChain;
-      if (callNum === 3) return nullChain;
-      if (table === 'user_points' && callNum === 4) return deductionChain;
-      if (table === 'user_points' && callNum === 5) return recheckChain;
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain;
+      if (table === 'user_points' && callNum === 5) return deductionChain;
+      if (table === 'user_points' && callNum === 6) return recheckChain;
       if (table === 'user_points') return deleteChain;
       if (table === 'bookings') return cancelChain;
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
     expect(consoleSpy).toHaveBeenCalledWith(
       expect.stringContaining('[booking] booking rollback failed'),
@@ -1709,10 +1765,11 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
       return pointsNullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 200 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 200 }));
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toContain('ポイント');
@@ -1747,14 +1804,15 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
-      if (callNum === 2) return balanceChain;
-      if (callNum === 3) return nullChain; // facility_profiles
-      if (table === 'user_points' && callNum === 4) return deductionChain;
-      if (table === 'user_points' && callNum === 5) return recheckNullChain;
+      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain; // facility_profiles
+      if (table === 'user_points' && callNum === 5) return deductionChain;
+      if (table === 'user_points' && callNum === 6) return recheckNullChain;
       return nullChain;
     });
 
-    const res = await POST(makeRequest({ ...validBooking, points_used: 150 }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: POINTS_MENU_ID, points_used: 150 }));
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.bookingId).toBe('booking-recheck-null');
