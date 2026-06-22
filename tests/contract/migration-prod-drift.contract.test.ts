@@ -72,6 +72,15 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * 列レベルドリフトの既知例外（`table.column`）。
+ * migration が列を定義しているが database.types.ts に現れない正当ケースのみをここへ。
+ * 例: パーサが拾えない特殊DDL・後続migrationで実質無効化された列・prod introspection に
+ * 出ない種別の列。新規追加は「型再生成漏れの先送り」になり得るため原則禁止（理由必須）。
+ * 2026年6月22日 初版＝空（列ドリフト 0）。
+ */
+const KNOWN_COLUMN_DRIFT: ReadonlySet<string> = new Set([]);
+
+/**
  * 本番へ未適用と判明している migration 定義 RPC 関数。
  * テーブルの KNOWN_PENDING_DEPLOYMENT と同趣旨で、本番適用先送りの明示宣言（原則禁止）。
  * 2026-06-15 時点で空＝関数ドリフト 0（get_unique_customers [T20] は本番適用済み＝
@@ -167,16 +176,149 @@ function prodFunctionsFromTypes(): Set<string> {
   return fns;
 }
 
+/**
+ * migration が定義する「テーブル→列名集合」。CREATE TABLE の列＋ALTER ADD COLUMN を加え、
+ * DROP COLUMN / RENAME COLUMN を反映する。ファイル名昇順で処理して後続migrationの削除/改名を尊重。
+ * 制約行（CONSTRAINT/PRIMARY/FOREIGN/UNIQUE/CHECK/EXCLUDE/LIKE）は列ではないため除外。
+ */
+function migrationDefinedColumns(): Map<string, Set<string>> {
+  const cols = new Map<string, Set<string>>();
+  const add = (table: string, col: string) => {
+    if (!cols.has(table)) cols.set(table, new Set());
+    cols.get(table)!.add(col);
+  };
+  const drop = (table: string, col: string) => { cols.get(table)?.delete(col); };
+  const CONSTRAINT_KW = /^(constraint|primary|foreign|unique|check|exclude|like)\b/i;
+  const files = readdirSync(MIGRATIONS_DIR).filter((f) => f.endsWith('.sql')).sort();
+
+  for (const file of files) {
+    const sql = readFileSync(join(MIGRATIONS_DIR, file), 'utf8');
+
+    // CREATE TABLE [IF NOT EXISTS] [public.]<name> ( ... ) — 括弧バランスで本体抽出
+    const createRe = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s*\(/gi;
+    let cm: RegExpExecArray | null;
+    while ((cm = createRe.exec(sql)) !== null) {
+      const table = cm[1];
+      let depth = 1, rawBody = '';
+      for (let i = createRe.lastIndex; i < sql.length && depth > 0; i++) {
+        const ch = sql[i];
+        if (ch === '(') depth++;
+        else if (ch === ')') { depth--; if (depth === 0) break; }
+        rawBody += ch;
+      }
+      // コメント（-- 行末 / ブロック）を除去。これらに含まれるカンマで列分割が壊れるのを防ぐ。
+      const body = rawBody.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+      // トップレベルのカンマで列定義に分割。NUMERIC(2,1)/CHECK(...) のネスト括弧と、
+      // DEFAULT '{"a":0,"b":0}' 等の単一引用符文字列内のカンマを分割境界にしない。
+      const parts: string[] = [];
+      let buf = '', d = 0, inStr = false;
+      for (const ch of body) {
+        if (ch === "'") inStr = !inStr;
+        else if (!inStr && ch === '(') d++;
+        else if (!inStr && ch === ')') d--;
+        if (!inStr && ch === ',' && d === 0) { parts.push(buf); buf = ''; } else buf += ch;
+      }
+      if (buf.trim()) parts.push(buf);
+      for (const part of parts) {
+        const t = part.trim();
+        if (!t || CONSTRAINT_KW.test(t)) continue;
+        const nameM = /^"?([a-z_][a-z0-9_]*)"?/i.exec(t);
+        if (nameM) add(table, nameM[1].toLowerCase());
+      }
+    }
+
+    // ALTER TABLE ... ADD COLUMN [IF NOT EXISTS] <col>
+    const addRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
+    let am: RegExpExecArray | null;
+    while ((am = addRe.exec(sql)) !== null) add(am[1], am[2].toLowerCase());
+
+    // DROP COLUMN
+    const dropRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
+    let dm: RegExpExecArray | null;
+    while ((dm = dropRe.exec(sql)) !== null) drop(dm[1], dm[2].toLowerCase());
+
+    // RENAME COLUMN <old> TO <new>
+    const renRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+RENAME\s+COLUMN\s+"?([a-z_][a-z0-9_]*)"?\s+TO\s+"?([a-z_][a-z0-9_]*)"?/gi;
+    let rm: RegExpExecArray | null;
+    while ((rm = renRe.exec(sql)) !== null) { drop(rm[1], rm[2].toLowerCase()); add(rm[1], rm[3].toLowerCase()); }
+  }
+  return cols;
+}
+
+/** database.types.ts の各テーブル Row セクションの列名集合（本番に実在する列＝introspection 生成）。 */
+function prodColumnsFromTypes(): Map<string, Set<string>> {
+  const src = readFileSync(TYPES_FILE, 'utf8');
+  const lines = src.split('\n');
+  const out = new Map<string, Set<string>>();
+  let cur: string | null = null;
+  let inRow = false;
+  for (const line of lines) {
+    const t = /^ {6}([a-z_][a-z0-9_]*): \{$/.exec(line);
+    if (t && !inRow) { cur = t[1]; continue; }
+    if (cur && /^ {8}Row: \{$/.test(line)) { inRow = true; out.set(cur, new Set()); continue; }
+    if (inRow) {
+      if (/^ {8}\}/.test(line)) { inRow = false; cur = null; continue; }
+      const c = /^ {10}([a-z_][a-z0-9_]*)\??: /.exec(line);
+      if (c && cur) out.get(cur)!.add(c[1].toLowerCase());
+    }
+  }
+  return out;
+}
+
 describe('migration ↔ prod スキーマ ドリフト台帳', () => {
   const migrationTables = migrationDefinedTables();
   const prodTables = prodTablesFromTypes();
   const migrationRpcFunctions = migrationDefinedRpcFunctions();
   const prodFunctions = prodFunctionsFromTypes();
+  const migrationColumns = migrationDefinedColumns();
+  const prodColumns = prodColumnsFromTypes();
 
   test('パース健全性: 両ソースから十分なテーブル数を取得できている', () => {
     // 正規表現破綻による空集合での誤 PASS を防ぐサニティチェック。
     expect(migrationTables.size).toBeGreaterThan(50);
     expect(prodTables.size).toBeGreaterThan(40);
+  });
+
+  test('パース健全性: migration/types から十分な列数を取得できている', () => {
+    const totalMig = [...migrationColumns.values()].reduce((s, set) => s + set.size, 0);
+    const totalProd = [...prodColumns.values()].reduce((s, set) => s + set.size, 0);
+    expect(totalMig).toBeGreaterThan(200);
+    expect(totalProd).toBeGreaterThan(200);
+  });
+
+  // 列レベルドリフト検知（テーブル/関数名だけの従来ゲートが見逃す穴を塞ぐ）。
+  // 背景: 2026年6月22日 監査で facility_profiles の8列が migration/本番に在るのに
+  //   database.types.ts へ未反映（cast で tsc を素通り）だった。テーブル単位の従来テストでは
+  //   検知できなかったため、列単位の前方ドリフト（migration 列 ⊄ types 列）を恒久検知する。
+  test('migration が定義する列は database.types.ts に存在する（列レベル未反映ドリフトの検知）', () => {
+    const drift: string[] = [];
+    for (const [table, cols] of migrationColumns) {
+      if (KNOWN_PROD_ONLY.has(table)) continue;     // migration-less 残存テーブルは table-level テストが担当
+      const typeCols = prodColumns.get(table);
+      if (!typeCols) continue;                        // types に無いテーブルは未適用ドリフト側で検知
+      for (const col of cols) {
+        const key = `${table}.${col}`;
+        if (!typeCols.has(col) && !KNOWN_COLUMN_DRIFT.has(key)) drift.push(key);
+      }
+    }
+    drift.sort();
+    if (drift.length > 0) {
+      throw new Error(
+        'migration が定義する列が database.types.ts に未反映です（列追加後の型再生成漏れ＝2026年6月22日の8列ドリフトと同型）。\n' +
+          '本番から database.types.ts を再生成（or 該当列を追記）し schema-snapshot を再生成してください。\n' +
+          '正当な例外のみ KNOWN_COLUMN_DRIFT へ理由付きで追記:\n  ' +
+          drift.join('\n  ')
+      );
+    }
+    expect(drift).toEqual([]);
+  });
+
+  test('KNOWN_COLUMN_DRIFT は陳腐化していない（反映済みなら削除を促す）', () => {
+    const stale = [...KNOWN_COLUMN_DRIFT].filter((key) => {
+      const [table, col] = key.split('.');
+      return prodColumns.get(table)?.has(col);
+    }).sort();
+    expect(stale).toEqual([]);
   });
 
   test('migration が定義するテーブルは本番に存在する（未適用ドリフトの検知）', () => {
