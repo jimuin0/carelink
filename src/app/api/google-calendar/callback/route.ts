@@ -76,7 +76,9 @@ export async function GET(req: NextRequest) {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString();
 
   const admin = createServiceRoleClient();
-  await admin.from('google_calendar_tokens').upsert({
+  // トークン保存失敗を成功扱いにしない。失敗のまま success へ飛ばすと、
+  // 連携できたと誤認させつつ以後のカレンダー同期がサイレントに動かなくなる。
+  const { error: tokenSaveError } = await admin.from('google_calendar_tokens').upsert({
     user_id: userId,
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token || null,
@@ -84,6 +86,9 @@ export async function GET(req: NextRequest) {
     scope: tokens.scope || null,
     updated_at: new Date().toISOString(),
   }, { onConflict: 'user_id' });
+  if (tokenSaveError) {
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
 
   return NextResponse.redirect(new URL('/mypage/settings?gcal=success', req.url));
 }

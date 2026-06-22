@@ -172,7 +172,8 @@ export default function ProfileEditPage() {
                     if (uploadError) throw uploadError;
                     const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
                     const url = `${urlData.publicUrl}?t=${Date.now()}`;
-                    await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+                    const { error: updateError } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', user.id);
+                    if (updateError) throw updateError;
                     setAvatarUrl(url);
                     setToast({ type: 'success', message: '写真を更新しました' });
                   } catch { setToast({ type: 'error', message: 'アップロードに失敗しました' }); }
@@ -304,7 +305,8 @@ export default function ProfileEditPage() {
                 const supabase = createBrowserSupabaseClient();
                 const { data: { user } } = await supabase.auth.getUser();
                 if (!user) return;
-                await supabase.from('profiles').update({ email_unsubscribed: newValue }).eq('id', user.id);
+                const { error: updateError } = await supabase.from('profiles').update({ email_unsubscribed: newValue }).eq('id', user.id);
+                if (updateError) throw updateError;
                 setEmailUnsubscribed(newValue);
                 setToast({ type: 'success', message: newValue ? 'メール配信を停止しました' : 'メール配信を再開しました' });
               } catch {
@@ -353,7 +355,8 @@ export default function ProfileEditPage() {
             const supabase = createBrowserSupabaseClient();
             const { data: { user } } = await supabase.auth.getUser();
             if (user) {
-              await supabase.from('line_user_links').delete().eq('user_id', user.id);
+              const { error: unlinkError } = await supabase.from('line_user_links').delete().eq('user_id', user.id);
+              if (unlinkError) throw unlinkError;
               setLineLinked(false);
               setLineDisplayName(null);
               setToast({ type: 'success', message: 'LINE連携を解除しました' });
