@@ -20,8 +20,14 @@ export default function LocaleSwitcher() {
     const handleClick = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
+    // 開いているポップアップを ESC で閉じられるようにする（WAI-ARIA APG の推奨）。
+    const handleKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false); };
     document.addEventListener('mousedown', handleClick);
-    return () => document.removeEventListener('mousedown', handleClick);
+    document.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleClick);
+      document.removeEventListener('keydown', handleKey);
+    };
   }, []);
 
   const handleSelect = (locale: Locale) => {
@@ -42,6 +48,8 @@ export default function LocaleSwitcher() {
           onClick={() => setOpen(true)}
           className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-700 transition-colors px-2 py-1 rounded-lg hover:bg-gray-100"
           aria-label="言語を変更"
+          aria-haspopup="menu"
+          aria-expanded={open}
         >
           <span>🌐</span>
           <span className="hidden sm:inline">{LOCALE_FLAGS[current]} {LOCALE_LABELS[current]}</span>
@@ -58,6 +66,8 @@ export default function LocaleSwitcher() {
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1.5 text-xs font-medium px-2.5 py-1.5 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 transition-colors"
         aria-label="Change language"
+        aria-haspopup="menu"
+        aria-expanded={open}
       >
         <span>{LOCALE_FLAGS[current]}</span>
         <span>{LOCALE_LABELS[current]}</span>
