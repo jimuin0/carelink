@@ -14,6 +14,7 @@ import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 const NotificationSettings = dynamic(() => import('@/components/admin/NotificationSettings'), { ssr: false });
 const CancelPolicySettings = dynamic(() => import('@/components/admin/CancelPolicySettings'), { ssr: false });
+const WithdrawalSettings = dynamic(() => import('@/components/admin/WithdrawalSettings'), { ssr: false });
 const ReminderUpsellSettings = dynamic(() => import('@/components/admin/ReminderUpsellSettings'), { ssr: false });
 
 interface BusinessHours {
@@ -644,6 +645,8 @@ export default function AdminSettingsPage() {
         }}
         onCancel={() => setShowUnpublishConfirm(false)}
       />
+
+      <WithdrawalSettings />
     </div>
   );
 }
