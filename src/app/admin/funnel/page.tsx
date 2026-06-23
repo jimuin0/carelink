@@ -24,14 +24,17 @@ export default async function FunnelPage() {
 
   const since = jstMonthStartIso(-1);
 
-  // ファネル各ステップのデータ
-  // NOTE: ページビュー（施設ページ閲覧）は記録テーブルが未実装のため、
-  //       予約開始を起点としたファネルにしている。計測基盤の追加は別途設計。
+  // ファネル各ステップのデータ。ページ閲覧は facility_page_views（時系列記録）を
+  // 同じ期間窓で集計し、ファネルの最上段に置く（view_count は累積値のため期間窓に使わない）。
   const [
+    { count: pageViews },
     { count: bookingStarts },
     { count: bookingCompleted },
     { count: reviewPosted },
   ] = await Promise.all([
+    // ページ閲覧（施設ページの閲覧記録）
+    admin.from('facility_page_views').select('id', { count: 'exact', head: true })
+      .eq('facility_id', facilityId).gte('created_at', since),
     // 予約開始（全ステータス）
     admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since),
@@ -44,12 +47,19 @@ export default async function FunnelPage() {
       .eq('facility_id', facilityId).gte('created_at', since),
   ]);
 
+  const views = pageViews ?? 0;
   const totalBookings = bookingStarts ?? 0;
   const confirmedBookings = bookingCompleted ?? 0;
   const reviews = reviewPosted ?? 0;
 
-  // 推定ファネル（予約開始を基準）
+  // ファネル（ページ閲覧を基準）
   const steps = [
+    {
+      label: 'ページ閲覧',
+      count: views,
+      color: 'bg-sky-500',
+      description: '施設ページの閲覧',
+    },
     {
       label: '予約開始',
       count: totalBookings,
@@ -107,7 +117,7 @@ export default async function FunnelPage() {
     <div className="space-y-6 max-w-4xl">
       <div>
         <h1 className="text-xl font-bold">コンバージョンファネル</h1>
-        <p className="text-xs text-gray-400 mt-0.5">予約開始から確定・レビューまでの転換率</p>
+        <p className="text-xs text-gray-400 mt-0.5">ページ閲覧から予約開始・確定・レビューまでの転換率</p>
       </div>
 
       {/* ファネルチャート */}

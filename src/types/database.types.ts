@@ -2344,6 +2344,39 @@ export type Database = {
           },
         ]
       }
+      facility_page_views: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_page_views_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_page_views_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       favorites: {
         Row: {
           created_at: string | null
@@ -5741,6 +5774,10 @@ export type Database = {
       get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
+        Args: { facility_uuid: string }
+        Returns: undefined
+      }
+      record_facility_page_view: {
         Args: { facility_uuid: string }
         Returns: undefined
       }
