@@ -434,6 +434,11 @@
     "push_on_new_booking",
     "push_on_review"
   ],
+  "facility_page_views": [
+    "created_at",
+    "facility_id",
+    "id"
+  ],
   "facility_photos": [
     "caption",
     "coupon_id",
