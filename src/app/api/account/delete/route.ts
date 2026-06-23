@@ -12,6 +12,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { todayJst } from '@/lib/admin-date';
+
+// 未完了（進行中）の予約ステータス。completed / cancelled / no_show / cancel_fee_paid は終了済み。
+const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'arrived'];
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +46,41 @@ export async function POST(request: NextRequest) {
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
+
+    // 退会ガード：未完了予約が残っている間は退会不可（顧客の予約難民・施設のキャンセル難民を防ぐ）。
+    // 当日以降の進行中予約を、本人（顧客）分と所有施設（オーナー）分の両面でチェックする。
+    const today = todayJst();
+    const { count: ownActiveBookings } = await adminSupabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', user.id)
+      .in('status', ACTIVE_BOOKING_STATUSES)
+      .gte('booking_date', today);
+
+    const { data: ownerMemberships } = await adminSupabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', user.id)
+      .eq('role', 'owner');
+
+    let facilityActiveBookings = 0;
+    if (ownerMemberships && ownerMemberships.length > 0) {
+      const facilityIds = ownerMemberships.map((m) => m.facility_id);
+      const { count: facilityCount } = await adminSupabase
+        .from('bookings')
+        .select('id', { count: 'exact', head: true })
+        .in('facility_id', facilityIds)
+        .in('status', ACTIVE_BOOKING_STATUSES)
+        .gte('booking_date', today);
+      facilityActiveBookings = facilityCount ?? 0;
+    }
+
+    if ((ownActiveBookings ?? 0) > 0 || facilityActiveBookings > 0) {
+      return NextResponse.json(
+        { error: '未完了の予約が残っているため退会できません。予約の完了またはキャンセル後に再度お試しください。' },
+        { status: 409 }
+      );
+    }
 
     // 関連データ削除（CASCADE設定されていないテーブル + SET NULL で残存するPIIテーブル）
     const deleteResults = await Promise.allSettled([
