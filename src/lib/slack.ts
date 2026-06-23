@@ -93,18 +93,6 @@ export async function postToSlack(opts: SlackPostOptions): Promise<SlackPostResu
   }
 }
 
-/**
- * 親メッセージ ts を指定して同スレッドに返信するショートカット
- */
-export async function replyInThread(
-  channel: string,
-  thread_ts: string,
-  text: string,
-  options: Omit<SlackPostOptions, 'channel' | 'text' | 'thread_ts'> = {}
-): Promise<SlackPostResult> {
-  return postToSlack({ channel, thread_ts, text, ...options });
-}
-
 // ===== Phase 7c: Incident thread 集約 =====
 
 /**
@@ -190,13 +178,6 @@ export function sectionBlock(text: string, fields?: string[]): Record<string, un
 }
 
 /**
- * 区切り線
- */
-export function dividerBlock(): Record<string, unknown> {
-  return { type: 'divider' };
-}
-
-/**
  * ボタンブロック（actions 内に入れる）
  * @param text ボタン表示テキスト
  * @param action_id Slack interactions endpoint で受け取る action 識別子
@@ -235,13 +216,6 @@ export function linkButtonElement(text: string, url: string): Record<string, unk
  */
 export function actionsBlock(elements: Record<string, unknown>[]): Record<string, unknown> {
   return { type: 'actions', elements };
-}
-
-/**
- * ヘッダーブロック（太字大型タイトル）
- */
-export function headerBlock(text: string): Record<string, unknown> {
-  return { type: 'header', text: { type: 'plain_text', text, emoji: true } };
 }
 
 /**

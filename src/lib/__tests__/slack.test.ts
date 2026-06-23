@@ -18,14 +18,11 @@ jest.mock('@/lib/supabase-server', () => ({
 
 import {
   postToSlack,
-  replyInThread,
   postToSlackWithThreadGrouping,
   sectionBlock,
-  dividerBlock,
   buttonElement,
   linkButtonElement,
   actionsBlock,
-  headerBlock,
   contextBlock,
 } from '../slack';
 
@@ -152,34 +149,6 @@ describe('postToSlack', () => {
   });
 });
 
-describe('replyInThread', () => {
-  let originalFetch: typeof fetch;
-  let mockFetch: jest.Mock;
-
-  beforeEach(() => {
-    originalFetch = global.fetch;
-    mockFetch = jest.fn().mockResolvedValue(
-      new Response(JSON.stringify({ ok: true, ts: 'r1' }), {
-        headers: { 'Content-Type': 'application/json' },
-      })
-    );
-    global.fetch = mockFetch as unknown as typeof fetch;
-    process.env.SLACK_BOT_TOKEN = 'xoxb-test-token';
-  });
-
-  afterEach(() => {
-    global.fetch = originalFetch;
-  });
-
-  test('channel と thread_ts を必ず付与する', async () => {
-    await replyInThread('C0AAAA', '999.000', 'follow-up');
-    const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
-    expect(body.channel).toBe('C0AAAA');
-    expect(body.thread_ts).toBe('999.000');
-    expect(body.text).toBe('follow-up');
-  });
-});
-
 describe('postToSlackWithThreadGrouping (Phase 7c)', () => {
   let originalFetch: typeof fetch;
   let mockFetch: jest.Mock;
@@ -298,10 +267,6 @@ describe('Block Kit ヘルパー', () => {
     ]);
   });
 
-  test('dividerBlock', () => {
-    expect(dividerBlock()).toEqual({ type: 'divider' });
-  });
-
   test('buttonElement: minimal', () => {
     expect(buttonElement('Click', 'do_thing')).toEqual({
       type: 'button',
@@ -325,13 +290,6 @@ describe('Block Kit ヘルパー', () => {
   test('actionsBlock', () => {
     const els = [buttonElement('A', 'a'), buttonElement('B', 'b')];
     expect(actionsBlock(els)).toEqual({ type: 'actions', elements: els });
-  });
-
-  test('headerBlock', () => {
-    expect(headerBlock('Title')).toEqual({
-      type: 'header',
-      text: { type: 'plain_text', text: 'Title', emoji: true },
-    });
   });
 
   test('contextBlock', () => {
