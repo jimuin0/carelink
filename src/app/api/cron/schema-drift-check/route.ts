@@ -24,11 +24,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 
+  // RPC get_public_columns は jsonb 配列(1行)を返す。PostgREST 行数上限の影響を受けないよう
+  // SETOF ではなく jsonb_agg で集約しているため data は [{table_name, column_name}] 配列そのもの。
+  const rows = (Array.isArray(data) ? data : []) as SchemaRow[];
   const expected = snapshot as Record<string, string[]>;
-  const { contaminated, missing, colDrift } = computeDrift(
-    expected,
-    (data ?? []) as SchemaRow[],
-  );
+  const { contaminated, missing, colDrift } = computeDrift(expected, rows);
 
   const driftCount = contaminated.length + missing.length + colDrift.length;
   if (driftCount > 0) {
