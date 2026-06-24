@@ -5757,10 +5757,7 @@ export type Database = {
       }
       get_public_columns: {
         Args: Record<PropertyKey, never>
-        Returns: {
-          table_name: string
-          column_name: string
-        }[]
+        Returns: Json
       }
       get_unique_customers: {
         Args: { p_facility_id: string }
