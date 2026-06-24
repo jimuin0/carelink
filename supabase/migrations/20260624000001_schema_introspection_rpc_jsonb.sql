@@ -15,6 +15,11 @@
 --   (jsonb 配列が単一スカラ値として返るため、新旧どちらの route 実装でも data は同じ配列形になり互換)。
 --
 -- 副作用なし(SELECT のみ)。anon/authenticated からは実行不可(service_role 限定)。
+--
+-- 注意: CREATE OR REPLACE は既存関数の戻り型を変更できない(SQLSTATE 42P13)。
+--   旧定義は RETURNS TABLE、新定義は RETURNS jsonb で戻り型が変わるため、先に DROP する。
+DROP FUNCTION IF EXISTS public.get_public_columns();
+
 CREATE OR REPLACE FUNCTION public.get_public_columns()
 RETURNS jsonb
 LANGUAGE sql
