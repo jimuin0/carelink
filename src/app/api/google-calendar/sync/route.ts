@@ -5,6 +5,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { alertCaughtError } from '@/lib/alert';
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
 const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
@@ -141,18 +142,31 @@ export async function POST(req: NextRequest) {
     const data = await res.json();
     googleEventId = data.id;
 
-    await admin.from('booking_calendar_events').upsert({
+    const { error: trackErr } = await admin.from('booking_calendar_events').upsert({
       booking_id: bookingId,
       user_id: user.id,
       google_event_id: googleEventId,
       calendar_id: 'primary',
       synced_at: new Date().toISOString(),
     }, { onConflict: 'booking_id,user_id' });
+
+    if (trackErr) {
+      // 追跡行の保存に失敗。放置すると次回同期で existing を引けず Google 側に重複イベントを
+      // 作るため、作成直後の Google イベントを取り消して「両方ある／両方ない」へ原子的に揃える。
+      alertCaughtError('gcal-sync', new Error(`booking_calendar_events persist failed: ${trackErr.message}`), '/api/google-calendar/sync');
+      await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events/${googleEventId}`,
+        { method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+      return NextResponse.json({ error: 'Calendar sync failed' }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ ok: true, googleEventId });
   } catch (e) {
     console.error('[google-calendar/sync] POST error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('gcal-sync', e, '/api/google-calendar/sync');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }
@@ -214,6 +228,8 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('[google-calendar/sync] DELETE error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('gcal-sync', e, '/api/google-calendar/sync');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

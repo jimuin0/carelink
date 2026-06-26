@@ -11,6 +11,7 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 const BOOKING_UUID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -141,6 +142,30 @@ test('POST: 正常同期（新規イベント作成） → 200', async () => {
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
   expect(json.googleEventId).toBe(GOOGLE_EVENT_ID);
+});
+
+test('POST: 追跡行の保存失敗 → 作成済みGoogleイベントをロールバックして500（重複防止）', async () => {
+  const { alertCaughtError } = require('@/lib/alert');
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(BOOKING_DATA); // booking
+    if (callNum === 2) return singleChain(TOKEN_ROW); // token
+    if (callNum === 3) return singleChain(null); // no existing calendar event
+    return { upsert: jest.fn(() => Promise.resolve({ error: { message: 'persist failed' } })) };
+  });
+  mockFetch.mockResolvedValue({ ok: true, json: () => Promise.resolve({ id: GOOGLE_EVENT_ID }) });
+
+  const res = await POST(makePostReq({ bookingId: BOOKING_UUID }));
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.error).toBe('Calendar sync failed');
+  // 作成直後の Google イベントを取り消す DELETE が呼ばれること（孤立イベントを残さない）
+  const rollbackDelete = mockFetch.mock.calls.find(
+    (call) => call[1]?.method === 'DELETE' && String(call[0]).includes(GOOGLE_EVENT_ID),
+  );
+  expect(rollbackDelete).toBeDefined();
+  expect(alertCaughtError).toHaveBeenCalledWith('gcal-sync', expect.any(Error), '/api/google-calendar/sync');
 });
 
 // ─── DELETE: security guards ──────────────────────────────────────────────────
@@ -430,6 +455,23 @@ test('POST: facility_profiles が null → facilityName が undefined → デフ
   expect(res.status).toBe(200);
   const json = await res.json();
   expect(json.ok).toBe(true);
+});
+
+test('DELETE: ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', async () => {
+  const { alertCaughtError } = require('@/lib/alert');
+  const expiredToken = { access_token: 'old', refresh_token: 'ref', expires_at: new Date(Date.now() - 1000).toISOString() };
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ google_event_id: GOOGLE_EVENT_ID }); // cal event
+    return singleChain(expiredToken); // token（期限切れ → リフレッシュ）
+  });
+  // トークンリフレッシュの fetch が ok=false → refreshAccessToken が throw → DELETE catch へ
+  mockFetch.mockResolvedValueOnce({ ok: false, status: 400 });
+
+  const res = await DELETE(makeDeleteRequest(BOOKING_UUID));
+  expect(res.status).toBe(500);
+  expect(alertCaughtError).toHaveBeenCalledWith('gcal-sync', expect.any(Error), '/api/google-calendar/sync');
 });
 
 // Branch coverage: line 163 — DELETE の CSRF チェック失敗
