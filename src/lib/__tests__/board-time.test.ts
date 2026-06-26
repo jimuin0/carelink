@@ -5,6 +5,7 @@ import {
   computeEndMinutes,
   endExceedsClose,
   assignLanes,
+  computeBoardHourRange,
 } from '@/lib/board-time';
 
 describe('timeToMinutes', () => {
@@ -92,5 +93,59 @@ describe('assignLanes', () => {
   it('3件同時重複は3レーン', () => {
     const r = assignLanes([{ start: 0, end: 90 }, { start: 30, end: 120 }, { start: 60, end: 150 }]);
     expect(r.laneCount).toBe(3);
+  });
+});
+
+describe('computeBoardHourRange', () => {
+  it('営業時間未設定（null）→ 既定範囲を使う', () => {
+    expect(computeBoardHourRange(null, [], 8, 22)).toEqual({ openHour: 8, closeHour: 22 });
+  });
+
+  it('営業時間設定あり → その日の open/close を時グリッドへ丸める（open切り捨て・close切り上げ）', () => {
+    expect(computeBoardHourRange({ open: '10:30', close: '20:30' }, [], 8, 22))
+      .toEqual({ openHour: 10, closeHour: 21 });
+  });
+
+  it('ちょうど時境界の営業時間はそのまま', () => {
+    expect(computeBoardHourRange({ open: '09:00', close: '19:00' }, [], 8, 22))
+      .toEqual({ openHour: 9, closeHour: 19 });
+  });
+
+  it('open のみ・close 欠落 → 既定にフォールバック', () => {
+    expect(computeBoardHourRange({ open: '10:00', close: null }, [], 8, 22))
+      .toEqual({ openHour: 8, closeHour: 22 });
+  });
+
+  it('close <= open の不正営業時間 → 既定にフォールバック', () => {
+    expect(computeBoardHourRange({ open: '20:00', close: '10:00' }, [], 8, 22))
+      .toEqual({ openHour: 8, closeHour: 22 });
+  });
+
+  it('営業時間外の早朝・深夜予約があれば範囲を前後に自動拡張（予約が隠れない）', () => {
+    const bookings = [
+      { start_time: '07:30:00', end_time: '08:30:00' }, // 営業前
+      { start_time: '20:00:00', end_time: '21:15:00' }, // 営業後
+    ];
+    expect(computeBoardHourRange({ open: '10:00', close: '19:00' }, bookings, 8, 22))
+      .toEqual({ openHour: 7, closeHour: 22 }); // open=floor(7:30)=7 / close=max(default22, ceil(21:15)=22)=22
+  });
+
+  it('営業時間内の予約のみなら営業時間範囲のまま', () => {
+    const bookings = [{ start_time: '11:00:00', end_time: '12:00:00' }];
+    expect(computeBoardHourRange({ open: '10:00', close: '19:00' }, bookings, 8, 22))
+      .toEqual({ openHour: 10, closeHour: 19 });
+  });
+
+  it('0〜24 にクランプし最低1時間幅を保証する', () => {
+    // 深夜跨ぎの極端予約でも 0〜24 に収め、open<close を満たす
+    const bookings = [{ start_time: '00:00:00', end_time: '23:59:00' }];
+    const r = computeBoardHourRange({ open: '23:00', close: '23:30' }, bookings, 8, 22);
+    expect(r.openHour).toBe(0);
+    expect(r.closeHour).toBe(24);
+    expect(r.closeHour).toBeGreaterThan(r.openHour);
+  });
+
+  it('undefined（曜日キー不在）でも既定にフォールバック', () => {
+    expect(computeBoardHourRange(undefined, [], 8, 22)).toEqual({ openHour: 8, closeHour: 22 });
   });
 });

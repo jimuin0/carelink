@@ -35,6 +35,46 @@ export function endExceedsClose(endMin: number, closeHour: number): boolean {
 }
 
 /**
+ * サロンボードの表示時間帯（時・整数グリッド）を算出する。
+ *
+ * - その日の営業時間（business_hours の当該曜日 open/close）が設定されていれば、それを
+ *   時グリッドへ丸めて基準にする（open は切り捨て・close は切り上げ）。未設定・休業日
+ *   （null）・open>=close の不正値は既定（defaultOpenHour〜defaultCloseHour）にフォールバック。
+ * - 営業時間外に予約がある場合でもチップが切れて隠れないよう、最早予約開始・最遅予約終了で
+ *   範囲を前後に自動拡張する（予約の無音消失を防ぐ）。
+ * - 0〜24 にクランプし、最低1時間幅を保証する（open<close を必ず満たす）。
+ *
+ * これにより店舗は「設定→営業時間」を変えるだけでボード表示帯を変更できる（固定値を撤廃）。
+ */
+export function computeBoardHourRange(
+  dayBusiness: { open?: string | null; close?: string | null } | null | undefined,
+  bookings: { start_time: string; end_time: string }[],
+  defaultOpenHour: number,
+  defaultCloseHour: number,
+): { openHour: number; closeHour: number } {
+  let openHour = defaultOpenHour;
+  let closeHour = defaultCloseHour;
+
+  if (dayBusiness && dayBusiness.open && dayBusiness.close) {
+    const o = timeToMinutes(dayBusiness.open);
+    const c = timeToMinutes(dayBusiness.close);
+    if (c > o) {
+      openHour = Math.floor(o / 60);
+      closeHour = Math.ceil(c / 60);
+    }
+  }
+
+  for (const b of bookings) {
+    openHour = Math.min(openHour, Math.floor(timeToMinutes(b.start_time) / 60));
+    closeHour = Math.max(closeHour, Math.ceil(timeToMinutes(b.end_time) / 60));
+  }
+
+  openHour = Math.max(0, Math.min(openHour, 23));
+  closeHour = Math.min(24, Math.max(closeHour, openHour + 1));
+  return { openHour, closeHour };
+}
+
+/**
  * 時間が重複する区間を「レーン（段）」に貪欲割当する（ガントの重なり可視化用）。
  * 同一スタッフ・同時間帯の予約を縦に並置し、下のチップが隠れる問題を解消する。
  * 返り値: 各区間（入力順）のレーン番号配列と、総レーン数（最低1）。

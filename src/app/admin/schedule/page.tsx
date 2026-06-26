@@ -5,20 +5,26 @@ import type { Database } from '@/types/database.types';
 import Link from 'next/link';
 import BoardScheduleGrid, { type BoardRow, type BoardMenu } from '@/components/admin/BoardScheduleGrid';
 import { todayJst, isValidIsoDate, addDays } from '@/lib/admin-date';
+import { computeBoardHourRange } from '@/lib/board-time';
+import { dayOrder } from '@/lib/constants';
 
 /**
  * サロンボード（HPB サロンボード型・スタッフ×時間軸ガントビュー / CareLink 色）
  *
  * - 行: スタッフ（is_active・sort_order 順）＋「指名なし」（staff_id null の予約）
- * - 列: 時間軸 OPEN_HOUR〜CLOSE_HOUR（30分グリッド）
+ * - 列: 時間軸。表示帯は店舗の営業時間（business_hours の当該曜日）から算出し、未設定時は
+ *   既定 8〜22 時にフォールバック。枠外予約があれば前後へ自動拡張（computeBoardHourRange）
  * - 予約チップ: ステータス色（確認待ち=琥珀 / 確定=sky / 受付=emerald / 完了=グレー、@/lib/booking-status に集約）で帯表示、クリックで予約詳細へ
  * - 上部: 日付送り（◀ 前日 / 翌日 ▶・今日）
  */
 
 export const dynamic = 'force-dynamic';
 
-const OPEN_HOUR = 8;
-const CLOSE_HOUR = 22;
+// 表示時間帯の既定（フォールバック）。店舗の営業時間（business_hours）が未設定・休業日・
+// 不正値のときに使う。営業時間が設定されていればそちらを優先し、店舗は「設定→営業時間」を
+// 変えるだけでボードの表示帯を変更できる（固定値を撤廃）。
+const DEFAULT_OPEN_HOUR = 8;
+const DEFAULT_CLOSE_HOUR = 22;
 
 // 盤面の横幅設計。1時間あたりの表示幅を固定（px）にして時間軸の間隔を確保し、
 // 画面幅を超える分は横スクロール（親の overflow-x-auto）で見せる（HPB サロンボード型）。
@@ -59,11 +65,13 @@ export default async function AdminSchedulePage(props: Props) {
   const ALLOWED_SLOT_MINUTES = [15, 30, 60] as const;
   const { data: slotRow } = await supabase
     .from('facility_profiles')
-    .select('board_slot_minutes')
+    .select('board_slot_minutes, business_hours')
     .eq('id', membership.facility_id)
     .maybeSingle();
   const rawSlot = (slotRow as { board_slot_minutes?: number | null } | null)?.board_slot_minutes;
   const slotMinutes = ALLOWED_SLOT_MINUTES.includes(rawSlot as 15 | 30 | 60) ? (rawSlot as number) : 60;
+  // 営業時間（曜日別）。型は JSONB のため緩く受け、当該曜日の open/close のみ後で参照する。
+  const businessHours = (slotRow as { business_hours?: Record<string, { open?: string | null; close?: string | null } | null> | null } | null)?.business_hours ?? null;
 
   const date = searchParams.date && isValidIsoDate(searchParams.date)
     ? searchParams.date
@@ -137,10 +145,24 @@ export default async function AdminSchedulePage(props: Props) {
     { key: '__unassigned__', name: '指名なし', position: null, nominationFee: 0, chips: chipsFor('__unassigned__') },
   ];
 
+  // 表示日の曜日（JST 暦日・dayOrder は mon 始まり）の営業時間を取り出す。
+  // getUTCDay は 0=日…6=土。dayOrder（mon=0）への変換は (n+6)%7。
+  const [yy, mm, dd] = date.split('-').map(Number);
+  const dowUtc = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay();
+  const dayKey = dayOrder[(dowUtc + 6) % 7];
+  const dayBusiness = businessHours?.[dayKey] ?? null;
+  // 表示時間帯 = 営業時間（無ければ既定）を基準に、枠外予約があれば前後へ自動拡張。
+  const { openHour, closeHour } = computeBoardHourRange(
+    dayBusiness,
+    bookings.map((b) => ({ start_time: b.start_time, end_time: b.end_time })),
+    DEFAULT_OPEN_HOUR,
+    DEFAULT_CLOSE_HOUR,
+  );
+
   // 時間軸ヘッダ（1時間刻み）
-  const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
-  // 盤面の最小幅 = スタッフ名列 + 営業時間 × 1時間あたり幅。これを下回ると横スクロールになる。
-  const boardMinWidth = NAME_COL_PX + (CLOSE_HOUR - OPEN_HOUR) * HOUR_PX;
+  const hours = Array.from({ length: closeHour - openHour }, (_, i) => openHour + i);
+  // 盤面の最小幅 = スタッフ名列 + 表示時間 × 1時間あたり幅。これを下回ると横スクロールになる。
+  const boardMinWidth = NAME_COL_PX + (closeHour - openHour) * HOUR_PX;
 
   const today = todayJst();
 
@@ -195,8 +217,8 @@ export default async function AdminSchedulePage(props: Props) {
           <BoardScheduleGrid
             facilityId={membership.facility_id}
             date={date}
-            openHour={OPEN_HOUR}
-            closeHour={CLOSE_HOUR}
+            openHour={openHour}
+            closeHour={closeHour}
             rows={boardRows}
             menus={boardMenus}
             slotMinutes={slotMinutes}
