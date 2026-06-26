@@ -1,7 +1,7 @@
 import type { MetadataRoute } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { allPrefectureSlugs, allBusinessTypeSlugs, getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
-import { getAllCitySlugs } from '@/data/city-slugs';
+import { getAllCitySlugs, getCitySlug } from '@/data/city-slugs';
 import { articles } from '@/data/articles';
 import { SITE_URL } from '@/lib/constants';
 
@@ -62,7 +62,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const ts = getBusinessTypeSlug(f.business_type);
     if (ps && ts) {
       occupiedPrefType.add(`${ps}/${ts}`);
-      if (f.city) occupiedCityType.add(`${ps}/${f.city}/${ts}`);
+      // f.city は DB の生の市区町村名。cityTypePages 側は citySlug で URL を作るため、
+      // ここで名前→slug 変換して slug 基準で記録しないと Set の照合が成立しない（旧コードは
+      // 生名のまま add していたため occupiedCityType が一度も参照されない死蔵 Set になっていた）。
+      if (f.city) {
+        const cs = getCitySlug(ps, f.city);
+        if (cs) occupiedCityType.add(`${ps}/${cs}/${ts}`);
+      }
     }
   }
 
@@ -122,13 +128,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // City x BusinessType pages (top cities only)
   const majorPrefectures = ['tokyo', 'osaka', 'kanagawa', 'aichi', 'fukuoka', 'saitama', 'chiba', 'hyogo', 'kyoto', 'hokkaido'];
   const majorCities = allCities.filter((c) => majorPrefectures.includes(c.prefectureSlug));
+  // 施設が1件以上ある市区町村×業種ページのみ掲載（薄いコンテンツ除外）。crossPages と同じ方針。
   const cityTypePages: MetadataRoute.Sitemap = majorCities.flatMap((c) =>
-    allBusinessTypeSlugs.map((ts) => ({
-      url: `${SITE_URL}/${c.prefectureSlug}/${c.citySlug}/${ts}`,
-      lastModified: updated,
-      changeFrequency: 'daily' as const,
-      priority: 0.6,
-    }))
+    allBusinessTypeSlugs
+      .filter((ts) => occupiedCityType.has(`${c.prefectureSlug}/${c.citySlug}/${ts}`))
+      .map((ts) => ({
+        url: `${SITE_URL}/${c.prefectureSlug}/${c.citySlug}/${ts}`,
+        lastModified: updated,
+        changeFrequency: 'daily' as const,
+        priority: 0.6,
+      }))
   );
 
   // Blog articles (from static data)
