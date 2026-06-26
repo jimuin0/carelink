@@ -141,7 +141,9 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
       const charge = event.data.object as Stripe.Charge;
       if (charge.payment_intent && typeof charge.payment_intent === 'string') {
         const isFullRefund = charge.amount_refunded >= charge.amount;
-        await admin.from('stripe_sessions')
+        // error を捕捉して throw する。捕捉しないと CHECK 制約違反等が無音で no-op になり、
+        // 返金が DB に記録されないまま processed=true になる（敵対監査で確定した無音欠落の根治）。
+        const { error: refundErr } = await admin.from('stripe_sessions')
           .update({
             status: isFullRefund ? 'refunded' : 'partial_refund',
             refund_amount: charge.amount_refunded,
@@ -149,6 +151,7 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
             updated_at: new Date().toISOString(),
           })
           .eq('stripe_payment_intent_id', charge.payment_intent);
+        if (refundErr) throw new Error(`stripe_sessions refund update failed: ${refundErr.message}`);
       }
       break;
     }
@@ -157,12 +160,14 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
       const dispute = event.data.object as Stripe.Dispute;
       const paymentIntentId = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : null;
       if (paymentIntentId) {
-        await admin.from('stripe_sessions')
+        const { error: sessionErr } = await admin.from('stripe_sessions')
           .update({ status: 'disputed', updated_at: new Date().toISOString() })
           .eq('stripe_payment_intent_id', paymentIntentId);
-        await admin.from('bookings')
+        if (sessionErr) throw new Error(`stripe_sessions dispute update failed: ${sessionErr.message}`);
+        const { error: bookingErr } = await admin.from('bookings')
           .update({ payment_status: 'disputed' })
           .eq('stripe_payment_intent_id', paymentIntentId);
+        if (bookingErr) throw new Error(`bookings dispute update failed: ${bookingErr.message}`);
       }
       break;
     }
@@ -172,12 +177,14 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
       const paymentIntentId = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : null;
       if (paymentIntentId) {
         const status = dispute.status === 'won' ? 'paid' : 'dispute_lost';
-        await admin.from('stripe_sessions')
+        const { error: sessionErr } = await admin.from('stripe_sessions')
           .update({ status, updated_at: new Date().toISOString() })
           .eq('stripe_payment_intent_id', paymentIntentId);
-        await admin.from('bookings')
+        if (sessionErr) throw new Error(`stripe_sessions dispute close update failed: ${sessionErr.message}`);
+        const { error: bookingErr } = await admin.from('bookings')
           .update({ payment_status: status })
           .eq('stripe_payment_intent_id', paymentIntentId);
+        if (bookingErr) throw new Error(`bookings dispute close update failed: ${bookingErr.message}`);
       }
       break;
     }
