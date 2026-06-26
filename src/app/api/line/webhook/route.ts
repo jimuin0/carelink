@@ -46,6 +46,10 @@ export async function POST(request: Request) {
           }
           break;
 
+        case 'unfollow':
+          await handleUnfollow(lineUserId);
+          break;
+
         case 'message':
           if (event.replyToken && event.message?.type === 'text') {
             await sendLineReply(event.replyToken, [{
@@ -101,5 +105,27 @@ async function handleFollow(lineUserId: string) {
       );
   } catch (e) {
     console.error('[LINE Webhook] Follow handler error:', e);
+  }
+}
+
+async function handleUnfollow(lineUserId: string) {
+  // ユーザーがブロック / フォロー解除した。以後 LINE 通知は送れず、行を残すと各送信経路が
+  // user_id → line_user_id を引いて送信失敗を繰り返す（dead link）。当該リンクを削除して
+  // 送信対象から外す（FK 参照は無く account/delete と同じ削除パターン。再フォロー時は
+  // handleFollow が再登録する）。署名検証済みのため LINE 由来イベントのみ到達する。
+  try {
+    const supabaseAdmin = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!
+    );
+    const { error } = await supabaseAdmin
+      .from('line_user_links')
+      .delete()
+      .eq('line_user_id', lineUserId);
+    if (error) {
+      console.error('[LINE Webhook] Unfollow handler delete failed', { lineUserId, err: error.message });
+    }
+  } catch (e) {
+    console.error('[LINE Webhook] Unfollow handler error:', e);
   }
 }

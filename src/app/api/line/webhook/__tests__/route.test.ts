@@ -171,6 +171,49 @@ describe('POST /api/line/webhook', () => {
     );
   });
 
+  test('unfollow event → line_user_links を削除（dead link 除去）', async () => {
+    const mockEq = jest.fn().mockResolvedValue({ error: null });
+    const mockDelete = jest.fn().mockReturnValue({ eq: mockEq });
+    mockFromDelegate.mockReturnValue({ delete: mockDelete });
+
+    const res = await POST(
+      makeRequest({
+        events: [{ type: 'unfollow', source: { userId: VALID_LINE_USER_ID } }],
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockFromDelegate).toHaveBeenCalledWith('line_user_links');
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockEq).toHaveBeenCalledWith('line_user_id', VALID_LINE_USER_ID);
+  });
+
+  test('unfollow event: 削除エラーでもログのみで 200 継続', async () => {
+    const mockEq = jest.fn().mockResolvedValue({ error: { message: 'delete failed' } });
+    mockFromDelegate.mockReturnValue({ delete: jest.fn().mockReturnValue({ eq: mockEq }) });
+
+    const res = await POST(
+      makeRequest({
+        events: [{ type: 'unfollow', source: { userId: VALID_LINE_USER_ID } }],
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+    expect(mockEq).toHaveBeenCalled();
+  });
+
+  test('unfollow event: 例外でもログのみで 200 継続', async () => {
+    mockFromDelegate.mockImplementation(() => { throw new Error('boom'); });
+
+    const res = await POST(
+      makeRequest({
+        events: [{ type: 'unfollow', source: { userId: VALID_LINE_USER_ID } }],
+      }) as any
+    );
+
+    expect(res.status).toBe(200);
+  });
+
   test('message event → sends auto-reply', async () => {
     await POST(
       makeRequest({
