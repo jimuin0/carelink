@@ -8,6 +8,7 @@ import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -63,7 +64,10 @@ export async function POST(request: Request) {
       .select('id')
       .eq('facility_id', parsed.data.facility_id)
       .eq('booking_date', parsed.data.booking_date)
-      .not('status', 'in', '("cancelled","no_show")')
+      // cancel_fee_paid（キャンセル料決済済・席は空く）も終了扱いで除外する。RPC 側
+      // （create_booking_atomic 等）は既に除外済みで、ここが未追従だと空き枠を競合と誤判定し
+      // 409 を返して RPC まで到達せず、空いているはずの枠が予約不能になる。
+      .not('status', 'in', '("cancelled","no_show","cancel_fee_paid")')
       .lt('start_time', parsed.data.end_time)
       .gt('end_time', parsed.data.start_time);
 
@@ -429,6 +433,8 @@ export async function POST(request: Request) {
   return NextResponse.json({ success: true, bookingId: newBookingId });
   } catch (e) {
     safeCaptureException(e, 'booking');
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('booking', e, '/api/booking');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
