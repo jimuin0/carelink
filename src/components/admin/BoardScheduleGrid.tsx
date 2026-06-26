@@ -56,12 +56,14 @@ export default function BoardScheduleGrid({
   const router = useRouter();
   const totalMin = (closeHour - openHour) * 60;
   const openMinAxis = openHour * 60;
-  // 区切り罫線の位置（分オフセット）。openMin から slotMinutes 刻みで closeMin 手前まで。
-  // 15/30/60 はいずれも 60 を割り切るため、毎時ラベル（ヘッダ側）と必ず整合する。
-  const gridMarks = Array.from(
-    { length: Math.max(1, Math.round(totalMin / slotMinutes)) },
-    (_, i) => i * slotMinutes,
-  );
+  // 視覚リズム用の罫線位置（分オフセット）。クリックのスナップ単位（slotMinutes）とは独立に、
+  // 常に 10分（淡い点線）/ 30分（破線）/ 60分（実線）の3段でメリハリをつける（HPB サロンボード型）。
+  // 0 と終端は外枠線と重複するため除外する。
+  const RHYTHM_MIN = 10;
+  const rhythmMarks = Array.from(
+    { length: Math.floor(totalMin / RHYTHM_MIN) + 1 },
+    (_, i) => i * RHYTHM_MIN,
+  ).filter((m) => m > 0 && m < totalMin);
   // 担当変更(M3)・指名料(M1)用にスタッフ選択肢を行から導出
   const staffOptions: StaffOption[] = rows.map((r) => ({ key: r.key, name: r.name, nominationFee: r.nominationFee }));
 
@@ -147,12 +149,19 @@ export default function BoardScheduleGrid({
               onKeyDown={(e) => handleTrackKeyDown(e, row)}
               title="クリック / Enter で新規予約"
             >
-              {gridMarks.map((m) => {
-                const onHour = (openMinAxis + m) % 60 === 0;
+              {rhythmMarks.map((m) => {
+                const abs = openMinAxis + m;
+                // 60分=実線(濃) / 30分=破線(中) / 10分=点線(淡) の3段でリズムを出す
+                const cls =
+                  abs % 60 === 0
+                    ? 'border-l border-gray-400'
+                    : abs % 30 === 0
+                      ? 'border-l border-dashed border-gray-300'
+                      : 'border-l border-dotted border-gray-200';
                 return (
                   <div
                     key={m}
-                    className={`absolute top-0 bottom-0 border-l ${onHour ? 'border-gray-200' : 'border-gray-100'}`}
+                    className={`absolute top-0 bottom-0 ${cls}`}
                     style={{ left: `${(m / totalMin) * 100}%` }}
                   />
                 );
