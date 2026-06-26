@@ -6,6 +6,7 @@ import { SITE_URL } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -109,6 +110,18 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(req);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'create',
+    tableName: 'featured_slots',
+    recordId: slot.id,
+    newValues: { slot_type, area: area || null, business_type: business_type || null, starts_at, ends_at },
+    ipAddress: ip,
+    userAgent: ua,
+  });
 
   // Create Stripe Checkout session for payment
   const stripeKey = process.env.STRIPE_SECRET_KEY;

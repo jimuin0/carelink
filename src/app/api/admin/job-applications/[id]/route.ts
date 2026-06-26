@@ -5,6 +5,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -67,5 +68,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(req);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: existing.facility_id,
+    action: 'update',
+    tableName: 'job_applications',
+    recordId: params.id,
+    oldValues: { status: existing.status },
+    newValues: updates,
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ application });
 }

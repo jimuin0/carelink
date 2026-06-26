@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const featureUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -69,6 +70,19 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId,
+    facilityId: null,
+    action: 'update',
+    tableName: 'feature_articles',
+    recordId: params.id,
+    newValues: parsed.data,
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ feature: data });
 }
 
@@ -91,5 +105,17 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const { error } = await admin.from('feature_articles').delete().eq('id', params.id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId,
+    facilityId: null,
+    action: 'delete',
+    tableName: 'feature_articles',
+    recordId: params.id,
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ ok: true });
 }
