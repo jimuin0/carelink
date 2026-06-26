@@ -33,9 +33,13 @@ describe('GET /api/og', () => {
     const res = await GET(makeReq(''));
     expect(res).toBeDefined();
     expect(ImageResponse).toHaveBeenCalledTimes(1);
-    // 既定サイズが第2引数に渡る
+    // 既定サイズ＋CDN キャッシュヘッダが第2引数に渡る（Edge CPU DoS 防止）
     const opts = (ImageResponse as jest.Mock).mock.calls[0][1];
-    expect(opts).toEqual({ width: 1200, height: 630 });
+    expect(opts).toEqual({
+      width: 1200,
+      height: 630,
+      headers: { 'Cache-Control': 'public, max-age=86400, s-maxage=86400, immutable' },
+    });
   });
 
   test('title長(>20) + rating=4.5 + reviews → 真分岐・半星(hasHalf)を網羅', async () => {

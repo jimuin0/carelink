@@ -12,8 +12,17 @@
  */
 
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/rate-limit');
 
 import { GET } from '../route';
+import { checkRateLimit } from '@/lib/rate-limit';
+
+const mockCheckRateLimit = checkRateLimit as jest.MockedFunction<typeof checkRateLimit>;
+
+// 監視・各テストは IP 付きの Request を渡す（GET は getClientIp(request) を呼ぶ）
+function makeReq(): Request {
+  return new Request('http://localhost/api/health', { headers: { 'x-real-ip': '127.0.0.1' } });
+}
 
 let mockSelect: jest.Mock;
 let mockRpc: jest.Mock;
@@ -79,6 +88,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   originalFetch = global.fetch;
   setupDefaultMocks();
+  mockCheckRateLimit.mockResolvedValue(false); // 既定はレート制限に掛からない
   delete process.env.VERCEL_GIT_COMMIT_SHA;
 });
 
@@ -88,7 +98,7 @@ afterEach(() => {
 
 describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('全 critical OK + degraded OK → 200 healthy', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe('healthy');
@@ -100,7 +110,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('Supabase NG → 503 unhealthy', async () => {
     setupDefaultMocks({ supabaseOk: false });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.status).toBe('unhealthy');
@@ -109,7 +119,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('rate_limit RPC NG → 503 unhealthy', async () => {
     setupDefaultMocks({ rateLimitOk: false });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.status).toBe('unhealthy');
@@ -125,7 +135,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     createServerSupabaseClient.mockReturnValue({
       from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: limitMock }) }),
     });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.deps.supabase.ok).toBe(true);
@@ -139,7 +149,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     createServerSupabaseClient.mockReturnValue({
       from: jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ limit: limitMock }) }),
     });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.deps.supabase.ok).toBe(false);
@@ -149,7 +159,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('Stripe NG のみ → 200 degraded (critical 維持)', async () => {
     setupDefaultMocks({ stripeOk: false });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe('degraded');
@@ -158,7 +168,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('Resend NG のみ → 200 degraded', async () => {
     setupDefaultMocks({ resendOk: false });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe('degraded');
@@ -167,14 +177,14 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('Supabase exception → 503', async () => {
     setupDefaultMocks({ supabaseThrows: true });
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(503);
     const json = await res.json();
     expect(json.deps.supabase.ok).toBe(false);
   });
 
   test('response includes elapsed_ms, timestamp, version', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(typeof json.elapsed_ms).toBe('number');
     expect(json.elapsed_ms).toBeGreaterThanOrEqual(0);
@@ -185,19 +195,19 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('version from VERCEL_GIT_COMMIT_SHA (first 7 chars)', async () => {
     process.env.VERCEL_GIT_COMMIT_SHA = 'abc123def456ghi789';
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.version).toBe('abc123d');
   });
 
   test('version defaults to "local"', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.version).toBe('local');
   });
 
   test('each dep includes ok and elapsed_ms', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     for (const k of ['supabase', 'rate_limit', 'stripe', 'resend']) {
       expect(typeof json.deps[k].ok).toBe('boolean');
@@ -207,7 +217,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('failed dep includes error message', async () => {
     setupDefaultMocks({ rateLimitOk: false });
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.deps.rate_limit.error).toBeDefined();
     expect(typeof json.deps.rate_limit.error).toBe('string');
@@ -216,7 +226,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('Stripe 未設定 → stripe NG (not configured), degraded', async () => {
     setupDefaultMocks();
     delete process.env.STRIPE_SECRET_KEY;
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.status).toBe('degraded');
@@ -225,19 +235,19 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
 
   test('Resend 401 → resend NG', async () => {
     setupDefaultMocks({ resendOk: false });
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.deps.resend.ok).toBe(false);
     expect(json.deps.resend.error).toBeDefined();
   });
 
   test('queries facility_profiles with COUNT head:true', async () => {
-    await GET();
+    await GET(makeReq());
     expect(mockSelect).toHaveBeenCalledWith('id', { count: 'exact', head: true });
   });
 
   test('rate_limit probe calls check_rate_limit RPC', async () => {
-    await GET();
+    await GET(makeReq());
     expect(mockRpc).toHaveBeenCalledWith('check_rate_limit', expect.objectContaining({
       p_key: expect.stringContaining('rl:health-probe'),
       p_limit: expect.any(Number),
@@ -246,20 +256,20 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   });
 
   test('elapsed_ms is reasonable (< 5 seconds)', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.elapsed_ms).toBeLessThan(5000);
   });
 
   test('response is valid JSON', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json).toBeDefined();
     expect(typeof json).toBe('object');
   });
 
   test('no request parameters needed', async () => {
-    const res = await GET();
+    const res = await GET(makeReq());
     expect(res).toBeDefined();
   });
 
@@ -281,7 +291,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
       if (u.includes('resend.com')) return new Response(null, { status: 503 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.deps.resend.ok).toBe(false);
     expect(json.deps.resend.error).toContain('HTTP 503');
@@ -305,7 +315,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
       if (u.includes('resend.com')) return new Response(null, { status: 404 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.deps.resend.ok).toBe(true);
   });
@@ -313,9 +323,20 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('Resend 未設定 → resend NG (not configured)', async () => {
     setupDefaultMocks();
     delete process.env.RESEND_API_KEY;
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.deps.resend.ok).toBe(false);
+  });
+
+  test('レート制限超過 → 429（依存 probe を起動しない＝増幅 DoS 防止）', async () => {
+    mockCheckRateLimit.mockResolvedValue(true);
+    const res = await GET(makeReq());
+    expect(res.status).toBe(429);
+    const json = await res.json();
+    expect(json.error).toBe('Too Many Requests');
+    // 依存プローブ（Supabase/Stripe/Resend）が一切呼ばれていないこと
+    expect(mockSelect).not.toHaveBeenCalled();
+    expect(global.fetch).not.toHaveBeenCalled();
   });
 
   test('non-Error thrown in probe → String(e) used', async () => {
@@ -329,7 +350,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     createServiceRoleClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
     });
-    const res = await GET();
+    const res = await GET(makeReq());
     const json = await res.json();
     expect(json.deps.supabase.ok).toBe(false);
     expect(json.deps.supabase.error).toBe('string-error');

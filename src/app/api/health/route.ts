@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { getClientIp } from '@/lib/client-ip';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -118,7 +120,16 @@ async function probeResend(): Promise<DepResult> {
   });
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  // 無認証エンドポイントだが、1 リクエストで Stripe/Resend/Supabase(DB+RPC) を代理起動するため、
+  // 連打されると外部 API への増幅 DoS・コスト増を招く。IP 単位でレート制限する。
+  // 外形監視（UptimeRobot 等・60s 間隔）は十分通せる緩さ（60s あたり 20 回）に設定。
+  // checkRateLimit は RPC 障害時 fail-open のため、rate_limit RPC が落ちても監視自体は止めない。
+  const ip = getClientIp(request);
+  if (await checkRateLimit(null, ip, 20, 60_000, 'health')) {
+    return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
+  }
+
   const start = Date.now();
 
   const [supabase, rate_limit, stripe, resend] = await Promise.all([
