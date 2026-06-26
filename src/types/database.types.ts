@@ -5774,6 +5774,20 @@ export type Database = {
           visit_count: number
         }[]
       }
+      get_facility_customers_v1: {
+        Args: {
+          p_facility_id: string
+          p_search: string | null
+          p_limit: number
+          p_offset: number
+        }
+        Returns: {
+          name: string
+          phone: string | null
+          email: string | null
+          total_count: number
+        }[]
+      }
       get_incident_thread: {
         Args: { p_key: string }
         Returns: {
