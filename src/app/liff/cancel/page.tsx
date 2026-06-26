@@ -63,10 +63,15 @@ function CancelContent() {
   }, [liff, bookingId]);
 
   const handleCancel = useCallback(async () => {
-    if (!booking || cancelling) return;
+    if (!booking || cancelling || liff.status !== 'ready') return;
     setCancelling(true);
     try {
-      const res = await fetch(`/api/booking/${booking.id}/cancel`, { method: 'POST' });
+      // LIFF（LINE内ブラウザ）は Supabase セッション Cookie を持たないため、予約取得と同じく
+      // LINE access token を Bearer で送って本人認証する（無いと cancel API が常に 401）。
+      const res = await fetch(`/api/booking/${booking.id}/cancel`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${liff.accessToken}` },
+      });
       if (res.ok) {
         setResult('success');
       } else {
@@ -80,7 +85,7 @@ function CancelContent() {
     } finally {
       setCancelling(false);
     }
-  }, [booking, cancelling]);
+  }, [booking, cancelling, liff]);
 
   if (liff.status === 'loading') return <LiffLoading />;
   if (liff.status === 'error') return <LiffError message={liff.message} />;

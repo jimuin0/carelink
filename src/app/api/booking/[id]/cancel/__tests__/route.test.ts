@@ -10,6 +10,7 @@ jest.mock('@/lib/email', () => ({ sendBookingCancelled: jest.fn(), sendBookingCa
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('@/lib/liff-auth', () => ({ getBearerToken: jest.fn(() => null), resolveLiffUserId: jest.fn() }));
 jest.mock('@/lib/integrations/line-works', () => ({
   isLineWorksConfigured: jest.fn().mockReturnValue(false),
   notifyCancellationLineWorks: jest.fn().mockResolvedValue(undefined),
@@ -35,6 +36,7 @@ jest.mock('next/headers', () => ({
 import { POST } from '../route';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
 
 const validId = '123e4567-e89b-12d3-a456-426614174000';
 
@@ -42,6 +44,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  (getBearerToken as jest.Mock).mockReturnValue(null); // 既定は Cookie 経路（Bearer 無し）
+  (resolveLiffUserId as jest.Mock).mockReset();
   const { isLineWorksConfigured } = require('@/lib/integrations/line-works');
   (isLineWorksConfigured as jest.Mock).mockReturnValue(false);
   mockAdminFrom.mockReturnValue({
@@ -106,6 +110,54 @@ describe('POST /api/booking/[id]/cancel', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     const json = await res.json();
     expect(json.success).toBe(true);
+  });
+
+  test('LIFF（Bearer）認証で本人がキャンセルできる → 200（Cookie 経路を使わない）', async () => {
+    (getBearerToken as jest.Mock).mockReturnValue('line-token');
+    (resolveLiffUserId as jest.Mock).mockResolvedValue('user-1');
+
+    let bookingsCall = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        bookingsCall++;
+        if (bookingsCall === 1) {
+          return {
+            select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: {
+              id: validId, user_id: 'user-1', status: 'pending', facility_id: 'f-1',
+              customer_name: 'テスト', email: 't@example.com', booking_date: '2026-04-01',
+              start_time: '10:00', end_time: '11:00', total_price: 5000, menu_id: null, staff_id: null, points_used: 0,
+            } })) })) })),
+          };
+        }
+        const sel = jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null }));
+        const eq3 = jest.fn(() => ({ select: sel }));
+        const eq2 = jest.fn(() => ({ eq: eq3 }));
+        const eq1 = jest.fn(() => ({ eq: eq2 }));
+        return { update: jest.fn(() => ({ eq: eq1 })) };
+      }
+      // 通知系の任意チェーンは全て null 解決でフォールバック
+      const chain: Record<string, jest.Mock> = {};
+      chain.select = jest.fn(() => chain);
+      chain.eq = jest.fn(() => chain);
+      chain.limit = jest.fn(() => chain);
+      chain.not = jest.fn(() => chain);
+      chain.single = jest.fn(() => Promise.resolve({ data: null }));
+      chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null }));
+      return chain;
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    expect(resolveLiffUserId).toHaveBeenCalledWith('line-token');
+    expect(mockGetUser).not.toHaveBeenCalled();
+  });
+
+  test('LIFF（Bearer）でトークン無効・未連携 → 401（本人解決できない）', async () => {
+    (getBearerToken as jest.Mock).mockReturnValue('bad-token');
+    (resolveLiffUserId as jest.Mock).mockResolvedValue(null);
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(401);
+    expect(mockGetUser).not.toHaveBeenCalled();
   });
 
   // ポイント利用予約のキャンセルで控除済みポイントを返還する（金銭損失防止）。
