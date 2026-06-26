@@ -22,6 +22,22 @@ let mockUpdate: jest.Mock;
 let mockConstructEvent: jest.Mock;
 let mockWriteAuditLog: jest.Mock;
 
+// チェイン段数に依存しないモック結果。
+// 実装の stripe_sessions / dispute-bookings 更新は単段 .eq() で await するが、
+// deposit-bookings 更新は .eq().eq() の2段。旧テストは2段固定モックだったため、単段 .eq() を
+// await しても {eq:fn} オブジェクトが解決され error が undefined になり、エラー注入が効かず
+// 偽陽性になっていた（敵対監査 テスト-2）。下記は「await で result に解決し、かつ さらに .eq()
+// を呼べる」thenable を返すため、単段・2段どちらのチェーンでも result.error が正しく伝播する。
+function chainableResult(result: { error: unknown }): { then: (r: (v: unknown) => void) => void; eq: jest.Mock } {
+  return {
+    then: (resolve: (v: unknown) => void) => resolve(result),
+    eq: jest.fn(() => chainableResult(result)),
+  };
+}
+function chainableUpdate(result: { error: unknown } = { error: null }): jest.Mock {
+  return jest.fn(() => ({ eq: jest.fn(() => chainableResult(result)) }));
+}
+
 function setupDefaultMocks(
   signatureValid: boolean = true,
   upsertSucceeds: boolean = true,
@@ -66,11 +82,7 @@ function setupDefaultMocks(
   }));
 
   const defaultTableMock = {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      }),
-    }),
+    update: chainableUpdate({ error: null }),
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockResolvedValue({ data: [], error: null }),
     }),
@@ -326,16 +338,8 @@ describe('POST /api/stripe/webhook', () => {
       }));
     }
 
-    const mockStripeSessionsUpdate = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      }),
-    });
-    const mockBookingsUpdate = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      }),
-    });
+    const mockStripeSessionsUpdate = chainableUpdate({ error: null });
+    const mockBookingsUpdate = chainableUpdate({ error: null });
 
     beforeEach(() => {
       const { createServiceRoleClient } = require('@/lib/supabase-server');
@@ -569,6 +573,56 @@ describe('POST /api/stripe/webhook', () => {
       const res = await POST(makeRequest('{}') as any);
       expect(res.status).toBe(200);
       expect(mockStripeSessionsUpdate).not.toHaveBeenCalled();
+    });
+
+    // 以下は本PRで追加した「error 捕捉 → throw → 500」の検証（無音欠落の根治を保証）。
+    // CHECK 制約違反等で stripe_sessions / bookings 更新が失敗した場合に、
+    // 旧実装は error を捨てて 200 を返していたが、修正後は 500 を返し Stripe にリトライさせる。
+    function mockWith(errorTable: 'stripe_sessions' | 'bookings') {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: errorTable === 'stripe_sessions' ? { message: 'session check violation' } : null }) };
+          if (table === 'bookings') return { update: chainableUpdate({ error: errorTable === 'bookings' ? { message: 'booking check violation' } : null }) };
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+    }
+
+    test('charge.refunded stripe_sessions update error → 500（無音欠落しない）', async () => {
+      mockWith('stripe_sessions');
+      setupEventMock('charge.refunded', { payment_intent: 'pi_refund_err', amount: 5000, amount_refunded: 2500 });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
+    test('charge.dispute.created stripe_sessions update error → 500', async () => {
+      mockWith('stripe_sessions');
+      setupEventMock('charge.dispute.created', { payment_intent: 'pi_disp_serr', status: 'needs_response' });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
+    test('charge.dispute.created bookings update error → 500', async () => {
+      mockWith('bookings');
+      setupEventMock('charge.dispute.created', { payment_intent: 'pi_disp_berr', status: 'needs_response' });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
+    test('charge.dispute.closed stripe_sessions update error → 500', async () => {
+      mockWith('stripe_sessions');
+      setupEventMock('charge.dispute.closed', { payment_intent: 'pi_disp_cserr', status: 'lost' });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
+    test('charge.dispute.closed bookings update error → 500', async () => {
+      mockWith('bookings');
+      setupEventMock('charge.dispute.closed', { payment_intent: 'pi_disp_cberr', status: 'lost' });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
     });
   });
 
