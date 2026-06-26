@@ -180,6 +180,13 @@
     "id",
     "menu_id"
   ],
+  "coupon_redemptions": [
+    "booking_id",
+    "coupon_id",
+    "created_at",
+    "id",
+    "user_id"
+  ],
   "coupons": [
     "coupon_type",
     "created_at",
@@ -192,6 +199,7 @@
     "image_submission",
     "image_url",
     "is_active",
+    "max_uses",
     "name",
     "presentation_timing",
     "search_category1",

@@ -223,6 +223,13 @@ export async function POST(request: Request) {
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
+    // クーポン使用制限（create_booking_atomic が RAISE する。トランザクションごとロールバック済み）
+    if (error.message?.includes('COUPON_LIMIT')) {
+      return NextResponse.json({ error: 'このクーポンは利用上限に達しています' }, { status: 409 });
+    }
+    if (error.message?.includes('COUPON_ALREADY_USED')) {
+      return NextResponse.json({ error: 'このクーポンは既に利用済みです' }, { status: 409 });
+    }
     return NextResponse.json({ error: '予約に失敗しました' }, { status: 500 });
   }
 
