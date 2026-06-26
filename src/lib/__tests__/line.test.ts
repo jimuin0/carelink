@@ -84,6 +84,24 @@ describe('sendLinePush', () => {
     expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
+  test('4xx(400)は恒久エラー→リトライせず即false(fetch1回)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid user' } as unknown as Response);
+    const promise = sendLinePush('user-1', [{ type: 'text', text: 'hi' }], 3);
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result).toBe(false);
+    expect(global.fetch).toHaveBeenCalledTimes(1); // 即 abort（3回連打しない）
+  });
+
+  test('429(レート制限)はリトライする(fetch maxRetries回)', async () => {
+    global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 429, text: async () => 'rate limit' } as unknown as Response);
+    const promise = sendLinePush('user-1', [{ type: 'text', text: 'hi' }], 2);
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result).toBe(false);
+    expect(global.fetch).toHaveBeenCalledTimes(2); // 429 は即 abort せずリトライ
+  });
+
   test('throws if token not set', async () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
     await expect(sendLinePush('user-1', [])).rejects.toThrow('LINE_CHANNEL_ACCESS_TOKEN_CARELINK');

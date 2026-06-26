@@ -12,6 +12,7 @@ import {
   sendLineWorksMessage,
   notifyNewBookingLineWorks,
   notifyCancellationLineWorks,
+  __resetLineWorksTokenCacheForTest,
 } from '../line-works';
 
 const VALID_ENV = {
@@ -38,6 +39,7 @@ function clearEnv() {
 beforeEach(() => {
   clearEnv();
   jest.restoreAllMocks();
+  __resetLineWorksTokenCacheForTest(); // モジュールスコープのトークンキャッシュをテスト間で分離
 });
 
 afterEach(() => {
@@ -195,6 +197,23 @@ describe('success paths with mocked crypto.subtle', () => {
   test('getLineWorksToken → returns access_token on success', async () => {
     global.fetch = jest.fn().mockResolvedValue(mockFetchToken());
     expect(await getLineWorksToken()).toBe('tok-123');
+  });
+
+  test('getLineWorksToken → 2回目は有効キャッシュを再利用(fetchは1回のみ)', async () => {
+    const f = jest.fn().mockResolvedValue(mockFetchToken());
+    global.fetch = f;
+    expect(await getLineWorksToken()).toBe('tok-123'); // 取得＋キャッシュ
+    expect(await getLineWorksToken()).toBe('tok-123'); // expires_in=3600s 以内なのでキャッシュ
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+
+  test('getLineWorksToken → expires_in 欠落時も access_token を返す(?? 0 分岐)', async () => {
+    // expires_in なし → expiresAt は now（安全マージンで即失効扱い）になるが access_token は返る。
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ access_token: 'tok-noexp', token_type: 'Bearer' }),
+    });
+    expect(await getLineWorksToken()).toBe('tok-noexp');
   });
 
   test('sendLineWorksMessage → returns true when API responds ok', async () => {

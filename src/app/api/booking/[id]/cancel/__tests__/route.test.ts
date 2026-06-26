@@ -716,6 +716,8 @@ describe('POST /api/booking/[id]/cancel', () => {
   test('LINE通知: menu_id あり → facility_menus からメニュー名を取得して通知', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
     const { sendBookingCancellation } = require('@/lib/line');
+    // 送達成功(truthy)を返させ、戻り値確認の成功分岐(未送達ログを出さない)を網羅する。
+    (sendBookingCancellation as jest.Mock).mockResolvedValueOnce(true);
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
