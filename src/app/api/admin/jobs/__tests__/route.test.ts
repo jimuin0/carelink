@@ -181,6 +181,41 @@ test('POST: 正常作成 → 201 with job', async () => {
   expect(json.job).toBeDefined();
 });
 
+const FACILITY_UUID_2 = '44444444-4444-4444-4444-444444444444';
+
+test('POST: facility_id 指定(所有施設) → その施設で201', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]);
+    return insertSingle({ id: 'job-2', title: 'テスト求人' });
+  });
+  const res = await POST(makePostRequest(validJob({ facility_id: FACILITY_UUID_2 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: facility_id 指定(非所有施設) → 403', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return insertSingle({ id: 'x', title: 'x' });
+  });
+  const res = await POST(makePostRequest(validJob({ facility_id: '99999999-9999-9999-9999-999999999999' })));
+  expect(res.status).toBe(403);
+});
+
+test('POST: 複数施設オーナーが facility_id 未指定 → 400(投稿先を要求)', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]);
+    return insertSingle({ id: 'x', title: 'x' });
+  });
+  const res = await POST(makePostRequest(validJob()));
+  expect(res.status).toBe(400);
+});
+
 test('POST: CSRF エラー → 403', async () => {
   const { checkCsrf } = require('@/lib/csrf');
   (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));

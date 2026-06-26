@@ -53,4 +53,16 @@ describe('GET /api/og', () => {
     expect(res).toBeDefined();
     expect(ImageResponse).toHaveBeenCalledTimes(1);
   });
+
+  test('rating=Infinity → Number.isFinite false 分岐(rating=null・"Infinity"を描画しない)', async () => {
+    const res = await GET(makeReq('?rating=Infinity'));
+    expect(res).toBeDefined();
+    expect(ImageResponse).toHaveBeenCalledTimes(1);
+  });
+
+  test('rating=10（上限超）→ 5 にクランプ(309桁等の巨大値を描画しない)', async () => {
+    const res = await GET(makeReq('?rating=10'));
+    expect(res).toBeDefined();
+    expect(ImageResponse).toHaveBeenCalledTimes(1);
+  });
 });

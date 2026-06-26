@@ -11,12 +11,17 @@ export async function GET(req: NextRequest) {
   const reviewCount = searchParams.get('reviews') || '';
   const isFacility = !!ratingStr;
 
-  const rating = ratingStr ? parseFloat(ratingStr) : null;
-  const ratingDisplay = rating ? rating.toFixed(1) : null;
+  // rating は 0〜5 にクランプし NaN/Infinity を弾く（?rating=Infinity や巨大値で "Infinity"・309桁の数字が
+  // OG 画像に描画されレイアウト崩れ・詐欺的表示になるのを防ぐ）。
+  const ratingParsed = ratingStr ? parseFloat(ratingStr) : null;
+  const rating = ratingParsed !== null && Number.isFinite(ratingParsed)
+    ? Math.min(5, Math.max(0, ratingParsed))
+    : null;
+  const ratingDisplay = rating !== null ? rating.toFixed(1) : null;
 
   // 星の個数（満点5）
-  const fullStars = rating ? Math.floor(rating) : 0;
-  const hasHalf = rating ? (rating - fullStars) >= 0.5 : false;
+  const fullStars = rating !== null ? Math.floor(rating) : 0;
+  const hasHalf = rating !== null ? (rating - fullStars) >= 0.5 : false;
 
   return new ImageResponse(
     (
