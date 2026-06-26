@@ -179,12 +179,17 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
           cancelMenuName = menuForLine?.name || '';
         }
 
-        void sendLineCancellation(lineLink.line_user_id, {
+        // sendLineCancellation は失敗時 throw せず false を返す契約。void で捨てると送達失敗が
+        // 完全に無音化するため、戻り値を確認して未送達をログに残す（可観測性の確保）。
+        const lineOk = await sendLineCancellation(lineLink.line_user_id, {
           facilityName: facilityForLine?.name || '',
           menuName: cancelMenuName,
           date: booking.booking_date,
           time: booking.start_time,
         });
+        if (!lineOk) {
+          console.error('[cancel] LINE cancellation notification not delivered', { userId: user.id, bookingId: booking.id });
+        }
       }
     }
   } catch (err) {

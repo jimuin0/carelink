@@ -116,6 +116,14 @@ export async function sendLinePush(
       const errorText = await res.text().catch(() => '');
       console.error(`[LINE] Push failed: ${res.status} ${errorText}`);
 
+      // 4xx（429除く）は無効な user_id / 不正メッセージ等の恒久エラー。リトライしても解決せず
+      // LINE API へ無駄なリクエストを連打するだけなので即座に false を返す。
+      // 429(レート制限) と 5xx(一時障害) は下のバックオフでリトライする。
+      // （res.ok=false を通過後のため status は非2xx/3xx。< 500 かつ 429 でなければ 4xx 恒久エラー）
+      if (res.status < 500 && res.status !== 429) {
+        return false;
+      }
+
       if (attempt < maxRetries - 1) {
         await new Promise(r => setTimeout(r, 1000 * 2 ** attempt));
       }

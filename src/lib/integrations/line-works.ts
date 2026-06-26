@@ -19,8 +19,19 @@ type LineWorksTokenResponse = {
   expires_in: number;
 };
 
+// アクセストークンのモジュールスコープキャッシュ。LINE Works のトークンは通常24時間有効だが、
+// 旧実装は送信のたびに JWT 署名 + トークン取得 fetch を行っていた。有効期限内は再利用する。
+let cachedToken: { value: string; expiresAt: number } | null = null;
+// 期限ギリギリの使用を避けるための安全マージン（この時間だけ早く失効扱いにして再取得する）。
+const TOKEN_CACHE_SAFETY_MS = 60_000;
+
+/** テスト専用: トークンキャッシュをリセットする（モジュールスコープ状態の分離用）。 */
+export function __resetLineWorksTokenCacheForTest(): void {
+  cachedToken = null;
+}
+
 /**
- * LINE Works アクセストークンを取得（JWT Bearer Flow）
+ * LINE Works アクセストークンを取得（JWT Bearer Flow）。有効期限内はキャッシュを再利用する。
  */
 export async function getLineWorksToken(): Promise<string | null> {
   const clientId = process.env.LINE_WORKS_CLIENT_ID;
@@ -29,6 +40,11 @@ export async function getLineWorksToken(): Promise<string | null> {
 
   if (!clientId || !clientSecret || !serviceAccount) {
     return null;
+  }
+
+  // 有効なキャッシュがあれば JWT 署名・トークン取得を省略して再利用する。
+  if (cachedToken && cachedToken.expiresAt - TOKEN_CACHE_SAFETY_MS > Date.now()) {
+    return cachedToken.value;
   }
 
   try {
@@ -48,6 +64,7 @@ export async function getLineWorksToken(): Promise<string | null> {
 
     if (!res.ok) return null;
     const data: LineWorksTokenResponse = await res.json();
+    cachedToken = { value: data.access_token, expiresAt: Date.now() + (data.expires_in ?? 0) * 1000 };
     return data.access_token;
   } catch {
     return null;
