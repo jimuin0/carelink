@@ -63,7 +63,7 @@ export async function searchFacilities(params: SearchParams) {
       limit_count: 500,
     });
     const all = (data || []) as unknown as (FacilityCardData & { distance_km: number })[];
-    const page = params.page || 1;
+    const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
     const from = (page - 1) * PER_PAGE;
     return { facilities: all.slice(from, from + PER_PAGE) as FacilityCardData[], total: all.length, perPage: PER_PAGE, error };
   }
@@ -76,7 +76,7 @@ export async function searchFacilities(params: SearchParams) {
     query = query.order('created_at', { ascending: false });
   }
 
-  const page = params.page || 1;
+  const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
   const from = (page - 1) * PER_PAGE;
   query = query.range(from, from + PER_PAGE - 1);
 
