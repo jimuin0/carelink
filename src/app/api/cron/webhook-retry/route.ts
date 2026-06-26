@@ -23,6 +23,21 @@ export async function GET(request: Request) {
   const supabase = createServiceRoleClient();
 
   try {
+    // 前 run が claim（status='processing'）後にクラッシュすると、その行は processing のまま
+    // 取り残される。本 cron は status='pending' しか拾わないため、孤児は永久に再送されない。
+    // run の所要時間（数秒）を大きく超えて processing のままの行（scheduled_at が1時間以上前）は
+    // 孤児とみなし pending に戻して再回収する（best-effort・失敗しても本処理は継続）。
+    // 閾値1hは cron 間隔15分・run所要数秒を十分上回り、正常処理中の行を誤って戻さない。
+    const staleProcessingBefore = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { error: reclaimErr } = await supabase
+      .from('webhook_retry_queue')
+      .update({ status: 'pending' })
+      .eq('status', 'processing')
+      .lt('scheduled_at', staleProcessingBefore);
+    if (reclaimErr) {
+      console.error('[webhook-retry] stale processing reclaim failed (continuing)', { err: reclaimErr });
+    }
+
     // pending かつ scheduled_at が現在時刻以前のジョブを取得
     const { data: jobs, error: jobsError } = await supabase
       .from('webhook_retry_queue')

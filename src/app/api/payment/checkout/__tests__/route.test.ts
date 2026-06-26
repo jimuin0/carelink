@@ -24,13 +24,29 @@ const USER_ID = '33333333-3333-3333-3333-333333333333';
 const mockFrom = jest.fn();
 const mockGetUser = jest.fn();
 const mockServiceInsert = jest.fn(() => Promise.resolve({ error: null }));
+// 既存 pending セッション失効ロジック用。既定は「既存 pending 無し」。
+let mockStalePending: { stripe_session_id: string }[] = [];
+const mockServiceUpdate = jest.fn(() => Promise.resolve({ error: null }));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(() => ({
-    from: jest.fn(() => ({ insert: mockServiceInsert })),
+    from: jest.fn(() => ({
+      insert: mockServiceInsert,
+      // select(...).eq(...).eq(...) → 既存 pending セッション一覧
+      select: jest.fn(() => ({
+        eq: jest.fn(() => ({
+          eq: jest.fn(() => Promise.resolve({ data: mockStalePending })),
+        })),
+      })),
+      // update(...).eq(...).eq(...) → pending → expired 更新
+      update: jest.fn((...args: unknown[]) => {
+        mockServiceUpdate(...args);
+        return { eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) };
+      }),
+    })),
   })),
   createServerSupabaseClient: jest.fn(),
   createServerSupabaseAuthClient: jest.fn(),
@@ -81,6 +97,7 @@ beforeEach(() => {
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
   mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/test', id: 'cs_test' });
   mockServiceInsert.mockImplementation(() => Promise.resolve({ error: null }));
+  mockStalePending = [];
   process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'test-anon-key';
@@ -267,6 +284,43 @@ test('stripe_sessions insert 失敗 → Stripe session を expire して 500', a
   const res = await POST(makeRequest());
   expect(res.status).toBe(500);
   expect(expireMock).toHaveBeenCalledWith('cs_test_failed');
+});
+
+test('既存 pending セッションがある → 失効させてから新規作成（二重チェックアウト防止）', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStalePending = [{ stripe_session_id: 'cs_old_1' }, { stripe_session_id: 'cs_old_2' }];
+  const expireMock = jest.fn().mockResolvedValue(undefined);
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    checkout: { sessions: { create: mockStripeCreate, expire: expireMock } },
+  }));
+  mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/new', id: 'cs_new' });
+
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  // 既存 pending 2件を Stripe 側で失効
+  expect(expireMock).toHaveBeenCalledWith('cs_old_1');
+  expect(expireMock).toHaveBeenCalledWith('cs_old_2');
+  // DB も pending → expired に更新
+  expect(mockServiceUpdate).toHaveBeenCalledWith({ status: 'expired' });
+  // 新規セッションが作成され URL 返却
+  const json = await res.json();
+  expect(json.url).toContain('checkout.stripe.com/new');
+});
+
+test('既存 pending の Stripe 失効が throw しても新規作成は続行する', async () => {
+  mockFrom.mockReturnValue(singleChain(BOOKING_ROW));
+  mockStalePending = [{ stripe_session_id: 'cs_old_x' }];
+  const expireMock = jest.fn().mockRejectedValue(new Error('already finalized'));
+  const Stripe = require('stripe');
+  Stripe.mockImplementation(() => ({
+    checkout: { sessions: { create: mockStripeCreate, expire: expireMock } },
+  }));
+  mockStripeCreate.mockResolvedValue({ url: 'https://checkout.stripe.com/new2', id: 'cs_new2' });
+
+  const res = await POST(makeRequest());
+  // .catch(()=>{}) で握り潰し、新規作成は成功する
+  expect(res.status).toBe(200);
 });
 
 // Branch coverage: line 69 — total_price が null かつ menu?.price も undefined → ?? 0 にフォールバック（全 ?? false 分岐）
