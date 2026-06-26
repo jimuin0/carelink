@@ -31,12 +31,14 @@ import { GET } from '../route';
 let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
 let mockSuccessUpdate: jest.Mock;
+let mockReclaimUpdate: jest.Mock;
 let mockSendLineText: jest.Mock;
 
 function setupDefaultMocks(
   jobsFound: number = 1,
   claimFails: boolean = false,
-  sendFails: boolean = false
+  sendFails: boolean = false,
+  reclaimFails: boolean = false
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
@@ -90,6 +92,11 @@ function setupDefaultMocks(
     }),
   });
 
+  // stale processing 再回収 update(...).eq('status','processing').lt('scheduled_at',...)
+  mockReclaimUpdate = jest.fn().mockResolvedValue({
+    error: reclaimFails ? new Error('reclaim failed') : null,
+  });
+
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
     from: jest.fn((table: string) => {
@@ -109,7 +116,14 @@ function setupDefaultMocks(
           update: (data: any) => {
             if (data.status === 'processing') return mockClaimUpdate(data);
             if (data.status === 'success') return mockSuccessUpdate(data);
-            return { eq: jest.fn().mockResolvedValue({ error: null }) };
+            // status='pending' は (1)stale processing 再回収 .eq().lt() と
+            // (2)その他 .eq() の両方に対応する chain を返す。
+            return {
+              eq: jest.fn().mockReturnValue({
+                lt: mockReclaimUpdate,
+                then: (resolve: (v: { error: unknown }) => void) => resolve({ error: null }),
+              }),
+            };
           },
         };
       }
@@ -187,6 +201,25 @@ describe('GET /api/cron/webhook-retry', () => {
 
     await GET(makeRequest() as any);
 
+    expect(mockClaimUpdate).toHaveBeenCalled();
+  });
+
+  test('開始時に stale processing 孤児を pending へ再回収する', async () => {
+    setupDefaultMocks(1);
+
+    await GET(makeRequest() as any);
+
+    // 再回収 update(...).eq('status','processing').lt('scheduled_at',...) が呼ばれる
+    expect(mockReclaimUpdate).toHaveBeenCalled();
+  });
+
+  test('stale processing 再回収が失敗しても本処理は継続する（best-effort）', async () => {
+    setupDefaultMocks(1, false, false, true); // reclaimFails=true
+
+    const res = await GET(makeRequest() as any);
+
+    // 再回収失敗（console.error のみ）でも pending ジョブ処理は通常通り 200
+    expect(res.status).toBe(200);
     expect(mockClaimUpdate).toHaveBeenCalled();
   });
 
@@ -382,7 +415,7 @@ describe('GET /api/cron/webhook-retry', () => {
             update: (data: any) => {
               if (data.status === 'processing') return mockClaimUpdate(data);
               if (data.status === 'success') return mockSuccessUpdate(data);
-              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+              return { eq: jest.fn().mockReturnValue({ lt: jest.fn().mockResolvedValue({ error: null }) }) };
             },
           };
         }
@@ -422,7 +455,7 @@ describe('GET /api/cron/webhook-retry', () => {
             update: (data: any) => {
               if (data.status === 'processing') return mockClaimUpdate(data);
               if (data.status === 'success') return mockSuccessUpdate(data);
-              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+              return { eq: jest.fn().mockReturnValue({ lt: jest.fn().mockResolvedValue({ error: null }) }) };
             },
           };
         }
@@ -465,7 +498,7 @@ describe('GET /api/cron/webhook-retry', () => {
             update: (data: any) => {
               if (data.status === 'processing') return mockClaimUpdate(data);
               if (data.status === 'success') return mockSuccessUpdate(data);
-              return { eq: jest.fn().mockResolvedValue({ error: null }) };
+              return { eq: jest.fn().mockReturnValue({ lt: jest.fn().mockResolvedValue({ error: null }) }) };
             },
           };
         }
