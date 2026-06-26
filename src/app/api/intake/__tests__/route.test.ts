@@ -19,6 +19,7 @@ jest.mock('next/headers');
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
 }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -377,7 +378,7 @@ describe('POST /api/intake', () => {
     const insertFn = jest.fn().mockReturnValue({ select: selectFn });
     createServerClient.mockReturnValue({
       auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
-      from: jest.fn(() => ({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn().mockResolvedValue({ data: null }), insert: insertFn })),
+      from: jest.fn(() => ({ select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'tpl-1' } }), insert: insertFn })),
     });
 
     const { POST } = await import('../route');
@@ -404,6 +405,62 @@ describe('POST /api/intake', () => {
     });
     const res = await POST(req as any);
     expect(res.status).toBe(400);
+  });
+
+  test('template が指定施設に属さない → 403（越境テンプレ参照防止）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    // booking_id なし。template 所属チェックの maybeSingle が null（=他施設テンプレ）を返す。
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) },
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+        insert: jest.fn(),
+      })),
+    });
+
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/intake', {
+      method: 'POST',
+      body: JSON.stringify({
+        template_id: '11111111-1111-1111-1111-111111111111',
+        customer_name: 'Test',
+        facility_id: '99999999-9999-9999-9999-999999999999',
+      }),
+    }) as any);
+
+    expect(res.status).toBe(403);
+    const json = await res.json();
+    expect(json.error).toContain('テンプレートが見つかりません');
+  });
+
+  test('ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { alertCaughtError } = require('@/lib/alert');
+    createServerClient.mockReturnValue({
+      // getUser が throw → catch 経路に入る
+      auth: { getUser: jest.fn().mockRejectedValue(new Error('boom')) },
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'tpl-1' } }),
+        insert: jest.fn(),
+      })),
+    });
+
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/intake', {
+      method: 'POST',
+      body: JSON.stringify({
+        template_id: '11111111-1111-1111-1111-111111111111',
+        customer_name: 'Test',
+        facility_id: '11111111-1111-1111-1111-111111111111',
+      }),
+    }) as any);
+
+    expect(res.status).toBe(500);
+    expect(alertCaughtError).toHaveBeenCalledWith('intake-post', expect.any(Error), '/api/intake');
   });
 });
 
@@ -447,7 +504,7 @@ describe('GET /api/intake – cookie callback invocable', () => {
     const fromChain = {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+      maybeSingle: jest.fn().mockResolvedValue({ data: { id: 'tpl-1' } }),
       insert: insertFn,
     };
 
