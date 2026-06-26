@@ -15,6 +15,7 @@ jest.mock('@/lib/push', () => ({
   sendPushToUser: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('@/lib/line', () => ({
   sendBookingConfirmation: jest.fn(() => Promise.resolve(true)),
 }));
