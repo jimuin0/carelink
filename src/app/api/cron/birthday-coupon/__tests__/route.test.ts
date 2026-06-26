@@ -36,6 +36,7 @@ import { sendLineText } from '@/lib/line';
 import { GET } from '../route';
 
 let mockProfilesSelect: jest.Mock;
+let mockProfilesFilter: jest.Mock;
 let mockPointsInsert: jest.Mock;
 let mockLineLinkSelect: jest.Mock;
 let mockNotifSelect: jest.Mock;
@@ -63,11 +64,13 @@ function setupDefaultMocks(
       : [];
   const lineLinkData = lineLinkFound ? { line_user_id: 'line-user-123' } : null;
 
+  // filter を変数化して呼び出し引数（'birth_date','like','%-MM-DD'）を検証可能にする。
+  mockProfilesFilter = jest.fn().mockReturnValue({
+    range: jest.fn().mockResolvedValue({ data: profileData }),
+  });
   mockProfilesSelect = jest.fn().mockReturnValue({
     not: jest.fn().mockReturnValue({
-      filter: jest.fn().mockReturnValue({
-        range: jest.fn().mockResolvedValue({ data: profileData }),
-      }),
+      filter: mockProfilesFilter,
     }),
   });
 
@@ -128,11 +131,19 @@ function setupDefaultMocks(
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // システム時刻を固定して todayMD（JST 月日）を決定的にする。
+  // 2026-06-15T03:00:00Z → JST +9h = 2026-06-15T12:00 → todayMD='06-15'（日跨ぎしない正午で固定）。
+  jest.useFakeTimers();
+  jest.setSystemTime(new Date('2026-06-15T03:00:00Z'));
   setupDefaultMocks();
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   process.env.CRON_SECRET = 'cron-secret';
   process.env.NEXT_PUBLIC_SITE_URL = 'https://carelink-jp.com';
+});
+
+afterEach(() => {
+  jest.useRealTimers();
 });
 
 function makeRequest(cronSecret: string = 'cron-secret') {
@@ -193,6 +204,9 @@ describe('GET /api/cron/birthday-coupon', () => {
     await GET(makeRequest() as any);
 
     expect(mockProfilesSelect).toHaveBeenCalled();
+    // 固定時刻(JST 2026-06-15)から導かれる todayMD='06-15' で正しくフィルタしているか引数まで検証。
+    // 旧テストは toHaveBeenCalled() のみで、todayMD 生成にバグが入っても気付けない偽陽性だった。
+    expect(mockProfilesFilter).toHaveBeenCalledWith('birth_date', 'like', '%-06-15');
   });
 
   test('inserts 100 points per user with reason=birthday_YYYY', async () => {

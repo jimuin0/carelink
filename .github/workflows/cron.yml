@@ -4,6 +4,11 @@ name: Scheduled Cron Jobs
 # vercel.json から GitHub Actions に移行（schedule 自由 + 無料）
 # 各ジョブは Bearer ${{ secrets.CRON_SECRET }} で /api/cron/* を叩く
 
+# 最小権限: 外部URLへ curl するのみでリポジトリ書き込みは不要。GITHUB_TOKEN を read 限定にする
+# （リポジトリ既定が read-and-write でも本 workflow のトークンを過剰権限にしない）。
+permissions:
+  contents: read
+
 on:
   schedule:
     # UTC 表記。日本時間 = UTC + 9
