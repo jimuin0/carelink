@@ -29,7 +29,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   if (searchParams.keyword) parts.push(`「${searchParams.keyword}」`);
 
   const titlePrefix = parts.length > 0 ? `${parts.join('の')}` : 'サロン・クリニック';
-  const currentPage = parseInt(searchParams.page || '1');
+  const currentPage = Math.max(1, parseInt(searchParams.page || '1') || 1);
   const title = currentPage > 1 ? `${titlePrefix}検索（${currentPage}ページ目）` : `${titlePrefix}検索`;
   const description = parts.length > 0
     ? `${titlePrefix}の一覧。メニュー・料金・口コミを比較して予約できます。`

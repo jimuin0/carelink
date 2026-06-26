@@ -32,26 +32,16 @@ function setupDefaultMocks(keyValid: boolean = true, hasScope: boolean = true) {
             }),
           }),
         };
-      } else if (table === 'bookings') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              not: jest.fn().mockReturnValue({
-                order: jest.fn().mockReturnValue({
-                  range: jest.fn().mockResolvedValue({
-                    data: [
-                      { customer_name: 'John Doe', customer_phone: '09012345678', customer_email: 'john@example.com', user_id: 'user-1' },
-                      { customer_name: 'Jane Smith', customer_phone: '09087654321', customer_email: 'jane@example.com', user_id: 'user-2' },
-                    ],
-                    error: null,
-                    count: 2,
-                  }),
-                }),
-              }),
-            }),
-          }),
-        };
       }
+      return { select: jest.fn() };
+    }),
+    // get_facility_customers_v1 RPC: ユニーク顧客＋total_count(ウィンドウ集計)を返す
+    rpc: jest.fn().mockResolvedValue({
+      data: [
+        { name: 'John Doe', phone: '09012345678', email: 'john@example.com', total_count: 2 },
+        { name: 'Jane Smith', phone: '09087654321', email: 'jane@example.com', total_count: 2 },
+      ],
+      error: null,
     }),
   });
 }
@@ -132,6 +122,33 @@ describe('GET /api/v1/customers', () => {
     expect(json.pagination.limit).toBe(50);
   });
 
+  test('total はユニーク顧客総数(RPCのtotal_count)を返す(ページ行数ではない)', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
+            }),
+          }),
+        }),
+      })),
+      // 1ページに2行だが、ユニーク顧客総数は 50（COUNT(*) OVER() 同梱）
+      rpc: jest.fn().mockResolvedValue({
+        data: [
+          { name: 'A', phone: '1', email: 'a@x.com', total_count: 50 },
+          { name: 'B', phone: '2', email: 'b@x.com', total_count: 50 },
+        ],
+        error: null,
+      }),
+    });
+    const res = await GET(makeRequest('test-api-key', '?page=1&limit=2') as any);
+    const json = await res.json();
+    expect(json.data).toHaveLength(2);
+    expect(json.pagination.total).toBe(50); // 行数(2)ではなくユニーク総数(50)
+  });
+
   test('includes API version header', async () => {
     const res = await GET(makeRequest() as any);
     expect(res.headers.get('X-API-Version')).toBe('1.0.0');
@@ -200,26 +217,18 @@ describe('GET /api/v1/customers', () => {
               }),
             }),
           };
-        } else if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                not: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
-                  }),
-                }),
-              }),
-            }),
-          };
         }
+        return { select: jest.fn() };
       }),
+      rpc: jest.fn().mockResolvedValue({ data: [], error: null }),
     });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.pagination.total).toBe(0); // 空結果なら total=0
   });
 
-  test('DB error → 500', async () => {
+  test('DB error (RPC) → 500', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({
       from: jest.fn((table: string) => {
@@ -233,20 +242,10 @@ describe('GET /api/v1/customers', () => {
               }),
             }),
           };
-        } else if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                not: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' }, count: null }),
-                  }),
-                }),
-              }),
-            }),
-          };
         }
+        return { select: jest.fn() };
       }),
+      rpc: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
     });
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(500);
@@ -327,113 +326,65 @@ describe('GET /api/v1/customers', () => {
     expect(json.pagination.page).toBe(1);
   });
 
-  test('search パラメータでフィルタ追加', async () => {
+  // dedup（user_id ?? phone ?? name）と検索は RPC(get_facility_customers_v1)が DB 側で行うため、
+  // route 層では RPC へ正しいパラメータを渡すこと・RPC 結果を正しく整形することを検証する。
+  function setupRpcMock(rpcImpl: jest.Mock) {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
-    const orMock = jest.fn().mockReturnValue({
-      range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
-    });
     createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'api_keys') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({
-                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
-                }),
-              }),
-            }),
-          };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              not: jest.fn().mockReturnValue({
-                order: jest.fn().mockReturnValue({
-                  or: orMock,
-                  range: jest.fn().mockResolvedValue({ data: [], error: null, count: 0 }),
-                }),
-              }),
+      from: jest.fn(() => ({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            single: jest.fn().mockResolvedValue({
+              data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
             }),
           }),
-        };
-      }),
+        }),
+      })),
+      rpc: rpcImpl,
     });
+    return rpcImpl;
+  }
+
+  test('search パラメータをサニタイズして RPC の p_search に渡す', async () => {
+    const rpc = setupRpcMock(jest.fn().mockResolvedValue({ data: [], error: null }));
     const res = await GET(makeRequest('test-api-key', '?search=tanaka') as any);
     expect(res.status).toBe(200);
-    expect(orMock).toHaveBeenCalled();
+    expect(rpc).toHaveBeenCalledWith('get_facility_customers_v1', expect.objectContaining({
+      p_facility_id: 'fac-123', p_search: 'tanaka',
+    }));
   });
 
-  test('user_id null + customer_phone あり → phone で dedup', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'api_keys') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({
-                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
-                }),
-              }),
-            }),
-          };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              not: jest.fn().mockReturnValue({
-                order: jest.fn().mockReturnValue({
-                  range: jest.fn().mockResolvedValue({
-                    data: [
-                      { customer_name: 'X', customer_phone: '0901', customer_email: null, user_id: null },
-                      { customer_name: 'X', customer_phone: '0901', customer_email: null, user_id: null },
-                      // 全部 null → スキップ
-                      { customer_name: null, customer_phone: null, customer_email: null, user_id: null },
-                    ],
-                    error: null,
-                    count: 3,
-                  }),
-                }),
-              }),
-            }),
-          }),
-        };
-      }),
-    });
+  test('search の LIKE ワイルドカード/区切り文字をエスケープ・除去して渡す', async () => {
+    const rpc = setupRpcMock(jest.fn().mockResolvedValue({ data: [], error: null }));
+    await GET(makeRequest('test-api-key', '?search=' + encodeURIComponent('a%_,(b)')) as any);
+    const passed = rpc.mock.calls[0][1].p_search as string;
+    expect(passed).toContain('\\%');   // % はエスケープ
+    expect(passed).toContain('\\_');   // _ はエスケープ
+    expect(passed).not.toContain('(');  // 区切り文字は除去
+    expect(passed).not.toContain(',');
+  });
+
+  test('RPC 結果を {name,phone,email} に整形して返す', async () => {
+    setupRpcMock(jest.fn().mockResolvedValue({
+      data: [{ name: 'A', phone: '090', email: 'a@b.com', total_count: 1 }],
+      error: null,
+    }));
     const res = await GET(makeRequest() as any);
     const json = await res.json();
-    expect(json.data.length).toBe(1);
+    expect(json.data).toEqual([{ name: 'A', phone: '090', email: 'a@b.com' }]);
+    expect(json.pagination.total).toBe(1);
   });
 
-  test('data が null → 空配列を返す', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'api_keys') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({
-                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
-                }),
-              }),
-            }),
-          };
-        }
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              not: jest.fn().mockReturnValue({
-                order: jest.fn().mockReturnValue({
-                  range: jest.fn().mockResolvedValue({ data: null, error: null, count: null }),
-                }),
-              }),
-            }),
-          }),
-        };
-      }),
-    });
+  test('page/limit から p_limit・p_offset を正しく算出して渡す', async () => {
+    const rpc = setupRpcMock(jest.fn().mockResolvedValue({ data: [], error: null }));
+    await GET(makeRequest('test-api-key', '?page=3&limit=10') as any);
+    expect(rpc).toHaveBeenCalledWith('get_facility_customers_v1', expect.objectContaining({
+      p_limit: 10, p_offset: 20, // (3-1)*10
+    }));
+  });
+
+  test('data が null → 空配列・total 0 を返す', async () => {
+    setupRpcMock(jest.fn().mockResolvedValue({ data: null, error: null }));
     const res = await GET(makeRequest() as any);
     const json = await res.json();
     expect(json.data).toEqual([]);
@@ -456,44 +407,9 @@ describe('GET /api/v1/customers', () => {
     );
   });
 
-  test('重複 user_id は dedup される', async () => {
-    const { createServiceRoleClient } = require('@/lib/supabase-server');
-    createServiceRoleClient.mockReturnValue({
-      from: jest.fn((table: string) => {
-        if (table === 'api_keys') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                single: jest.fn().mockResolvedValue({
-                  data: { facility_id: 'fac-123', scopes: ['customers:read'], is_active: true, expires_at: null },
-                }),
-              }),
-            }),
-          };
-        } else if (table === 'bookings') {
-          return {
-            select: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                not: jest.fn().mockReturnValue({
-                  order: jest.fn().mockReturnValue({
-                    range: jest.fn().mockResolvedValue({
-                      data: [
-                        { customer_name: 'A', customer_phone: '090', customer_email: 'a@b.com', user_id: 'same-user' },
-                        { customer_name: 'A', customer_phone: '090', customer_email: 'a@b.com', user_id: 'same-user' },
-                      ],
-                      error: null,
-                      count: 2,
-                    }),
-                  }),
-                }),
-              }),
-            }),
-          };
-        }
-      }),
-    });
-    const res = await GET(makeRequest() as any);
-    const json = await res.json();
-    expect(json.data.length).toBe(1);
+  test('search 未指定時は p_search に null を渡す', async () => {
+    const rpc = setupRpcMock(jest.fn().mockResolvedValue({ data: [], error: null }));
+    await GET(makeRequest() as any);
+    expect(rpc).toHaveBeenCalledWith('get_facility_customers_v1', expect.objectContaining({ p_search: null }));
   });
 });

@@ -253,6 +253,48 @@ describe('POST /api/booking', () => {
     expect(res.status).toBe(409);
   });
 
+  test('クーポン総上限到達（COUPON_LIMIT）→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'COUPON_LIMIT: このクーポンは利用上限に達しています', code: 'P0001' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain('利用上限');
+  });
+
+  test('クーポン1人1回違反（COUPON_ALREADY_USED）→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'COUPON_ALREADY_USED: このクーポンは既に利用済みです', code: 'P0001' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain('既に利用済み');
+  });
+
   test('ポイント残高不足→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 

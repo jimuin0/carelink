@@ -6,6 +6,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -179,12 +180,17 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
           cancelMenuName = menuForLine?.name || '';
         }
 
-        void sendLineCancellation(lineLink.line_user_id, {
+        // sendLineCancellation は失敗時 throw せず false を返す契約。void で捨てると送達失敗が
+        // 完全に無音化するため、戻り値を確認して未送達をログに残す（可観測性の確保）。
+        const lineOk = await sendLineCancellation(lineLink.line_user_id, {
           facilityName: facilityForLine?.name || '',
           menuName: cancelMenuName,
           date: booking.booking_date,
           time: booking.start_time,
         });
+        if (!lineOk) {
+          console.error('[cancel] LINE cancellation notification not delivered', { userId: user.id, bookingId: booking.id });
+        }
       }
     }
   } catch (err) {
@@ -231,6 +237,9 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   return NextResponse.json({ success: true });
   } catch (e) {
     safeCaptureException(e, 'booking-cancel');
+    // safeCaptureException は console.error のみで Slack 通知しないため、500 経路では別途明示通知する
+    // （catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れる）。
+    alertCaughtError('booking-cancel', e, '/api/booking/[id]/cancel');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

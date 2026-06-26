@@ -813,6 +813,45 @@ export type Database = {
           },
         ]
       }
+      coupon_redemptions: {
+        Row: {
+          booking_id: string | null
+          coupon_id: string
+          created_at: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          booking_id?: string | null
+          coupon_id: string
+          created_at?: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          booking_id?: string | null
+          coupon_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coupons: {
         Row: {
           coupon_type: string
@@ -826,6 +865,7 @@ export type Database = {
           image_submission: boolean
           image_url: string | null
           is_active: boolean | null
+          max_uses: number | null
           name: string
           presentation_timing: string | null
           search_category1: string | null
@@ -848,6 +888,7 @@ export type Database = {
           image_submission?: boolean
           image_url?: string | null
           is_active?: boolean | null
+          max_uses?: number | null
           name: string
           presentation_timing?: string | null
           search_category1?: string | null
@@ -870,6 +911,7 @@ export type Database = {
           image_submission?: boolean
           image_url?: string | null
           is_active?: boolean | null
+          max_uses?: number | null
           name?: string
           presentation_timing?: string | null
           search_category1?: string | null
@@ -4447,7 +4489,7 @@ export type Database = {
           stripe_payment_intent_id: string | null
           stripe_session_id: string
           updated_at: string
-          user_id: string
+          user_id: string | null
         }
         Insert: {
           amount: number
@@ -4465,7 +4507,7 @@ export type Database = {
           stripe_payment_intent_id?: string | null
           stripe_session_id: string
           updated_at?: string
-          user_id: string
+          user_id?: string | null
         }
         Update: {
           amount?: number
@@ -4483,7 +4525,7 @@ export type Database = {
           stripe_payment_intent_id?: string | null
           stripe_session_id?: string
           updated_at?: string
-          user_id?: string
+          user_id?: string | null
         }
         Relationships: [
           {
@@ -5730,6 +5772,20 @@ export type Database = {
           name: string
           phone: string
           visit_count: number
+        }[]
+      }
+      get_facility_customers_v1: {
+        Args: {
+          p_facility_id: string
+          p_search: string | null
+          p_limit: number
+          p_offset: number
+        }
+        Returns: {
+          name: string
+          phone: string | null
+          email: string | null
+          total_count: number
         }[]
       }
       get_incident_thread: {
