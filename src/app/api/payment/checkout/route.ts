@@ -79,6 +79,28 @@ export async function POST(request: NextRequest) {
     const facilityName = (facility?.name || 'CareLink予約').slice(0, 200);
 
     const stripe = new Stripe(stripeKey);
+    const admin = createServiceRoleClient();
+
+    // 同一予約に未完了(pending)の決済セッションが残っていると、ユーザーが複数のセッションを
+    // 同時に完了でき二重課金になり得る。新規作成前に既存 pending を Stripe 側で失効させ、
+    // DB も expired に更新して「有効な pending は最新1件のみ」へ収束させる（放棄→再開フローは
+    // 旧セッションを失効させて新規発行するため壊れない）。完全な競合防止は別途 DB の
+    // 部分 UNIQUE インデックス（booking_id WHERE status='pending'）で担保する。
+    const { data: stalePending } = await admin
+      .from('stripe_sessions')
+      .select('stripe_session_id')
+      .eq('booking_id', bookingId)
+      .eq('status', 'pending');
+    if (stalePending && stalePending.length > 0) {
+      for (const s of stalePending) {
+        await stripe.checkout.sessions.expire(s.stripe_session_id).catch(() => {});
+      }
+      await admin
+        .from('stripe_sessions')
+        .update({ status: 'expired' })
+        .eq('booking_id', bookingId)
+        .eq('status', 'pending');
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
@@ -107,7 +129,6 @@ export async function POST(request: NextRequest) {
 
     // Record session in DB before returning URL.
     // If this fails, expire the Stripe session to prevent orphaned charges.
-    const admin = createServiceRoleClient();
     const { error: sessionInsertErr } = await admin.from('stripe_sessions').insert({
       booking_id: bookingId,
       facility_id: booking.facility_id,
