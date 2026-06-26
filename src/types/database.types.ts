@@ -813,6 +813,45 @@ export type Database = {
           },
         ]
       }
+      coupon_redemptions: {
+        Row: {
+          booking_id: string | null
+          coupon_id: string
+          created_at: string
+          id: string
+          user_id: string | null
+        }
+        Insert: {
+          booking_id?: string | null
+          coupon_id: string
+          created_at?: string
+          id?: string
+          user_id?: string | null
+        }
+        Update: {
+          booking_id?: string | null
+          coupon_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "coupons"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_booking_id_fkey"
+            columns: ["booking_id"]
+            isOneToOne: false
+            referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       coupons: {
         Row: {
           coupon_type: string
@@ -826,6 +865,7 @@ export type Database = {
           image_submission: boolean
           image_url: string | null
           is_active: boolean | null
+          max_uses: number | null
           name: string
           presentation_timing: string | null
           search_category1: string | null
@@ -848,6 +888,7 @@ export type Database = {
           image_submission?: boolean
           image_url?: string | null
           is_active?: boolean | null
+          max_uses?: number | null
           name: string
           presentation_timing?: string | null
           search_category1?: string | null
@@ -870,6 +911,7 @@ export type Database = {
           image_submission?: boolean
           image_url?: string | null
           is_active?: boolean | null
+          max_uses?: number | null
           name?: string
           presentation_timing?: string | null
           search_category1?: string | null
