@@ -5,6 +5,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,12 +22,13 @@ export async function GET(request: Request) {
   const date = searchParams.get('date');
   const rawDuration = parseInt(searchParams.get('duration') || '60');
   const duration = Number.isNaN(rawDuration) ? 60 : Math.min(Math.max(rawDuration, 15), 480);
-  const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
 
   if (!facilityId || !staffId || !date) {
     return NextResponse.json({ slots: [] });
   }
-  if (!uuidRegex.test(facilityId) || !uuidRegex.test(staffId) || !dateRegex.test(date)) {
+  // 形式だけでなく実在する暦日かを検証する（2026-02-30 等は Postgres の date キャストで
+  // RPC エラー→500/Sentry ノイズになる）。不正日付は空き枠なしとして 200 で返す。
+  if (!uuidRegex.test(facilityId) || !uuidRegex.test(staffId) || !isValidIsoDate(date)) {
     return NextResponse.json({ slots: [] });
   }
 

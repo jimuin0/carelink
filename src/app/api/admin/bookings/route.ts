@@ -7,6 +7,7 @@ import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingConfirmed } from '@/lib/email';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -18,7 +19,8 @@ const adminBookingSchema = z.object({
   facility_id: z.string().uuid(),
   staff_id: z.string().uuid().nullable().optional(),
   menu_ids: z.array(z.string().uuid()).min(1).max(20),
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  // 形式に加え実在する暦日かを検証する（2026-02-30 等を弾く。RPC 内の date キャスト失敗を未然に防止）。
+  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(isValidIsoDate, '有効な日付を入力してください'),
   start_time: z.string().regex(timeRegex),
   end_time: z.string().regex(timeRegex),
   customer_name: z.string().min(1).max(100),
