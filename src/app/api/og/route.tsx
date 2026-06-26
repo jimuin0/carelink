@@ -179,6 +179,15 @@ export async function GET(req: NextRequest) {
         }} />
       </div>
     ),
-    { width: 1200, height: 630 },
+    {
+      width: 1200,
+      height: 630,
+      // OG 画像は URL（クエリ）が同一なら内容も不変。Cache-Control 不在だと SNS クローラや
+      // 連続リクエストのたびに Edge ランタイムで画像を再レンダリングし CPU を消費する（Edge CPU DoS）。
+      // CDN/ブラウザに 1 日キャッシュさせ、レンダリングを URL あたり 1 回に抑える。
+      headers: {
+        'Cache-Control': 'public, max-age=86400, s-maxage=86400, immutable',
+      },
+    },
   );
 }
