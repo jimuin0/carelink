@@ -44,12 +44,16 @@ function makePostRequest(body: object) {
 
 function validJob(overrides: object = {}) {
   return {
-    facility_id: FACILITY_UUID,
     title: 'テスト求人',
     job_type: 'ネイリスト',
     employment_type: '正社員',
     ...overrides,
   };
+}
+
+/** facility_id を付けた validJob */
+function validJobWithFacility(facilityId: string = FACILITY_UUID, overrides: object = {}) {
+  return validJob({ facility_id: facilityId, ...overrides });
 }
 
 // facility_members list — ends with .in() as Promise
@@ -143,11 +147,15 @@ test('POST: 施設メンバーシップなし → 403', async () => {
   expect(res.status).toBe(403);
 });
 
-test('POST: facility_id なし → 400', async () => {
-  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
-  const { facility_id: _omit, ...bodyWithoutFacility } = validJob() as Record<string, unknown>;
-  const res = await POST(makePostRequest(bodyWithoutFacility));
-  expect(res.status).toBe(400);
+test('POST: 単一施設で facility_id 省略 → 201 (省略時は唯一の施設を使う)', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return insertSingle({ id: 'job-1', title: 'テスト求人' });
+  });
+  const res = await POST(makePostRequest(validJob())); // facility_id なし・単一施設 → 省略可
+  expect(res.status).toBe(201);
 });
 
 test('POST: facility_id が所属施設以外 → 403', async () => {
@@ -188,6 +196,41 @@ test('POST: 正常作成 → 201 with job', async () => {
   const json = await res.json();
   expect(res.status).toBe(201);
   expect(json.job).toBeDefined();
+});
+
+const FACILITY_UUID_2 = '44444444-4444-4444-4444-444444444444';
+
+test('POST: facility_id 指定(所有施設) → その施設で201', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]);
+    return insertSingle({ id: 'job-2', title: 'テスト求人' });
+  });
+  const res = await POST(makePostRequest(validJob({ facility_id: FACILITY_UUID_2 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: facility_id 指定(非所有施設) → 403', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return insertSingle({ id: 'x', title: 'x' });
+  });
+  const res = await POST(makePostRequest(validJob({ facility_id: '99999999-9999-9999-9999-999999999999' })));
+  expect(res.status).toBe(403);
+});
+
+test('POST: 複数施設オーナーが facility_id 未指定 → 400(投稿先を要求)', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]);
+    return insertSingle({ id: 'x', title: 'x' });
+  });
+  const res = await POST(makePostRequest(validJob()));
+  expect(res.status).toBe(400);
 });
 
 test('POST: CSRF エラー → 403', async () => {

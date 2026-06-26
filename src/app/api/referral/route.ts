@@ -9,15 +9,17 @@ import { getClientIp } from "@/lib/client-ip";
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { randomInt } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
 
 function generateCode(): string {
+  // 暗号論的乱数(randomInt)を用いる。Math.random は予測可能な疑似乱数のため紹介コードに使わない。
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
-  for (let i = 0; i < 8; i++) code += chars[crypto.getRandomValues(new Uint32Array(1))[0] % chars.length];
+  for (let i = 0; i < 8; i++) code += chars[randomInt(chars.length)];
   return code;
 }
 
