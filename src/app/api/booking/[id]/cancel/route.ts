@@ -1,7 +1,9 @@
 import { createServerClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
+import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
@@ -29,37 +31,54 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   if (!uuidRegex.test(params.id)) {
     return NextResponse.json({ error: '不正なリクエストです' }, { status: 400 });
   }
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
-      },
+  // 認証は2経路。LIFF（LINE 内ブラウザ）は Supabase セッション Cookie を持たないため、
+  // Authorization: Bearer の LINE access token で本人解決し、DB は service role を使う
+  // （所有権は下の user_id 明示フィルタ・status CAS で担保しており RLS に依存しない）。
+  // それ以外（Web / mypage）は従来どおり Cookie セッション認証＝挙動を一切変えない。
+  const bearer = getBearerToken(_request);
+  let userId: string;
+  let db: SupabaseClient;
+  if (bearer) {
+    const liffUserId = await resolveLiffUserId(bearer);
+    if (!liffUserId) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    userId = liffUserId;
+    db = createServiceRoleClient();
+  } else {
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      {
+        cookies: {
+          getAll() { return cookieStore.getAll(); },
+          setAll(cookiesToSet) {
+            try {
+              cookiesToSet.forEach(({ name, value, options }) =>
+                cookieStore.set(name, value, options)
+              );
+            } catch {}
+          },
+        },
+      }
+    );
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    }
+    userId = user.id;
+    db = supabase as unknown as SupabaseClient;
   }
 
-  const { data: booking } = await supabase
+  const { data: booking } = await db
     .from('bookings')
     .select('id, user_id, status, facility_id, customer_name, email, booking_date, start_time, end_time, total_price, menu_id, staff_id, points_used')
     .eq('id', params.id)
     .single();
 
   if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
-  if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+  if (booking.user_id !== userId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   // キャンセル済み・キャンセル料支払い済み・完了済みは操作不可
   const nonCancellableStatuses = ['cancelled', 'cancel_fee_paid', 'completed', 'no_show'];
   if (nonCancellableStatuses.includes(booking.status)) {
@@ -70,11 +89,11 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // 別経路（stripe webhook の cancel_fee_paid / admin の completed 等）が状態を変えていたら 0 行と
   // なり 409 を返す。旧実装は status 条件も 0 行検査もなく、completed/cancel_fee_paid を cancelled で
   // 握り潰す競合が成立し得た（8体監査 A4#5）。
-  const { data: cancelled, error } = await supabase
+  const { data: cancelled, error } = await db
     .from('bookings')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', params.id)
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .eq('status', booking.status)
     .select('id');
 
@@ -89,12 +108,12 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // 同額を補償行として戻す。CAS により本パスは1予約あたり1回しか到達しない（status 条件付き UPDATE が
   // 成功した時のみ）ため、二重返還は起きない。失敗は致命でないため warn のみ（要手動照合）。
   // user_points は authenticated に INSERT ポリシーが無いため service_role で挿入する。
-  // booking.user_id は上の所有権チェック（!== user.id で 403）により user.id と一致＝非 null 保証。
+  // booking.user_id は上の所有権チェック（!== userId で 403）により userId と一致＝非 null 保証。
   const refundPoints = booking.points_used ?? 0;
   if (refundPoints > 0) {
     const refundClient = createServiceRoleClient();
     const { error: refundErr } = await refundClient.from('user_points').insert({
-      user_id: user.id,
+      user_id: userId,
       points: refundPoints,
       reason: 'キャンセル返還',
       booking_id: booking.id,
@@ -106,7 +125,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   // 監査ログ（非ブロッキング）
   void writeAuditLog({
-    userId: user.id,
+    userId,
     facilityId: booking.facility_id,
     action: 'cancel',
     tableName: 'bookings',
@@ -118,10 +137,10 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   // Send cancellation email (non-blocking)
   try {
-    const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', booking.facility_id).single();
+    const { data: facility } = await db.from('facility_profiles').select('name').eq('id', booking.facility_id).single();
     let menuName: string | undefined;
     if (booking.menu_id) {
-      const { data: menu } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).single();
+      const { data: menu } = await db.from('facility_menus').select('name').eq('id', booking.menu_id).single();
       menuName = menu?.name;
     }
     const emailData = {
@@ -138,7 +157,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     void sendBookingCancelled(emailData);
 
     // サロンオーナーにキャンセル通知
-    const { data: owner } = await supabase
+    const { data: owner } = await db
       .from('facility_members')
       .select('user_id')
       .eq('facility_id', booking.facility_id)
@@ -146,7 +165,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       .limit(1)
       .single();
     if (owner) {
-      const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', owner.user_id).single();
+      const { data: ownerProfile } = await db.from('profiles').select('email').eq('id', owner.user_id).single();
       if (ownerProfile?.email) {
         // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
         // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
@@ -159,16 +178,16 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
   // LINE cancellation notification (non-blocking)
   try {
-    if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+    if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
       const adminSupabase = createServiceRoleClient();
       const { data: lineLink } = await adminSupabase
         .from('line_user_links')
         .select('line_user_id')
-        .eq('user_id', user.id)
+        .eq('user_id', userId)
         .maybeSingle();
 
       if (lineLink?.line_user_id) {
-        const { data: facilityForLine } = await supabase
+        const { data: facilityForLine } = await db
           .from('facility_profiles')
           .select('name')
           .eq('id', booking.facility_id)
@@ -176,7 +195,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
         let cancelMenuName = '';
         if (booking.menu_id) {
-          const { data: menuForLine } = await supabase.from('facility_menus').select('name').eq('id', booking.menu_id).maybeSingle();
+          const { data: menuForLine } = await db.from('facility_menus').select('name').eq('id', booking.menu_id).maybeSingle();
           cancelMenuName = menuForLine?.name || '';
         }
 
@@ -189,7 +208,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
           time: booking.start_time,
         });
         if (!lineOk) {
-          console.error('[cancel] LINE cancellation notification not delivered', { userId: user.id, bookingId: booking.id });
+          console.error('[cancel] LINE cancellation notification not delivered', { userId, bookingId: booking.id });
         }
       }
     }
