@@ -5,7 +5,7 @@ export default function robots(): MetadataRoute.Robots {
     rules: {
       userAgent: '*',
       allow: '/',
-      disallow: ['/admin/', '/mypage/', '/auth/'],
+      disallow: ['/admin/', '/mypage/', '/auth/', '/api/'],
     },
     sitemap: 'https://carelink-jp.com/sitemap.xml',
   };
