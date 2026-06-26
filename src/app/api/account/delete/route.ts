@@ -174,7 +174,16 @@ export async function POST(request: NextRequest) {
       userAgent: ua,
     });
 
-    return NextResponse.json({ success: true });
+    // 削除済みユーザーの Supabase セッション Cookie をブラウザから除去する。
+    // 残置すると以後のリクエストで無効トークンが送られ続ける（getUser で弾かれるとはいえ
+    // 不要な失敗・「ログイン状態に見える」UI 不整合の素になる）。auth-token 系のみ失効させる。
+    const res = NextResponse.json({ success: true });
+    for (const c of cookieStore.getAll()) {
+      if (c.name.startsWith('sb-') && c.name.includes('auth-token')) {
+        res.cookies.set(c.name, '', { maxAge: 0, path: '/' });
+      }
+    }
+    return res;
   } catch (e) {
     console.error('[account/delete] Error:', e);
     // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。

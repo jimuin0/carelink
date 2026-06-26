@@ -19,7 +19,8 @@ jest.mock('@/lib/audit-logger', () => ({
   getRequestContext: jest.fn(() => ({ ua: 'test-ua', ip: '127.0.0.1' })),
 }));
 jest.mock('@/lib/admin-date', () => ({ todayJst: jest.fn(() => '2026-06-23') }));
-jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
+const mockGetAll = jest.fn(() => [] as { name: string; value: string }[]);
+jest.mock('next/headers', () => ({ cookies: () => ({ getAll: mockGetAll }) }));
 
 const USER_ID = 'user-delete-test';
 
@@ -240,6 +241,22 @@ test('正常削除フロー → 200 success:true', async () => {
   expect(res.status).toBe(200);
   expect(json.success).toBe(true);
   expect(mockDeleteUser).toHaveBeenCalledWith(USER_ID);
+});
+
+test('正常削除で Supabase auth-token Cookie を失効させる（他Cookieは触らない）', async () => {
+  mockGetAll.mockReturnValueOnce([
+    { name: 'sb-xzafxiupbflvgbarrihe-auth-token', value: 'tok' },     // 失効対象
+    { name: 'sb-xzafxiupbflvgbarrihe-auth-token.0', value: 'chunk0' }, // 失効対象（チャンク）
+    { name: 'sb-xzafxiupbflvgbarrihe-other', value: 'keep' },          // sb- だが auth-token でない → 触らない
+    { name: 'unrelated', value: 'keep' },                              // sb- でない → 触らない
+  ]);
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  const setCookie = res.headers.get('set-cookie') ?? '';
+  expect(setCookie).toContain('sb-xzafxiupbflvgbarrihe-auth-token=');
+  expect(setCookie).toContain('Max-Age=0');
+  expect(setCookie).not.toContain('sb-xzafxiupbflvgbarrihe-other=');
+  expect(setCookie).not.toContain('unrelated=');
 });
 
 test('writeAuditLog が呼ばれる', async () => {
