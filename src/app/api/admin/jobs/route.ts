@@ -67,9 +67,13 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     if (facilityIds.length === 0) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
+    const requestedFacilityId: string | undefined = (body as Record<string, unknown>)?.facility_id as string | undefined;
+    if (!requestedFacilityId) return NextResponse.json({ error: 'facility_id が必要です' }, { status: 400 });
+    if (!facilityIds.includes(requestedFacilityId)) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+
     const v = parsed.data;
     const insertRow = {
-      facility_id: facilityIds[0],
+      facility_id: requestedFacilityId,
       title: v.title,
       job_type: v.job_type,
       employment_type: v.employment_type,

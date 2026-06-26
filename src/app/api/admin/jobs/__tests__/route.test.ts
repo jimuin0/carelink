@@ -44,6 +44,7 @@ function makePostRequest(body: object) {
 
 function validJob(overrides: object = {}) {
   return {
+    facility_id: FACILITY_UUID,
     title: 'テスト求人',
     job_type: 'ネイリスト',
     employment_type: '正社員',
@@ -137,13 +138,21 @@ test('POST: レートリミット → 429', async () => {
 });
 
 test('POST: 施設メンバーシップなし → 403', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([]); // POST body parsed before auth, so auth comes second
-    return membersChain([]);
-  });
+  mockAnonFrom.mockReturnValue(membersChain([]));
   const res = await POST(makePostRequest(validJob()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: facility_id なし → 400', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  const { facility_id: _omit, ...bodyWithoutFacility } = validJob() as Record<string, unknown>;
+  const res = await POST(makePostRequest(bodyWithoutFacility));
+  expect(res.status).toBe(400);
+});
+
+test('POST: facility_id が所属施設以外 → 403', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  const res = await POST(makePostRequest(validJob({ facility_id: '99999999-9999-9999-9999-999999999999' })));
   expect(res.status).toBe(403);
 });
 

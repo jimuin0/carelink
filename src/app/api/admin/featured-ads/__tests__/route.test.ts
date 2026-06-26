@@ -34,8 +34,8 @@ import { NextRequest } from 'next/server';
 import { GET, POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 
-function makeGetRequest() {
-  return new NextRequest('http://localhost/api/admin/featured-ads', { method: 'GET' });
+function makeGetRequest(facilityId: string = FACILITY_UUID) {
+  return new NextRequest(`http://localhost/api/admin/featured-ads?facility_id=${facilityId}`, { method: 'GET' });
 }
 
 function makePostRequest(body: object) {
@@ -50,16 +50,16 @@ const STARTS = new Date(Date.now() + 86400_000).toISOString();
 const ENDS   = new Date(Date.now() + 30 * 86400_000).toISOString();
 
 function validPostBody(overrides: object = {}) {
-  return { slot_type: 'search_top', starts_at: STARTS, ends_at: ENDS, ...overrides };
+  return { facility_id: FACILITY_UUID, slot_type: 'search_top', starts_at: STARTS, ends_at: ENDS, ...overrides };
 }
 
+/** verifyFacilityMembership は .maybeSingle() で終わる */
 function facilityIdChain(data: unknown) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
     in: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
   };
 }
 
@@ -112,7 +112,12 @@ test('GET: レートリミット → 429', async () => {
   expect(res.status).toBe(429);
 });
 
-test('GET: 施設なし → 403', async () => {
+test('GET: facility_id クエリパラメータなし → 400', async () => {
+  const res = await GET(new NextRequest('http://localhost/api/admin/featured-ads', { method: 'GET' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: 施設メンバーシップなし → 403', async () => {
   mockAdminFrom.mockReturnValue(facilityIdChain(null));
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(403);
@@ -145,15 +150,21 @@ test('POST: レートリミット → 429', async () => {
   expect(res.status).toBe(429);
 });
 
-test('POST: 施設なし → 403', async () => {
+test('POST: facility_id なし → 400', async () => {
+  const { facility_id: _omit, ...bodyWithoutFacility } = validPostBody() as Record<string, unknown>;
+  const res = await POST(makePostRequest(bodyWithoutFacility));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 施設メンバーシップなし → 403', async () => {
   mockAdminFrom.mockReturnValue(facilityIdChain(null));
   const res = await POST(makePostRequest(validPostBody()));
   expect(res.status).toBe(403);
 });
 
-test('POST: 必須フィールド欠落 → 400', async () => {
+test('POST: 必須フィールド欠落 (starts_at/ends_at なし) → 400', async () => {
   mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
-  const res = await POST(makePostRequest({ slot_type: 'search_top' })); // starts_at, ends_at missing
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, slot_type: 'search_top' })); // starts_at, ends_at missing
   expect(res.status).toBe(400);
 });
 
@@ -261,7 +272,7 @@ test('GET: レスポンスが { slots: [] } 形式', async () => {
 test('POST: 不正な日付形式 → 400', async () => {
   mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
   const res = await POST(makePostRequest({
-    slot_type: 'search_top', starts_at: 'invalid-date', ends_at: 'also-invalid',
+    facility_id: FACILITY_UUID, slot_type: 'search_top', starts_at: 'invalid-date', ends_at: 'also-invalid',
   }));
   expect(res.status).toBe(400);
 });
