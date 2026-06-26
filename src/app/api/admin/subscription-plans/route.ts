@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
 const planSchema = z.object({
   name: z.string().min(1).max(100),
@@ -17,7 +18,7 @@ const planSchema = z.object({
   is_active: z.boolean().optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminContext(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -33,7 +34,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 export async function GET(request: NextRequest) {
@@ -41,8 +42,9 @@ export async function GET(request: NextRequest) {
   if (await checkRateLimit(null, ip, 30, 60_000, 'subscription-plans-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminContext(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { facilityId } = auth;
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin
@@ -63,8 +65,9 @@ export async function POST(request: NextRequest) {
   if (await checkRateLimit(null, ip, 20, 60_000, 'subscription-plans')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminContext(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { userId, facilityId } = auth;
 
   const body = await request.json().catch(() => null);
   const parsed = planSchema.safeParse(body);
@@ -78,5 +81,18 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const { ua } = getRequestContext(request);
+  void writeAuditLog({
+    userId,
+    facilityId,
+    action: 'create',
+    tableName: 'subscription_plans',
+    recordId: data.id,
+    newValues: { name: parsed.data.name, price: parsed.data.price, sessions_per_month: parsed.data.sessions_per_month },
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ plan: data }, { status: 201 });
 }
