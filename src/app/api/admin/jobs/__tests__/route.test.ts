@@ -51,6 +51,11 @@ function validJob(overrides: object = {}) {
   };
 }
 
+/** facility_id を付けた validJob */
+function validJobWithFacility(facilityId: string = FACILITY_UUID, overrides: object = {}) {
+  return validJob({ facility_id: facilityId, ...overrides });
+}
+
 // facility_members list — ends with .in() as Promise
 function membersChain(data: unknown[]) {
   return {
@@ -137,13 +142,25 @@ test('POST: レートリミット → 429', async () => {
 });
 
 test('POST: 施設メンバーシップなし → 403', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([]));
+  const res = await POST(makePostRequest(validJob()));
+  expect(res.status).toBe(403);
+});
+
+test('POST: 単一施設で facility_id 省略 → 201 (省略時は唯一の施設を使う)', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membersChain([]); // POST body parsed before auth, so auth comes second
-    return membersChain([]);
+    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
+    return insertSingle({ id: 'job-1', title: 'テスト求人' });
   });
-  const res = await POST(makePostRequest(validJob()));
+  const res = await POST(makePostRequest(validJob())); // facility_id なし・単一施設 → 省略可
+  expect(res.status).toBe(201);
+});
+
+test('POST: facility_id が所属施設以外 → 403', async () => {
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  const res = await POST(makePostRequest(validJob({ facility_id: '99999999-9999-9999-9999-999999999999' })));
   expect(res.status).toBe(403);
 });
 

@@ -13,16 +13,16 @@ const PLAN_PRICES: Record<string, number> = {
   category_top: 7800,
 };
 
-async function getFacilityId(userId: string) {
+async function verifyFacilityMembership(userId: string, facilityId: string): Promise<boolean> {
   const admin = createServiceRoleClient();
   const { data } = await admin
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', userId)
+    .eq('facility_id', facilityId)
     .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  return data?.facility_id;
+    .maybeSingle();
+  return data !== null;
 }
 
 export async function GET(req: NextRequest) {
@@ -34,8 +34,10 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const facilityId = await getFacilityId(user.id);
-  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const facilityId = req.nextUrl.searchParams.get('facility_id');
+  if (!facilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  const isMember = await verifyFacilityMembership(user.id, facilityId);
+  if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
   const { data: slots } = await admin
@@ -59,11 +61,12 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const facilityId = await getFacilityId(user.id);
-  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
-
   const body = await req.json().catch(() => ({}));
-  const { slot_type, area, business_type, starts_at, ends_at } = body;
+  const { facility_id: bodyFacilityId, slot_type, area, business_type, starts_at, ends_at } = body;
+  if (!bodyFacilityId) return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
+  const isMember = await verifyFacilityMembership(user.id, bodyFacilityId);
+  if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const facilityId = bodyFacilityId;
 
   if (!slot_type || !starts_at || !ends_at) {
     return NextResponse.json({ error: 'slot_type, starts_at, ends_at required' }, { status: 400 });
