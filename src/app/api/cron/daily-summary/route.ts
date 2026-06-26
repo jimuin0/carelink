@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { todayJst, addDays } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
 // 1クエリの集合集計なので低い既定上限でも足りるが、念のため明示。
@@ -21,11 +22,10 @@ export async function GET(request: Request) {
   const startedAt = new Date();
   const supabase = createServiceRoleClient();
   try {
-    // 前日の日付（JST）
-    const yesterday = new Date();
-    yesterday.setHours(yesterday.getHours() + 9); // UTC→JST
-    yesterday.setDate(yesterday.getDate() - 1);
-    const dateStr = yesterday.toISOString().split('T')[0];
+    // 前日の日付（JST）。setHours(getHours()+9) はサーバTZ依存かつ 24超で日付が
+    // 繰り上がる（実行時刻によって集計対象日がずれる）ため、TZ非依存の純粋関数で
+    // 「当日JST → 1日前」を求める。
+    const dateStr = addDays(todayJst(), -1);
 
     // 全施設を1クエリの集合集計でまとめて処理（RPC）。
     // 旧実装は公開施設を1件ずつループし各施設で bookings を複数 select していた（O(N)）。
