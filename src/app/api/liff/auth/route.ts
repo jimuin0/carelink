@@ -9,6 +9,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
 import { verifyLineAccessToken } from '@/lib/line';
+import { alertCaughtError } from '@/lib/alert';
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,6 +68,7 @@ export async function POST(req: NextRequest) {
     });
   } catch (e) {
     console.error('[liff/auth] error:', e);
+    alertCaughtError('liff-auth', e, '/api/liff/auth');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

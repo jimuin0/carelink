@@ -6,6 +6,7 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
@@ -236,6 +237,9 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   return NextResponse.json({ success: true });
   } catch (e) {
     safeCaptureException(e, 'booking-cancel');
+    // safeCaptureException は console.error のみで Slack 通知しないため、500 経路では別途明示通知する
+    // （catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れる）。
+    alertCaughtError('booking-cancel', e, '/api/booking/[id]/cancel');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
