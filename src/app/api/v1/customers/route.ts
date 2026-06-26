@@ -64,38 +64,30 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
 
   const admin = createServiceRoleClient();
 
-  // Get unique customers from bookings for this facility
-  let query = admin
-    .from('bookings')
-    .select('customer_name, customer_phone:phone, customer_email:email, user_id', { count: 'exact' })
-    .eq('facility_id', principal.facility_id)
-    .not('customer_name', 'is', null)
-    .order('created_at', { ascending: false });
+  // ユニーク顧客を DB 側で正しくページングする。旧実装は bookings を range() でページングし
+  // 取得した1ページ内だけ dedup していたため、total が重複込み件数になり（ユニーク顧客数と乖離）、
+  // 同一顧客がページ跨ぎで重複・1ページの実件数が limit 未満になる二重の破綻があった。
+  // RPC が DISTINCT ON で一意化し COUNT(*) OVER() でユニーク総数を同梱して返す。
+  // 検索文字列は LIKE ワイルドカード(% _ \)をエスケープし区切り文字を除去（パラメータ渡しで注入は不可だが念のため）。
+  const safeSearch = search
+    ? search.replace(/[%_\\]/g, '\\$&').replace(/[,()]/g, '').slice(0, 100)
+    : null;
 
-  if (search) {
-    const safeSearch = search.replace(/[%_\\]/g, '\\$&').replace(/[,()]/g, '').slice(0, 100);
-    query = query.or(`customer_name.ilike.%${safeSearch}%,phone.ilike.%${safeSearch}%`);
-  }
-
-  const { data, error, count } = await query.range(offset, offset + limit - 1);
+  const { data, error } = await admin.rpc('get_facility_customers_v1', {
+    p_facility_id: principal.facility_id,
+    p_search: safeSearch,
+    p_limit: limit,
+    p_offset: offset,
+  });
   if (error) return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
 
-  // Deduplicate by phone/user_id
-  const seen = new Set<string>();
-  const customers = (data ?? []).filter((c) => {
-    const key = c.user_id ?? c.customer_phone ?? c.customer_name;
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  }).map((c) => ({
-    name: c.customer_name,
-    phone: c.customer_phone,
-    email: c.customer_email,
-  }));
+  const rows = (data ?? []) as { name: string; phone: string | null; email: string | null; total_count: number }[];
+  const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
+  const customers = rows.map((c) => ({ name: c.name, phone: c.phone, email: c.email }));
 
   return NextResponse.json({
     api_version: API_VERSION,
-    pagination: { page, limit, total: count ?? 0 },
+    pagination: { page, limit, total },
     data: customers,
   }, { headers: { 'X-API-Version': API_VERSION, 'Cache-Control': 'no-store' } });
 }
