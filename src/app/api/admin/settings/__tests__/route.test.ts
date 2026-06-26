@@ -311,6 +311,21 @@ test('PATCH: business_hours が valid (close > open) → 200', async () => {
   expect(res.status).toBe(200);
 });
 
+test('PATCH: business_hours の未知キー（曜日以外）は strip されDB更新に乗らない', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const updateFn = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
+  mockAdminFrom.mockReturnValue({ update: updateFn });
+  const res = await PATCH(makePatchRequest({
+    name: 'test',
+    business_hours: { mon: { open: '09:00', close: '18:00' }, evil: { open: '00:00', close: '23:59' }, foo: { open: '01:00', close: '02:00' } },
+  }));
+  expect(res.status).toBe(200);
+  const payload = updateFn.mock.calls[0][0];
+  expect(payload.business_hours).toEqual({ mon: { open: '09:00', close: '18:00' } });
+  expect(payload.business_hours.evil).toBeUndefined();
+  expect(payload.business_hours.foo).toBeUndefined();
+});
+
 test('PATCH: 不正JSON → 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const url = new URL('http://localhost/api/admin/settings');

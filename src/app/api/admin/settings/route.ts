@@ -35,7 +35,18 @@ const settingsSchema = z.object({
   credit_card: z.boolean().optional(),
   features: z.array(z.string().max(50)).max(50).optional(),
   regular_holiday: z.string().max(100).optional().nullable(),
-  business_hours: z.record(z.string(), businessHoursDaySchema).optional().nullable(),
+  // キーは曜日（mon〜sun）の7つに限定する。z.record(z.string()) だと任意キーを無制限に
+  // 受け付け、巨大な business_hours JSON で行を肥大化させられる（DoS・無意味データ混入）。
+  // z.object().partial() は未知キーを既定で strip するため、7曜日以外は保存に乗らない。
+  business_hours: z.object({
+    mon: businessHoursDaySchema,
+    tue: businessHoursDaySchema,
+    wed: businessHoursDaySchema,
+    thu: businessHoursDaySchema,
+    fri: businessHoursDaySchema,
+    sat: businessHoursDaySchema,
+    sun: businessHoursDaySchema,
+  }).partial().optional().nullable(),
   booking_auto_confirm: z.boolean().optional(),
   booking_buffer_minutes: z.number().int().min(0).max(120).optional(),
   // サロンボードの時間軸の区切り幅（分）。15/30/60 のみ（DB CHECK と一致）。
