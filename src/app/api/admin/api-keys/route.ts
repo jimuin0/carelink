@@ -44,13 +44,13 @@ export async function POST(request: NextRequest) {
   const invalidScopes = scopes.filter((s) => !VALID_SCOPES.includes(s));
   if (invalidScopes.length > 0) return NextResponse.json({ error: `Invalid scopes: ${invalidScopes.join(', ')}` }, { status: 400 });
 
-  // Verify ownership
+  // APIキー発行は owner のみ（神原さん確定: 鍵に関わる発行操作は持ち主限定。admin=任命従業員には発行させない）。
   const { data: mem } = await supabase
     .from('facility_members')
     .select('role')
     .eq('user_id', user.id)
     .eq('facility_id', facility_id)
-    .in('role', ['owner', 'admin'])
+    .eq('role', 'owner')
     .single();
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
