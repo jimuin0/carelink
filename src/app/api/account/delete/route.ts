@@ -13,6 +13,7 @@ import { createClient } from '@supabase/supabase-js';
 import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
+import { alertCaughtError } from '@/lib/alert';
 
 // 未完了（進行中）の予約ステータス。completed / cancelled / no_show / cancel_fee_paid は終了済み。
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'arrived'];
@@ -176,6 +177,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error('[account/delete] Error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('account-delete', e, '/api/account/delete');
     return NextResponse.json({ error: 'アカウント削除に失敗しました' }, { status: 500 });
   }
 }
