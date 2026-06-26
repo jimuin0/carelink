@@ -20,6 +20,12 @@ export const dynamic = 'force-dynamic';
 const OPEN_HOUR = 8;
 const CLOSE_HOUR = 22;
 
+// 盤面の横幅設計。1時間あたりの表示幅を固定（px）にして時間軸の間隔を確保し、
+// 画面幅を超える分は横スクロール（親の overflow-x-auto）で見せる（HPB サロンボード型）。
+// 狭い画面でも1コマが潰れず、10/30/60 分の罫線リズムが視認できる幅にする。
+const HOUR_PX = 104;
+const NAME_COL_PX = 144; // スタッフ名列 w-36 = 9rem = 144px と一致させる
+
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 function formatJp(dateStr: string): string {
@@ -132,6 +138,8 @@ export default async function AdminSchedulePage(props: Props) {
 
   // 時間軸ヘッダ（1時間刻み）
   const hours = Array.from({ length: CLOSE_HOUR - OPEN_HOUR }, (_, i) => OPEN_HOUR + i);
+  // 盤面の最小幅 = スタッフ名列 + 営業時間 × 1時間あたり幅。これを下回ると横スクロールになる。
+  const boardMinWidth = NAME_COL_PX + (CLOSE_HOUR - OPEN_HOUR) * HOUR_PX;
 
   const today = todayJst();
 
@@ -151,7 +159,7 @@ export default async function AdminSchedulePage(props: Props) {
 
       {/* ガント本体 */}
       <div className="bg-white border rounded-b-xl overflow-x-auto">
-        <div className="min-w-[900px]">
+        <div style={{ minWidth: boardMinWidth }}>
           {/* 時間軸ヘッダ
               縦 sticky にしない: 親が overflow-x-auto（横スクロール）のため、縦 sticky に
               すると sticky の包含ブロックがこのスクロールコンテナになり、ページ縦スクロール時に
@@ -161,10 +169,19 @@ export default async function AdminSchedulePage(props: Props) {
           <div className="flex border-b bg-sky-50">
             <div className="w-36 shrink-0 px-3 py-2 text-xs font-bold text-gray-600 border-r sticky left-0 z-30 bg-sky-50">スタッフ</div>
             <div className="flex-1 relative h-8">
+              {/* 30分の補助目盛り（短い淡破線）— 本体の罫線リズムと軸を揃える */}
+              {hours.map((h, i) => (
+                <div
+                  key={`half-${h}`}
+                  className="absolute top-4 bottom-0 border-l border-dashed border-sky-100"
+                  style={{ left: `${((i + 0.5) / hours.length) * 100}%` }}
+                />
+              ))}
+              {/* 毎時ラベル＋実線（強調） */}
               {hours.map((h, i) => (
                 <div
                   key={h}
-                  className="absolute top-0 bottom-0 border-l border-sky-100 text-[10px] text-gray-500 pl-1 pt-2"
+                  className="absolute top-0 bottom-0 border-l border-sky-200 text-[10px] font-semibold text-gray-600 pl-1 pt-2"
                   style={{ left: `${(i / hours.length) * 100}%` }}
                 >
                   {h}:00
