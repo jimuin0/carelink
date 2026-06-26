@@ -369,8 +369,12 @@ export default async function FacilityPage(props: Props) {
               ...(facility.rating_count > 0 && {
                 aggregateRating: {
                   '@type': 'AggregateRating',
-                  ratingValue: facility.rating_avg,
+                  // rating_avg は NUMERIC(2,1)。Supabase が文字列で返す場合もあるため数値化し
+                  // 小数1桁に正規化。bestRating/worstRating を明示して Google の検証警告を避ける。
+                  ratingValue: Number(facility.rating_avg).toFixed(1),
                   reviewCount: facility.rating_count,
+                  bestRating: 5,
+                  worstRating: 1,
                 },
               }),
               ...(facility.latitude && facility.longitude && {
