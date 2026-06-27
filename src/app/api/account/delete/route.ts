@@ -125,6 +125,19 @@ export async function POST(request: NextRequest) {
           reason: r.status === 'rejected' ? r.reason : (r.value as { error?: unknown }).error,
         })),
       });
+      // PII 削除が部分失敗した状態で auth.users を消すと、残存 PII 行が削除済みユーザーを指す
+      // 孤立データになり個人情報保護法違反になる（発症後では検知不能）。auth 削除の前に中断し、
+      // Slack 通知して 500 を返す。各削除/NULL 化は user_id 等値で冪等のため、ユーザーは
+      // 再実行で安全にやり直せる（既に消えた行は no-op・残りが消える＝発症前予防）。
+      alertCaughtError(
+        'account-delete-pii',
+        new Error(`PII deletion partial failure (${failedOps.length} ops) — aborted before auth deletion`),
+        '/api/account/delete',
+      );
+      return NextResponse.json(
+        { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
+        { status: 500 },
+      );
     }
 
     // 施設オーナーの場合、施設も削除
@@ -154,6 +167,17 @@ export async function POST(request: NextRequest) {
     const { error: memberDeleteErr } = await adminSupabase.from('facility_members').delete().eq('user_id', user.id);
     if (memberDeleteErr) {
       console.error('[account/delete] facility_members deletion failed — manual cleanup required', { userId: user.id, err: memberDeleteErr });
+      // facility_members が残ったまま auth.users を消すと、孤立メンバーシップ（FK RESTRICT なら
+      // 後続の auth 削除自体が失敗）になる。auth 削除前に中断して再実行可能化する（冪等・発症前予防）。
+      alertCaughtError(
+        'account-delete-members',
+        new Error(`facility_members deletion failed: ${memberDeleteErr.message}`),
+        '/api/account/delete',
+      );
+      return NextResponse.json(
+        { error: 'アカウント削除に失敗しました。時間をおいて再度お試しください。' },
+        { status: 500 },
+      );
     }
 
     // auth.usersから削除
