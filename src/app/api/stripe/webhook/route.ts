@@ -8,6 +8,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -80,6 +81,8 @@ export async function POST(request: NextRequest) {
     const msg = err instanceof Error ? err.message : 'unknown error';
     await admin.from('stripe_webhook_logs').update({ error: msg }).eq('event_id', event.id);
     console.error('Webhook handler error:', msg);
+    // catch→500 は instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('stripe-webhook-handler', err, '/api/stripe/webhook');
     return NextResponse.json({ error: 'Handler error' }, { status: 500 });
   }
 

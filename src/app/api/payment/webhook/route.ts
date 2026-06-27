@@ -6,9 +6,33 @@
 
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * 失敗時の冪等行ロールバック（恒久根治）。
+ *
+ * stripe_events 行は処理前にコミットしているため、更新失敗で 500 を返すだけだと
+ * Stripe リトライが冪等ガード（INSERT 23505）に阻まれ re-process されず、
+ * 課金済みなのにエンタイトルメント／予約が永久未反映になる（発症後では検知不能）。
+ * 失敗時は冪等行を削除してリトライで確実に再処理させ、Slack で即時通知する。
+ * 各更新は upsert / update by id でべき等のため、再処理しても二重反映しない（副作用なし）。
+ */
+async function rollbackIdempotencyAndAlert(
+  supabase: SupabaseClient,
+  eventId: string,
+  tag: string,
+  error: unknown,
+): Promise<void> {
+  const { error: delErr } = await supabase.from('stripe_events').delete().eq('id', eventId);
+  if (delErr) {
+    // 削除も失敗＝冪等行が残りリトライがスキップされる。手動照合が必要なため error ログで残す。
+    console.error('[payment/webhook] idempotency rollback failed — Stripe retry will be skipped; manual reconcile needed', { eventId, delErr });
+  }
+  alertCaughtError(tag, error, '/api/payment/webhook');
+}
 
 export async function POST(request: Request) {
   // 署名検証を設定確認より先に行う（/api/stripe/webhook と整合・よりセキュア）。
@@ -85,8 +109,8 @@ export async function POST(request: Request) {
           }, { onConflict: 'facility_id,option_key' });
         if (error) {
           console.error('[payment/webhook] CRITICAL: failed to activate entitlement', { facilityId, optionKey, eventId: event.id, error });
-          // 500 で Stripe にリトライさせる（stripe_events 冪等ガード済み…ではなく
-          // 冪等行は挿入済みのためリトライは duplicate になる。手動照合が必要な旨をログで残す）
+          // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
+          await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-entitlement', error);
           return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
         }
         break;
@@ -103,9 +127,8 @@ export async function POST(request: Request) {
           .eq('id', bookingId);
         if (error) {
           console.error('[payment/webhook] CRITICAL: failed to mark booking paid', { bookingId, eventId: event.id, error });
-          // Return 500 so Stripe retries. The stripe_events row is already committed,
-          // so the retry will hit the idempotency guard and skip re-processing.
-          // Ops must manually reconcile if retries also fail.
+          // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
+          await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-booking-paid', error);
           return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
         }
       }
@@ -188,6 +211,8 @@ export async function POST(request: Request) {
         .eq('stripe_subscription_id', sub.id);
       if (error) {
         console.error('[payment/webhook] CRITICAL: failed to cancel entitlement', { subscriptionId: sub.id, eventId: event.id, error });
+        // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
+        await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-subscription-cancel', error);
         return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
       }
       break;
