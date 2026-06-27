@@ -54,7 +54,7 @@ export async function GET(request: Request) {
           .from('profiles')
           .select('id, email, display_name, email_unsubscribed')
           .not('birth_date', 'is', null)
-          .filter('birth_date', 'like', `%-${todayMD}`)
+          .filter('birth_date::text', 'like', `%-${todayMD}`)
           .range(offset, offset + limit - 1);
         return { data: data as BirthdayProfile[] | null, error };
       },
