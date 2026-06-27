@@ -112,6 +112,20 @@ describe('sendBookingCancelled', () => {
     const args = mockSend.mock.calls[0][0];
     expect(args.subject).toContain('キャンセル');
   });
+
+  test('cancelFee > 0 のときキャンセル料の案内を本文に含める', async () => {
+    await sendBookingCancelled({ ...baseData, cancelFee: 2500 });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('キャンセル料');
+    expect(html).toContain('¥2,500');
+    expect(html).toContain('施設より直接');
+  });
+
+  test('cancelFee なし → キャンセル料案内を含めない', async () => {
+    await sendBookingCancelled(baseData);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('キャンセル料');
+  });
 });
 
 describe('sendNewBookingNotification', () => {
