@@ -206,7 +206,7 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(mockProfilesSelect).toHaveBeenCalled();
     // 固定時刻(JST 2026-06-15)から導かれる todayMD='06-15' で正しくフィルタしているか引数まで検証。
     // 旧テストは toHaveBeenCalled() のみで、todayMD 生成にバグが入っても気付けない偽陽性だった。
-    expect(mockProfilesFilter).toHaveBeenCalledWith('birth_date', 'like', '%-06-15');
+    expect(mockProfilesFilter).toHaveBeenCalledWith('birth_date::text', 'like', '%-06-15');
   });
 
   test('inserts 100 points per user with reason=birthday_YYYY', async () => {
