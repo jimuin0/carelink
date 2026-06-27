@@ -23,6 +23,9 @@ jest.mock('@/lib/integrations/line-works', () => ({
   isLineWorksConfigured: jest.fn(() => false),
   notifyNewBookingLineWorks: jest.fn(),
 }));
+jest.mock('@/lib/notification-settings', () => ({
+  getFacilityNotificationSettings: jest.fn(),
+}));
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
@@ -71,6 +74,12 @@ beforeEach(() => {
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   // Default: RPC succeeds
   mockRpc.mockResolvedValue({ data: 'new-booking-id', error: null });
+  // 既定は全通知 ON（既存挙動）。施設オーナー新規予約 Push のゲートを通す。
+  const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+  (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+    pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true,
+    emailDailySummary: false, emailWeeklyReport: true,
+  });
 });
 
 const FUTURE_DATE = futureBookingDate();
@@ -1277,6 +1286,30 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(200);
     await new Promise(r => setTimeout(r, 10));
+  });
+
+  test('push_on_new_booking=false → 施設オーナーへの新規予約Pushは送らない（客本人Pushは送る）', async () => {
+    const { sendPushToFacilityOwners, sendPushToUser } = require('@/lib/push');
+    const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+    (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+      pushOnNewBooking: false, pushOnCancel: true, pushOnReview: true,
+      emailDailySummary: false, emailWeeklyReport: true,
+    });
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'push-user-off' } } });
+    let callNum = 0;
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+    expect(sendPushToUser).toHaveBeenCalled();
   });
 
   test('LINE通知: menu_id あり → facility_menus からメニュー名を取得', async () => {

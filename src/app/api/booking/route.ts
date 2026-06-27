@@ -9,6 +9,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -330,12 +331,17 @@ export async function POST(request: Request) {
 
   // Push notifications (non-blocking)
   try {
-    sendPushToFacilityOwners(parsed.data.facility_id, {
-      title: '新規予約',
-      body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
-      url: '/admin/bookings',
-      tag: `booking-${newBookingId}`,
-    }).catch((e) => safeCaptureException(e, 'booking-push-owner'));
+    // 施設オーナーへの新規予約 Push は施設の通知設定（push_on_new_booking）で制御する。
+    // 客本人への確認 Push（下）は施設設定の対象外（客自身の予約確認のため常に送る）。
+    const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
+    if (notif.pushOnNewBooking) {
+      sendPushToFacilityOwners(parsed.data.facility_id, {
+        title: '新規予約',
+        body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
+        url: '/admin/bookings',
+        tag: `booking-${newBookingId}`,
+      }).catch((e) => safeCaptureException(e, 'booking-push-owner'));
+    }
 
     if (user) {
       sendPushToUser(user.id, {
