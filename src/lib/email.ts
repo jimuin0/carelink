@@ -39,6 +39,8 @@ interface BookingEmailData {
   staffName?: string;
   totalPrice?: number;
   bookingId: string;
+  // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客で直接）。
+  cancelFee?: number;
 }
 
 function formatDate(dateStr: string): string {
@@ -202,6 +204,7 @@ export async function sendBookingCancelled(data: BookingEmailData) {
       <p>${name} 様</p>
       <p>${facility}のご予約がキャンセルされました。</p>
       ${bookingDetailHtml(data)}
+      ${data.cancelFee && data.cancelFee > 0 ? `<div style="margin:16px 0;padding:12px 16px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;color:#991b1b;font-size:14px;">キャンセルポリシーにより、キャンセル料として <strong>¥${data.cancelFee.toLocaleString()}</strong> が発生します。お支払い方法は施設より直接ご案内いたします。</div>` : ''}
       <p>またのご利用をお待ちしております。</p>
       <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/search" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">他のサロンを探す</a></p>
     `),

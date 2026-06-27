@@ -6,6 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
 import { sendPushToFacilityOwners } from '@/lib/push';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
+import { computeCancelFee, hoursUntilBookingStart, type CancelPolicy } from '@/lib/cancel-fee';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
@@ -137,6 +138,21 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     ipAddress: getClientIp(_request),
   });
 
+  // キャンセル料（無料期限超過時のみ正の値・客への通知用。実徴収は店舗と客が直接やり取りする方針）。
+  // facility_cancel_policies の料率と予約開始までの残時間から算出する。取得失敗してもキャンセルは成立。
+  let cancelFee = 0;
+  try {
+    const { data: policy } = await db
+      .from('facility_cancel_policies')
+      .select('free_cancel_hours, late_cancel_rate, no_show_rate')
+      .eq('facility_id', booking.facility_id)
+      .maybeSingle();
+    const hours = hoursUntilBookingStart(booking.booking_date, booking.start_time, Date.now());
+    cancelFee = computeCancelFee(policy as CancelPolicy | null, booking.total_price, hours).fee;
+  } catch (e) {
+    safeCaptureException(e, 'cancel-fee-calc');
+  }
+
   // Send cancellation email (non-blocking)
   try {
     const { data: facility } = await db.from('facility_profiles').select('name').eq('id', booking.facility_id).single();
@@ -155,6 +171,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       menuName,
       totalPrice: booking.total_price ?? undefined,
       bookingId: booking.id,
+      cancelFee,
     };
     void sendBookingCancelled(emailData);
 
@@ -271,7 +288,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     safeCaptureException(e, 'cancel-push-setup');
   }
 
-  return NextResponse.json({ success: true });
+  return NextResponse.json({ success: true, cancelFee });
   } catch (e) {
     safeCaptureException(e, 'booking-cancel');
     // safeCaptureException は console.error のみで Slack 通知しないため、500 経路では別途明示通知する

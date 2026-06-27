@@ -177,6 +177,47 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendPushToFacilityOwners).toHaveBeenCalledWith('f-1', expect.objectContaining({ body: expect.stringContaining('お客様') }));
   });
 
+  test('無料期限超過のキャンセルで料率からキャンセル料を算出し通知・レスポンスに含める', async () => {
+    const { sendBookingCancelled } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    let bookingsCall = 0;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        bookingsCall++;
+        if (bookingsCall === 1) {
+          return fluent({
+            data: {
+              id: validId, user_id: 'user-1', status: 'pending', facility_id: 'f-1',
+              customer_name: 'テスト', email: 't@example.com', booking_date: '2026-04-01',
+              start_time: '10:00:00', end_time: '11:00:00', total_price: 5000, menu_id: null, staff_id: null,
+            },
+          });
+        }
+        const sel = jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null }));
+        const eq3 = jest.fn(() => ({ select: sel }));
+        const eq2 = jest.fn(() => ({ eq: eq3 }));
+        const eq1 = jest.fn(() => ({ eq: eq2 }));
+        return { update: jest.fn(() => ({ eq: eq1 })) };
+      }
+      if (table === 'facility_cancel_policies') {
+        return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { free_cancel_hours: 24, late_cancel_rate: 50, no_show_rate: 100 } }) }) }) };
+      }
+      const c: Record<string, jest.Mock> = {};
+      c.select = jest.fn(() => c); c.eq = jest.fn(() => c); c.limit = jest.fn(() => c); c.not = jest.fn(() => c);
+      c.single = jest.fn(() => Promise.resolve({ data: null }));
+      c.maybeSingle = jest.fn(() => Promise.resolve({ data: null }));
+      return c;
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    // 予約日(2026-04-01)は過去＝期限超過 → 5000×50% = 2500
+    expect(json.cancelFee).toBe(2500);
+    await new Promise(r => setTimeout(r, 10));
+    expect(sendBookingCancelled).toHaveBeenCalledWith(expect.objectContaining({ cancelFee: 2500 }));
+  });
+
   test('LIFF（Bearer）認証で本人がキャンセルできる → 200（Cookie 経路を使わない）', async () => {
     (getBearerToken as jest.Mock).mockReturnValue('line-token');
     (resolveLiffUserId as jest.Mock).mockResolvedValue('user-1');
