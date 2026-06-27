@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -157,6 +157,25 @@ describe('sendBookingStatusUpdate', () => {
   });
 });
 
+describe('sendDailySummaryEmail', () => {
+  const summaryData = {
+    facilityEmail: 'owner@example.com', facilityName: 'テストサロン', date: '2026-04-01',
+    totalRevenue: 12000, bookingCount: 5, completedCount: 4, cancelledCount: 1,
+    newCustomerCount: 2, repeatCustomerCount: 2,
+  };
+
+  test('施設オーナーへ売上サマリーを送信し true を返す', async () => {
+    const ok = await sendDailySummaryEmail(summaryData);
+    expect(ok).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('owner@example.com');
+    expect(args.subject).toContain('売上サマリー');
+    expect(args.html).toContain('¥12,000');
+    expect(args.html).toContain('テストサロン');
+  });
+});
+
 describe('RESEND_API_KEY未設定時', () => {
   test('送信をスキップする', async () => {
     const origKey = process.env.RESEND_API_KEY;
@@ -166,9 +185,15 @@ describe('RESEND_API_KEY未設定時', () => {
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { sendBookingConfirmation: freshSend } = require('../email');
+    const { sendBookingConfirmation: freshSend, sendDailySummaryEmail: freshSummary } = require('../email');
     await freshSend(baseData);
-    // Since no Resend instance, send should not be called
+    // Resend 未生成のため送信されない。サマリーメールは false を返す（!resend 分岐）。
+    const ok = await freshSummary({
+      facilityEmail: 'o@example.com', facilityName: 'X', date: '2026-04-01',
+      totalRevenue: 0, bookingCount: 0, completedCount: 0, cancelledCount: 0,
+      newCustomerCount: 0, repeatCustomerCount: 0,
+    });
+    expect(ok).toBe(false);
     process.env.RESEND_API_KEY = origKey;
   });
 });
