@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { redirect } from 'next/navigation';
 import { headers } from 'next/headers';
@@ -6,6 +7,7 @@ import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
 import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
 import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
+import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export const metadata: Metadata = {
   title: { default: '管理画面', template: '%s | 管理画面 | CareLink' },
@@ -151,7 +153,12 @@ const navGroups: NavGroup[] = [
   },
 ];
 
-export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+// 認証・メンバーシップ取得（async）はこの内側コンポーネントに隔離する。AdminLayout 本体を
+// 同期にして Suspense（fallback＝管理画面スピナー）で包むことで、この async が「ルートの
+// Suspense 境界」に吊られなくなる。これにより、ルートの公開トップ用スケルトン
+// （app/loading.tsx のヒーロー＋カード）が管理画面のリロード時にフラッシュする問題を根治する
+// （待機中は admin/loading.tsx・各 client ページと同一の AdminPageLoading に統一）。
+async function AdminShell({ children }: { children: React.ReactNode }) {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -244,5 +251,15 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       {/* AIサポートウィジェット */}
       <AiSupportWidget />
     </div>
+  );
+}
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  // 本体は同期。認証・DB 取得は AdminShell（async）に隔離し、その待機中は管理画面用スピナーを出す。
+  // これで layout の async がルート境界に吊られず、公開トップ用スケルトンのフラッシュが起きない。
+  return (
+    <Suspense fallback={<AdminPageLoading />}>
+      <AdminShell>{children}</AdminShell>
+    </Suspense>
   );
 }
