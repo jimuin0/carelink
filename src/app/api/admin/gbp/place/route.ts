@@ -89,6 +89,16 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}));
   const { gbp_place_id, gbp_cid } = body;
 
+  // 保存時に形式を検証し、DB へ不正値が入るのを発症前に防ぐ（読み手側の防御に依存しない根治）。
+  // place_id は fetchPlaceDetails（src/lib/gbp.ts）の読み取り検証と同一規則に揃える。
+  if (gbp_place_id && (typeof gbp_place_id !== 'string' || !/^[A-Za-z0-9_\-:]{1,300}$/.test(gbp_place_id))) {
+    return NextResponse.json({ error: 'Place ID の形式が正しくありません' }, { status: 400 });
+  }
+  // CID は数値だが、フォーム入力の表記ゆれを壊さないため安全な文字種＋長さ上限のみ課す。
+  if (gbp_cid && (typeof gbp_cid !== 'string' || !/^[A-Za-z0-9_\-:]{1,64}$/.test(gbp_cid))) {
+    return NextResponse.json({ error: 'CID の形式が正しくありません' }, { status: 400 });
+  }
+
   const { error } = await supabase
     .from('facility_profiles')
     .update({
