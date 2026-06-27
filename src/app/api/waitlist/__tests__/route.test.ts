@@ -437,7 +437,9 @@ describe('DELETE /api/waitlist', () => {
       data: { user: { id: 'user-123', email: 'test@example.com' } },
     });
 
-    const mockEq2 = jest.fn().mockResolvedValue({ error: null });
+    // .update().eq().eq().select('id') が更新行を返すチェーン（既定は1行＝正常キャンセル）
+    const mockSelectDel = jest.fn().mockResolvedValue({ data: [{ id: 'wl-1' }], error: null });
+    const mockEq2 = jest.fn().mockReturnValue({ select: mockSelectDel });
     const mockEq1 = jest.fn().mockReturnValue({ eq: mockEq2 });
     mockUpdate = jest.fn().mockReturnValue({ eq: mockEq1 });
 
@@ -528,7 +530,8 @@ describe('DELETE /api/waitlist', () => {
   });
 
   test('update error → 500', async () => {
-    const mockEq2Error = jest.fn().mockResolvedValue({ error: { message: 'DB error' } });
+    const mockSelectErr = jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } });
+    const mockEq2Error = jest.fn().mockReturnValue({ select: mockSelectErr });
     const mockEq1Error = jest.fn().mockReturnValue({ eq: mockEq2Error });
     const mockUpdateError = jest.fn().mockReturnValue({ eq: mockEq1Error });
 
@@ -542,6 +545,40 @@ describe('DELETE /api/waitlist', () => {
     expect(res.status).toBe(500);
     const json = await res.json();
     expect(json.error).toContain('削除に失敗');
+  });
+
+  test('0 行更新（他人の id・存在しない id）→ 404（誤success防止）', async () => {
+    const mockSelectEmpty = jest.fn().mockResolvedValue({ data: [], error: null });
+    const mockEq2Empty = jest.fn().mockReturnValue({ select: mockSelectEmpty });
+    const mockEq1Empty = jest.fn().mockReturnValue({ eq: mockEq2Empty });
+    const mockUpdateEmpty = jest.fn().mockReturnValue({ eq: mockEq1Empty });
+
+    const { createServerClient } = require('@supabase/ssr');
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn(() => ({ update: mockUpdateEmpty })),
+    });
+
+    const res = await DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111'));
+    expect(res.status).toBe(404);
+    const json = await res.json();
+    expect(json.error).toContain('見つかりません');
+  });
+
+  test('select が null を返す（0行扱い）→ 404', async () => {
+    const mockSelectNull = jest.fn().mockResolvedValue({ data: null, error: null });
+    const mockEq2Null = jest.fn().mockReturnValue({ select: mockSelectNull });
+    const mockEq1Null = jest.fn().mockReturnValue({ eq: mockEq2Null });
+    const mockUpdateNull = jest.fn().mockReturnValue({ eq: mockEq1Null });
+
+    const { createServerClient } = require('@supabase/ssr');
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: 'user-123' } } }) },
+      from: jest.fn(() => ({ update: mockUpdateNull })),
+    });
+
+    const res = await DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111'));
+    expect(res.status).toBe(404);
   });
 
   test('DELETE: x-forwarded-for missing → unknown IP', async () => {

@@ -14,6 +14,11 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
+jest.mock('@/lib/audit-logger', () => ({
+  writeAuditLog: jest.fn(),
+  getRequestContext: jest.fn(() => ({ ua: 'test-ua', ip: '127.0.0.1' })),
+}));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID       = '33333333-3333-3333-3333-333333333333';
@@ -162,9 +167,14 @@ test('POST: DB失敗 → 500', async () => {
   });
   const res = await POST(makePostRequest({ domain: 'my.salon.example.com' }));
   expect(res.status).toBe(500);
+  // DB失敗の500はSlack通知され、監査ログは書かれない
+  const { alertCaughtError } = require('@/lib/alert');
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect(alertCaughtError).toHaveBeenCalled();
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
-test('POST: 正常登録 → 201 with config', async () => {
+test('POST: 正常登録 → 201 with config（監査ログ記録）', async () => {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
@@ -175,6 +185,11 @@ test('POST: 正常登録 → 201 with config', async () => {
   const json = await res.json();
   expect(res.status).toBe(201);
   expect(json.config).toBeDefined();
+  // カスタムドメイン設定は監査ログに記録される
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  expect(writeAuditLog).toHaveBeenCalledWith(
+    expect.objectContaining({ tableName: 'white_label_domains', action: 'update', facilityId: FACILITY_UUID }),
+  );
 });
 
 test('POST: CSRF エラー → 403', async () => {

@@ -23,6 +23,7 @@ import { POST } from '../route';
 
 let mockInsert: jest.Mock;
 let mockUpdate: jest.Mock;
+let mockDelete: jest.Mock;
 let mockConstructEvent: jest.Mock;
 
 function setupDefaultMocks(
@@ -65,6 +66,11 @@ function setupDefaultMocks(
     }),
   });
 
+  // 冪等行ロールバック（失敗時の stripe_events delete）。既定は成功。
+  mockDelete = jest.fn().mockReturnValue({
+    eq: jest.fn().mockResolvedValue({ error: null }),
+  });
+
   const Stripe = require('stripe');
   Stripe.mockImplementation(() => ({
     webhooks: { constructEvent: mockConstructEvent },
@@ -72,7 +78,7 @@ function setupDefaultMocks(
 
   mockFromDelegate.mockImplementation((table: string) => {
     if (table === 'stripe_events') {
-      return { insert: mockInsert };
+      return { insert: mockInsert, delete: mockDelete };
     } else if (table === 'bookings') {
       return { update: mockUpdate };
     }
@@ -647,17 +653,21 @@ describe('POST /api/payment/webhook', () => {
 
     // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───
 
-    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown } = {}) {
+    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown; deleteError?: unknown } = {}) {
       const entUpsert = jest.fn().mockResolvedValue({ error: opts.upsertError ?? null });
       const entUpdate = jest.fn().mockReturnValue({
         eq: jest.fn().mockResolvedValue({ error: opts.updateError ?? null }),
       });
+      // 失敗経路の冪等行ロールバック（stripe_events delete）。deleteError でロールバック失敗も再現。
+      const evDelete = jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: opts.deleteError ?? null }),
+      });
       mockFromDelegate.mockImplementation((table: string) => {
-        if (table === 'stripe_events') return { insert: mockInsert };
+        if (table === 'stripe_events') return { insert: mockInsert, delete: evDelete };
         if (table === 'bookings') return { update: mockUpdate };
         if (table === 'facility_entitlements') return { upsert: entUpsert, update: entUpdate };
       });
-      return { entUpsert, entUpdate };
+      return { entUpsert, entUpdate, evDelete };
     }
 
     test('checkout.session.completed（option metadata）→ エンタイトルメント有効化', async () => {
@@ -692,14 +702,30 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('option エンタイトルメント有効化失敗 → 500（Stripe リトライ）', async () => {
+    test('option エンタイトルメント有効化失敗 → 500＋冪等行ロールバック（Stripe リトライで再処理）', async () => {
       setupEventMock('checkout.session.completed', {
         metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
         subscription: 'sub_123',
       });
-      setupEntitlementTables({ upsertError: { message: 'db down' } });
+      const { evDelete } = setupEntitlementTables({ upsertError: { message: 'db down' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(500);
+      // 冪等行を削除してリトライで再処理可能化（永久未付与の根治）
+      expect(evDelete).toHaveBeenCalled();
+    });
+
+    test('option 有効化失敗＋冪等行ロールバックも失敗 → それでも 500（手動照合ログ）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_123',
+      });
+      const { evDelete } = setupEntitlementTables({
+        upsertError: { message: 'db down' },
+        deleteError: { message: 'rollback failed' },
+      });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(500);
+      expect(evDelete).toHaveBeenCalled();
     });
 
     test('option_key のみ（facility_id 欠落）→ option 分岐に入らず 200', async () => {
@@ -722,11 +748,12 @@ describe('POST /api/payment/webhook', () => {
       );
     });
 
-    test('customer.subscription.deleted 更新失敗 → 500（Stripe リトライ）', async () => {
+    test('customer.subscription.deleted 更新失敗 → 500＋冪等行ロールバック', async () => {
       setupEventMock('customer.subscription.deleted', { id: 'sub_123' });
-      setupEntitlementTables({ updateError: { message: 'db down' } });
+      const { evDelete } = setupEntitlementTables({ updateError: { message: 'db down' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(500);
+      expect(evDelete).toHaveBeenCalled();
     });
   });
 });

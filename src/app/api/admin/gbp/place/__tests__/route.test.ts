@@ -407,6 +407,55 @@ test('GET: x-forwarded-for あり', async () => {
   expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
 });
 
+test('POST: gbp_place_id に不正文字 → 400', async () => {
+  mockAnonFrom.mockImplementation(() => membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'has space!' }),
+  }));
+  expect(res.status).toBe(400);
+  const json = await res.json();
+  expect(json.error).toContain('Place ID');
+});
+
+test('POST: gbp_place_id が文字列でない（数値）→ 400', async () => {
+  mockAnonFrom.mockImplementation(() => membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 123 }),
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: gbp_place_id が300字超 → 400', async () => {
+  mockAnonFrom.mockImplementation(() => membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'A'.repeat(301) }),
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: gbp_cid に不正文字 → 400', async () => {
+  mockAnonFrom.mockImplementation(() => membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'ChIJ123', gbp_cid: 'bad cid!' }),
+  }));
+  expect(res.status).toBe(400);
+  const json = await res.json();
+  expect(json.error).toContain('CID');
+});
+
+test('POST: gbp_cid が文字列でない（数値）→ 400', async () => {
+  mockAnonFrom.mockImplementation(() => membershipSingle(MEMBER_DATA));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'ChIJ123', gbp_cid: 999 }),
+  }));
+  expect(res.status).toBe(400);
+});
+
 test('POST: gbp_place_id なし → クリア（null保存）', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
