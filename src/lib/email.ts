@@ -252,7 +252,44 @@ export async function sendBookingCancellationToFacility(data: BookingEmailData &
   }, 'booking_cancellation_facility');
 }
 
-/** 予約ステータス変更通知（顧客向け） */
+/** 日次売上サマリー（施設オーナー向け・email_daily_summary 有効時のみ daily-summary cron から送信） */
+export async function sendDailySummaryEmail(data: {
+  facilityEmail: string;
+  facilityName: string;
+  date: string;
+  totalRevenue: number;
+  bookingCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  newCustomerCount: number;
+  repeatCustomerCount: number;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  const facility = esc(data.facilityName);
+  const date = esc(data.date);
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:6px 12px;color:#475569;">${label}</td><td style="padding:6px 12px;text-align:right;font-weight:600;">${value}</td></tr>`;
+  return safeSend(resend, {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】${data.date} の売上サマリー（${data.facilityName}）`),
+    html: wrapHtml(`
+      <p>${facility} 様</p>
+      <p>${date} の売上サマリーをお届けします。</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+        ${row('売上', `¥${data.totalRevenue.toLocaleString()}`)}
+        ${row('予約数', `${data.bookingCount}件`)}
+        ${row('完了', `${data.completedCount}件`)}
+        ${row('キャンセル', `${data.cancelledCount}件`)}
+        ${row('新規顧客', `${data.newCustomerCount}名`)}
+        ${row('リピート顧客', `${data.repeatCustomerCount}名`)}
+      </table>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">分析を見る</a></p>
+    `),
+  }, 'daily_summary');
+}
+
 /** 施設オーナー向けウェルカムメール（登録直後） */
 export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }) {
   const resend = getResend();
