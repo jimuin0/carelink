@@ -4,6 +4,8 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
+import { sendPushToFacilityOwners } from '@/lib/push';
+import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingCancelled, sendBookingCancellationToFacility } from '@/lib/email';
@@ -251,6 +253,22 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     } catch (e) {
       safeCaptureException(e, 'cancel-lineworks-setup');
     }
+  }
+
+  // 施設オーナーへのキャンセル Push（non-blocking）。施設の通知設定 push_on_cancel で制御する。
+  // 旧実装はキャンセル時にメール/LINE のみで Push 送信が無く、設定トグルが効かない飾りだった。
+  try {
+    const notif = await getFacilityNotificationSettings(booking.facility_id);
+    if (notif.pushOnCancel) {
+      sendPushToFacilityOwners(booking.facility_id, {
+        title: '予約がキャンセルされました',
+        body: `${booking.customer_name ?? 'お客様'}様 ${booking.booking_date} ${String(booking.start_time).slice(0, 5)}〜 の予約がキャンセルされました`,
+        url: '/admin/bookings',
+        tag: `cancel-${booking.id}`,
+      }).catch((e) => safeCaptureException(e, 'cancel-push-owner'));
+    }
+  } catch (e) {
+    safeCaptureException(e, 'cancel-push-setup');
   }
 
   return NextResponse.json({ success: true });

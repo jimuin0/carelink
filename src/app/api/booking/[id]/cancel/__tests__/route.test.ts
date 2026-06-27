@@ -15,6 +15,8 @@ jest.mock('@/lib/integrations/line-works', () => ({
   isLineWorksConfigured: jest.fn().mockReturnValue(false),
   notifyCancellationLineWorks: jest.fn().mockResolvedValue(undefined),
 }));
+jest.mock('@/lib/push', () => ({ sendPushToFacilityOwners: jest.fn(() => Promise.resolve()) }));
+jest.mock('@/lib/notification-settings', () => ({ getFacilityNotificationSettings: jest.fn() }));
 
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
@@ -48,6 +50,12 @@ beforeEach(() => {
   (resolveLiffUserId as jest.Mock).mockReset();
   const { isLineWorksConfigured } = require('@/lib/integrations/line-works');
   (isLineWorksConfigured as jest.Mock).mockReturnValue(false);
+  // 既定はキャンセルPush ON（既存挙動＋新機能）
+  const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+  (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+    pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true,
+    emailDailySummary: false, emailWeeklyReport: true,
+  });
   mockAdminFrom.mockReturnValue({
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
@@ -110,6 +118,63 @@ describe('POST /api/booking/[id]/cancel', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     const json = await res.json();
     expect(json.success).toBe(true);
+  });
+
+  function setupSuccessfulCancelFrom(opts: { customerName?: string | null } = {}) {
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1',
+            customer_name: 'customerName' in opts ? opts.customerName : 'テスト',
+            email: 'test@example.com', booking_date: '2026-04-01', start_time: '10:00:00', end_time: '11:00:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+      const eqFirst = jest.fn(() => ({ eq: eqTerminal, then: (fn: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(fn) }));
+      return {
+        update: jest.fn(() => ({ eq: eqFirst })),
+        select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
+      };
+    });
+  }
+
+  test('キャンセル成功時 push_on_cancel=true → 施設オーナーへ Push を送る', async () => {
+    const { sendPushToFacilityOwners } = require('@/lib/push');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    setupSuccessfulCancelFrom();
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    await new Promise(r => setTimeout(r, 10));
+    expect(sendPushToFacilityOwners).toHaveBeenCalledWith('f-1', expect.objectContaining({ title: expect.stringContaining('キャンセル') }));
+  });
+
+  test('push_on_cancel=false → 施設オーナーへ Push を送らない', async () => {
+    const { sendPushToFacilityOwners } = require('@/lib/push');
+    const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+    (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+      pushOnNewBooking: true, pushOnCancel: false, pushOnReview: true, emailDailySummary: false, emailWeeklyReport: true,
+    });
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    setupSuccessfulCancelFrom();
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+  });
+
+  test('customer_name が null でも Push 本文は「お客様」でフォールバック', async () => {
+    const { sendPushToFacilityOwners } = require('@/lib/push');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    setupSuccessfulCancelFrom({ customerName: null });
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect((await res.json()).success).toBe(true);
+    await new Promise(r => setTimeout(r, 10));
+    expect(sendPushToFacilityOwners).toHaveBeenCalledWith('f-1', expect.objectContaining({ body: expect.stringContaining('お客様') }));
   });
 
   test('LIFF（Bearer）認証で本人がキャンセルできる → 200（Cookie 経路を使わない）', async () => {
