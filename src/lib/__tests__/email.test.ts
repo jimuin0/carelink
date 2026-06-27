@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -176,6 +176,25 @@ describe('sendDailySummaryEmail', () => {
   });
 });
 
+describe('sendWeeklyReportEmail', () => {
+  const weeklyData = {
+    facilityEmail: 'owner@example.com', facilityName: 'テストサロン', periodStart: '2026-03-25', periodEnd: '2026-03-31',
+    totalRevenue: 84000, bookingCount: 30, completedCount: 25, cancelledCount: 3,
+    newCustomerCount: 8, repeatCustomerCount: 17,
+  };
+
+  test('施設オーナーへ週次レポートを送信し true を返す', async () => {
+    const ok = await sendWeeklyReportEmail(weeklyData);
+    expect(ok).toBe(true);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('owner@example.com');
+    expect(args.subject).toContain('週次レポート');
+    expect(args.html).toContain('¥84,000');
+    expect(args.html).toContain('2026-03-25 〜 2026-03-31');
+  });
+});
+
 describe('RESEND_API_KEY未設定時', () => {
   test('送信をスキップする', async () => {
     const origKey = process.env.RESEND_API_KEY;
@@ -185,15 +204,21 @@ describe('RESEND_API_KEY未設定時', () => {
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { sendBookingConfirmation: freshSend, sendDailySummaryEmail: freshSummary } = require('../email');
+    const { sendBookingConfirmation: freshSend, sendDailySummaryEmail: freshSummary, sendWeeklyReportEmail: freshWeekly } = require('../email');
     await freshSend(baseData);
-    // Resend 未生成のため送信されない。サマリーメールは false を返す（!resend 分岐）。
+    // Resend 未生成のため送信されない。サマリー/週次メールは false を返す（!resend 分岐）。
     const ok = await freshSummary({
       facilityEmail: 'o@example.com', facilityName: 'X', date: '2026-04-01',
       totalRevenue: 0, bookingCount: 0, completedCount: 0, cancelledCount: 0,
       newCustomerCount: 0, repeatCustomerCount: 0,
     });
     expect(ok).toBe(false);
+    const okW = await freshWeekly({
+      facilityEmail: 'o@example.com', facilityName: 'X', periodStart: '2026-03-25', periodEnd: '2026-03-31',
+      totalRevenue: 0, bookingCount: 0, completedCount: 0, cancelledCount: 0,
+      newCustomerCount: 0, repeatCustomerCount: 0,
+    });
+    expect(okW).toBe(false);
     process.env.RESEND_API_KEY = origKey;
   });
 });
