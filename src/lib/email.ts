@@ -290,6 +290,45 @@ export async function sendDailySummaryEmail(data: {
   }, 'daily_summary');
 }
 
+/** 週次レポート（施設オーナー向け・email_weekly_report 有効時のみ weekly-report cron から送信） */
+export async function sendWeeklyReportEmail(data: {
+  facilityEmail: string;
+  facilityName: string;
+  periodStart: string;
+  periodEnd: string;
+  totalRevenue: number;
+  bookingCount: number;
+  completedCount: number;
+  cancelledCount: number;
+  newCustomerCount: number;
+  repeatCustomerCount: number;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  const facility = esc(data.facilityName);
+  const period = esc(`${data.periodStart} 〜 ${data.periodEnd}`);
+  const row = (label: string, value: string) =>
+    `<tr><td style="padding:6px 12px;color:#475569;">${label}</td><td style="padding:6px 12px;text-align:right;font-weight:600;">${value}</td></tr>`;
+  return safeSend(resend, {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】週次レポート（${data.facilityName}）`),
+    html: wrapHtml(`
+      <p>${facility} 様</p>
+      <p>${period} の週次レポートをお届けします。</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+        ${row('売上', `¥${data.totalRevenue.toLocaleString()}`)}
+        ${row('予約数', `${data.bookingCount}件`)}
+        ${row('完了', `${data.completedCount}件`)}
+        ${row('キャンセル', `${data.cancelledCount}件`)}
+        ${row('新規顧客', `${data.newCustomerCount}名`)}
+        ${row('リピート顧客', `${data.repeatCustomerCount}名`)}
+      </table>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/analytics" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">分析を見る</a></p>
+    `),
+  }, 'weekly_report');
+}
+
 /** 施設オーナー向けウェルカムメール（登録直後） */
 export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }) {
   const resend = getResend();
