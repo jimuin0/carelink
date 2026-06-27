@@ -5,6 +5,8 @@ import { randomBytes } from 'crypto';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { alertCaughtError } from '@/lib/alert';
 
 async function getFacilityId(userId: string) {
   const admin = createServiceRoleClient();
@@ -85,6 +87,24 @@ export async function POST(req: NextRequest) {
     .select()
     .single();
 
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (error) {
+    // DB upsert 失敗の 500 は instrumentation.ts の onRequestError に伝播しないため明示通知。
+    alertCaughtError('white-label-upsert', new Error(`white_label_domains upsert failed: ${error.message}`), '/api/admin/white-label');
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
+
+  // カスタムドメイン設定は重要操作のため監査ログに記録（fire-and-forget・本体を止めない）。
+  const { ua } = getRequestContext(req);
+  void writeAuditLog({
+    userId: user.id,
+    facilityId,
+    action: 'update',
+    tableName: 'white_label_domains',
+    recordId: facilityId,
+    newValues: { domain: domain.toLowerCase(), is_verified: false },
+    ipAddress: ip,
+    userAgent: ua,
+  });
+
   return NextResponse.json({ config }, { status: 201 });
 }
