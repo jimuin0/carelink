@@ -130,13 +130,20 @@ export async function DELETE(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
 
-  const { error } = await supabase
+  // .select() で更新行を取得し、0 行（他人の id・存在しない id）を 404 で返す。付けないと
+  // RLS と eq フィルタで 0 行更新でも error=null となり、誤って success:true を返す
+  // （ユーザーが「キャンセルできた」と誤認する無音バグ）。
+  const { data: updated, error } = await supabase
     .from('booking_waitlist')
     .update({ status: 'cancelled' })
     .eq('id', id)
-    .eq('user_id', user.id);
+    .eq('user_id', user.id)
+    .select('id');
 
   if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
+  if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: 'キャンセル待ちが見つかりません' }, { status: 404 });
+  }
 
   return NextResponse.json({ success: true });
 }
