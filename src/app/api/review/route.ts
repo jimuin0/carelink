@@ -13,6 +13,8 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { sendPushToFacilityOwners } from '@/lib/push';
+import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 
 export const dynamic = 'force-dynamic';
 
@@ -155,6 +157,22 @@ export async function POST(request: Request) {
           });
         }
       });
+  }
+
+  // 施設オーナーへの口コミ投稿 Push（non-blocking）。施設の通知設定 push_on_review で制御する。
+  // 旧実装は口コミ投稿時に店への通知が一切無く、設定トグルが効かない飾りだった。
+  try {
+    const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
+    if (notif.pushOnReview) {
+      sendPushToFacilityOwners(parsed.data.facility_id, {
+        title: '新しい口コミが投稿されました',
+        body: `${parsed.data.reviewer_name}様より★${avg}の口コミが届きました`,
+        url: '/admin/reviews',
+        tag: `review-${review.id}`,
+      }).catch((e) => console.error('[review] push failed', e));
+    }
+  } catch (e) {
+    console.error('[review] push setup failed', e);
   }
 
   return NextResponse.json({ success: true, id: review.id });

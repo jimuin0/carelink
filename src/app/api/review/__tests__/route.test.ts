@@ -26,6 +26,8 @@ jest.mock('@/lib/supabase-server', () => ({
 }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
+jest.mock('@/lib/push', () => ({ sendPushToFacilityOwners: jest.fn(() => Promise.resolve()) }));
+jest.mock('@/lib/notification-settings', () => ({ getFacilityNotificationSettings: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -90,6 +92,12 @@ beforeEach(() => {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+  // 既定は口コミPush ON（既存挙動＋新機能）
+  const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+  (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+    pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true,
+    emailDailySummary: false, emailWeeklyReport: true,
+  });
 
   setupDefaultMocks();
 
@@ -391,6 +399,37 @@ describe('POST /api/review', () => {
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(json.id).toBeDefined();
+    });
+
+    test('口コミ投稿成功時 push_on_review=true → 施設オーナーへ Push を送る', async () => {
+      const { sendPushToFacilityOwners } = require('@/lib/push');
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise(r => setTimeout(r, 10));
+      expect(sendPushToFacilityOwners).toHaveBeenCalledWith(VALID_FACILITY_UUID, expect.objectContaining({ title: expect.stringContaining('口コミ') }));
+    });
+
+    test('push_on_review=false → 施設オーナーへ Push を送らない', async () => {
+      const { sendPushToFacilityOwners } = require('@/lib/push');
+      const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+      (getFacilityNotificationSettings as jest.Mock).mockResolvedValue({
+        pushOnNewBooking: true, pushOnCancel: true, pushOnReview: false,
+        emailDailySummary: false, emailWeeklyReport: true,
+      });
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      expect(sendPushToFacilityOwners).not.toHaveBeenCalled();
+    });
+
+    test('Push 設定取得が例外でも投稿成功を返す（防御 catch）', async () => {
+      const { getFacilityNotificationSettings } = require('@/lib/notification-settings');
+      (getFacilityNotificationSettings as jest.Mock).mockRejectedValue(new Error('settings down'));
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      expect((await res.json()).success).toBe(true);
     });
 
     test('24h duplicate for authenticated user → 429', async () => {
