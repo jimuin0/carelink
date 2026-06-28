@@ -86,33 +86,19 @@ setup('provision test owner and authenticate', async ({ page }) => {
   ]);
   if (be) throw new Error('seed bookings: ' + be.message);
 
-  // 5.5) Node 側（ブラウザと同じ anon キー）で signIn を検証し真因を切り分ける。
-  // ここで失敗するなら user/password の作成問題、成功するならブラウザ固有の問題。
-  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY 未設定');
-  const anon = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-  const { data: si, error: sie } = await anon.auth.signInWithPassword({ email, password });
-  if (sie) throw new Error(`node signIn failed: ${sie.message} status=${sie.status} url=${url}`);
-  if (!si.session) throw new Error('node signIn: session が空');
-
-  // 6) 実 UI でログイン（@supabase/ssr の認証 Cookie を確立）
-  // ブラウザが実際に叩く auth URL を捕捉し、Node の url と比較して真因を確定する。
-  let browserAuthUrl = '';
-  page.on('request', (r) => {
-    if (r.url().includes('/auth/v1/token')) browserAuthUrl = r.url();
-  });
+  // 6) 実 UI でログイン（@supabase/ssr の認証 Cookie を確立）。
+  // ブラウザの Supabase 通信は CSP connect-src で許可されている必要がある（env 由来で導出）。
   await page.goto('/auth/login?redirect=/admin');
   await page.fill('#login-email', email);
   await page.fill('#login-password', password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
-  // サインイン結果を判別（成功＝/auth/login を離れる／資格情報エラー／その他）。
-  // 推測を避け、失敗理由を明示して投げる。
+  // サインイン成功＝/auth/login を離れる。失敗時は理由を明示して投げる。
   const outcome = await Promise.race([
     page.waitForURL((u) => !u.pathname.startsWith('/auth/login'), { timeout: 20000 }).then(() => 'navigated').catch(() => 'timeout'),
     page.getByText('メールアドレスまたはパスワードが正しくありません').waitFor({ timeout: 20000 }).then(() => 'bad-credentials').catch(() => 'no-error'),
   ]);
   if (outcome !== 'navigated') {
-    throw new Error(`login did not navigate (outcome=${outcome}, nodeUrl=${url}, browserAuthUrl=${browserAuthUrl || '(none)'}, email=${email})`);
+    throw new Error(`admin E2E ログイン失敗 (outcome=${outcome}, url=${page.url()})`);
   }
   // Cookie 確立後にフル遷移し、RSC リクエストに Cookie を確実に載せてダッシュボードを描画。
   await page.goto('/admin');
