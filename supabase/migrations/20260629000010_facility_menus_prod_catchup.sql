@@ -4,7 +4,7 @@
 --
 -- 背景（事実・実データで確定）:
 --   facility_menus は 20260321000004_facilities_phase1.sql で is_published 等を持たない形で
---   CREATE され、後続の prod_only_base_tables.sql 等の `CREATE TABLE IF NOT EXISTS` は
+--   作成され、後続の prod_only_base_tables.sql 等のテーブル再定義（IF NOT EXISTS 付き）は
 --   テーブル既存のため no-op になり、本番に out-of-band 追加された列が fresh-apply に反映
 --   されていなかった。来院者 予約完走 E2E（supabase start のローカル DB に対して実行）で
 --   「Could not find the 'is_published' column of 'facility_menus'」が出たのはこのドリフトが原因。
