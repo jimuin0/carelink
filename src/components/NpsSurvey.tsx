@@ -92,11 +92,14 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
       </div>
 
       {/* スコア選択 */}
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1 flex-wrap" role="radiogroup" aria-label="推奨度スコア（0〜10）">
         {Array.from({ length: 11 }, (_, i) => (
           <button
             key={i}
             type="button"
+            role="radio"
+            aria-checked={score === i}
+            aria-label={`${i}点`}
             onClick={() => setScore(i)}
             className={`w-9 h-9 rounded-lg text-sm font-bold transition-all ${
               score === i ? getColor(i) : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
