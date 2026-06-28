@@ -27,7 +27,14 @@ test('来院者が予約を最後まで完走できる', async ({ page }) => {
   // Step 4: お客様情報 → 予約確定
   await page.fill('#booking-name', BOOKING_SEED.customerName);
   await page.fill('#booking-email', BOOKING_SEED.customerEmail);
+  // 予約 POST のレスポンスを捕捉し、失敗時は status＋本文を明示して投げる（推測せず真因確定）。
+  const bookingResp = page.waitForResponse((r) => r.url().includes('/api/booking') && r.request().method() === 'POST', { timeout: 20000 });
   await page.getByRole('button', { name: 'この内容で予約する' }).click();
+  const resp = await bookingResp;
+  if (!resp.ok()) {
+    const body = await resp.text().catch(() => '(body 読取不可)');
+    throw new Error(`POST /api/booking failed: status=${resp.status()} body=${body.slice(0, 300)}`);
+  }
 
   // 完了ページへ遷移すること（予約が DB に作成され成功）
   await page.waitForURL('**/booking/complete**', { timeout: 20000 });
