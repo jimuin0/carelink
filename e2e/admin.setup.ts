@@ -86,6 +86,15 @@ setup('provision test owner and authenticate', async ({ page }) => {
   ]);
   if (be) throw new Error('seed bookings: ' + be.message);
 
+  // 5.5) Node 側（ブラウザと同じ anon キー）で signIn を検証し真因を切り分ける。
+  // ここで失敗するなら user/password の作成問題、成功するならブラウザ固有の問題。
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!anonKey) throw new Error('NEXT_PUBLIC_SUPABASE_ANON_KEY 未設定');
+  const anon = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data: si, error: sie } = await anon.auth.signInWithPassword({ email, password });
+  if (sie) throw new Error(`node signIn failed: ${sie.message} status=${sie.status} url=${url}`);
+  if (!si.session) throw new Error('node signIn: session が空');
+
   // 6) 実 UI でログイン（@supabase/ssr の認証 Cookie を確立）
   await page.goto('/auth/login?redirect=/admin');
   await page.fill('#login-email', email);
