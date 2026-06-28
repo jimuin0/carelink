@@ -5563,6 +5563,10 @@ export type Database = {
       cleanup_old_audit_logs: { Args: never; Returns: undefined }
       cleanup_old_cron_logs: { Args: never; Returns: undefined }
       cleanup_old_webhook_retry: { Args: never; Returns: undefined }
+      consume_subscription_session: {
+        Args: { p_subscription_id: string }
+        Returns: Json
+      }
       create_admin_booking_atomic: {
         Args: {
           p_booking_date: string

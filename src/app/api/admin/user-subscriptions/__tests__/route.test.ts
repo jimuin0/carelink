@@ -3,8 +3,8 @@
  *
  * Tests for GET/POST/PATCH /api/admin/user-subscriptions
  * Key assertions:
- *   - CAS optimistic lock: concurrent session use → 409
- *   - Monthly session cap enforcement → 400
+ *   - セッション消費は consume_subscription_session RPC（行ロックで原子的）に集約
+ *   - RPC 結果コード（not_found/inactive/expired/cap_reached）→ 対応 HTTP
  *   - Booking must belong to subscription's user/facility
  *   - Status update path (active/cancelled/paused/expired)
  *   - Non-admin → 401 (IDOR prevention)
@@ -27,6 +27,7 @@ const BOOKING_UUID =  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const TARGET_USER =   'ffffffff-ffff-4fff-8fff-ffffffffffff';
 
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -34,7 +35,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -83,6 +84,20 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
+// usage log（subscription_usage_logs）への insert を受けるチェーン
+function insertChain() {
+  return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+}
+
+// booking 検証用の maybeSingle チェーン
+function bookingChain(data: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data, error: null })),
+  };
+}
+
 function buildActiveSub(overrides: Record<string, unknown> = {}) {
   return {
     id: SUB_UUID,
@@ -90,16 +105,23 @@ function buildActiveSub(overrides: Record<string, unknown> = {}) {
     status: 'active',
     ends_at: new Date(Date.now() + 86400_000).toISOString(),
     sessions_used_this_month: 0,
-    month_reset_at: new Date(Date.now() - 1000).toISOString(), // already past → no reset needed (use future date)
+    month_reset_at: new Date(Date.now() - 1000).toISOString(),
     subscription_plans: { sessions_per_month: 4, facility_id: FACILITY_UUID },
     ...overrides,
   };
+}
+
+// RPC 成功（ok:true）の既定戻り値
+function rpcOk() {
+  return { data: { ok: true, subscription: { id: SUB_UUID, sessions_used_this_month: 1 } }, error: null };
 }
 
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  // 既定は RPC 成功。消費に到達しないテスト（pre-check 400/401/404）では呼ばれない。
+  mockAdminRpc.mockResolvedValue(rpcOk());
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
@@ -243,110 +265,118 @@ test('PATCH: ステータス変更DB失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-// ─── PATCH: session use path ──────────────────────────────────────────────────
+// ─── PATCH: session use path（RPC 集約後）──────────────────────────────────────
 
-test('PATCH: サブスクが active でない → 400', async () => {
+test('PATCH: サブスクが active でない → 400（pre-check・RPC到達せず）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(singleChain(buildActiveSub({ status: 'cancelled' })));
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   expect(res.status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('PATCH: 有効期限切れ → 400', async () => {
+test('PATCH: 有効期限切れ → 400（pre-check・RPC到達せず）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(singleChain(buildActiveSub({ ends_at: new Date(Date.now() - 1000).toISOString() })));
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   expect(res.status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('PATCH: 月上限到達 → 400', async () => {
+test('PATCH: RPC cap_reached（上限・limit あり）→ 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
-  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub({
-    sessions_used_this_month: 4,
-    month_reset_at: futureReset,
-  })));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'cap_reached', limit: 4 }, error: null });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.error).toMatch(/上限（4回）/);
+});
+
+test('PATCH: RPC cap_reached（limit 欠落）→ 400（?? の右側ブランチ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'cap_reached' }, error: null });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  const json = await res.json();
+  expect(res.status).toBe(400);
+  expect(json.error).toMatch(/上限（回）/);
+});
+
+test('PATCH: RPC not_found → 404', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'not_found' }, error: null });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: RPC inactive（読取後にrace）→ 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'inactive' }, error: null });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   expect(res.status).toBe(400);
 });
 
-test('PATCH: CAS競合 (同時リクエスト) → 409', async () => {
-  let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
+test('PATCH: RPC expired（読取後にrace）→ 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    // CAS miss: update returns null data (another request already incremented)
-    return {
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: null })),
-            }),
-          }),
-        }),
-      }),
-    };
-  });
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'expired' }, error: null });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  expect(res.status).toBe(409);
+  expect(res.status).toBe(400);
 });
 
-test('PATCH: booking_id が他ユーザーのもの → 400', async () => {
+test('PATCH: RPC 不明コード → 500（default ブランチ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'something_else' }, error: null });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: RPC 結果 null → 500（result?.ok / code 欠落で default）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: null, error: null });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: RPC 自体がエラー → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  mockAdminRpc.mockResolvedValue({ data: null, error: { message: 'rpc failed' } });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: booking_id が他ユーザーのもの → 400（RPC到達せず）', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    // booking lookup — wrong user AND wrong facility
-    return {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn(() => Promise.resolve({
-        data: { id: BOOKING_UUID, user_id: 'other-user', facility_id: 'other-facility' },
-        error: null,
-      })),
-    };
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return bookingChain({ id: BOOKING_UUID, user_id: 'other-user', facility_id: 'other-facility' });
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('PATCH: 正常セッション使用 → 200', async () => {
+test('PATCH: 正常セッション使用 → 200（RPC ok→利用ログ）', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) {
-      return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    }
-    if (callNum === 2) {
-      // CAS update success
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    // usage log insert
-    return {
-      insert: jest.fn(() => Promise.resolve({ error: null })),
-    };
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return insertChain(); // usage log
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.subscription).toBeDefined();
+  expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', { p_subscription_id: SUB_UUID });
 });
 
 // ─── GET: additional branches ─────────────────────────────────────────────────
@@ -474,25 +504,18 @@ test('PATCH: セッション使用でサブスクが存在しない → 404', as
 test('PATCH: 本人でも管理者でもない → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'other-user-id' } } });
   mockAnonFrom.mockReturnValue(memberChain(null)); // not admin
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
-  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub({ month_reset_at: futureReset })));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   expect(res.status).toBe(401);
 });
 
 test('PATCH: booking_id が存在しない → 404', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    // booking not found
-    return {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
-    };
+    if (callNum === 1) return singleChain(buildActiveSub());
+    return bookingChain(null); // booking not found
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(404);
@@ -500,133 +523,37 @@ test('PATCH: booking_id が存在しない → 404', async () => {
 
 test('PATCH: booking_id が施設の予約に一致 → 正常 (200)', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    if (callNum === 2) {
-      // booking belongs to the same facility (admin use case)
-      return {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn(() => Promise.resolve({
-          data: { id: BOOKING_UUID, user_id: 'other-user', facility_id: FACILITY_UUID },
-          error: null,
-        })),
-      };
-    }
-    if (callNum === 3) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: 'other-user', facility_id: FACILITY_UUID });
+    return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(200);
 });
 
-test('PATCH: 月リセット発生 → 0にリセットしてセッション使用', async () => {
+test('PATCH: 月リセット境界でも RPC が原子的に処理 → 200', async () => {
   let callNum = 0;
-  // month_reset_at is in the past → triggers reset
   const pastReset = new Date(Date.now() - 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) {
-      return singleChain(buildActiveSub({
-        sessions_used_this_month: 3,
-        month_reset_at: pastReset,
-      }));
-    }
-    if (callNum === 2) {
-      // monthly reset update
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
-        }),
-      };
-    }
-    if (callNum === 3) {
-      // CAS update
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+    if (callNum === 1) return singleChain(buildActiveSub({ sessions_used_this_month: 3, month_reset_at: pastReset }));
+    return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   expect(res.status).toBe(200);
 });
 
-test('PATCH: CAS 更新 DB エラー → 500', async () => {
+test('PATCH: facility_id なしサブスク (subscription_plans が null) → 本人なら通過 (200)', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    return {
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-            }),
-          }),
-        }),
-      }),
-    };
-  });
-  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  expect(res.status).toBe(500);
-});
-
-test('PATCH: facility_id なしサブスク (subscription_plans が null) → 本人なら通過', async () => {
-  // user IS the subscription owner, but facility_id is null
-  let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain(null)); // not admin
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) {
-      return singleChain(buildActiveSub({
-        user_id: USER_ID,
-        month_reset_at: futureReset,
-        subscription_plans: null, // no facility_id
-      }));
-    }
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+    if (callNum === 1) return singleChain(buildActiveSub({ user_id: USER_ID, subscription_plans: null }));
+    return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
   expect(res.status).toBe(200);
@@ -634,112 +561,15 @@ test('PATCH: facility_id なしサブスク (subscription_plans が null) → �
 
 test('PATCH: booking_id が本サブスクのuser_id所属 → 200', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain(buildActiveSub({ month_reset_at: futureReset }));
-    if (callNum === 2) {
-      // booking belongs to subscription's user (bookingOwnsUser = true)
-      return {
-        select: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockReturnThis(),
-        maybeSingle: jest.fn(() => Promise.resolve({
-          data: { id: BOOKING_UUID, user_id: USER_ID, facility_id: 'other-facility' },
-          error: null,
-        })),
-      };
-    }
-    if (callNum === 3) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: 'other-facility' });
+    return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(200);
-});
-
-test('PATCH: sessions_per_month が null → デフォルト 4 適用で月リセット通過', async () => {
-  let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) {
-      return singleChain(buildActiveSub({
-        month_reset_at: futureReset,
-        subscription_plans: null,
-        user_id: USER_ID,
-      }));
-    }
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
-  });
-  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: 月次リセットUPDATEがエラー → console.error 後通過', async () => {
-  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  let callNum = 0;
-  const pastReset = new Date(Date.now() - 86400_000).toISOString();
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) {
-      return singleChain(buildActiveSub({
-        sessions_used_this_month: 3,
-        month_reset_at: pastReset,
-      }));
-    }
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'reset failed' } })),
-        }),
-      };
-    }
-    if (callNum === 3) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, sessions_used_this_month: 1 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
-  });
-  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
-  expect(res.status).toBe(200);
-  expect(consoleSpy).toHaveBeenCalled();
-  consoleSpy.mockRestore();
 });
 
 // Branch coverage: line 137 — PATCH で !user → 401
@@ -749,17 +579,12 @@ test('PATCH: 未認証 → 401', async () => {
   expect(res.status).toBe(401);
 });
 
-// Branch coverage: line 207 — facilityId が null → isAdminUser = false
-// subscription_plans が null → facilityId が null → checkAdminMembership 呼ばれず false
-// isOwner もfalseなら 401, isOwner=trueなら通過
+// subscription_plans が null → facilityId が null → isAdminUser=false、isOwner=false なら 401
 test('PATCH: subscription_plans null (facilityId=null) かつ本人でない → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'other-user-id' } } });
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain(null)); // not admin
-  // subscription_plans=null → facilityId=null → isAdminUser=false; user_id !== 'other-user-id' → isOwner=false
   mockAdminFrom.mockReturnValue(singleChain(buildActiveSub({
     user_id: USER_ID, // different from 'other-user-id'
-    month_reset_at: futureReset,
     subscription_plans: null,
   })));
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
@@ -775,31 +600,17 @@ test('PATCH: PATCH 不正ボディ (JSON パース失敗) → 400', async () => 
   expect(res.status).toBe(400);
 });
 
-// Branch coverage: line 207 branch 1 (FALSE) — subFacilityId が null/undefined のとき bookingInFacility = false
-// subscription_plans.facility_id = null → subFacilityId = null → ternary FALSE branch → bookingInFacility = false
-// bookingOwnsUser = false (booking.user_id !== sub.user_id) → 400
+// subscription_plans.facility_id = null → subFacilityId = null → bookingInFacility = false
+// bookingOwnsUser = false → 400
 test('PATCH: subscription_plans.facility_id=null かつ booking が別ユーザーのもの → bookingInFacility=false → 400', async () => {
   let callNum = 0;
-  const futureReset = new Date(Date.now() + 86400_000).toISOString();
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) {
-      // subscription_plans has facility_id: null → subFacilityId = null → bookingInFacility = false
-      return singleChain(buildActiveSub({
-        month_reset_at: futureReset,
-        subscription_plans: { sessions_per_month: 4, facility_id: null },
-      }));
+      return singleChain(buildActiveSub({ subscription_plans: { sessions_per_month: 4, facility_id: null } }));
     }
-    // booking lookup: user_id is different from sub.user_id → bookingOwnsUser = false
-    return {
-      select: jest.fn().mockReturnThis(),
-      eq: jest.fn().mockReturnThis(),
-      maybeSingle: jest.fn(() => Promise.resolve({
-        data: { id: BOOKING_UUID, user_id: 'completely-different-user', facility_id: 'some-facility' },
-        error: null,
-      })),
-    };
+    return bookingChain({ id: BOOKING_UUID, user_id: 'completely-different-user', facility_id: 'some-facility' });
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
   expect(res.status).toBe(400);

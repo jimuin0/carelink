@@ -211,35 +211,36 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  // 月リセット確認
-  const now = new Date();
-  const resetAt = new Date(sub.month_reset_at);
-  let usedThisMonth = sub.sessions_used_this_month;
-  if (now >= resetAt) {
-    usedThisMonth = 0;
-    const nextReset = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-    const { error: resetErr } = await admin.from('user_subscriptions').update({ sessions_used_this_month: 0, month_reset_at: nextReset.toISOString() }).eq('id', sub.id);
-    if (resetErr) console.error('[user-subscriptions] monthly reset failed', { subId: sub.id, err: resetErr });
+  // 月次リセット・上限判定・インクリメントは consume_subscription_session RPC に集約する。
+  // 行ロック(FOR UPDATE)配下で read-modify-write を直列化し、月次リセット境界で2リクエストが
+  // 同時に走っても、後発のリセット(=0)が先発のインクリメントを上書きして上限を超過する競合を
+  // 物理的に不能化する（CAS は同時インクリメントは防げても、CAS 外の無条件リセットは防げなかった）。
+  const { data: rpcResult, error: rpcError } = await admin.rpc('consume_subscription_session', {
+    p_subscription_id: useParsed.data.subscription_id,
+  });
+  if (rpcError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const result = rpcResult as {
+    ok: boolean;
+    code?: string;
+    limit?: number;
+    subscription?: Record<string, unknown>;
+  } | null;
+  if (!result?.ok) {
+    switch (result?.code) {
+      case 'not_found':
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      case 'inactive':
+        return NextResponse.json({ error: 'サブスクリプションが有効ではありません' }, { status: 400 });
+      case 'expired':
+        return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
+      case 'cap_reached':
+        return NextResponse.json({ error: `今月の利用回数上限（${result.limit ?? ''}回）に達しています` }, { status: 400 });
+      default:
+        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
   }
-
-  const sessionsPerMonth = (sub.subscription_plans as { sessions_per_month: number } | null)?.sessions_per_month ?? 4;
-  if (usedThisMonth >= sessionsPerMonth) {
-    return NextResponse.json({ error: `今月の利用回数上限（${sessionsPerMonth}回）に達しています` }, { status: 400 });
-  }
-
-  // Optimistic-lock (CAS): only increment if sessions_used_this_month hasn't changed since our read.
-  // This prevents a race condition where two concurrent requests both see usedThisMonth < limit
-  // and both succeed, exceeding the monthly cap.
-  const { data: updated, error } = await admin
-    .from('user_subscriptions')
-    .update({ sessions_used_this_month: usedThisMonth + 1 })
-    .eq('id', useParsed.data.subscription_id)
-    .eq('sessions_used_this_month', usedThisMonth)   // CAS guard
-    .select().single();
-
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-  // CAS miss: concurrent request updated sessions_used_this_month between our read and write
-  if (!updated) return NextResponse.json({ error: '同時リクエストが競合しました。再度お試しください。' }, { status: 409 });
+  const updated = result.subscription;
 
   await admin.from('subscription_usage_logs').insert({
     subscription_id: useParsed.data.subscription_id,
