@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -42,6 +42,19 @@ export default defineConfig({
       testMatch: /admin\.spec\.ts/,
       dependencies: ['admin-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin.json' },
+    },
+    // 来院者 予約完走：予約可能な施設を seed（slug をファイル出力）
+    {
+      name: 'booking-setup',
+      testMatch: /booking-complete\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 匿名で予約フローを完走（seed 後に実行）
+    {
+      name: 'booking',
+      testMatch: /booking-complete\.spec\.ts/,
+      dependencies: ['booking-setup'],
+      use: { ...devices['Desktop Chrome'] },
     },
   ],
   webServer: process.env.CI
