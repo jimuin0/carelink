@@ -143,8 +143,12 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
           menu_ids: selectedMenus.map((m) => m.id),
           coupon_id: selectedCoupon?.id ?? null,
           booking_date: selectedDate,
-          start_time: selectedSlot?.slot_start,
-          end_time: selectedSlot?.slot_end,
+          // API 契約（bookingSchema の timeString）は "HH:MM" 形式必須。空き枠の slot_start/end は
+          // get_available_slots が TIME で返すため "HH:MM:SS" になり得る。表示は slice 済みだが
+          // 送信は raw だったため、"HH:MM:SS" で届く環境では予約が 400 で必ず失敗していた。
+          // 送信時も "HH:MM" に正規化し、slot の時刻フォーマットに依存せず予約を成立させる。
+          start_time: selectedSlot?.slot_start?.slice(0, 5),
+          end_time: selectedSlot?.slot_end?.slice(0, 5),
           customer_name: customerName,
           email,
           phone: phone || null,
