@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
 jest.mock('@/lib/supabase-server', () => ({ createServiceRoleClient: jest.fn() }));
 
