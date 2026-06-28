@@ -33,6 +33,81 @@ const MIGRATIONS_DIR = join(__dirname, '..', '..', 'supabase', 'migrations');
 const TYPES_FILE = join(__dirname, '..', '..', 'src', 'types', 'database.types.ts');
 
 /**
+ * SQL を「文（statement）」単位に分割する。`;` を区切りとするが、単一引用符文字列・
+ * 二重引用符識別子・$tag$...$tag$（ドル引用＝関数本体）・行コメント（--）・ブロックコメント
+ * （/* *​/）の内側の `;` は区切りにしない。
+ *
+ * 目的: `ALTER TABLE t ADD COLUMN a, ADD COLUMN b;` のように 1 文へ複数の列操作が
+ *   コンマで連結される形を、文全体として取り出して全列を拾えるようにする
+ *   （旧パーサは `ALTER TABLE ... ADD COLUMN <最初の1列>` だけを正規表現で拾い、
+ *    2 列目以降を取りこぼしていた＝列ドリフト誤検知の原因）。
+ */
+function splitSqlStatements(sql: string): string[] {
+  const stmts: string[] = [];
+  let buf = '';
+  let i = 0;
+  const n = sql.length;
+  while (i < n) {
+    const ch = sql[i];
+    // 行コメント
+    if (ch === '-' && sql[i + 1] === '-') {
+      while (i < n && sql[i] !== '\n') { buf += sql[i]; i++; }
+      continue;
+    }
+    // ブロックコメント
+    if (ch === '/' && sql[i + 1] === '*') {
+      buf += '/*'; i += 2;
+      while (i < n && !(sql[i] === '*' && sql[i + 1] === '/')) { buf += sql[i]; i++; }
+      buf += '*/'; i += 2;
+      continue;
+    }
+    // 単一引用符文字列（'' エスケープ対応）
+    if (ch === "'") {
+      buf += ch; i++;
+      while (i < n) {
+        buf += sql[i];
+        if (sql[i] === "'") {
+          if (sql[i + 1] === "'") { buf += sql[i + 1]; i += 2; continue; }
+          i++; break;
+        }
+        i++;
+      }
+      continue;
+    }
+    // 二重引用符識別子
+    if (ch === '"') {
+      buf += ch; i++;
+      while (i < n) {
+        buf += sql[i];
+        if (sql[i] === '"') { i++; break; }
+        i++;
+      }
+      continue;
+    }
+    // ドル引用ブロック（$$ ... $$ / $tag$ ... $tag$）
+    if (ch === '$') {
+      const m = /^\$([a-zA-Z_][a-zA-Z0-9_]*)?\$/.exec(sql.slice(i));
+      if (m) {
+        const tag = m[0];
+        buf += tag; i += tag.length;
+        const end = sql.indexOf(tag, i);
+        if (end === -1) { buf += sql.slice(i); i = n; }
+        else { buf += sql.slice(i, end + tag.length); i = end + tag.length; }
+        continue;
+      }
+    }
+    if (ch === ';') { stmts.push(buf); buf = ''; i++; continue; }
+    buf += ch; i++;
+  }
+  if (buf.trim()) stmts.push(buf);
+  return stmts;
+}
+
+function stripSqlComments(s: string): string {
+  return s.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/**
  * 本番へ未適用と判明している migration 定義テーブル。
  *
  * 2026-06-03: 旧 43 テーブルを本番（ref: xzafxiupbflvgbarrihe）へ catch-up apply 完了し、
@@ -79,6 +154,24 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
  * 2026年6月22日 初版＝空（列ドリフト 0）。
  */
 const KNOWN_COLUMN_DRIFT: ReadonlySet<string> = new Set([]);
+
+/**
+ * 逆方向の列ドリフト（本番＝database.types.ts には在るが migration に無い列）の既知例外（`table.column`）。
+ *
+ * 背景（2026年6月29日 確定）:
+ *   前方向（migration→types）だけを見ていた従来テストには「本番に out-of-band で追加されたが
+ *   migration へ catch-up されていない列」を検知できない盲点があった。実際、本番（ref:
+ *   xzafxiupbflvgbarrihe）には migration 未定義の列が多数存在し、`supabase start`（fresh-apply＝
+ *   CI/E2E のローカル DB）が本番を再現できていなかった（intake/nps の 42 テーブル丸ごと欠落事故と同型の
+ *   「列レベル版」）。この逆方向テストで再発を発症前（マージ前）に検知する。
+ *
+ * 運用: 原則このリストは空（本番にだけ在る列を見つけたら migration へ catch-up するのが根治）。
+ *   例外として、別 PR が当該列の migration を所有し本マージ前のものだけをここへ理由付きで置く。
+ *   2026年6月29日: bookings の 2 列（source / payjp_charge_id）は PR #296 が本番一致の migration
+ *     （20260629000001_bookings_source_payjp_email_prod_catchup.sql）として main へマージ済みのため
+ *     本リストから削除した＝逆方向ドリフト 0。
+ */
+const KNOWN_PROD_ONLY_COLUMNS: ReadonlySet<string> = new Set([]);
 
 /**
  * 本番へ未適用と判明している migration 定義 RPC 関数。
@@ -227,20 +320,28 @@ function migrationDefinedColumns(): Map<string, Set<string>> {
       }
     }
 
-    // ALTER TABLE ... ADD COLUMN [IF NOT EXISTS] <col>
-    const addRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
-    let am: RegExpExecArray | null;
-    while ((am = addRe.exec(sql)) !== null) add(am[1], am[2].toLowerCase());
+    // ALTER TABLE の列操作は「文単位」で処理する。1 文に複数の ADD/DROP COLUMN が
+    // コンマ連結される形（`ALTER TABLE t ADD COLUMN a, ADD COLUMN b;`）でも全列を拾う。
+    // 旧実装は先頭1列だけ拾い 2 列目以降を取りこぼしていた（例: profiles の
+    // `ADD COLUMN role, ADD COLUMN is_platform_admin` で is_platform_admin が欠落し
+    // 「型に在るが migration に無い」誤ドリフトになっていた）。
+    for (const stmtRaw of splitSqlStatements(sql)) {
+      const stmt = stripSqlComments(stmtRaw);
+      const head = /^\s*ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?"?([a-z_][a-z0-9_]*)"?\s+([\s\S]*)$/i.exec(stmt);
+      if (!head) continue;
+      const table = head[1].toLowerCase();
+      const actions = head[2];
+      let g: RegExpExecArray | null;
 
-    // DROP COLUMN
-    const dropRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
-    let dm: RegExpExecArray | null;
-    while ((dm = dropRe.exec(sql)) !== null) drop(dm[1], dm[2].toLowerCase());
+      const addCol = /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
+      while ((g = addCol.exec(actions)) !== null) add(table, g[1].toLowerCase());
 
-    // RENAME COLUMN <old> TO <new>
-    const renRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+RENAME\s+COLUMN\s+"?([a-z_][a-z0-9_]*)"?\s+TO\s+"?([a-z_][a-z0-9_]*)"?/gi;
-    let rm: RegExpExecArray | null;
-    while ((rm = renRe.exec(sql)) !== null) { drop(rm[1], rm[2].toLowerCase()); add(rm[1], rm[3].toLowerCase()); }
+      const dropCol = /DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
+      while ((g = dropCol.exec(actions)) !== null) drop(table, g[1].toLowerCase());
+
+      const renCol = /RENAME\s+COLUMN\s+"?([a-z_][a-z0-9_]*)"?\s+TO\s+"?([a-z_][a-z0-9_]*)"?/gi;
+      while ((g = renCol.exec(actions)) !== null) { drop(table, g[1].toLowerCase()); add(table, g[2].toLowerCase()); }
+    }
   }
   return cols;
 }
@@ -311,6 +412,50 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
       );
     }
     expect(drift).toEqual([]);
+  });
+
+  // 逆方向の列ドリフト検知（本番＝types に在るが migration に無い列）。
+  // 背景: 2026年6月29日 監査で、本番（introspection 生成の database.types.ts）には在るのに
+  //   supabase/migrations/ に定義が無い列が多数（facility_profiles 等）見つかった。これにより
+  //   `supabase start`（fresh-apply）が本番を再現できず、CI/E2E のローカル DB が本番と乖離していた。
+  //   前方向テスト（migration 列 ⊆ types 列）の盲点だったため、逆方向（types 列 ⊆ migration 列）を
+  //   恒久検知し、本番への out-of-band 列追加を発症前に捕まえる。
+  test('本番（types）の列は migration に定義されている（逆方向＝本番先行列の未 catch-up 検知）', () => {
+    const drift: string[] = [];
+    for (const [table, cols] of prodColumns) {
+      if (KNOWN_PROD_ONLY.has(table)) continue;   // migration-less 残存テーブルは table-level テストが担当
+      const migCols = migrationColumns.get(table);
+      if (!migCols) continue;                       // migration にテーブル自体が無い場合は table-level 側で検知
+      for (const col of cols) {
+        const key = `${table}.${col}`;
+        if (!migCols.has(col) && !KNOWN_PROD_ONLY_COLUMNS.has(key)) drift.push(key);
+      }
+    }
+    drift.sort();
+    if (drift.length > 0) {
+      throw new Error(
+        '本番（database.types.ts）に在るが migration に無い列を検知しました（本番への out-of-band 列追加の\n' +
+          'catch-up 漏れ＝fresh-apply が本番を再現できない）。\n' +
+          '本番と一致する冪等 migration（ADD COLUMN IF NOT EXISTS …）を追加してください。\n' +
+          '別 PR が当該列の migration を所有する場合のみ KNOWN_PROD_ONLY_COLUMNS へ理由付きで追記:\n  ' +
+          drift.join('\n  ')
+      );
+    }
+    expect(drift).toEqual([]);
+  });
+
+  test('KNOWN_PROD_ONLY_COLUMNS は陳腐化していない（migration へ反映済みなら削除を促す）', () => {
+    const stale = [...KNOWN_PROD_ONLY_COLUMNS].filter((key) => {
+      const [table, col] = key.split('.');
+      return migrationColumns.get(table)?.has(col);
+    }).sort();
+    if (stale.length > 0) {
+      throw new Error(
+        '以下は既に migration へ定義済みです。KNOWN_PROD_ONLY_COLUMNS から削除してください:\n  ' +
+          stale.join('\n  ')
+      );
+    }
+    expect(stale).toEqual([]);
   });
 
   test('KNOWN_COLUMN_DRIFT は陳腐化していない（反映済みなら削除を促す）', () => {
