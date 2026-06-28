@@ -46,8 +46,10 @@ export async function enqueueWebhook(job: WebhookJob): Promise<void> {
 /**
  * 失敗したWebhookを次の試行時刻に再スケジュールする
  * @param jobId  ジョブID
- * @param attempt 直前まで完了した試行回数（0=初回失敗, 1=1回目リトライ失敗, 2=2回目リトライ失敗）
- *               attempt >= max_attempts(3) で dead-letter に移行
+ * @param attempt 今まで完了した（失敗した）試行回数。ワーカーは送信失敗時に
+ *               `job.attempt_count + 1` を渡す（1=即時失敗, 2=5分後失敗, 3=30分後失敗）。
+ *               次回ディレイは「完了済み回数」で索引する（1→5分後・2→30分後）。
+ *               attempt >= max_attempts(3) で全試行消化済み → dead-letter に移行。
  * @param errorMsg エラーメッセージ
  */
 export async function scheduleRetry(
@@ -57,7 +59,7 @@ export async function scheduleRetry(
 ): Promise<void> {
   const supabase = createServiceRoleClient();
 
-  // attempt は「今失敗した試行番号」(0-indexed)。max_attempts=3 なので attempt >= 3 で全試行消化済み
+  // attempt は「今まで完了した試行回数」。max_attempts=3 なので attempt >= 3 で全試行消化済み
   if (attempt >= 3) {
     // 最大リトライ回数超過 → dead-letter（failed）
     const { error: failErr } = await supabase.from('webhook_retry_queue').update({
@@ -70,16 +72,20 @@ export async function scheduleRetry(
     return;
   }
 
-  // 次回試行のディレイ: RETRY_DELAYS_MS[attempt+1] を使う（attempt=0の失敗→次回は1回目リトライ=5分後）
-  const nextAttempt = attempt + 1;
-  const delayMs = RETRY_DELAYS_MS[nextAttempt] ?? 30 * 60 * 1000;
+  // 次回試行のディレイ＝完了済み試行回数で索引する。
+  // 1回完了（即時失敗）→ RETRY_DELAYS_MS[1]=5分後、2回完了 → RETRY_DELAYS_MS[2]=30分後。
+  // 以前は attempt+1 で索引していたため 5分層が一度も使われず（即時→30分の2回で打ち切り）、
+  // docstring の「即時・5分・30分」3回試行を満たしていなかった（通知の到達信頼性を毀損）。
+  // 上の guard で attempt>=3 は return 済み・ワーカーは attempt_count+1(>=1) を渡すため、
+  // ここでの attempt は必ず 1 か 2 ＝ RETRY_DELAYS_MS の有効添字。フォールバックは不要。
+  const delayMs = RETRY_DELAYS_MS[attempt];
   const scheduledAt = new Date(Date.now() + delayMs).toISOString();
 
   const { error: retryErr } = await supabase.from('webhook_retry_queue').update({
     status: 'pending',
-    attempt_count: nextAttempt,   // 次回試行番号を記録（ワーカーは attempt_count を読んで scheduleRetry に渡す）
+    attempt_count: attempt,   // 完了済み試行回数を記録（ワーカーは attempt_count+1 を次回 scheduleRetry へ渡す）
     last_error: errorMsg,
     scheduled_at: scheduledAt,
   }).eq('id', jobId);
-  if (retryErr) console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt: nextAttempt, err: retryErr });
+  if (retryErr) console.error('[webhook-queue] failed to reschedule job — job stuck in processing', { jobId, attempt, err: retryErr });
 }

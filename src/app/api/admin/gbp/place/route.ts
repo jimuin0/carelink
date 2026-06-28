@@ -6,6 +6,14 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
 export async function GET(req: NextRequest) {
+  // この GET は外部 Places API 取得＋facility_profiles の google_rating 上書き＋
+  // gbp_audit_cache への書き込みという副作用を持つ。副作用のある操作を CSRF 検証
+  // 配下に置かないと、ログイン中の施設オーナーに任意サイトから
+  // `<img src=".../gbp/place?placeId=任意">` を踏ませるだけで本人 Cookie で
+  // 自施設データを上書きできてしまう（CSRF）。同一オリジンの管理 UI からの
+  // fetch は Origin/Referer が一致して通過し、クロスサイト誘発は 403 で遮断する。
+  const csrfError = checkCsrf(req);
+  if (csrfError) return csrfError;
   const ip = getClientIp(req);
   if (await checkRateLimit(null, ip, 20, 60_000, 'gbp-place-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });

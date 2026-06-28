@@ -80,8 +80,9 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
       <h3 className="text-sm font-bold text-gray-800 mb-4">キャンセルポリシー</h3>
       <div className="space-y-4">
         <div>
-          <label className="text-xs text-gray-600 block mb-1">無料キャンセル期限（予約日の何時間前まで）</label>
+          <label htmlFor="cancel-policy-free-hours" className="text-xs text-gray-600 block mb-1">無料キャンセル期限（予約日の何時間前まで）</label>
           <select
+            id="cancel-policy-free-hours"
             value={policy.free_cancel_hours}
             onChange={(e) => setPolicy({ ...policy, free_cancel_hours: Number(e.target.value) })}
             className="form-input text-sm !w-48"
@@ -94,8 +95,9 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-600 block mb-1">期限後キャンセル料（施術料金の%）</label>
+          <label htmlFor="cancel-policy-late-rate" className="text-xs text-gray-600 block mb-1">期限後キャンセル料（施術料金の%）</label>
           <select
+            id="cancel-policy-late-rate"
             value={policy.late_cancel_rate}
             onChange={(e) => setPolicy({ ...policy, late_cancel_rate: Number(e.target.value) })}
             className="form-input text-sm !w-48"
@@ -108,8 +110,9 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-600 block mb-1">無断キャンセル料（施術料金の%）</label>
+          <label htmlFor="cancel-policy-noshow-rate" className="text-xs text-gray-600 block mb-1">無断キャンセル料（施術料金の%）</label>
           <select
+            id="cancel-policy-noshow-rate"
             value={policy.no_show_rate}
             onChange={(e) => setPolicy({ ...policy, no_show_rate: Number(e.target.value) })}
             className="form-input text-sm !w-48"
@@ -120,8 +123,9 @@ export default function CancelPolicySettings({ facilityId }: { facilityId: strin
           </select>
         </div>
         <div>
-          <label className="text-xs text-gray-600 block mb-1">ポリシー補足（お客様に表示されます）</label>
+          <label htmlFor="cancel-policy-text" className="text-xs text-gray-600 block mb-1">ポリシー補足（お客様に表示されます）</label>
           <textarea
+            id="cancel-policy-text"
             value={policy.policy_text}
             onChange={(e) => setPolicy({ ...policy, policy_text: e.target.value })}
             className="form-input text-sm"

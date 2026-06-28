@@ -309,8 +309,10 @@ function BoardBookingModal({
       }
     }
     document.addEventListener('keydown', onKeyDown);
+    document.body.style.overflow = 'hidden';
     return () => {
       document.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = '';
       prevFocus?.focus?.();
     };
   }, []);
