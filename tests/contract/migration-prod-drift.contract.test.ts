@@ -81,6 +81,75 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
 const KNOWN_COLUMN_DRIFT: ReadonlySet<string> = new Set([]);
 
 /**
+ * 本番(types)に実在するが migration が定義しない「migration-less 残存列」（`table.column`）。
+ * テーブル単位の KNOWN_PROD_ONLY と同趣旨の列版。本番へ out-of-band 追加され、
+ * repo の migration では fresh-apply（supabase start）で再現できない列。これを許可リスト化し、
+ * 「新たに増えた migration-less 列」（手動 prod 列追加 or migration 追補漏れ）を発症前検知する。
+ *
+ * ★ このリストは「本番一致の冪等 migration を追補して空にする」のが最終目標（列ドリフト 0）。
+ *   新規追加は本番適用先送りの明示宣言であり原則禁止（理由必須）。
+ *
+ * 2026年6月29日 初版＝52列。2026-06-02 の本番 catch-up apply 以前から本番に存在する
+ *   旧世代の列群（database.types.ts は prod introspection 生成のため本番実態を反映＝正、
+ *   migration 側が追いついていない）。bookings.source/payjp_charge_id は #296 で追補済みのため
+ *   本リストには含めない。各列の本番 DDL を取得し冪等 ADD COLUMN を追補して順次削除する。
+ */
+const KNOWN_PROD_ONLY_COLUMNS: ReadonlySet<string> = new Set([
+  'blog_posts.author_name_id',
+  'blog_posts.category',
+  'blog_posts.coupon_id',
+  'blog_posts.image_urls',
+  'blog_posts.scheduled_at',
+  'coupons.duration_minutes',
+  'coupons.image_submission',
+  'coupons.image_url',
+  'coupons.presentation_timing',
+  'coupons.search_category1',
+  'coupons.search_category2',
+  'coupons.usage_condition',
+  'facility_menus.is_published',
+  'facility_menus.photo_url',
+  'facility_menus.price_ask',
+  'facility_menus.price_show_tilde',
+  'facility_menus.reservable',
+  'facility_menus.search_category',
+  'facility_menus.subcategory',
+  'facility_photos.coupon_id',
+  'facility_photos.genre',
+  'facility_photos.image_submission',
+  'facility_photos.is_published',
+  'facility_photos.search_category',
+  'facility_photos.title',
+  'facility_profiles.business_hours_text',
+  'facility_profiles.design_color',
+  'facility_profiles.design_template',
+  'facility_profiles.directions',
+  'facility_profiles.equipment',
+  'facility_profiles.genres',
+  'facility_profiles.header_photo_url',
+  'facility_profiles.logo_url',
+  'facility_profiles.menu_remarks',
+  'facility_profiles.owner_message',
+  'facility_profiles.owner_name',
+  'facility_profiles.owner_photo_url',
+  'facility_profiles.owner_title',
+  'facility_profiles.parking_text',
+  'facility_profiles.payment_other',
+  'facility_profiles.remarks',
+  'facility_profiles.staff_breakdown',
+  'facility_reviews.booking_id',
+  'facility_reviews.is_pickup',
+  'facility_reviews.replied_at',
+  'facility_reviews.reply',
+  'facility_reviews.staff_id',
+  'facility_reviews.visit_date',
+  'review_helpful.id',
+  'staff_profiles.nomination_fee',
+  'webhook_retry_queue.claimed_at',
+  'webhook_retry_queue.delivered_at',
+]);
+
+/**
  * 本番へ未適用と判明している migration 定義 RPC 関数。
  * テーブルの KNOWN_PENDING_DEPLOYMENT と同趣旨で、本番適用先送りの明示宣言（原則禁止）。
  * 2026-06-15 時点で空＝関数ドリフト 0（get_unique_customers [T20] は本番適用済み＝
@@ -227,20 +296,26 @@ function migrationDefinedColumns(): Map<string, Set<string>> {
       }
     }
 
-    // ALTER TABLE ... ADD COLUMN [IF NOT EXISTS] <col>
-    const addRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
-    let am: RegExpExecArray | null;
-    while ((am = addRe.exec(sql)) !== null) add(am[1], am[2].toLowerCase());
-
-    // DROP COLUMN
-    const dropRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
-    let dm: RegExpExecArray | null;
-    while ((dm = dropRe.exec(sql)) !== null) drop(dm[1], dm[2].toLowerCase());
-
-    // RENAME COLUMN <old> TO <new>
-    const renRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:public\.)?([a-z_][a-z0-9_]*)\s+RENAME\s+COLUMN\s+"?([a-z_][a-z0-9_]*)"?\s+TO\s+"?([a-z_][a-z0-9_]*)"?/gi;
-    let rm: RegExpExecArray | null;
-    while ((rm = renRe.exec(sql)) !== null) { drop(rm[1], rm[2].toLowerCase()); add(rm[1], rm[3].toLowerCase()); }
+    // ALTER TABLE <table> <...statement...>; を1文ごとに捕捉し、文内の
+    // ADD/DROP/RENAME COLUMN を全て反映する。
+    // ★ 旧実装は「ALTER TABLE 直後の1列」しか拾えず、1文で複数列を扱う
+    //   「ALTER TABLE x ADD COLUMN a, ADD COLUMN b」形式の2列目以降を取りこぼしていた
+    //   （例: 20260324000001 の profiles.is_platform_admin が未捕捉＝逆方向検査で偽陽性化）。
+    //   コメント中の "ADD COLUMN" や ";" に惑わされないよう、コメント除去後の文字列で走査する。
+    const stripped = sql.replace(/--[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const alterRe = /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:ONLY\s+)?(?:public\.)?([a-z_][a-z0-9_]*)([\s\S]*?);/gi;
+    let alt: RegExpExecArray | null;
+    while ((alt = alterRe.exec(stripped)) !== null) {
+      const table = alt[1];
+      const stmt = alt[2];
+      let x: RegExpExecArray | null;
+      const addColRe = /ADD\s+COLUMN\s+(?:IF\s+NOT\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
+      while ((x = addColRe.exec(stmt)) !== null) add(table, x[1].toLowerCase());
+      const dropColRe = /DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"?([a-z_][a-z0-9_]*)"?/gi;
+      while ((x = dropColRe.exec(stmt)) !== null) drop(table, x[1].toLowerCase());
+      const renColRe = /RENAME\s+COLUMN\s+"?([a-z_][a-z0-9_]*)"?\s+TO\s+"?([a-z_][a-z0-9_]*)"?/gi;
+      while ((x = renColRe.exec(stmt)) !== null) { drop(table, x[1].toLowerCase()); add(table, x[2].toLowerCase()); }
+    }
   }
   return cols;
 }
@@ -319,6 +394,58 @@ describe('migration ↔ prod スキーマ ドリフト台帳', () => {
       return prodColumns.get(table)?.has(col);
     }).sort();
     expect(stale).toEqual([]);
+  });
+
+  // 逆方向の列ドリフト検知（本番にあって migration に無い列）。
+  // 背景: 2026年6月28日 admin E2E の「Could not find the 'source' column of 'bookings'」調査で、
+  //   本番に out-of-band 追加され migration が定義しない列が bookings 以外にも多数あること
+  //   （fresh-apply が本番を再現できない）が判明。従来の列検査は前方向（migration⊆types）のみで
+  //   この逆方向を見逃していた。本番一致の冪等 migration 追補で順次 KNOWN_PROD_ONLY_COLUMNS を空にする。
+  test('本番(types)にあって migration が定義しない列が新たに増えていない（out-of-band 列追加の発症前検知）', () => {
+    const drift: string[] = [];
+    for (const [table, typeCols] of prodColumns) {
+      if (KNOWN_PROD_ONLY.has(table)) continue;       // migration-less 残存テーブルは table-level テストが担当
+      const mig = migrationColumns.get(table);
+      if (!mig) continue;                              // migration に無いテーブルは未適用/テーブルレベルで検知
+      for (const col of typeCols) {
+        const key = `${table}.${col}`;
+        if (!mig.has(col) && !KNOWN_PROD_ONLY_COLUMNS.has(key)) drift.push(key);
+      }
+    }
+    drift.sort();
+    if (drift.length > 0) {
+      throw new Error(
+        '本番(database.types.ts)に在るが migration が定義しない列を新たに検知しました\n' +
+          '（out-of-band 列追加 or migration 追補漏れ＝fresh-apply が本番を再現できない）。\n' +
+          '本番に一致する冪等 migration（ALTER TABLE … ADD COLUMN IF NOT EXISTS …）を追加するか、\n' +
+          '既知残存なら KNOWN_PROD_ONLY_COLUMNS へ理由付きで追記してください:\n  ' +
+          drift.join('\n  ')
+      );
+    }
+    expect(drift).toEqual([]);
+  });
+
+  test('KNOWN_PROD_ONLY_COLUMNS は陳腐化していない（migration 追補済みなら削除を促す）', () => {
+    const drained = [...KNOWN_PROD_ONLY_COLUMNS].filter((key) => {
+      const [table, col] = key.split('.');
+      return migrationColumns.get(table)?.has(col);
+    }).sort();
+    if (drained.length > 0) {
+      throw new Error(
+        '以下は migration が定義済み（catch-up 完了）です。\n' +
+          'KNOWN_PROD_ONLY_COLUMNS から削除して列ドリフト台帳を最新化してください:\n  ' +
+          drained.join('\n  ')
+      );
+    }
+    expect(drained).toEqual([]);
+  });
+
+  test('KNOWN_PROD_ONLY_COLUMNS の各エントリは types に実在する（綴り誤り/陳腐化の検知）', () => {
+    const notInTypes = [...KNOWN_PROD_ONLY_COLUMNS].filter((key) => {
+      const [table, col] = key.split('.');
+      return !prodColumns.get(table)?.has(col);
+    }).sort();
+    expect(notInTypes).toEqual([]);
   });
 
   test('migration が定義するテーブルは本番に存在する（未適用ドリフトの検知）', () => {
