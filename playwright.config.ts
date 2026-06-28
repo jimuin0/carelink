@@ -18,13 +18,30 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   projects: [
+    // 公開（未認証）導線。admin の setup/spec はここから除外する
+    // （認証 storageState が無い状態で admin を開くとログインへリダイレクトされ落ちるため）。
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/],
+    },
+    // オーナー認証の seed＋ログイン（storageState を作る）
+    {
+      name: 'admin-setup',
+      testMatch: /admin\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 認証済み storageState で admin を検証
+    {
+      name: 'admin',
+      testMatch: /admin\.spec\.ts/,
+      dependencies: ['admin-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin.json' },
     },
   ],
   webServer: process.env.CI

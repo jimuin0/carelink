@@ -56,6 +56,24 @@ function getMembershipCacheKey(userId: string): string {
 // 'strict-dynamic' + 'nonce-...' により、nonce 付き（=Next.js が出力する）スクリプトのみ信頼し、
 // それらが動的 import する子スクリプト(GA/Clarity 等の next/script)も連鎖的に許可する。
 // これにより 'unsafe-inline'（任意のインライン実行=XSS 経路）を script から排除できる。
+// CSP connect-src に載せる Supabase オリジンを、ハードコードした本番 ref ではなく
+// NEXT_PUBLIC_SUPABASE_URL から導出する。これにより本番（同一 URL を導出＝挙動不変）に加え、
+// Vercel プレビュー・ローカル・CI（supabase start のローカル URL）でもブラウザの Supabase 通信
+// （signInWithPassword 等）が CSP で遮断されない。ref 変更時の無音故障も防ぐ（発症前予防）。
+// 末尾に realtime 用の wss/ws オリジンも許可する。env 欠落時は本番 ref にフォールバック。
+function getSupabaseConnectSrc(): string {
+  const fallback = 'https://xzafxiupbflvgbarrihe.supabase.co wss://xzafxiupbflvgbarrihe.supabase.co';
+  const raw = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!raw) return fallback;
+  try {
+    const u = new URL(raw);
+    const wsScheme = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${u.origin} ${wsScheme}//${u.host}`;
+  } catch {
+    return fallback;
+  }
+}
+
 function buildCspHeader(nonce: string): string {
   return [
     "default-src 'self'",
@@ -63,7 +81,7 @@ function buildCspHeader(nonce: string): string {
     "style-src 'self' 'unsafe-inline'",
     "font-src 'self'",
     "img-src 'self' data: https: blob:",
-    "connect-src 'self' https://xzafxiupbflvgbarrihe.supabase.co https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp",
+    `connect-src 'self' ${getSupabaseConnectSrc()} https://*.google-analytics.com https://www.clarity.ms https://va.vercel-scripts.com https://vitals.vercel-insights.com https://access.line.me https://api.line.me https://zipcloud.ibsnet.co.jp`,
     "worker-src 'self'",
     "manifest-src 'self'",
     "frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com",

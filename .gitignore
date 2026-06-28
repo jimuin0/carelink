@@ -47,3 +47,6 @@ reports/mutation/
 # playwright (E2E 成果物・ローカル/CI生成物)
 /playwright-report/
 /test-results/
+
+# Playwright admin E2E auth storageState (session token・コミット禁止)
+e2e/.auth/
