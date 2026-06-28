@@ -91,11 +91,16 @@ setup('provision test owner and authenticate', async ({ page }) => {
   await page.fill('#login-email', email);
   await page.fill('#login-password', password);
   await page.getByRole('button', { name: 'ログイン', exact: true }).click();
-  // サインイン成功でアプリは redirect(/admin) へ client 遷移する。/auth/login を離れたら
-  // ＝signIn 完了で @supabase/ssr の Cookie は確立済み。そのうえでフル遷移し、サーバーの
-  // RSC リクエストに Cookie を確実に載せてダッシュボードを描画する（client 遷移直後は
-  // RSC に Cookie が間に合わず /auth/login へ戻る認証レースが起きるため goto で確実化）。
-  await page.waitForURL((u) => !u.pathname.startsWith('/auth/login'), { timeout: 20000 });
+  // サインイン結果を判別（成功＝/auth/login を離れる／資格情報エラー／その他）。
+  // 推測を避け、失敗理由を明示して投げる。
+  const outcome = await Promise.race([
+    page.waitForURL((u) => !u.pathname.startsWith('/auth/login'), { timeout: 20000 }).then(() => 'navigated').catch(() => 'timeout'),
+    page.getByText('メールアドレスまたはパスワードが正しくありません').waitFor({ timeout: 20000 }).then(() => 'bad-credentials').catch(() => 'no-error'),
+  ]);
+  if (outcome !== 'navigated') {
+    throw new Error(`login did not navigate (outcome=${outcome}, url=${page.url()}, email=${email})`);
+  }
+  // Cookie 確立後にフル遷移し、RSC リクエストに Cookie を確実に載せてダッシュボードを描画。
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible({ timeout: 15000 });
 
