@@ -96,6 +96,11 @@ setup('provision test owner and authenticate', async ({ page }) => {
   if (!si.session) throw new Error('node signIn: session が空');
 
   // 6) 実 UI でログイン（@supabase/ssr の認証 Cookie を確立）
+  // ブラウザが実際に叩く auth URL を捕捉し、Node の url と比較して真因を確定する。
+  let browserAuthUrl = '';
+  page.on('request', (r) => {
+    if (r.url().includes('/auth/v1/token')) browserAuthUrl = r.url();
+  });
   await page.goto('/auth/login?redirect=/admin');
   await page.fill('#login-email', email);
   await page.fill('#login-password', password);
@@ -107,7 +112,7 @@ setup('provision test owner and authenticate', async ({ page }) => {
     page.getByText('メールアドレスまたはパスワードが正しくありません').waitFor({ timeout: 20000 }).then(() => 'bad-credentials').catch(() => 'no-error'),
   ]);
   if (outcome !== 'navigated') {
-    throw new Error(`login did not navigate (outcome=${outcome}, url=${page.url()}, email=${email})`);
+    throw new Error(`login did not navigate (outcome=${outcome}, nodeUrl=${url}, browserAuthUrl=${browserAuthUrl || '(none)'}, email=${email})`);
   }
   // Cookie 確立後にフル遷移し、RSC リクエストに Cookie を確実に載せてダッシュボードを描画。
   await page.goto('/admin');
