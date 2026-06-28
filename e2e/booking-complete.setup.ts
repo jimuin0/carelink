@@ -57,13 +57,15 @@ setup('seed bookable facility', async () => {
   const { error: sce } = await sb.from('staff_schedules').insert(schedules);
   if (sce) throw new Error('seed schedules: ' + sce.message);
 
-  // メニュー（category/name は NOT NULL）
+  // メニュー（category/name は NOT NULL）。is_published は DEFAULT false で、
+  // getFacilityMenus は is_published null/true のみ客向けに出すため true を明示する。
   const { error: me } = await sb.from('facility_menus').insert({
     facility_id: facilityId,
     category: 'カット',
     name: BOOKING_SEED.menuName,
     price: BOOKING_SEED.menuPrice,
     duration_minutes: BOOKING_SEED.menuDuration,
+    is_published: true,
   });
   if (me) throw new Error('seed menu: ' + me.message);
 
