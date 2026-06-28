@@ -77,9 +77,9 @@ setup('provision test owner and authenticate', async ({ page }) => {
 
   // 5) 予約（本日）: 完了/無断/確定 → 本日売上・無断キャンセル率・最近の予約を検証
   const { error: be } = await sb.from('bookings').insert([
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, status: 'completed', source: 'walk_in', total_price: SEED.completedPriceYen },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: SEED.noShowCustomer, status: 'no_show', source: 'walk_in', total_price: SEED.noShowPriceYen },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: SEED.confirmedCustomer, status: 'confirmed', source: 'walk_in', total_price: SEED.confirmedPriceYen },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, status: 'completed', total_price: SEED.completedPriceYen },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: SEED.noShowCustomer, status: 'no_show', total_price: SEED.noShowPriceYen },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: SEED.confirmedCustomer, status: 'confirmed', total_price: SEED.confirmedPriceYen },
   ]);
   if (be) throw new Error('seed bookings: ' + be.message);
 
