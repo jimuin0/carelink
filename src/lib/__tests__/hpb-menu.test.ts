@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/hpb-menu.ts
  * getFacilitySlnId / saveHpbRows / scrapeAndSaveFacility / listHpbMenus を網羅(branches100%)。

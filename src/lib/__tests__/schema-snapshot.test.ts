@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * schema-snapshot.json が database.types.ts と同期しているかの恒久ガード。
  * types を変更して再生成を忘れると CI が落ちる(ドリフト監視の期待値が陳腐化するのを防ぐ)。

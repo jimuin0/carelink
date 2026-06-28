@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * Tests for lib/schema-drift.ts (computeDrift / isIgnored) — branches 100%。
  */
