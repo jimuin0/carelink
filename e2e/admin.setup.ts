@@ -76,10 +76,13 @@ setup('provision test owner and authenticate', async ({ page }) => {
   const staffId = staff[0].id as string;
 
   // 5) 予約（本日）: 完了/無断/確定 → 本日売上・無断キャンセル率・最近の予約を検証
+  // bookings の NOT NULL 必須列＝facility_id/booking_date/start_time/end_time/customer_name/email
+  // （phase4_bookings.sql で確定。types は email? だが実 DB は NOT NULL＝drift）。
+  const customerEmail = 'e2e-customer@example.invalid';
   const { error: be } = await sb.from('bookings').insert([
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, status: 'completed', total_price: SEED.completedPriceYen },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: SEED.noShowCustomer, status: 'no_show', total_price: SEED.noShowPriceYen },
-    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: SEED.confirmedCustomer, status: 'confirmed', total_price: SEED.confirmedPriceYen },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, email: customerEmail, status: 'completed', total_price: SEED.completedPriceYen },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: SEED.noShowCustomer, email: customerEmail, status: 'no_show', total_price: SEED.noShowPriceYen },
+    { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: SEED.confirmedCustomer, email: customerEmail, status: 'confirmed', total_price: SEED.confirmedPriceYen },
   ]);
   if (be) throw new Error('seed bookings: ' + be.message);
 
