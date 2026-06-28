@@ -298,7 +298,7 @@ export default async function FacilityPage(props: Props) {
         </Suspense>
 
         {/* Contact section */}
-        <div id="contact-section" className="px-4 sm:px-6 py-8 border-t border-gray-100">
+        <div id="contact-section" className="scroll-mt-20 px-4 sm:px-6 py-8 border-t border-gray-100">
           <h2 className="text-lg font-bold mb-2 flex items-center gap-2">
             <span className="w-1 h-5 bg-sky-500 rounded-full" />
             お問い合わせ

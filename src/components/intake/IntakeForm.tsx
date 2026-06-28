@@ -117,10 +117,11 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
       <form onSubmit={handleSubmit} className="p-5 space-y-5">
         {/* お名前 */}
         <div>
-          <label className="block text-sm font-bold text-gray-700 mb-1.5">
+          <label htmlFor="intake-customer-name" className="block text-sm font-bold text-gray-700 mb-1.5">
             お名前 <span className="text-red-500">*</span>
           </label>
           <input
+            id="intake-customer-name"
             type="text"
             value={customerName}
             onChange={(e) => setCustomerName(e.target.value)}

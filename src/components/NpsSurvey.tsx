@@ -112,8 +112,9 @@ export default function NpsSurvey({ facilityId, bookingId, category = 'overall',
           <p className="text-xs text-center font-medium text-gray-600">{getLabel(score)}</p>
 
           <div>
-            <label className="text-xs text-gray-500 block mb-1">コメント（任意）</label>
+            <label htmlFor="nps-comment" className="text-xs text-gray-500 block mb-1">コメント（任意）</label>
             <textarea
+              id="nps-comment"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               rows={2}

@@ -25,7 +25,11 @@ export default function StationSearch() {
       .finally(() => setLoading(false));
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') handleClose(); };
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      document.body.style.overflow = '';
+    };
   }, [open, handleClose]);
 
   const filtered = query

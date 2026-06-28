@@ -210,6 +210,13 @@ test('POST: CSRF エラー → 403', async () => {
   expect(res.status).toBe(403);
 });
 
+test('GET: CSRF エラー → 403（副作用前にクロスサイト誘発を遮断）', async () => {
+  const { checkCsrf } = require('@/lib/csrf');
+  (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(403);
+});
+
 test('GET: rate limit params (20/60s)', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
