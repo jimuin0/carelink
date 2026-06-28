@@ -147,6 +147,7 @@ export default function SearchFilters({ className }: { className?: string }) {
           <input
             type="number"
             placeholder="¥ 下限"
+            aria-label="価格帯の下限"
             value={priceMin}
             onChange={(e) => setPriceMin(e.target.value)}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"
@@ -157,6 +158,7 @@ export default function SearchFilters({ className }: { className?: string }) {
           <input
             type="number"
             placeholder="¥ 上限"
+            aria-label="価格帯の上限"
             value={priceMax}
             onChange={(e) => setPriceMax(e.target.value)}
             className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-sky-200"

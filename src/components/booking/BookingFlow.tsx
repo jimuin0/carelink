@@ -419,13 +419,15 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
                   <p className="text-xs text-gray-400 mt-1">別の日付をお選びください</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2" role="listbox" aria-label="空き時間">
                   {slots.map((slot) => {
                     const isActive = selectedSlot?.slot_start === slot.slot_start;
                     return (
                       <button
                         type="button"
                         key={slot.slot_start}
+                        role="option"
+                        aria-selected={isActive}
                         onClick={() => setSelectedSlot(slot)}
                         className={`min-h-[44px] flex items-center justify-center p-2.5 rounded-xl border text-center transition-colors ${
                           isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'

@@ -99,7 +99,7 @@ export default function NotificationSettings({ facilityId }: { facilityId: strin
         {(Object.keys(LABELS) as (keyof Settings)[]).map((key) => (
           <label key={key} className="flex items-center justify-between cursor-pointer">
             <span className="text-sm text-gray-700">{LABELS[key]}</span>
-            <Toggle checked={settings[key]} onChange={() => handleToggle(key)} disabled={saving} />
+            <Toggle checked={settings[key]} onChange={() => handleToggle(key)} disabled={saving} label={LABELS[key]} />
           </label>
         ))}
       </div>
