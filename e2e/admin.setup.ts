@@ -90,7 +90,7 @@ setup('provision test owner and authenticate', async ({ page }) => {
   await page.goto('/auth/login?redirect=/admin');
   await page.fill('#login-email', email);
   await page.fill('#login-password', password);
-  await page.getByRole('button', { name: 'ログイン' }).click();
+  await page.getByRole('button', { name: 'ログイン', exact: true }).click();
   // 認可済みオーナーは /admin に着地する（未認可なら /mypage へ飛ぶ）
   await page.waitForURL('**/admin', { timeout: 20000 });
   await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible({ timeout: 15000 });
