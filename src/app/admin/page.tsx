@@ -2,7 +2,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
-import { todayJst, addDays, dayOfWeekUtc } from '@/lib/admin-date';
+import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
 
@@ -64,20 +64,49 @@ export default async function AdminDashboard() {
   // （PostgREST は GROUP BY 非対応のため。範囲は14日固定で転送量は小さい）。
   const weekDates = Array.from({ length: 14 }, (_, i) => addDays(today, i));
 
+  // 当月の経営KPI範囲（JST 当月。売上の定義は /admin/analytics と完全一致＝
+  // status='completed' の total_price 合計。お金の定義を二重化しないため同一式を踏襲）。
+  const { year: curY, month: curM } = jstMonthInfo(0);
+  const curMM = String(curM).padStart(2, '0');
+  const monthStart = `${curY}-${curMM}-01`;
+  // 当月末日（Date.UTC(year, month, 0) は当月末日＝純粋な暦演算で TZ 非依存・analytics と同手法）
+  const monthLastDay = new Date(Date.UTC(curY, curM, 0)).getUTCDate();
+  const monthEnd = `${curY}-${curMM}-${String(monthLastDay).padStart(2, '0')}`;
+
   const [
     { count: todayBookings, error: todayErr },
     { count: pendingBookings, error: pendingErr },
     { data: weekRows, error: weekErr },
+    { data: todayRevRows, error: todayRevErr },
+    { data: monthCompletedRows, error: monthRevErr },
+    { count: monthNoShowCount, error: noShowErr },
   ] = await Promise.all([
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('booking_date', today),
     supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'pending'),
     supabase.from('bookings').select('booking_date').eq('facility_id', facilityId).neq('status', 'cancelled')
       .gte('booking_date', weekDates[0]).lte('booking_date', weekDates[13]),
+    // 本日の売上（完了予約の total_price 合計）
+    supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed').eq('booking_date', today),
+    // 当月の完了予約（売上合計・件数・客単価の母数）
+    supabase.from('bookings').select('total_price').eq('facility_id', facilityId).eq('status', 'completed')
+      .gte('booking_date', monthStart).lte('booking_date', monthEnd),
+    // 当月の無断キャンセル件数（無断キャンセル率の分子）
+    supabase.from('bookings').select('id', { count: 'exact', head: true }).eq('facility_id', facilityId).eq('status', 'no_show')
+      .gte('booking_date', monthStart).lte('booking_date', monthEnd),
   ]);
-  // 取得失敗を 0 に偽装しない（error.tsx に委ねる）
-  if (todayErr || pendingErr || weekErr) {
-    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? weekErr)?.message}`);
+  // 取得失敗を 0 に偽装しない（error.tsx に委ねる）。売上・率を過少表示で実績誤認させない。
+  if (todayErr || pendingErr || weekErr || todayRevErr || monthRevErr || noShowErr) {
+    throw new Error(`ダッシュボードの取得に失敗しました: ${(todayErr ?? pendingErr ?? weekErr ?? todayRevErr ?? monthRevErr ?? noShowErr)?.message}`);
   }
+
+  // 経営KPI算出（analytics と同一定義）。母数0の指標は数値を捏造せず null＝「—」表示にする。
+  const todayRevenue = (todayRevRows ?? []).reduce((sum, b: { total_price: number | null }) => sum + (b.total_price ?? 0), 0);
+  const monthRevenue = (monthCompletedRows ?? []).reduce((sum, b: { total_price: number | null }) => sum + (b.total_price ?? 0), 0);
+  const monthCompletedCount = (monthCompletedRows ?? []).length;
+  const avgTicket = monthCompletedCount > 0 ? Math.round(monthRevenue / monthCompletedCount) : null;
+  const noShowCount = monthNoShowCount ?? 0;
+  const noShowDenom = monthCompletedCount + noShowCount; // 来店予定だった件数（事前キャンセルは除外）
+  const noShowRate = noShowDenom > 0 ? Math.round((noShowCount / noShowDenom) * 1000) / 10 : null;
 
   // 予約状況（2週間）: 日付→件数。cancelled は除外済み。
   const weekCounts = new Map<string, number>();
@@ -128,6 +157,30 @@ export default async function AdminDashboard() {
             <span className="text-2xl font-extrabold tabular-nums">{todayBookings ?? 0}</span>
             <span className="text-xs text-white/80">件</span>
           </span>
+        </Link>
+      </div>
+
+      {/* 経営KPI（当月・売上は /admin/analytics と同一定義）。経営者が毎日見たい数値を集約。 */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        <Link href={`/admin/bookings?date=${today}`} className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+          <p className="text-xs text-gray-500">本日の売上</p>
+          <p className="text-xl font-bold text-gray-800 tabular-nums mt-1">¥{todayRevenue.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">完了予約ベース</p>
+        </Link>
+        <Link href="/admin/analytics" className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+          <p className="text-xs text-gray-500">今月の売上</p>
+          <p className="text-xl font-bold text-gray-800 tabular-nums mt-1">¥{monthRevenue.toLocaleString()}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">{curM}月・完了{monthCompletedCount}件</p>
+        </Link>
+        <Link href="/admin/analytics" className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+          <p className="text-xs text-gray-500">客単価</p>
+          <p className="text-xl font-bold text-gray-800 tabular-nums mt-1">{avgTicket !== null ? `¥${avgTicket.toLocaleString()}` : '—'}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">今月の平均</p>
+        </Link>
+        <Link href="/admin/bookings?status=no_show" className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
+          <p className="text-xs text-gray-500">無断キャンセル率</p>
+          <p className={`text-xl font-bold tabular-nums mt-1 ${noShowRate !== null && noShowRate >= 10 ? 'text-red-600' : 'text-gray-800'}`}>{noShowRate !== null ? `${noShowRate}%` : '—'}</p>
+          <p className="text-[11px] text-gray-400 mt-0.5">今月{noShowCount > 0 ? `・${noShowCount}件` : ''}</p>
         </Link>
       </div>
 
