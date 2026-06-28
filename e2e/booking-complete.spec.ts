@@ -33,7 +33,8 @@ test('来院者が予約を最後まで完走できる', async ({ page }) => {
   const resp = await bookingResp;
   if (!resp.ok()) {
     const body = await resp.text().catch(() => '(body 読取不可)');
-    throw new Error(`POST /api/booking failed: status=${resp.status()} body=${body.slice(0, 300)}`);
+    const reqBody = resp.request().postData() ?? '(req body なし)';
+    throw new Error(`POST /api/booking failed: status=${resp.status()} resp=${body.slice(0, 200)} sent=${reqBody.slice(0, 400)}`);
   }
 
   // 完了ページへ遷移すること（予約が DB に作成され成功）
