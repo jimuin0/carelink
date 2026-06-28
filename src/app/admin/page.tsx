@@ -119,6 +119,19 @@ export default async function AdminDashboard() {
     count: weekCounts.get(d) ?? 0,
   }));
 
+  // 公開中なのに「構造的に予約を受け付けられない」状態の検知。
+  // 予約フローの空き枠は 100% スタッフ＋勤務スケジュール起点で導出される
+  // （BookingFlow はスタッフ0で枠取得をスキップ・/api/slots は staffId 必須で
+  // staff_schedules からスロットを算出）。公開はメニュー＋写真のみで可能なため、
+  // スタッフ未登録／スケジュール未設定のまま公開すると、来院者は予約ページに
+  // 到達しても枠が1つも出ず「公開したのに予約が来ない」という無音の機会損失になる。
+  // 公開ゲートは既存施設に影響するため掛けず、経営者に明示警告して気づけるようにする。
+  const publishBlocker = isPublished && staffCount === 0
+    ? { message: '公開中ですが、スタッフが未登録のため予約を受け付けられません。', cta: 'スタッフを登録する', href: '/admin/staff' }
+    : isPublished && scheduleCount === 0
+    ? { message: '公開中ですが、スタッフの勤務スケジュールが未設定のため予約を受け付けられません。', cta: 'スケジュールを設定する', href: '/admin/staff' }
+    : null;
+
   return (
     <div>
       <SbPageHeader
@@ -126,6 +139,22 @@ export default async function AdminDashboard() {
         description="本日の予約状況と店舗セットアップの概要"
         actions={<SbButtonLink href="/admin/schedule">サロンボードを見る</SbButtonLink>}
       />
+
+      {/* 公開中なのに予約不能な状態の警告（無音の機会損失を防ぐ・最優先で表示） */}
+      {publishBlocker && (
+        <Link href={publishBlocker.href} className="block mb-6 bg-red-50 border border-red-200 rounded-xl p-4 hover:shadow-md transition-shadow" role="alert">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center shrink-0">
+              <svg className="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+            </div>
+            <div>
+              <p className="text-sm font-bold text-red-800">{publishBlocker.message}</p>
+              <p className="text-xs text-red-600">{publishBlocker.cta}（このままでは集客しても予約が入りません）</p>
+            </div>
+            <svg className="w-5 h-5 text-red-400 ml-auto shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
+          </div>
+        </Link>
+      )}
 
       {/* ヒーローアクションカード（サロンボード型・CareLink 色） */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
