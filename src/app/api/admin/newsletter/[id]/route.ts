@@ -8,17 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { escSubject } from '@/lib/email';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { createHmac } from 'crypto';
-
-function makeUnsubToken(email: string): string {
-  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-  if (!secret) throw new Error('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
-  return createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
-}
-
-function unsubUrl(email: string): string {
-  return `https://carelink-jp.com/unsubscribe?email=${encodeURIComponent(email)}&hmac=${makeUnsubToken(email)}`;
-}
+import { newsletterUnsubUrl } from '@/lib/newsletter-unsub';
 
 async function requirePlatformAdmin() {
   const supabase = await createServerSupabaseAuthClient();
@@ -148,7 +138,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         from: 'CareLink <newsletter@carelink-jp.com>',
         to: [email],
         subject,
-        html: campaign.html_content + `<br><br><hr><p style="font-size:11px;color:#999">配信停止は<a href="${unsubUrl(email)}">こちら</a></p>`,
+        html: campaign.html_content + `<br><br><hr><p style="font-size:11px;color:#999">配信停止は<a href="${newsletterUnsubUrl(email)}">こちら</a></p>`,
         text: campaign.text_content || undefined,
       }));
       try {
