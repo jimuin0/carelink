@@ -10,6 +10,8 @@ import {
   ALLOWED_STATUS_TRANSITIONS,
   getAllowedStatusTransitions,
   BOOKING_STATUSES,
+  SLOT_OCCUPYING_STATUSES,
+  SLOT_RELEASING_STATUSES,
   type BookingStatus,
 } from '@/lib/booking-status';
 
@@ -126,6 +128,20 @@ describe('予約ステータス値集合 SSOT（BOOKING_STATUSES）', () => {
   });
   it('canon ラベルの全キーを過不足なく含む', () => {
     expect([...BOOKING_STATUSES].sort()).toEqual([...ALL_STATUSES].sort());
+  });
+});
+
+describe('予約枠 占有/解放 集合 SSOT（SLOT_OCCUPYING_STATUSES / SLOT_RELEASING_STATUSES）', () => {
+  it('解放集合は cancelled / no_show / cancel_fee_paid（RPCのNOT IN条件と一致）', () => {
+    expect([...SLOT_RELEASING_STATUSES].sort()).toEqual(['cancel_fee_paid', 'cancelled', 'no_show'].sort());
+  });
+  it('占有集合は pending / confirmed / arrived / completed（解放集合の補集合）', () => {
+    expect([...SLOT_OCCUPYING_STATUSES].sort()).toEqual(['arrived', 'completed', 'confirmed', 'pending'].sort());
+  });
+  it('占有集合と解放集合は重なりなく全7値を分割する', () => {
+    const union = [...SLOT_OCCUPYING_STATUSES, ...SLOT_RELEASING_STATUSES].sort();
+    expect(union).toEqual([...BOOKING_STATUSES].sort());
+    for (const s of SLOT_OCCUPYING_STATUSES) expect(SLOT_RELEASING_STATUSES).not.toContain(s);
   });
 });
 

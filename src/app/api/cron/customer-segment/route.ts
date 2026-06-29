@@ -97,7 +97,10 @@ export async function GET(request: Request) {
             .from('bookings')
             .select(`${col}, customer_name, booking_date, total_price, status`)
             .eq('facility_id', facility.id)
-            .in('status', ['completed', 'confirmed'])
+            // RFM（来店回数・利用額・最終来店日）は実来店＝completed のみで算出する。以前は confirmed
+            // （未来の予約も含む）を混入させ、未提供サービスを利用額に計上し last_visit が未来日になり
+            // daysSince が負＝recency が壊れ VIP 誤分類を生んでいた（コメント「完了済み予約から」と乖離）。
+            .in('status', ['completed'])
             .gte('booking_date', twoYearsAgo)
             .range(offset, offset + limit - 1);
           return { data: data as BookingRow[] | null, error };

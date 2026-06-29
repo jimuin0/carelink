@@ -29,6 +29,7 @@ import { GET } from '../route';
 
 let mockFacilitiesSelect: jest.Mock;
 let mockBookingsSelect: jest.Mock;
+let mockBookingsIn: jest.Mock;
 let mockUpsert: jest.Mock;
 
 function setupDefaultMocks(
@@ -62,16 +63,17 @@ function setupDefaultMocks(
     status: i < 2 ? 'completed' : 'confirmed',
   }));
 
+  mockBookingsIn = jest.fn().mockReturnValue({
+    gte: jest.fn().mockReturnValue({
+      range: jest.fn().mockResolvedValue({
+        data: bookingsData,
+      }),
+    }),
+  });
   mockBookingsSelect = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        in: jest.fn().mockReturnValue({
-          gte: jest.fn().mockReturnValue({
-            range: jest.fn().mockResolvedValue({
-              data: bookingsData,
-            }),
-          }),
-        }),
+        in: mockBookingsIn,
       }),
     }),
   });
@@ -312,6 +314,14 @@ describe('GET /api/cron/customer-segment', () => {
         expect(typeof rows[0].segment).toBe('string');
       }
     }
+  });
+
+  test('RFMは completed のみで集計する（confirmed混入＝未来予約のVIP誤分類/負recency防止の回帰）', async () => {
+    await GET(makeRequest() as any);
+    // bookings の status フィルタ呼び出しは全て ['completed']（confirmed を含めない）。
+    const statusCalls = mockBookingsIn.mock.calls.filter((c) => c[0] === 'status');
+    expect(statusCalls.length).toBeGreaterThan(0);
+    for (const c of statusCalls) expect(c[1]).toEqual(['completed']);
   });
 
   test('sums total_spent across visits', async () => {
