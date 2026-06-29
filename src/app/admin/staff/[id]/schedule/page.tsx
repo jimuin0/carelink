@@ -76,7 +76,12 @@ export default function StaffSchedulePage() {
     if (schData && schData.length > 0) {
       const newSchedules = DAY_LABELS.map((_, i) => {
         const existing = schData.find((s) => s.day_of_week === i);
-        return existing || { day_of_week: i, start_time: '09:00', end_time: '19:00' };
+        // staff_schedules.start_time/end_time は TIME 列で "HH:MM:SS" で返る。API/入力は "HH:MM"
+        // 必須のため、ロード時に正規化する。これを怠ると、既存スタッフのスケジュールを再保存
+        // （各曜日を手で選び直さずに保存）した際に "HH:MM:SS" が再送され一律 400 になる。
+        return existing
+          ? { day_of_week: i, start_time: existing.start_time.slice(0, 5), end_time: existing.end_time.slice(0, 5) }
+          : { day_of_week: i, start_time: '09:00', end_time: '19:00' };
       });
       setSchedules(newSchedules);
       setEnabledDays(DAY_LABELS.map((_, i) => schData.some((s) => s.day_of_week === i)));
@@ -89,7 +94,13 @@ export default function StaffSchedulePage() {
       .gte('date', new Date().toISOString().split('T')[0])
       .order('date');
     if (ovErr) { setLoadError(true); setLoading(false); return; }
-    if (ovData) setOverrides(ovData);
+    // schedule_overrides の start_time/end_time も TIME 列で "HH:MM:SS" で返る。表示と再保存の
+    // 一貫性のため "HH:MM" に正規化する（null=休日はそのまま）。
+    if (ovData) setOverrides(ovData.map((o) => ({
+      ...o,
+      start_time: o.start_time ? o.start_time.slice(0, 5) : o.start_time,
+      end_time: o.end_time ? o.end_time.slice(0, 5) : o.end_time,
+    })));
     setLoading(false);
   }, [staffId]);
 
