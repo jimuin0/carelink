@@ -55,6 +55,12 @@ test('来院者がレビューを投稿できる', async ({ page }) => {
   for (let i = 0; i < n; i++) await fiveStars.nth(i).click();
   // 投稿ボタン → 確認ダイアログの「投稿する」（"口コミを投稿する" との誤マッチを避け dialog+exact）
   await page.getByRole('button', { name: '口コミを投稿する' }).click();
+  const reviewResp = page.waitForResponse((r) => r.url().includes('/api/review') && r.request().method() === 'POST', { timeout: 20000 });
   await page.getByRole('dialog').getByRole('button', { name: '投稿する', exact: true }).click();
+  const resp = await reviewResp;
+  if (!resp.ok()) {
+    const body = await resp.text().catch(() => '(body 読取不可)');
+    throw new Error(`POST /api/review failed: status=${resp.status()} body=${body.slice(0, 300)}`);
+  }
   await expect(page.getByText('口コミを投稿しました')).toBeVisible({ timeout: 15000 });
 });
