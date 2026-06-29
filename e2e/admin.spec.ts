@@ -105,9 +105,12 @@ test.describe.serial('管理画面（オーナー）', () => {
     await expect(dialog).toBeVisible();
     // 必須はメニュー名のみ（handleSave は name.trim() のみ必須）。最小入力で保存する。
     await dialog.locator('#menu-name').fill(menuName);
+    // 保存ボタンはキーボード起動（focus→Enter）で確定する。CI の headless/dvh ビューポートでは
+    // モーダルフッターが pointer hit-test で被り判定になり .click() がタイムアウトすることがあるため、
+    // ポインタ被りに依存しないキーボード操作（正当なユーザー操作）で確実に起動する。
     const saveBtn = dialog.getByRole('button', { name: '保存' });
     await saveBtn.scrollIntoViewIfNeeded();
-    await saveBtn.click();
+    await saveBtn.press('Enter');
     await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
     // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
     await expect(page.getByText(menuName)).toBeVisible();
