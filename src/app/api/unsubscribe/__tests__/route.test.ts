@@ -32,6 +32,7 @@ function makeHmac(email: string): string {
 
 import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { encryptUnsubEmail } from '@/lib/newsletter-unsub';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -125,6 +126,43 @@ describe('HMAC path (方式B)', () => {
     (checkRateLimit as jest.Mock).mockReturnValue(true);
     const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: makeHmac(TEST_EMAIL) }));
     expect(res.status).toBe(429);
+  });
+});
+
+// ─── 方式C: 暗号化トークン（メールを URL に露出しない） ───────────────────────
+
+describe('Encrypted token path (方式C)', () => {
+  test('有効な暗号化トークンで購読解除成功 → 200 success:true（メールはサーバで復号）', async () => {
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return fluentChain({ is_active: true });
+      return {
+        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+        eq: jest.fn().mockReturnThis(),
+      };
+    });
+
+    const res = await POST(makeRequest({ n: encryptUnsubEmail(TEST_EMAIL) }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(json.already).toBe(false);
+  });
+
+  test('改ざん/不正な暗号化トークン → 200 already:true（復号失敗・列挙攻撃防止）', async () => {
+    const res = await POST(makeRequest({ n: 'tampered-invalid-token' }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.already).toBe(true);
+  });
+
+  test('既に購読解除済み → 200 already:true', async () => {
+    mockFrom.mockImplementation(() => fluentChain({ is_active: false }));
+    const res = await POST(makeRequest({ n: encryptUnsubEmail(TEST_EMAIL) }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.already).toBe(true);
   });
 });
 

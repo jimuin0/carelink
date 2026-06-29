@@ -4,21 +4,8 @@ import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { fetchAllPaged } from '@/lib/paginate';
-import { createHmac } from 'crypto';
 import { jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
-
-function makeUnsubToken(email: string): string {
-  const secret = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
-  // GET 冒頭の env ガード（!NEWSLETTER_UNSUBSCRIBE_SECRET → 503）を通過した後でのみ
-  // 送信ループから呼ばれるため、ここに到達する時点で secret は必ず存在する（防御的チェック）。
-  /* istanbul ignore next -- 上位 env ガードにより到達不能な防御コード */
-  if (!secret) throw new Error('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
-  return createHmac('sha256', secret).update(email.toLowerCase()).digest('hex');
-}
-
-function unsubUrl(email: string): string {
-  return `https://carelink-jp.com/unsubscribe?email=${encodeURIComponent(email)}&hmac=${makeUnsubToken(email)}`;
-}
+import { newsletterUnsubUrl } from '@/lib/newsletter-unsub';
 
 function maskEmail(email: string): string {
   return email.replace(/(.).*@/, '$1***@');
@@ -307,7 +294,7 @@ export async function GET(req: NextRequest) {
         break;
       }
       const email = toSend[i];
-      const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${unsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
+      const footer = `<div style="background:#f9fafb;padding:24px 32px;text-align:center"><p style="color:#9ca3af;font-size:12px;margin:0">CareLink | carelink-jp.com<br><a href="${newsletterUnsubUrl(email)}" style="color:#9ca3af">配信停止はこちら</a></p></div>`;
       try {
         await resend.emails.send(
           {

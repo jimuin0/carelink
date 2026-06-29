@@ -17,6 +17,7 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
+import { decryptUnsubEmail } from '@/lib/newsletter-unsub';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,6 +28,11 @@ const tokenSchema = z.object({
 const hmacSchema = z.object({
   email: z.string().email().max(254),
   hmac: z.string().length(64).regex(/^[0-9a-f]+$/),
+});
+
+// 方式C: 暗号化トークン（メールを URL に露出しない不透明トークン）。サーバだけが復号できる。
+const tokenEncSchema = z.object({
+  n: z.string().min(1).max(512),
 });
 
 function verifyUnsubHmac(email: string, hmac: string): boolean {
@@ -58,15 +64,8 @@ export async function POST(request: Request) {
     { cookies: { getAll: () => cookieStore.getAll() } }
   );
 
-  // 方式B: HMAC ベースのニュースレター配信停止
-  const hmacParsed = hmacSchema.safeParse(body);
-  if (hmacParsed.success) {
-    const { email, hmac } = hmacParsed.data;
-    if (!verifyUnsubHmac(email, hmac)) {
-      // HMACが不正でも成功扱い（列挙攻撃防止）
-      return NextResponse.json({ success: true, already: true });
-    }
-
+  // メール起点の配信停止（方式B / 方式C 共通）。newsletter_subscriptions と profiles を停止する。
+  const unsubscribeByEmail = async (email: string): Promise<NextResponse> => {
     const normalizedEmail = email.toLowerCase();
 
     // newsletter_subscriptions を非アクティブ化
@@ -97,6 +96,28 @@ export async function POST(request: Request) {
     if (profileUnsubErr) console.error('[unsubscribe] profiles email_unsubscribed update failed', { err: profileUnsubErr });
 
     return NextResponse.json({ success: true, already: false });
+  };
+
+  // 方式C: 暗号化トークン（推奨・メールを URL に露出しない）。サーバで復号して停止する。
+  const encParsed = tokenEncSchema.safeParse(body);
+  if (encParsed.success) {
+    const email = decryptUnsubEmail(encParsed.data.n);
+    // 復号失敗（不正/改ざん/鍵不一致）は成功扱い（列挙攻撃防止）。
+    if (!email) {
+      return NextResponse.json({ success: true, already: true });
+    }
+    return unsubscribeByEmail(email);
+  }
+
+  // 方式B: HMAC ベースのニュースレター配信停止（既送信メールの後方互換）
+  const hmacParsed = hmacSchema.safeParse(body);
+  if (hmacParsed.success) {
+    const { email, hmac } = hmacParsed.data;
+    if (!verifyUnsubHmac(email, hmac)) {
+      // HMACが不正でも成功扱い（列挙攻撃防止）
+      return NextResponse.json({ success: true, already: true });
+    }
+    return unsubscribeByEmail(email);
   }
 
   // 方式A: DB トークンベース
