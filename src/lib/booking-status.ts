@@ -48,6 +48,25 @@ export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
  */
 export const BOOKING_STATUSES = Object.keys(BOOKING_STATUS_LABEL) as BookingStatus[];
 
+/**
+ * 予約枠を「解放する」ステータス＝その予約はもう枠を占有しない（実質キャンセル/不来店扱い）。
+ * SQL 関数 get_available_slots / create_booking_atomic / change_booking_atomic の
+ * 競合除外条件 `status NOT IN ('cancelled','no_show','cancel_fee_paid')`
+ * （migration 20260626000005）と同一の真実。
+ */
+export const SLOT_RELEASING_STATUSES: BookingStatus[] = ['cancelled', 'no_show', 'cancel_fee_paid'];
+
+/**
+ * 予約枠を「占有する」＝アクティブ or 実現済みの予約ステータス（pending/confirmed/arrived/completed）。
+ * 上記解放集合の補集合で、空き計算・予約数集計・「予約関係のある施設」判定はここを参照する。
+ * 以前は各所が ['pending','confirmed'] 等と独自にハードコードし、arrived（来店中）/ completed
+ * （同日施術済）を取りこぼして「空きあり」過大表示・予約数の過少集計を起こしていた。RPC の占有判定
+ * （上記 NOT IN の補集合）と一致させ、TS 側のドリフトを構造的に無くす。
+ */
+export const SLOT_OCCUPYING_STATUSES: BookingStatus[] = BOOKING_STATUSES.filter(
+  (s) => !SLOT_RELEASING_STATUSES.includes(s),
+);
+
 /** canon 色相。confirmed=sky は顧客予約画面（BookingFlow）と同じ青に統一。arrived=emerald は
  *  来店中を確定(sky)・完了(gray)と視覚的に区別する。 */
 export const BOOKING_STATUS_HUE: Record<BookingStatus, StatusHue> = {

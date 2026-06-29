@@ -13,6 +13,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
+import { SLOT_OCCUPYING_STATUSES } from '@/lib/booking-status';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
@@ -59,12 +60,14 @@ export async function GET(req: NextRequest) {
 
   const now = new Date().toISOString();
 
-  // ユーザーが予約したことのある施設IDを取得
+  // ユーザーが予約関係のある施設ID（占有集合＝pending/confirmed/arrived/completed）。
+  // 以前は ['confirmed','completed'] で arrived（来店中）/ pending（申込中）を取りこぼし、
+  // その施設のクーポンが表示されなかった。
   const { data: pastBookings } = await admin
     .from('bookings')
     .select('facility_id')
     .eq('user_id', userId)
-    .in('status', ['confirmed', 'completed']);
+    .in('status', SLOT_OCCUPYING_STATUSES);
 
   const facilityIds = Array.from(new Set((pastBookings ?? []).map((b) => b.facility_id)));
 

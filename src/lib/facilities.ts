@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
+import { SLOT_OCCUPYING_STATUSES } from './booking-status';
 
 const PER_PAGE = 20;
 
@@ -281,7 +282,9 @@ export async function getAvailableFacilityIds(
     .from('bookings')
     .select('staff_id, start_time, end_time')
     .eq('booking_date', dateStr)
-    .in('status', ['pending', 'confirmed'])
+    // 枠を占有する全状態（pending/confirmed/arrived/completed）。arrived（来店中）/ completed
+    // （同日施術済）を取りこぼすと、その枠を「空きあり」と過大表示し RPC の実占有と乖離する。
+    .in('status', SLOT_OCCUPYING_STATUSES)
     .in('facility_id', facilityIds);
 
   const staffBookings = new Map<string, { start: string; end: string }[]>();
@@ -356,7 +359,8 @@ export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Re
     .from('bookings')
     .select('facility_id')
     .in('facility_id', facilityIds)
-    .in('status', ['pending', 'confirmed', 'completed'])
+    // 占有集合（pending/confirmed/arrived/completed）。arrived の取りこぼしで月間予約数を過少集計しない。
+    .in('status', SLOT_OCCUPYING_STATUSES)
     .gte('booking_date', monthStart)
     .lt('booking_date', nextMonth);
 

@@ -38,10 +38,12 @@ export default async function FunnelPage() {
     // 予約開始（全ステータス）
     admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since),
-    // 予約確定（confirmed + completed）
+    // 予約確定（確定以降＝confirmed/arrived/completed）。arrived（受付＝確定後に来店中）の
+    // 取りこぼしで確定数を過少集計しない。cancelled/no_show は pending からの遷移も有り得て
+    // 「確定した」とは断定できないため除外する。
     admin.from('bookings').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since)
-      .in('status', ['confirmed', 'completed']),
+      .in('status', ['confirmed', 'arrived', 'completed']),
     // レビュー投稿
     admin.from('facility_reviews').select('id', { count: 'exact', head: true })
       .eq('facility_id', facilityId).gte('created_at', since),
@@ -70,7 +72,7 @@ export default async function FunnelPage() {
       label: '予約確定',
       count: confirmedBookings,
       color: 'bg-green-500',
-      description: 'confirmed + completed',
+      description: '確定・受付・完了',
     },
     {
       label: 'レビュー投稿',
@@ -107,7 +109,7 @@ export default async function FunnelPage() {
     monthlyBookings.push({
       month: label,
       total: month.length,
-      confirmed: month.filter((b) => ['confirmed', 'completed'].includes(b.status)).length,
+      confirmed: month.filter((b) => ['confirmed', 'arrived', 'completed'].includes(b.status)).length,
     });
   }
 
