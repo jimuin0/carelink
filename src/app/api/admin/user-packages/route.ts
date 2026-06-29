@@ -46,17 +46,36 @@ export async function GET(request: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+  // profiles(display_name, email) を PostgREST embed しない：user_packages.user_id は auth.users(id) を
+  // 参照し user_packages→profiles の FK が無いため、embed すると関係が解決できずデータの有無に関わらず
+  // 全件エラー(500)になり、パッケージ管理ページ全体が「読み込みに失敗」表示に落ちる実バグだった
+  // （E2E で確定。service_packages は FK 有りで embed 可）。profiles は user_id で別取得し JS マージして
+  // レスポンス形状 { ..., service_packages, profiles } を不変に保つ。
   let query = admin
     .from('user_packages')
-    .select('*, service_packages(name, session_count, bonus_count), profiles(display_name, email)')
+    .select('*, service_packages(name, session_count, bonus_count)')
     .eq('facility_id', facilityId)
     .order('purchased_at', { ascending: false });
 
   if (userId) query = query.eq('user_id', userId);
 
-  const { data, error } = await query.limit(200);
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-  return NextResponse.json({ user_packages: data });
+  const { data: rows, error } = await query.limit(200);
+  if (error || !rows) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const userIds = [...new Set(rows.map((r) => r.user_id as string))];
+  const profilesById: Record<string, { display_name: string | null; email: string | null }> = {};
+  if (userIds.length > 0) {
+    const { data: profs, error: profErr } = await admin
+      .from('profiles')
+      .select('id, display_name, email')
+      .in('id', userIds);
+    if (profErr || !profs) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    for (const p of profs) {
+      profilesById[p.id as string] = { display_name: p.display_name, email: p.email };
+    }
+  }
+  const user_packages = rows.map((r) => ({ ...r, profiles: profilesById[r.user_id as string] ?? null }));
+  return NextResponse.json({ user_packages });
 }
 
 // 管理者がユーザーに回数券を付与

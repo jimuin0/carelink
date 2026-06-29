@@ -75,6 +75,7 @@ function singleChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn(() => Promise.resolve({ data: [data], error })),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn(() => Promise.resolve({ data: [data], error })),
     single: jest.fn(() => Promise.resolve({ data, error })),
@@ -118,6 +119,74 @@ test('GET: 非管理者 → 401', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(401);
+});
+
+// user_packages 取得チェーン（select→eq→order→limit）と profiles 別取得チェーン（select→in）。
+function upChain(rows: unknown[], error: unknown = null) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), order: jest.fn().mockReturnThis(), limit: jest.fn(() => Promise.resolve({ data: rows, error })) };
+}
+function profilesChain(profs: unknown[], error: unknown = null) {
+  return { select: jest.fn().mockReturnThis(), in: jest.fn(() => Promise.resolve({ data: profs, error })) };
+}
+
+test('GET: 正常 → 200（profiles を別取得してマージ＝embed不使用の回帰）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles'
+      ? profilesChain([{ id: USER_ID, display_name: '太郎', email: 't@example.com' }])
+      : upChain([buildUserPackage()]));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.user_packages[0].profiles).toEqual({ display_name: '太郎', email: 't@example.com' });
+});
+
+test('GET: 0件 → 200（profiles 取得をスキップ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : upChain([])));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(200);
+  const json = await res.json();
+  expect(json.user_packages).toEqual([]);
+});
+
+test('GET: user_packages 取得失敗 → 500（0件偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : upChain(null as unknown as unknown[], { message: 'db' })));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: profiles 取得失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles' ? profilesChain(null as unknown as unknown[], { message: 'db' }) : upChain([buildUserPackage()]));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: 該当 profiles 無しの行は profiles=null になる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles' ? profilesChain([]) : upChain([buildUserPackage()]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.user_packages[0].profiles).toBeNull();
+});
+
+test('GET: user_packages が null(エラー無し) → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : upChain(null as unknown as unknown[])));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: profiles が null(エラー無し) → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles' ? profilesChain(null as unknown as unknown[]) : upChain([buildUserPackage()]));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
 });
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
