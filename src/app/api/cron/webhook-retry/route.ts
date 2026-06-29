@@ -94,15 +94,31 @@ export async function GET(request: Request) {
           });
         }
 
-        // 成功
-        await supabase
-          .from('webhook_retry_queue')
-          .update({
-            status: 'success',
-            attempt_count: job.attempt_count + 1,
-            processed_at: new Date().toISOString(),
-          })
-          .eq('id', job.id);
+        // 成功。配信（メール/LINE）は冪等でないため、ここで status='success' に確実に倒さないと
+        // 行が processing のまま残り、stale reclaim（L31-39）経由で pending に戻され次 run で再送＝
+        // 二重配信になる。旧実装はこの更新の error を握り潰していた（claim 路 L68 / 失敗路 L107 は
+        // error を扱うのにここだけ欠落）。一過性 DB エラーに備え限定リトライし、全敗時のみ CRITICAL で
+        // 可視化する（配信済みのため scheduleRetry で再送に回してはならない）。
+        let marked = false;
+        for (let attempt = 0; attempt < 3 && !marked; attempt++) {
+          const { error: successErr } = await supabase
+            .from('webhook_retry_queue')
+            .update({
+              status: 'success',
+              attempt_count: job.attempt_count + 1,
+              processed_at: new Date().toISOString(),
+            })
+            .eq('id', job.id);
+          if (!successErr) {
+            marked = true;
+          } else {
+            console.error('[webhook-retry] success mark failed (retrying)', { jobId: job.id, attempt: attempt + 1, err: errorMessage(successErr) });
+          }
+        }
+        if (!marked) {
+          // 配信は完了済み。success に倒せないと reclaim で再送され二重配信になるため CRITICAL で可視化。
+          console.error('[webhook-retry] CRITICAL: delivered but could not mark success — possible duplicate delivery on reclaim', { jobId: job.id });
+        }
         success++;
       } catch (e) {
         const errorMsg = e instanceof Error ? e.message : String(e);

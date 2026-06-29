@@ -269,6 +269,26 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(scheduleRetry).toHaveBeenCalled();
   });
 
+  test('success マーク更新が失敗し続けても CRITICAL で可視化し再送はしない（二重配信の発症前予防）', async () => {
+    // 配信成功後の status=success 更新が継続的に DB エラーになるケース。旧実装は error を握り潰し、
+    // 行が processing のまま残り stale reclaim 経由で再送＝二重配信になっていた。
+    setupDefaultMocks(1);
+    mockSuccessUpdate.mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: new Error('db down') }) });
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    // 配信は完了済みなので success として計上され、失敗キュー(skipped)には回さない。
+    expect(json.processed).toBeGreaterThanOrEqual(1);
+    expect(json.skipped).toBe(0);
+    // 配信済みのため再送キューには戻さない（scheduleRetry を呼ばない＝二重配信を作らない）。
+    expect(scheduleRetry).not.toHaveBeenCalled();
+    // 再送リスク（reclaim 経由の二重配信）を CRITICAL ログで可視化する（サイレントにしない）。
+    expect(errSpy.mock.calls.some((c) => String(c[0]).includes('CRITICAL'))).toBe(true);
+    errSpy.mockRestore();
+  });
+
   test('line_push returns false (retries exhausted) → scheduleRetry, not silent success', async () => {
     // sendLineText が throw せず false を返す配信失敗ケース。
     // 戻り値を無視していた旧実装では status='success' に倒れ通知が消失していた。
