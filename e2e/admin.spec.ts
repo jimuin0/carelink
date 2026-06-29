@@ -94,4 +94,17 @@ test.describe.serial('管理画面（オーナー）', () => {
     await page.getByRole('button', { name: '会計を確定して完了' }).click();
     await expect(page.getByText('会計を確定して完了しました', { exact: false })).toBeVisible({ timeout: 15000 });
   });
+
+  // オーナーのメニュー作成（CRUD の C）＝メニュー追加→保存→一覧に反映。
+  test('オーナーがメニューを追加できる（書き込み→一覧反映）', async ({ page }) => {
+    const menuName = 'E2E追加メニュー';
+    await page.goto('/admin/menus');
+    await page.getByRole('button', { name: 'メニュー追加' }).click();
+    await page.fill('#menu-name', menuName);
+    await page.fill('#menu-price', '4500');
+    await page.getByRole('button', { name: '保存', exact: true }).click();
+    await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
+    // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
+    await expect(page.getByText(menuName)).toBeVisible();
+  });
 });
