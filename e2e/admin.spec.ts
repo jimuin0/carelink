@@ -103,9 +103,11 @@ test.describe.serial('管理画面（オーナー）', () => {
     // Modal(role=dialog) が開くのを待ち、その中だけを操作する。
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible();
+    // 必須はメニュー名のみ（handleSave は name.trim() のみ必須）。最小入力で保存する。
     await dialog.locator('#menu-name').fill(menuName);
-    await dialog.locator('#menu-price').fill('4500');
-    await dialog.getByRole('button', { name: '保存' }).click();
+    const saveBtn = dialog.getByRole('button', { name: '保存' });
+    await saveBtn.scrollIntoViewIfNeeded();
+    await saveBtn.click();
     await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
     // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
     await expect(page.getByText(menuName)).toBeVisible();
