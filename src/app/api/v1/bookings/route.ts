@@ -6,7 +6,7 @@
  * クエリパラメータ:
  *   facility_id (required)
  *   from, to (ISO date YYYY-MM-DD)
- *   status (pending|confirmed|completed|cancelled)
+ *   status (pending|confirmed|arrived|completed|cancelled|cancel_fee_paid|no_show)
  *   limit (max 100, default 50)
  *   page
  *
@@ -19,6 +19,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { alertCaughtError } from '@/lib/alert';
+import { BOOKING_STATUSES } from '@/lib/booking-status';
 
 const API_VERSION = '1.0.0';
 
@@ -85,7 +86,10 @@ async function handleGet(request: NextRequest): Promise<NextResponse> {
   }
 
   const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-  const VALID_STATUSES = ['pending', 'confirmed', 'completed', 'cancelled'];
+  // 受理する status は正準集合（全7値）を SSOT から参照。以前は4値固定で arrived / no_show /
+  // cancel_fee_paid を 400 で拒否し、有効な状態の予約を API で絞り込めなかった（受理値が増えるだけ
+  // で既存の4値クライアントには後方互換）。
+  const VALID_STATUSES: string[] = BOOKING_STATUSES;
 
   const fromRaw = sp.get('from');
   const toRaw = sp.get('to');

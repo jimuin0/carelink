@@ -1,3 +1,7 @@
+// 予約ステータスは booking-status.ts を単一の真実とする（BookingStatus は全7値）。
+// 以前ここで 5 値の独自 union を再定義し arrived / cancel_fee_paid が欠落していた（DB CHECK 制約と乖離）。
+import type { BookingStatus } from '@/lib/booking-status';
+
 export interface Salon {
   id: string;
   created_at: string;
@@ -291,7 +295,7 @@ export interface Booking {
   email: string;
   phone: string | null;
   note: string | null;
-  status: 'pending' | 'confirmed' | 'completed' | 'cancelled' | 'no_show';
+  status: BookingStatus;
   total_price: number | null;
   created_at: string;
   updated_at: string;

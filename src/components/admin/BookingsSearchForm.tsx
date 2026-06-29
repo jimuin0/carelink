@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { bookingsHref } from '@/lib/admin-bookings-url';
-import { bookingStatusLabel } from '@/lib/booking-status';
+import { bookingStatusLabel, BOOKING_STATUSES } from '@/lib/booking-status';
 import { SbInput } from '@/components/admin/SbUi';
 
-const STATUS_OPTIONS = ['pending', 'confirmed', 'completed', 'no_show', 'cancelled'] as const;
+// 絞り込みチェックボックスは正準集合（全7値）を SSOT から参照。以前は arrived / cancel_fee_paid が
+// 欠落し、その状態の予約を一覧で絞り込めなかった。
+const STATUS_OPTIONS = BOOKING_STATUSES;
 
 export interface BookingsSearchInitial {
   from: string;

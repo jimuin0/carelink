@@ -36,6 +36,18 @@ export const BOOKING_STATUS_LABEL: Record<BookingStatus, string> = {
   no_show: '無断キャンセル',
 };
 
+/**
+ * 予約ステータスの正準集合（全7値・bookings.status の DB CHECK 制約と一致）。
+ *
+ * 「有効な status の全一覧」が必要な箇所（Booking 型・一覧フィルタ・公開 API のフィルタ検証）は
+ * 必ずここを参照する。以前は同じ集合が types/index.ts（5値）・admin/bookings（6値）・
+ * BookingsSearchForm（5値）・api/v1/bookings（4値）と各所で別々にハードコードされ、arrived /
+ * cancel_fee_paid / no_show が箇所ごとに欠落するドリフトが発生していた（一覧で特定状態を絞り込め
+ * ない・公開 API が有効な status を 400 で拒否する等）。canon ラベル（Record<BookingStatus> で
+ * 全キーをコンパイラが強制）のキーから導出することで、値集合の重複定義とドリフトを構造的に無くす。
+ */
+export const BOOKING_STATUSES = Object.keys(BOOKING_STATUS_LABEL) as BookingStatus[];
+
 /** canon 色相。confirmed=sky は顧客予約画面（BookingFlow）と同じ青に統一。arrived=emerald は
  *  来店中を確定(sky)・完了(gray)と視覚的に区別する。 */
 export const BOOKING_STATUS_HUE: Record<BookingStatus, StatusHue> = {
