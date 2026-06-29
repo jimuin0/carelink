@@ -15,7 +15,12 @@ import { ALLOWED_STATUS_TRANSITIONS } from '@/lib/booking-status';
 
 export const dynamic = 'force-dynamic';
 
-const validStatuses = ['confirmed', 'arrived', 'completed', 'cancelled', 'no_show'];
+// 手動で設定できる status＝遷移マシン（SSOT）のいずれかの遷移先に現れる値の集合。
+// ハードコードせず ALLOWED_STATUS_TRANSITIONS から導出することで、遷移先を追加しても
+// この受理リストが自動で追従し、両者のドリフト（pending/cancel_fee_paid のような死にステータス
+// 混入や、逆に新ステータスの取りこぼし）を構造的に防ぐ。現状の集合は
+// {confirmed, arrived, completed, cancelled, no_show} で従来と完全一致＝挙動不変。
+const validStatuses: string[] = [...new Set(Object.values(ALLOWED_STATUS_TRANSITIONS).flat())];
 
 // State machine（遷移可否）は UI と共有する SSOT（src/lib/booking-status.ts の
 // ALLOWED_STATUS_TRANSITIONS）を参照する。UI 側（予約詳細のボタン表示）と本検証が

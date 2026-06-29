@@ -6,9 +6,11 @@ import { isValidIsoDate, clampPage } from '@/lib/admin-date';
 import { bookingsHref } from '@/lib/admin-bookings-url';
 import { UUID_REGEX } from '@/lib/constants';
 import BookingsSearchForm from '@/components/admin/BookingsSearchForm';
+import { BOOKING_STATUSES } from '@/lib/booking-status';
 
 const PER_PAGE = 20;
-const VALID_STATUSES = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'no_show'];
+// 絞り込みに使える status は正準集合（全7値）を SSOT から参照（cancel_fee_paid 等の欠落を防ぐ）。
+const VALID_STATUSES: string[] = BOOKING_STATUSES;
 
 interface Props {
   searchParams: Promise<{ from?: string; to?: string; status?: string; q?: string; staff?: string; page?: string }>;

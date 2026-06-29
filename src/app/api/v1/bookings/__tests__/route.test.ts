@@ -133,8 +133,10 @@ describe('GET /api/v1/bookings', () => {
     expect(res.status).toBe(400);
   });
 
-  test('valid status values accepted', async () => {
-    const statuses = ['pending', 'confirmed', 'completed', 'cancelled'];
+  test('valid status values accepted（正準集合の全7値・arrived/no_show/cancel_fee_paid も受理）', async () => {
+    // 以前は4値のみ受理し arrived / no_show / cancel_fee_paid を 400 で拒否していた（有効な状態の
+    // 予約を API で絞り込めない契約欠落）。BOOKING_STATUSES の SSOT 化で全7値を受理する。
+    const statuses = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'];
     for (const status of statuses) {
       const res = await GET(makeRequest('test-api-key', `?status=${status}`) as any);
       expect(res.status).toBe(200);
