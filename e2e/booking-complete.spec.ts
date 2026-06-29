@@ -45,8 +45,12 @@ test('来院者が予約を最後まで完走できる', async ({ page }) => {
 test('来院者がレビューを投稿できる', async ({ page }) => {
   const { slug } = JSON.parse(fs.readFileSync(BOOKING_FACILITY_FILE, 'utf8')) as { slug: string };
   await page.goto(`/facility/${slug}`);
-  // 口コミタブ（role=tab・label「口コミ(N)」）を開く
-  await page.getByRole('tab', { name: /口コミ/ }).click();
+  // 口コミタブ（role=tab・label「口コミ(N)」）。ハイドレーション完了を待ってから開き、
+  // タブ内容（ReviewForm）が描画されるのを明示的に待つ（CI のレンダリング遅延対策）。
+  const reviewTab = page.getByRole('tab', { name: /口コミ/ });
+  await reviewTab.waitFor({ state: 'visible' });
+  await reviewTab.click();
+  await page.locator('#reviewer_name').waitFor({ state: 'visible', timeout: 20000 });
   // お名前＋5軸すべて5点を選択（全軸必須）
   await page.fill('#reviewer_name', 'E2Eレビュー太郎');
   const fiveStars = page.getByRole('button', { name: '5点を選択' });
