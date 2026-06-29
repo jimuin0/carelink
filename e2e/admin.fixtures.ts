@@ -7,6 +7,8 @@ export const ADMIN_AUTH_FILE = 'e2e/.auth/admin.json';
 // admin.setup.ts が seed した「承認待ち(pending)予約」の id を書き出すファイル。
 // admin.spec.ts が読み、その予約詳細で承認の書き込みフローを検証する。
 export const PENDING_BOOKING_FILE = 'e2e/.auth/admin-pending.json';
+// 確定(confirmed)予約の id。退店レジ会計→完了の書き込み・副作用検証に使う。
+export const CONFIRMED_BOOKING_FILE = 'e2e/.auth/admin-confirmed.json';
 
 // seed する固定値（admin.spec.ts の検証期待値と一致させる）
 export const SEED = {

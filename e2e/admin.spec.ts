@@ -1,25 +1,16 @@
 // 管理画面（オーナー）E2E。admin.setup.ts が seed した認証状態（storageState）で
 // /admin/* を開き、オーナー機能が実際に動く（描画・実データ反映）ことを検証する。
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。
+//
+// 【順序の重要性】書き込みテスト（承認・会計）は seed データを変更する（確定→完了で本日売上が
+// 増える等）。読み取り検証（ダッシュボード KPI ¥8,000 等）は seed 初期値に依存するため、
+// 読み取りを先・書き込みを後に固定する（describe.serial で宣言順を保証）。
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
-import { SEED, PENDING_BOOKING_FILE } from './admin.fixtures';
+import { SEED, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE } from './admin.fixtures';
 
-test.describe('管理画面（オーナー）', () => {
-  // オーナーの予約処理＝承認の書き込みフロー。承認待ち予約を「承認する」→ 確定になり
-  // 退店レジ会計（確定/受付のみ表示）が出ることを実データで検証する。
-  test('承認待ち予約をオーナーが承認できる（書き込み反映）', async ({ page }) => {
-    const { id } = JSON.parse(fs.readFileSync(PENDING_BOOKING_FILE, 'utf8')) as { id: string };
-    await page.goto(`/admin/bookings/${id}`);
-    await expect(page.getByText(SEED.pendingCustomer)).toBeVisible();
-    const approve = page.getByRole('button', { name: '承認する' });
-    await expect(approve).toBeVisible();
-    await approve.click();
-    // 承認後＝確定。承認セクションが消え、確定のみ表示される会計セクションが出る。
-    await expect(page.getByRole('button', { name: '承認する' })).toHaveCount(0, { timeout: 15000 });
-    await expect(page.getByText('退店・お会計')).toBeVisible();
-  });
-
+test.describe.serial('管理画面（オーナー）', () => {
+  // ── 読み取り検証（seed 初期値に依存・書き込みより前に実行）──
   test('ダッシュボードが実データの経営KPIを表示する', async ({ page }) => {
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
@@ -77,4 +68,30 @@ test.describe('管理画面（オーナー）', () => {
       await expect(page.getByText('Application error')).toHaveCount(0);
     });
   }
+
+  // ── 書き込み検証（seed を変更するため最後に実行）──
+  // オーナーの予約処理＝承認の書き込みフロー。承認待ち予約を「承認する」→ 確定になり
+  // 退店レジ会計（確定/受付のみ表示）が出ることを実データで検証する。
+  test('承認待ち予約をオーナーが承認できる（書き込み反映）', async ({ page }) => {
+    const { id } = JSON.parse(fs.readFileSync(PENDING_BOOKING_FILE, 'utf8')) as { id: string };
+    await page.goto(`/admin/bookings/${id}`);
+    await expect(page.getByText(SEED.pendingCustomer)).toBeVisible();
+    const approve = page.getByRole('button', { name: '承認する' });
+    await expect(approve).toBeVisible();
+    await approve.click();
+    // 承認後＝確定。承認セクションが消え、確定のみ表示される会計セクションが出る。
+    await expect(page.getByRole('button', { name: '承認する' })).toHaveCount(0, { timeout: 15000 });
+    await expect(page.getByText('退店・お会計')).toBeVisible();
+  });
+
+  // オーナーの退店レジ会計＝確定予約を会計して完了にする書き込み（副作用＝来店記録/日次売上）。
+  test('確定予約を退店レジ会計で完了にできる（書き込み反映）', async ({ page }) => {
+    const { id } = JSON.parse(fs.readFileSync(CONFIRMED_BOOKING_FILE, 'utf8')) as { id: string };
+    await page.goto(`/admin/bookings/${id}`);
+    await expect(page.getByText(SEED.confirmedCustomer)).toBeVisible();
+    // 会計する → 明細(確定予約の total_price で1行自動投入) → 会計を確定して完了
+    await page.getByRole('button', { name: '会計する' }).click();
+    await page.getByRole('button', { name: '会計を確定して完了' }).click();
+    await expect(page.getByText('会計を確定して完了しました', { exact: false })).toBeVisible({ timeout: 15000 });
+  });
 });
