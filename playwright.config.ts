@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -68,6 +68,19 @@ export default defineConfig({
       testMatch: /visitor-cancel\.spec\.ts/,
       dependencies: ['visitor-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/visitor.json' },
+    },
+    // オーナーのキャンセル／無断キャンセル：オーナー＋キャンセル対象予約を seed＋ログイン（storageState）
+    {
+      name: 'owner-cancel-setup',
+      testMatch: /owner-cancel\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 認証済み storageState でオーナーのステータス変更（キャンセル／無断キャンセル）を検証
+    {
+      name: 'owner-cancel',
+      testMatch: /owner-cancel\.spec\.ts/,
+      dependencies: ['owner-cancel-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner-cancel.json' },
     },
   ],
   webServer: process.env.CI
