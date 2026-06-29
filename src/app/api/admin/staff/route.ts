@@ -56,9 +56,14 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
+  // staff_profiles.slug は NOT NULL かつ UNIQUE(facility_id, slug)。フォームに slug 欄は無く、
+  // これを生成せず insert すると NOT NULL 違反で 500 になりスタッフ追加が壊れる（DB トリガー
+  // 依存は環境差で発症するため、アプリ側で一意な slug を決定的に生成する＝発症前根治）。
+  const slug = `staff-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const { data, error } = await admin.from('staff_profiles').insert({
     facility_id: auth.facilityId,
     name: parsed.data.name,
+    slug,
     position: parsed.data.position ?? null,
     bio: parsed.data.bio ?? null,
     specialties: parsed.data.specialties ?? [],
