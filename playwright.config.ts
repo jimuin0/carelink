@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /review\.setup\.ts/, /review\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /review\.setup\.ts/, /review\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -140,6 +140,32 @@ export default defineConfig({
       testMatch: /visitor-favorite\.spec\.ts/,
       dependencies: ['visitor-favorite-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/visitor-favorite.json' },
+    },
+    // レビュー（ゲスト）：公開施設を seed（slug をファイル出力）
+    {
+      name: 'review-setup',
+      testMatch: /review\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 認証なし（ゲスト）で口コミ投稿を検証（seed 後に実行）
+    {
+      name: 'review',
+      testMatch: /review\.spec\.ts/,
+      dependencies: ['review-setup'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // オーナー顧客台帳：オーナー＋施設＋顧客レコードを seed＋ログイン（storageState）
+    {
+      name: 'customers-setup',
+      testMatch: /customers\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 認証済み storageState でオーナーの顧客編集を検証
+    {
+      name: 'customers',
+      testMatch: /customers\.spec\.ts/,
+      dependencies: ['customers-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-customers.json' },
     },
   ],
   webServer: process.env.CI
