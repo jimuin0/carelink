@@ -132,12 +132,20 @@ function subscribersChain(subscribers: { email: string; user_id: string }[]) {
 }
 
 /**
- * Chain for facility_members.select().eq() → resolves with { data: owners }
+ * Chain for facility_members.select('user_id').eq('role','owner') → resolves with { data: owners }.
+ * profiles は embed しない（FK 不在で解決不能）ため user_id のみ返し、別途 profiles を引く。
  */
-function facilityMembersChain(owners: { profiles: { email: string } | null }[]) {
+function facilityMembersChain(owners: { user_id: string | null }[]) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn(() => Promise.resolve({ data: owners, error: null })),
+  };
+}
+/** Chain for profiles.select('email').in('id', userIds) → resolves with { data: profs }. */
+function ownerProfilesChain(profs: { email: string | null }[], error: unknown = null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    in: jest.fn(() => Promise.resolve({ data: profs, error })),
   };
 }
 
@@ -460,8 +468,9 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
         // newsletter_subscriptions (may return empty or a subscription)
         if (callNum === 3) return subscribersChain([]);
-        // facility_members query
-        if (callNum === 4) return facilityMembersChain([{ profiles: { email: ownerEmail } }]);
+        // facility_members query（user_id のみ）→ profiles を別取得
+        if (callNum === 4) return facilityMembersChain([{ user_id: 'owner-uid' }]);
+        if (callNum === 5) return ownerProfilesChain([{ email: ownerEmail }]);
         // final update to 'sent'
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
@@ -535,7 +544,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(200);
     });
 
-    test('owner_monthly: profiles が配列形式', async () => {
+    test('owner_monthly: 複数オーナーの user_id を重複排除し profiles を別取得してメール送信', async () => {
       mockAnonFrom.mockReturnValue(profileChain(true));
       let callNum = 0;
       mockAdminFrom.mockImplementation(() => {
@@ -543,16 +552,35 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
         if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
         if (callNum === 3) return subscribersChain([]);
-        if (callNum === 4) return facilityMembersChain([
-          { profiles: [{ email: 'arr@example.com' }] as unknown as { email: string } },
-          { profiles: null },
-        ]);
+        // 同一オーナーが複数施設の owner（user_id 重複）→ Set で重複排除される
+        if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }, { user_id: 'o2' }, { user_id: 'o1' }]);
+        if (callNum === 5) return ownerProfilesChain([{ email: 'o1@example.com' }, { email: 'o2@example.com' }]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(2);
+    });
+
+    test('owner_monthly: profiles 別取得が失敗してもログのみで続行', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'sub@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }]);
+        if (callNum === 5) return ownerProfilesChain(null as unknown as { email: string | null }[], { message: 'fail' });
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
       const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
       expect(res.status).toBe(200);
-      const json = await res.json();
-      expect(json.sentCount).toBe(1);
     });
 
     test('text_content が空 → undefined として送信', async () => {
@@ -636,7 +664,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           or: jest.fn().mockReturnThis(),
           eq: jest.fn(() => Promise.resolve({ data: null, error: null })),
         };
-        if (callNum === 4) return facilityMembersChain([{ profiles: { email: 'owner@example.com' } }]);
+        if (callNum === 4) return facilityMembersChain([{ user_id: 'owner-uid' }]);
+        if (callNum === 5) return ownerProfilesChain([{ email: 'owner@example.com' }]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
 

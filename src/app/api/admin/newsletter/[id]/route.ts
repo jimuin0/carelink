@@ -105,17 +105,26 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // For owner_monthly: also pull facility owner emails if no subscription record
     let emails: string[] = [];
     if (campaign.campaign_type === 'owner_monthly') {
+      // profiles(email) を embed しない：facility_members.user_id は auth.users(id) 参照で
+      // facility_members→profiles の FK が無く、PostgREST が関係を解決できず常時エラーになり
+      // owner_monthly のオーナー宛メールが全スキップされる実バグだった（newsletter-digest:176 で
+      // 既知・[id] 側は見落とし。user-packages と同根）。owner の user_id を取得し profiles を
+      // 別取得してメールを引く（best-effort・失敗はログのみで続行）。
       const { data: owners, error: ownersErr } = await admin
         .from('facility_members')
-        .select('profiles(email)')
+        .select('user_id')
         .eq('role', 'owner');
       if (ownersErr) console.error('[newsletter/send] owner email fetch failed — some owners may be skipped', { campaignId: params.id, err: ownersErr });
-      const ownerEmails = (owners || [])
-        .map((o: { profiles: { email: string } | { email: string }[] | null }) => {
-          const p = Array.isArray(o.profiles) ? o.profiles[0] : o.profiles;
-          return p?.email;
-        })
-        .filter(Boolean) as string[];
+      const ownerUserIds = Array.from(new Set((owners || []).map((o: { user_id: string | null }) => o.user_id).filter(Boolean) as string[]));
+      let ownerEmails: string[] = [];
+      if (ownerUserIds.length > 0) {
+        const { data: ownerProfiles, error: ownerProfErr } = await admin
+          .from('profiles')
+          .select('email')
+          .in('id', ownerUserIds);
+        if (ownerProfErr) console.error('[newsletter/send] owner profiles fetch failed — some owners may be skipped', { campaignId: params.id, err: ownerProfErr });
+        ownerEmails = (ownerProfiles || []).map((p: { email: string | null }) => p.email).filter(Boolean) as string[];
+      }
       emails = Array.from(new Set([
         ...(subscribers || []).map((s: { email: string | null }) => s.email).filter(Boolean) as string[],
         ...ownerEmails,
