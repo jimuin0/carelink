@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -81,6 +81,19 @@ export default defineConfig({
       testMatch: /owner-cancel\.spec\.ts/,
       dependencies: ['owner-cancel-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/owner-cancel.json' },
+    },
+    // 来院者の予約日時変更：予約可能施設＋来院者＋変更可能な予約を seed＋ログイン（storageState）
+    {
+      name: 'visitor-change-setup',
+      testMatch: /visitor-change\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 認証済み storageState で来院者の予約日時変更を検証
+    {
+      name: 'visitor-change',
+      testMatch: /visitor-change\.spec\.ts/,
+      dependencies: ['visitor-change-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/visitor-change.json' },
     },
   ],
   webServer: process.env.CI
