@@ -163,7 +163,8 @@ export async function GET(request: NextRequest) {
       },
     });
     if (createErr && !createErr.message?.includes('already registered')) {
-      console.error('[line-callback] createUser failed', { lineUserId: lineProfile.userId, err: createErr });
+      // PII（LINE userId）を本番ログ/Slack に残さない。原因究明はエラーメッセージで足りる。
+      console.error('[line-callback] createUser failed', { err: createErr.message });
     }
 
     // Generate magic link token (works for both new and existing users)
