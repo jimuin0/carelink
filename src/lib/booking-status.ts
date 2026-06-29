@@ -120,3 +120,37 @@ export function statusSolidClass(status: string): string {
 export function statusBannerClass(status: string): { text: string; bg: string } {
   return BANNER_CLASS[bookingStatusHue(status)];
 }
+
+/**
+ * ステータス遷移マシンの単一 source of truth（UI / API 共有）。
+ *
+ * ここを唯一の真実とし、API（/api/admin/booking-status）の遷移可否検証と、
+ * 管理画面の予約詳細のステータス変更ボタン表示の両方が参照する。以前は API 側だけが
+ * この遷移表を持ち、UI は全ステータスをボタン化して「押させてから API で 400 を返す」
+ * 設計だった。その結果：
+ *   - cancel_fee_paid（Stripe webhook 専用の金銭由来状態）は validStatuses に無く常に 400
+ *   - pending（どの状態からも遷移先に無い）も常に 400
+ * という「どの予約でも 100% 失敗する死にボタン」が UI に出ていた。さらに completed 予約で
+ * 「キャンセル」を押す等、状態依存で無効な操作も押せてしまっていた。本表を共有し、現在状態から
+ * 到達可能なステータスだけをボタン化することで、UI と API の遷移ルール不整合を恒久的に無くす。
+ *
+ * 設計意図（route.ts から移設）:
+ *   - cancelled → confirmed（キャンセル済の再アクティベートで顧客に再請求）を防ぐ
+ *   - completed → confirmed（完了ポイントの再付与）を防ぐ
+ *   - arrived（受付＝来店中）は confirmed と completed の中間。受付スキップ（confirmed→completed）も許可。
+ *   - completed → no_show は誤完了の訂正のみ許可。no_show → cancelled も訂正用に許可。
+ */
+export const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> = {
+  pending: ['confirmed', 'cancelled'],
+  confirmed: ['arrived', 'completed', 'cancelled', 'no_show'],
+  arrived: ['completed', 'cancelled', 'no_show'],
+  completed: ['no_show'],
+  cancelled: [],
+  cancel_fee_paid: [], // 終端（webhook 専用の到達状態。ここから手動遷移は無い）
+  no_show: ['cancelled'],
+};
+
+/** 現在のステータスから手動で遷移可能なステータス一覧（未知値は空配列）。 */
+export function getAllowedStatusTransitions(status: string): BookingStatus[] {
+  return ALLOWED_STATUS_TRANSITIONS[status as BookingStatus] ?? [];
+}

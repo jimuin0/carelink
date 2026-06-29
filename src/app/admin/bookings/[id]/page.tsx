@@ -7,15 +7,8 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
-import { statusBannerClass, bookingStatusLabel } from '@/lib/booking-status';
+import { statusBannerClass, bookingStatusLabel, getAllowedStatusTransitions } from '@/lib/booking-status';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
-
-// ステータス変更ボタンに表示する選択肢（遷移可否は API 側の state machine で検証）。
-// cancel_fee_paid（キャンセル料支払済）は含めない＝この状態は Stripe のキャンセル料決済が
-// 成立した時に webhook だけが設定する金銭由来の状態で、/api/admin/booking-status の
-// validStatuses にも allowedTransitions にも無い（手動クリックは常に 400「不正なステータスです」
-// になる死にボタンだった）。決済由来の状態を手動上書きさせない方向で UI から除外する。
-const STATUS_OPTIONS = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'no_show'] as const;
 
 // 退店レジ会計の明細行（/api/admin/booking-checkout と整合）
 type ChargeType = 'menu' | 'retail' | 'discount';
@@ -201,6 +194,8 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   }
 
   const banner = statusBannerClass(booking.status);
+  // 現在状態から手動で遷移可能なステータスのみをボタン化（UI/API 共有の SSOT を参照）。
+  const allowedNextStatuses = getAllowedStatusTransitions(booking.status);
 
   return (
     <div>
@@ -400,29 +395,26 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
           </div>
         )}
 
-        {/* ステータス変更（承認後） */}
-        {booking.status !== 'pending' && (
+        {/* ステータス変更（承認後）。現在状態から実際に遷移可能なステータスだけをボタン化する
+            （遷移ルールは API と共有の SSOT＝booking-status.ts の ALLOWED_STATUS_TRANSITIONS）。
+            到達不可なステータス（pending・cancel_fee_paid 等）は出さず、押すと必ず 400 になる
+            死にボタンを構造的に排除する。遷移先が無い終端状態（cancelled / cancel_fee_paid）では
+            セクションごと非表示にする。 */}
+        {booking.status !== 'pending' && allowedNextStatuses.length > 0 && (
           <div className="border-t pt-4">
             <p className="text-sm text-gray-500 mb-2">ステータス変更</p>
             <div className="flex flex-wrap gap-2">
-              {STATUS_OPTIONS.map((value) => {
-                const cfg = statusBannerClass(value);
-                return (
-                  <button
-                    type="button"
-                    key={value}
-                    onClick={() => handleStatusChange(value)}
-                    disabled={updating || booking.status === value}
-                    className={`text-xs px-4 py-2 rounded-full font-bold transition-colors ${
-                      booking.status === value
-                        ? `${cfg.bg} ${cfg.text} border`
-                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                    }`}
-                  >
-                    {bookingStatusLabel(value)}
-                  </button>
-                );
-              })}
+              {allowedNextStatuses.map((value) => (
+                <button
+                  type="button"
+                  key={value}
+                  onClick={() => handleStatusChange(value)}
+                  disabled={updating}
+                  className="text-xs px-4 py-2 rounded-full font-bold transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-50"
+                >
+                  {bookingStatusLabel(value)}
+                </button>
+              ))}
             </div>
             <p className="text-xs text-gray-400 mt-2">※変更時にお客様へメール通知されます</p>
           </div>
