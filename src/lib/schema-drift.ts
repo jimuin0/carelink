@@ -81,3 +81,50 @@ export function computeDrift(
 
   return { contaminated, missing, colDrift };
 }
+
+export interface ConstraintRow {
+  table_name: string;
+  /** 'p' = PRIMARY KEY, 'u' = UNIQUE。 */
+  kind: string;
+  /** 制約対象列を attname 昇順でカンマ連結した文字列（例: "review_id,user_id"）。 */
+  columns: string;
+}
+
+export interface ConstraintDriftResult {
+  /** 本番に在るが期待に無い制約（= out-of-band 追加の疑い）。 */
+  extra: string[];
+  /** 期待に在るが本番に無い制約（= 削除 / migration 未適用の疑い）。 */
+  missing: string[];
+}
+
+/** 制約行を安定キー `table:kind(cols)` へ正規化する（順序非依存の集合比較用）。 */
+function constraintKey(r: ConstraintRow): string {
+  return `${r.table_name}:${r.kind}(${r.columns})`;
+}
+
+/**
+ * 期待制約スナップショット（schema-constraints-snapshot.json）と
+ * 本番制約（RPC get_public_constraints の結果）を突合し、PK/UNIQUE の
+ * out-of-band 追加（extra）/ 欠落（missing）を返す。
+ *
+ * テーブルレベルの computeDrift と同じく、PostGIS システム/バックアップ系は監視対象外。
+ */
+export function computeConstraintDrift(
+  expected: ConstraintRow[],
+  prod: ConstraintRow[],
+): ConstraintDriftResult {
+  const expSet = new Set<string>();
+  for (const r of expected) {
+    if (isIgnored(r.table_name)) continue;
+    expSet.add(constraintKey(r));
+  }
+  const prodSet = new Set<string>();
+  for (const r of prod) {
+    if (isIgnored(r.table_name)) continue;
+    prodSet.add(constraintKey(r));
+  }
+
+  const extra = [...prodSet].filter((k) => !expSet.has(k)).sort();
+  const missing = [...expSet].filter((k) => !prodSet.has(k)).sort();
+  return { extra, missing };
+}

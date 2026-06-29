@@ -183,6 +183,11 @@ const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
   // 2026-06-21: change_booking_atomic（PR #218）は本番適用済み（Supabase SQL Editor で
   // 20260621000002/20260621000003 を実行・"Success" 確認）＝database.types.ts に反映済みのため
   // 本リストから除去。これで関数ドリフト 0。
+  //
+  // 2026-06-29: get_public_constraints（制約ドリフト検知用 introspection RPC・
+  //   20260629000005_get_public_constraints_rpc.sql）は本番適用＋ database.types.ts 再生成までは
+  //   pending。神原さんが本番へ apply し型再生成したら本リストから削除する。
+  'get_public_constraints',
 ]);
 
 function migrationDefinedTables(): Set<string> {
