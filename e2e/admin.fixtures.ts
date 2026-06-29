@@ -4,6 +4,9 @@
 // 本番には一切触れない（CI ランナー内の一時 DB のみ）。
 
 export const ADMIN_AUTH_FILE = 'e2e/.auth/admin.json';
+// admin.setup.ts が seed した「承認待ち(pending)予約」の id を書き出すファイル。
+// admin.spec.ts が読み、その予約詳細で承認の書き込みフローを検証する。
+export const PENDING_BOOKING_FILE = 'e2e/.auth/admin-pending.json';
 
 // seed する固定値（admin.spec.ts の検証期待値と一致させる）
 export const SEED = {
@@ -11,6 +14,7 @@ export const SEED = {
   completedCustomer: 'テスト完了予約',
   confirmedCustomer: 'テスト確定予約',
   noShowCustomer: 'テスト無断予約',
+  pendingCustomer: 'テスト承認待ち予約',
   completedPriceYen: 8000, // 当日完了予約の total_price → 本日/今月の売上・客単価
   noShowPriceYen: 5000,
   confirmedPriceYen: 6000,
