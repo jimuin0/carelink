@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -55,6 +55,19 @@ export default defineConfig({
       testMatch: /booking-complete\.spec\.ts/,
       dependencies: ['booking-setup'],
       use: { ...devices['Desktop Chrome'] },
+    },
+    // 来院者キャンセル：来院者＋本人予約を seed＋ログイン（storageState）
+    {
+      name: 'visitor-setup',
+      testMatch: /visitor-cancel\.setup\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // 認証済み storageState で来院者キャンセルを検証
+    {
+      name: 'visitor',
+      testMatch: /visitor-cancel\.spec\.ts/,
+      dependencies: ['visitor-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/visitor.json' },
     },
   ],
   webServer: process.env.CI

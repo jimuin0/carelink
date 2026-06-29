@@ -2,9 +2,24 @@
 // /admin/* を開き、オーナー機能が実際に動く（描画・実データ反映）ことを検証する。
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。
 import { test, expect } from '@playwright/test';
-import { SEED } from './admin.fixtures';
+import fs from 'fs';
+import { SEED, PENDING_BOOKING_FILE } from './admin.fixtures';
 
 test.describe('管理画面（オーナー）', () => {
+  // オーナーの予約処理＝承認の書き込みフロー。承認待ち予約を「承認する」→ 確定になり
+  // 退店レジ会計（確定/受付のみ表示）が出ることを実データで検証する。
+  test('承認待ち予約をオーナーが承認できる（書き込み反映）', async ({ page }) => {
+    const { id } = JSON.parse(fs.readFileSync(PENDING_BOOKING_FILE, 'utf8')) as { id: string };
+    await page.goto(`/admin/bookings/${id}`);
+    await expect(page.getByText(SEED.pendingCustomer)).toBeVisible();
+    const approve = page.getByRole('button', { name: '承認する' });
+    await expect(approve).toBeVisible();
+    await approve.click();
+    // 承認後＝確定。承認セクションが消え、確定のみ表示される会計セクションが出る。
+    await expect(page.getByRole('button', { name: '承認する' })).toHaveCount(0, { timeout: 15000 });
+    await expect(page.getByText('退店・お会計')).toBeVisible();
+  });
+
   test('ダッシュボードが実データの経営KPIを表示する', async ({ page }) => {
     await page.goto('/admin');
     await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible();
