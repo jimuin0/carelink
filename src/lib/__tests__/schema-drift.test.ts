@@ -3,7 +3,7 @@
  *
  * Tests for lib/schema-drift.ts (computeDrift / isIgnored) — branches 100%。
  */
-import { computeDrift, isIgnored } from '../schema-drift';
+import { computeDrift, computeConstraintDrift, isIgnored } from '../schema-drift';
 
 describe('isIgnored', () => {
   test('PostGIS システムは対象外', () => {
@@ -49,5 +49,30 @@ describe('computeDrift', () => {
   test('完全一致ならドリフトなし', () => {
     const r = computeDrift({ t: ['a'] }, [{ table_name: 't', column_name: 'a' }]);
     expect(r).toEqual({ contaminated: [], missing: [], colDrift: [] });
+  });
+});
+
+describe('computeConstraintDrift', () => {
+  test('extra(本番先行)・missing(本番欠落)・一致・対象外 を正しく分類', () => {
+    const expected = [
+      { table_name: 'review_helpful', kind: 'p', columns: 'id' }, // 一致
+      { table_name: 'review_helpful', kind: 'u', columns: 'review_id,user_id' }, // 一致
+      { table_name: 'features', kind: 'u', columns: 'slug' }, // missing(本番に無い)
+      { table_name: 'spatial_ref_sys', kind: 'p', columns: 'srid' }, // 対象外(expected ループで skip)
+    ];
+    const prod = [
+      { table_name: 'review_helpful', kind: 'p', columns: 'id' }, // 一致
+      { table_name: 'review_helpful', kind: 'u', columns: 'review_id,user_id' }, // 一致
+      { table_name: 'coupon_redemptions', kind: 'p', columns: 'id' }, // extra(期待に無い)
+      { table_name: 'spatial_ref_sys', kind: 'p', columns: 'srid' }, // 対象外(prod ループで skip)
+    ];
+    const r = computeConstraintDrift(expected, prod);
+    expect(r.extra).toEqual(['coupon_redemptions:p(id)']);
+    expect(r.missing).toEqual(['features:u(slug)']);
+  });
+
+  test('完全一致ならドリフトなし', () => {
+    const rows = [{ table_name: 't', kind: 'p', columns: 'id' }];
+    expect(computeConstraintDrift(rows, rows)).toEqual({ extra: [], missing: [] });
   });
 });

@@ -1,0 +1,732 @@
+[
+  {
+    "table_name": "ab_test_events",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "api_keys",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "api_keys",
+    "kind": "u",
+    "columns": "key_hash"
+  },
+  {
+    "table_name": "area_seo_contents",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "area_seo_contents",
+    "kind": "u",
+    "columns": "business_type_slug,city_slug,prefecture_slug"
+  },
+  {
+    "table_name": "areas",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "areas",
+    "kind": "u",
+    "columns": "slug"
+  },
+  {
+    "table_name": "audit_logs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "birthday_notifications",
+    "kind": "p",
+    "columns": "channel,user_id,year"
+  },
+  {
+    "table_name": "blog_authors",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "blog_posts",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "blog_posts",
+    "kind": "u",
+    "columns": "facility_id,slug"
+  },
+  {
+    "table_name": "booking_calendar_events",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "booking_calendar_events",
+    "kind": "u",
+    "columns": "booking_id,user_id"
+  },
+  {
+    "table_name": "booking_menus",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "booking_waitlist",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "bookings",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "contact_replies",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "contacts",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "coupon_menus",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "coupon_menus",
+    "kind": "u",
+    "columns": "coupon_id,menu_id"
+  },
+  {
+    "table_name": "coupon_redemptions",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "coupons",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "cron_logs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "customer_segments",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "customer_segments",
+    "kind": "u",
+    "columns": "customer_email,facility_id"
+  },
+  {
+    "table_name": "customer_visits",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "customers",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "daily_revenue_summary",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "daily_revenue_summary",
+    "kind": "u",
+    "columns": "date,facility_id"
+  },
+  {
+    "table_name": "email_unsubscribe_tokens",
+    "kind": "p",
+    "columns": "token"
+  },
+  {
+    "table_name": "facilities",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_booking_suspensions",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_cancel_policies",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_cancel_policies",
+    "kind": "u",
+    "columns": "facility_id"
+  },
+  {
+    "table_name": "facility_certifications",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_daily_capacity",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_daily_capacity",
+    "kind": "u",
+    "columns": "capacity_date,facility_id"
+  },
+  {
+    "table_name": "facility_entitlements",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_entitlements",
+    "kind": "u",
+    "columns": "facility_id,option_key"
+  },
+  {
+    "table_name": "facility_inquiries",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_jobs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_line_settings",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_line_settings",
+    "kind": "u",
+    "columns": "facility_id"
+  },
+  {
+    "table_name": "facility_members",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_members",
+    "kind": "u",
+    "columns": "facility_id,user_id"
+  },
+  {
+    "table_name": "facility_menus",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_notification_settings",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_notification_settings",
+    "kind": "u",
+    "columns": "facility_id"
+  },
+  {
+    "table_name": "facility_page_views",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_photos",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_profiles",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_profiles",
+    "kind": "u",
+    "columns": "slug"
+  },
+  {
+    "table_name": "facility_qa",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_reminder_settings",
+    "kind": "p",
+    "columns": "facility_id"
+  },
+  {
+    "table_name": "facility_reviews",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_symptoms",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "facility_symptoms",
+    "kind": "u",
+    "columns": "facility_id,symptom_id"
+  },
+  {
+    "table_name": "favorites",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "favorites",
+    "kind": "u",
+    "columns": "facility_id,user_id"
+  },
+  {
+    "table_name": "feature_articles",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "feature_flags",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "feature_flags",
+    "kind": "u",
+    "columns": "key"
+  },
+  {
+    "table_name": "featured_slots",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "features",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "features",
+    "kind": "u",
+    "columns": "slug"
+  },
+  {
+    "table_name": "gbp_audit_cache",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "gbp_audit_cache",
+    "kind": "u",
+    "columns": "facility_id"
+  },
+  {
+    "table_name": "gbp_posts",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "google_calendar_tokens",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "google_calendar_tokens",
+    "kind": "u",
+    "columns": "user_id"
+  },
+  {
+    "table_name": "hpb_menu_durations",
+    "kind": "p",
+    "columns": "facility_id,ref_id"
+  },
+  {
+    "table_name": "intake_form_responses",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "intake_form_templates",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "intake_form_templates",
+    "kind": "u",
+    "columns": "facility_id,is_active"
+  },
+  {
+    "table_name": "job_applications",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "job_postings",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "job_seekers",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "line_notification_logs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "line_user_links",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "line_user_links",
+    "kind": "u",
+    "columns": "line_user_id"
+  },
+  {
+    "table_name": "line_user_links",
+    "kind": "u",
+    "columns": "user_id"
+  },
+  {
+    "table_name": "menu_staff",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "menu_staff",
+    "kind": "u",
+    "columns": "menu_id,staff_id"
+  },
+  {
+    "table_name": "moderation_queue",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "newsletter_campaigns",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "newsletter_send_log",
+    "kind": "p",
+    "columns": "email,period"
+  },
+  {
+    "table_name": "newsletter_subscriptions",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "nps_surveys",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "option_catalog",
+    "kind": "p",
+    "columns": "key"
+  },
+  {
+    "table_name": "package_usage_logs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "platform_blog_posts",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "platform_blog_posts",
+    "kind": "u",
+    "columns": "slug"
+  },
+  {
+    "table_name": "profiles",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "profiles",
+    "kind": "u",
+    "columns": "line_user_id"
+  },
+  {
+    "table_name": "push_subscriptions",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "push_subscriptions",
+    "kind": "u",
+    "columns": "user_id"
+  },
+  {
+    "table_name": "rate_limit_buckets",
+    "kind": "p",
+    "columns": "key"
+  },
+  {
+    "table_name": "recruits",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "referral_codes",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "referral_codes",
+    "kind": "u",
+    "columns": "code"
+  },
+  {
+    "table_name": "referral_codes",
+    "kind": "u",
+    "columns": "user_id"
+  },
+  {
+    "table_name": "referral_uses",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "referral_uses",
+    "kind": "u",
+    "columns": "referred_user_id"
+  },
+  {
+    "table_name": "reports",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "review_helpful",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "review_helpful",
+    "kind": "u",
+    "columns": "review_id,user_id"
+  },
+  {
+    "table_name": "review_replies",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "review_replies",
+    "kind": "u",
+    "columns": "review_id"
+  },
+  {
+    "table_name": "salon_customer_notes",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "salon_customer_notes",
+    "kind": "u",
+    "columns": "customer_key,facility_id"
+  },
+  {
+    "table_name": "salons",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "schedule_overrides",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "schedule_overrides",
+    "kind": "u",
+    "columns": "date,staff_id"
+  },
+  {
+    "table_name": "sent_reminders",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "sent_reminders",
+    "kind": "u",
+    "columns": "booking_id,kind,reminder_date"
+  },
+  {
+    "table_name": "service_packages",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "slack_incident_threads",
+    "kind": "p",
+    "columns": "thread_key"
+  },
+  {
+    "table_name": "staff_photos",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "staff_profiles",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "staff_profiles",
+    "kind": "u",
+    "columns": "facility_id,slug"
+  },
+  {
+    "table_name": "staff_schedules",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "staff_schedules",
+    "kind": "u",
+    "columns": "day_of_week,staff_id"
+  },
+  {
+    "table_name": "stripe_events",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "stripe_sessions",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "stripe_sessions",
+    "kind": "u",
+    "columns": "stripe_session_id"
+  },
+  {
+    "table_name": "stripe_webhook_logs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "stripe_webhook_logs",
+    "kind": "u",
+    "columns": "event_id"
+  },
+  {
+    "table_name": "subscription_plans",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "subscription_usage_logs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "symptoms",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "symptoms",
+    "kind": "u",
+    "columns": "name"
+  },
+  {
+    "table_name": "symptoms",
+    "kind": "u",
+    "columns": "slug"
+  },
+  {
+    "table_name": "treatment_catalogs",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "treatment_plans",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "treatment_records",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "user_coupon_codes",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "user_coupon_codes",
+    "kind": "u",
+    "columns": "code"
+  },
+  {
+    "table_name": "user_packages",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "user_points",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "user_preferred_staff",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "user_preferred_staff",
+    "kind": "u",
+    "columns": "staff_id,user_id"
+  },
+  {
+    "table_name": "user_subscriptions",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "webhook_retry_queue",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "white_label_domains",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "white_label_domains",
+    "kind": "u",
+    "columns": "domain"
+  }
+]
