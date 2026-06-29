@@ -10,8 +10,12 @@ import type { Booking } from '@/types';
 import { statusBannerClass, bookingStatusLabel } from '@/lib/booking-status';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
-// ステータス変更ボタンに表示する選択肢（既存挙動を維持。遷移可否は API 側で検証）
-const STATUS_OPTIONS = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'cancel_fee_paid', 'no_show'] as const;
+// ステータス変更ボタンに表示する選択肢（遷移可否は API 側の state machine で検証）。
+// cancel_fee_paid（キャンセル料支払済）は含めない＝この状態は Stripe のキャンセル料決済が
+// 成立した時に webhook だけが設定する金銭由来の状態で、/api/admin/booking-status の
+// validStatuses にも allowedTransitions にも無い（手動クリックは常に 400「不正なステータスです」
+// になる死にボタンだった）。決済由来の状態を手動上書きさせない方向で UI から除外する。
+const STATUS_OPTIONS = ['pending', 'confirmed', 'arrived', 'completed', 'cancelled', 'no_show'] as const;
 
 // 退店レジ会計の明細行（/api/admin/booking-checkout と整合）
 type ChargeType = 'menu' | 'retail' | 'discount';
