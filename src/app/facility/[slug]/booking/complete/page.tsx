@@ -9,6 +9,17 @@ interface Props {
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^\d{2}:\d{2}$/;
 
+// iCal(RFC 5545) の TEXT 値エスケープ。施設名はオーナー制御で「,」「;」「\」改行を含み得るため、
+// SUMMARY へ素で埋め込むと .ics が壊れる（API 側 api/booking/[id]/ical と同一処理）。
+// encodeURIComponent は data URI 用で iCal TEXT エスケープではない（別物）。
+function escapeIcal(str: string): string {
+  return str
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n|\r|\n/g, '\\n');
+}
+
 function buildIcsContent(date?: string, time?: string, endTime?: string, facility?: string, bookingId?: string): string | null {
   if (!date || !time || !DATE_RE.test(date) || !TIME_RE.test(time)) return null;
 
@@ -34,7 +45,7 @@ function buildIcsContent(date?: string, time?: string, endTime?: string, facilit
     dtEnd = `${ey}${emo}${ed}T${eho}${emi}00`;
   }
 
-  const summary = facility ? `${facility} 予約` : 'CareLink 予約';
+  const summary = facility ? `${escapeIcal(facility)} 予約` : 'CareLink 予約';
   const uid = bookingId || crypto.randomUUID();
 
   return [

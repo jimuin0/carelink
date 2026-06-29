@@ -134,6 +134,13 @@ test('GET: データなし → 404', async () => {
   expect(res.status).toBe(404);
 });
 
+test('GET: 取得エラー → 500（DB障害を「データなし(404)＝売上ゼロ」に偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(revenueChain([], { message: 'db down' }));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+});
+
 test('GET: 正常取得 → 200 CSV', async () => {
   mockAnonFrom.mockReturnValue(memberMaybeSingle({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(revenueChain(SAMPLE_ROWS));

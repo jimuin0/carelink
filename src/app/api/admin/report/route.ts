@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
   if (!member) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const admin = createServiceRoleClient();
-  const { data: rows } = await admin
+  const { data: rows, error: rowsError } = await admin
     .from('daily_revenue_summary')
     .select('*')
     .eq('facility_id', facilityId)
@@ -69,6 +69,12 @@ export async function GET(request: NextRequest) {
     .lte('date', to)
     .order('date', { ascending: true });
 
+  // 取得失敗を「データなし(404)＝売上ゼロ」に偽装しない。DB 障害/権限/タイムアウトを
+  // 500 で明示し、経営者が障害を「売上ゼロの月」と誤認してキャッシュフロー判断を誤るのを防ぐ
+  // （admin ダッシュボードの「取得失敗を0に偽装しない」方針と統一）。
+  if (rowsError) {
+    return NextResponse.json({ error: 'レポートの取得に失敗しました' }, { status: 500 });
+  }
   if (!rows || rows.length === 0) {
     return NextResponse.json({ error: 'No data' }, { status: 404 });
   }
