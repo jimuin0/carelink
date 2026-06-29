@@ -7,7 +7,7 @@ import { test as setup, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
-import { ADMIN_AUTH_FILE, PENDING_BOOKING_FILE, SEED, jstToday } from './admin.fixtures';
+import { ADMIN_AUTH_FILE, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE, SEED, jstToday } from './admin.fixtures';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket（realtime 用）を要求し throw する。
 // seed は REST（auth.admin / from().insert）のみで realtime に接続しないため、ダミーを与えて
@@ -79,12 +79,14 @@ setup('provision test owner and authenticate', async ({ page }) => {
   // bookings の NOT NULL 必須列＝facility_id/booking_date/start_time/end_time/customer_name/email
   // （phase4_bookings.sql で確定。types は email? だが実 DB は NOT NULL＝drift）。
   const customerEmail = 'e2e-customer@example.invalid';
-  const { error: be } = await sb.from('bookings').insert([
+  const { data: seededBookings, error: be } = await sb.from('bookings').insert([
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '10:00', end_time: '11:00', customer_name: SEED.completedCustomer, email: customerEmail, status: 'completed', total_price: SEED.completedPriceYen },
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '12:00', end_time: '13:00', customer_name: SEED.noShowCustomer, email: customerEmail, status: 'no_show', total_price: SEED.noShowPriceYen },
     { facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '14:00', end_time: '15:00', customer_name: SEED.confirmedCustomer, email: customerEmail, status: 'confirmed', total_price: SEED.confirmedPriceYen },
-  ]);
+  ]).select('id, status');
   if (be) throw new Error('seed bookings: ' + be.message);
+  const confirmedId = (seededBookings ?? []).find((b) => b.status === 'confirmed')?.id;
+  if (!confirmedId) throw new Error('seed bookings: confirmed の id が取得できません');
 
   // 5b) 承認待ち(pending)予約を1件 seed し id を控える（予約処理＝承認の書き込みフロー検証用）
   const { data: pending, error: pe } = await sb.from('bookings').insert({
@@ -115,4 +117,5 @@ setup('provision test owner and authenticate', async ({ page }) => {
   fs.mkdirSync(path.dirname(ADMIN_AUTH_FILE), { recursive: true });
   await page.context().storageState({ path: ADMIN_AUTH_FILE });
   fs.writeFileSync(PENDING_BOOKING_FILE, JSON.stringify({ id: pending.id }));
+  fs.writeFileSync(CONFIRMED_BOOKING_FILE, JSON.stringify({ id: confirmedId }));
 });

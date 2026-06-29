@@ -3,7 +3,7 @@
 // CI の隔離 Supabase 上でのみ動作（本番不可侵）。
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
-import { SEED, PENDING_BOOKING_FILE } from './admin.fixtures';
+import { SEED, PENDING_BOOKING_FILE, CONFIRMED_BOOKING_FILE } from './admin.fixtures';
 
 test.describe('管理画面（オーナー）', () => {
   // オーナーの予約処理＝承認の書き込みフロー。承認待ち予約を「承認する」→ 確定になり
@@ -18,6 +18,17 @@ test.describe('管理画面（オーナー）', () => {
     // 承認後＝確定。承認セクションが消え、確定のみ表示される会計セクションが出る。
     await expect(page.getByRole('button', { name: '承認する' })).toHaveCount(0, { timeout: 15000 });
     await expect(page.getByText('退店・お会計')).toBeVisible();
+  });
+
+  // オーナーの退店レジ会計＝確定予約を会計して完了にする書き込み（副作用＝来店記録/日次売上）。
+  test('確定予約を退店レジ会計で完了にできる（書き込み反映）', async ({ page }) => {
+    const { id } = JSON.parse(fs.readFileSync(CONFIRMED_BOOKING_FILE, 'utf8')) as { id: string };
+    await page.goto(`/admin/bookings/${id}`);
+    await expect(page.getByText(SEED.confirmedCustomer)).toBeVisible();
+    // 会計する → 明細(確定予約の total_price で1行自動投入) → 会計を確定して完了
+    await page.getByRole('button', { name: '会計する' }).click();
+    await page.getByRole('button', { name: '会計を確定して完了' }).click();
+    await expect(page.getByText('会計を確定して完了しました', { exact: false })).toBeVisible({ timeout: 15000 });
   });
 
   test('ダッシュボードが実データの経営KPIを表示する', async ({ page }) => {
