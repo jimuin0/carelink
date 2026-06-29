@@ -14,16 +14,22 @@ function readId(file: string): string {
 }
 
 test.describe.serial('管理画面（オーナー）キャンセル／無断キャンセル', () => {
-  // 修正の回帰：cancel_fee_paid（キャンセル料支払済）は Stripe webhook 専用の金銭由来状態で、
-  // /api/admin/booking-status の validStatuses に無い＝手動クリックは常に 400 になる死にボタンだった。
-  // UI の STATUS_OPTIONS から除外したので、ステータス変更ボタンに出ないことを実 UI で確認する。
-  test('「キャンセル料支払済」は手動ステータス変更ボタンに出ない（死にボタン除去の回帰）', async ({ page }) => {
+  // 修正の回帰：ステータス変更ボタンは「現在状態から実際に遷移可能なステータス」だけを出す
+  // （UI/API 共有の SSOT＝ALLOWED_STATUS_TRANSITIONS）。到達不可で押すと必ず 400 になる死にボタン
+  // ＝ cancel_fee_paid（webhook 専用の金銭由来状態）と pending（どの状態からも遷移先に無い）は出ない。
+  // 確定(confirmed)予約では遷移可能＝受付/完了/キャンセル/無断キャンセルのみ表示される。
+  test('到達不可ステータス（cancel_fee_paid・pending・現在状態）はボタンに出ない（死にボタン構造排除の回帰）', async ({ page }) => {
     const id = readId(OWNER_CONFIRMED_FILE);
     await page.goto(`/admin/bookings/${id}`);
     await expect(page.getByText('ステータス変更')).toBeVisible();
-    // 正規の手動ステータスはボタンとして出る（確定/キャンセル/無断キャンセル）が、cancel_fee_paid は出ない。
+    // 確定予約から遷移可能な正規ステータスは出る。
+    await expect(page.getByRole('button', { name: 'キャンセル', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: '無断キャンセル', exact: true })).toBeVisible();
+    // 到達不可な死にボタンは出ない。
     await expect(page.getByRole('button', { name: 'キャンセル料支払済', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '確認待ち', exact: true })).toHaveCount(0);
+    // 現在状態（確定）自身も遷移先ではないのでボタンには出ない。
+    await expect(page.getByRole('button', { name: '確定', exact: true })).toHaveCount(0);
   });
 
   // 承認待ち予約をオーナーが「お断りする」→ cancelled（書き込み反映）。

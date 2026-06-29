@@ -11,23 +11,16 @@ import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { ALLOWED_STATUS_TRANSITIONS } from '@/lib/booking-status';
 
 export const dynamic = 'force-dynamic';
 
 const validStatuses = ['confirmed', 'arrived', 'completed', 'cancelled', 'no_show'];
 
-// State machine: defines which transitions are permitted per current status.
-// Prevents: cancelled → confirmed (re-activating cancelled bookings to extort customers)
-// Prevents: completed → confirmed (which would allow re-awarding completion points)
-// arrived（受付＝来店中）は confirmed と completed の中間。受付スキップ（confirmed→completed）も維持。
-const allowedTransitions: Record<string, string[]> = {
-  pending:    ['confirmed', 'cancelled'],
-  confirmed:  ['arrived', 'completed', 'cancelled', 'no_show'],
-  arrived:    ['completed', 'cancelled', 'no_show'],
-  completed:  ['no_show'],          // only admin correction; cannot go back to confirmed
-  cancelled:  [],                   // terminal state — no transitions allowed
-  no_show:    ['cancelled'],        // allow correcting a no_show to cancelled
-};
+// State machine（遷移可否）は UI と共有する SSOT（src/lib/booking-status.ts の
+// ALLOWED_STATUS_TRANSITIONS）を参照する。UI 側（予約詳細のボタン表示）と本検証が
+// 同一表を見ることで、UI が API で必ず弾かれる「死にボタン」を出す不整合を防ぐ。
+const allowedTransitions: Record<string, string[]> = ALLOWED_STATUS_TRANSITIONS;
 
 export async function POST(request: Request) {
   try {
