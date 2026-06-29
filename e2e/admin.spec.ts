@@ -100,9 +100,12 @@ test.describe.serial('管理画面（オーナー）', () => {
     const menuName = 'E2E追加メニュー';
     await page.goto('/admin/menus');
     await page.getByRole('button', { name: 'メニュー追加' }).click();
-    await page.fill('#menu-name', menuName);
-    await page.fill('#menu-price', '4500');
-    await page.getByRole('button', { name: '保存', exact: true }).click();
+    // Modal(role=dialog) が開くのを待ち、その中だけを操作する。
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    await dialog.locator('#menu-name').fill(menuName);
+    await dialog.locator('#menu-price').fill('4500');
+    await dialog.getByRole('button', { name: '保存' }).click();
     await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
     // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
     await expect(page.getByText(menuName)).toBeVisible();
