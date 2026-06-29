@@ -7,7 +7,7 @@ import { test as setup, expect } from '@playwright/test';
 import { createClient } from '@supabase/supabase-js';
 import fs from 'fs';
 import path from 'path';
-import { ADMIN_AUTH_FILE, SEED, jstToday } from './admin.fixtures';
+import { ADMIN_AUTH_FILE, PENDING_BOOKING_FILE, SEED, jstToday } from './admin.fixtures';
 
 // supabase-js v2 は Node 20 で createClient 時に WebSocket（realtime 用）を要求し throw する。
 // seed は REST（auth.admin / from().insert）のみで realtime に接続しないため、ダミーを与えて
@@ -86,6 +86,13 @@ setup('provision test owner and authenticate', async ({ page }) => {
   ]);
   if (be) throw new Error('seed bookings: ' + be.message);
 
+  // 5b) 承認待ち(pending)予約を1件 seed し id を控える（予約処理＝承認の書き込みフロー検証用）
+  const { data: pending, error: pe } = await sb.from('bookings').insert({
+    facility_id: facilityId, staff_id: staffId, booking_date: today, start_time: '16:00', end_time: '17:00',
+    customer_name: SEED.pendingCustomer, email: customerEmail, status: 'pending', total_price: 7000,
+  }).select('id').single();
+  if (pe) throw new Error('seed pending booking: ' + pe.message);
+
   // 6) 実 UI でログイン（@supabase/ssr の認証 Cookie を確立）。
   // ブラウザの Supabase 通信は CSP connect-src で許可されている必要がある（env 由来で導出）。
   await page.goto('/auth/login?redirect=/admin');
@@ -104,7 +111,8 @@ setup('provision test owner and authenticate', async ({ page }) => {
   await page.goto('/admin');
   await expect(page.getByRole('heading', { name: 'ダッシュボード' })).toBeVisible({ timeout: 15000 });
 
-  // 7) 認証済み storageState を保存
+  // 7) 認証済み storageState＋承認待ち予約 id を保存
   fs.mkdirSync(path.dirname(ADMIN_AUTH_FILE), { recursive: true });
   await page.context().storageState({ path: ADMIN_AUTH_FILE });
+  fs.writeFileSync(PENDING_BOOKING_FILE, JSON.stringify({ id: pending.id }));
 });
