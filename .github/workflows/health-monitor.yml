@@ -34,13 +34,24 @@ jobs:
       - name: Fetch /api/health
         id: fetch
         run: |
-          STATUS_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$HEALTH_URL" || echo "000")
-          BODY=$(cat /tmp/health.json 2>/dev/null || echo '{}')
-          STATUS=$(echo "$BODY" | python3 -c "import sys,json
-          try:
-              print(json.load(sys.stdin).get('status','unknown'))
-          except Exception:
-              print('unknown')")
+          # /api/health を1回 curl して STATUS_CODE / BODY / STATUS を埋める。
+          # JSON パース失敗は python の非0終了→`|| echo unknown`で 'unknown' にフォールバック（一行化で
+          # heredoc のインデント依存を排除）。
+          probe() {
+            STATUS_CODE=$(curl -s -o /tmp/health.json -w "%{http_code}" --max-time 30 "$HEALTH_URL" || echo "000")
+            BODY=$(cat /tmp/health.json 2>/dev/null || echo '{}')
+            STATUS=$(python3 -c "import sys,json; print(json.load(sys.stdin).get('status','unknown'))" < /tmp/health.json 2>/dev/null || echo "unknown")
+          }
+          probe
+          # 単発の一過性 503/タイムアウト（cold start・瞬間的な依存レイテンシ）で 神原 を page しない。
+          # route 側 criticalProbe（失敗時1回再試行し2回目を採用）と同じ方針を監視層にも適用：1回目が
+          # 不健全なら 20s 後に確認再チェックし、その結果を採用する。回復していれば page されず、持続障害
+          # なら同一サイクル内（約20s 遅延）で page される＝自己回復する一過性ブリップの偽 page を構造的に無くす。
+          if [ "$STATUS_CODE" != "200" ] || [ "$STATUS" != "healthy" ]; then
+            echo "⚠️ 1回目 unhealthy (HTTP $STATUS_CODE / status=$STATUS) — 20s 後に確認再チェック"
+            sleep 20
+            probe
+          fi
           {
             echo "http_code=$STATUS_CODE"
             echo "health_status=$STATUS"
