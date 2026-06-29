@@ -115,4 +115,16 @@ test.describe.serial('管理画面（オーナー）', () => {
     // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
     await expect(page.getByText(menuName)).toBeVisible();
   });
+
+  // オーナーのクーポン作成（CRUD の C）＝新規作成→一覧へ反映。
+  test('オーナーがクーポンを作成できる（書き込み→一覧反映）', async ({ page }) => {
+    const couponName = 'E2E追加クーポン';
+    await page.goto('/admin/coupons/new');
+    await page.fill('#coupon-name', couponName);
+    await page.fill('#coupon-value', '500'); // discount_type=fixed の既定で割引額が必要
+    await page.getByRole('button', { name: 'クーポンを作成' }).click();
+    // 作成成功で /admin/coupons へ遷移し、一覧に出る（書き込み永続化）
+    await page.waitForURL('**/admin/coupons', { timeout: 15000 });
+    await expect(page.getByText(couponName)).toBeVisible();
+  });
 });
