@@ -164,8 +164,10 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
         const completeParams = new URLSearchParams({
           id: body?.bookingId || '',
           date: selectedDate || '',
-          time: selectedSlot?.slot_start || '',
-          end_time: selectedSlot?.slot_end || '',
+          // 完了画面の TIME_RE は "HH:MM" 必須。slot は "HH:MM:SS" になり得るため slice して渡す
+          // （raw だと .ics「カレンダーに追加」ボタンが無音で出なくなる）。
+          time: selectedSlot?.slot_start?.slice(0, 5) || '',
+          end_time: selectedSlot?.slot_end?.slice(0, 5) || '',
           facility: facility.name || '',
         });
         router.push(`/facility/${encodeURIComponent(facility.slug)}/booking/complete?${completeParams.toString()}`);
