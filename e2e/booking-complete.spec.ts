@@ -41,3 +41,20 @@ test('来院者が予約を最後まで完走できる', async ({ page }) => {
   await page.waitForURL('**/booking/complete**', { timeout: 20000 });
   await expect(page).toHaveURL(/booking\/complete/);
 });
+
+test('来院者がレビューを投稿できる', async ({ page }) => {
+  const { slug } = JSON.parse(fs.readFileSync(BOOKING_FACILITY_FILE, 'utf8')) as { slug: string };
+  await page.goto(`/facility/${slug}`);
+  // 口コミタブ（role=tab・label「口コミ(N)」）を開く
+  await page.getByRole('tab', { name: /口コミ/ }).click();
+  // お名前＋5軸すべて5点を選択（全軸必須）
+  await page.fill('#reviewer_name', 'E2Eレビュー太郎');
+  const fiveStars = page.getByRole('button', { name: '5点を選択' });
+  const n = await fiveStars.count();
+  expect(n).toBeGreaterThanOrEqual(5);
+  for (let i = 0; i < n; i++) await fiveStars.nth(i).click();
+  // 投稿ボタン → 確認ダイアログの「投稿する」（"口コミを投稿する" との誤マッチを避け dialog+exact）
+  await page.getByRole('button', { name: '口コミを投稿する' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: '投稿する', exact: true }).click();
+  await expect(page.getByText('口コミを投稿しました')).toBeVisible({ timeout: 15000 });
+});
