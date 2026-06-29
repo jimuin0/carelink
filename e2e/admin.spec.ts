@@ -94,4 +94,25 @@ test.describe.serial('管理画面（オーナー）', () => {
     await page.getByRole('button', { name: '会計を確定して完了' }).click();
     await expect(page.getByText('会計を確定して完了しました', { exact: false })).toBeVisible({ timeout: 15000 });
   });
+
+  // オーナーのメニュー作成（CRUD の C）＝メニュー追加→保存→一覧に反映。
+  test('オーナーがメニューを追加できる（書き込み→一覧反映）', async ({ page }) => {
+    const menuName = 'E2E追加メニュー';
+    await page.goto('/admin/menus');
+    await page.getByRole('button', { name: 'メニュー追加' }).click();
+    // Modal(role=dialog) が開くのを待ち、その中だけを操作する。
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+    // 必須はメニュー名のみ（handleSave は name.trim() のみ必須）。最小入力で保存する。
+    await dialog.locator('#menu-name').fill(menuName);
+    // 保存ボタンはキーボード起動（focus→Enter）で確定する。CI の headless/dvh ビューポートでは
+    // モーダルフッターが pointer hit-test で被り判定になり .click() がタイムアウトすることがあるため、
+    // ポインタ被りに依存しないキーボード操作（正当なユーザー操作）で確実に起動する。
+    const saveBtn = dialog.getByRole('button', { name: '保存' });
+    await saveBtn.scrollIntoViewIfNeeded();
+    await saveBtn.press('Enter');
+    await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
+    // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
+    await expect(page.getByText(menuName)).toBeVisible();
+  });
 });
