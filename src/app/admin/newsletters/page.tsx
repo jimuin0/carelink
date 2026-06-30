@@ -125,7 +125,7 @@ export default function NewslettersPage() {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors"
+          className="btn-primary !px-4 !py-2 text-sm"
         >
           新規キャンペーン作成
         </button>
@@ -224,7 +224,7 @@ export default function NewslettersPage() {
               type="button"
               onClick={handleCreate}
               disabled={creating || !form.subject || !form.html_content}
-              className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors"
+              className="btn-primary !px-4 !py-2 text-sm"
             >
               {creating ? '作成中...' : '作成する'}
             </button>

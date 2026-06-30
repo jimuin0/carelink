@@ -159,7 +159,7 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
                 type="button"
                 onClick={handleBulkCoupon}
                 disabled={submittingCoupon || !couponName || !discountValue}
-                className="bg-sky-600 text-white px-5 py-2.5 rounded-lg text-sm font-bold hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                className="btn-primary !px-5 !py-2.5 text-sm"
               >
                 {submittingCoupon ? '発行中...' : `${facilityIds.length}施設に一括発行`}
               </button>

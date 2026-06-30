@@ -294,7 +294,7 @@ export default function AdminGbpPage() {
               type="button"
               onClick={saveSetup}
               disabled={savingSetup}
-              className="bg-sky-600 text-white text-sm px-6 py-2 rounded-lg hover:bg-sky-700 disabled:opacity-50 transition-colors"
+              className="btn-primary text-sm !px-6 !py-2"
             >
               {savingSetup ? '保存中...' : '保存'}
             </button>
@@ -354,7 +354,7 @@ export default function AdminGbpPage() {
 
           <div className="flex justify-end">
             <button type="button" onClick={loadAudit} disabled={auditLoading}
-                    className="text-sm bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700 disabled:opacity-50">
+                    className="btn-primary text-sm !px-4 !py-2">
               {auditLoading ? '診断中...' : '再診断'}
             </button>
           </div>
@@ -557,7 +557,7 @@ export default function AdminGbpPage() {
               <p className="text-xs text-gray-500">投稿を作成してGBP管理画面からコピー貼り付けで投稿できます</p>
             </div>
             <button type="button" onClick={() => setShowPostForm(true)}
-                    className="bg-sky-600 text-white text-sm px-4 py-2 rounded-lg hover:bg-sky-700">
+                    className="btn-primary text-sm !px-4 !py-2">
               + 新規投稿
             </button>
           </div>
@@ -633,7 +633,7 @@ export default function AdminGbpPage() {
                 </div>
                 <div className="flex gap-3 pt-2">
                   <button type="button" onClick={savePost} disabled={savingPost || !newPost.body.trim()}
-                          className="flex-1 bg-sky-600 text-white text-sm py-2 rounded-lg hover:bg-sky-700 disabled:opacity-50">
+                          className="btn-primary flex-1 text-sm !py-2">
                     {savingPost ? '保存中...' : '下書き保存'}
                   </button>
                   <button type="button" onClick={() => setShowPostForm(false)}

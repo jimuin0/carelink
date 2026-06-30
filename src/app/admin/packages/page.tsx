@@ -181,7 +181,7 @@ export default function PackagesPage() {
 
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold">回数券・パッケージ管理</h1>
-        <button type="button" onClick={() => setShowForm(true)} className="text-sm px-4 py-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium">
+        <button type="button" onClick={() => setShowForm(true)} className="btn-primary text-sm !px-4 !py-1.5">
           + 新規作成
         </button>
       </div>
@@ -251,7 +251,7 @@ export default function PackagesPage() {
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setShowForm(false)} className="px-4 py-2 text-sm text-gray-500 border border-gray-300 rounded-lg">キャンセル</button>
             <button type="button" onClick={handleCreate} disabled={saving || !form.name}
-              className="px-6 py-2 text-sm bg-sky-600 text-white rounded-lg hover:bg-sky-700 disabled:opacity-50 font-medium">
+              className="btn-primary !px-6 !py-2 text-sm">
               {saving ? '保存中...' : '作成'}
             </button>
           </div>
