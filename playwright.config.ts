@@ -216,8 +216,19 @@ export default defineConfig({
       dependencies: ['admin-batch-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },
-    // admin-blog / admin-jobs は作成後の /admin/blog・/admin/jobs への遷移が CI で不成立
-    // （原因未確定・要実機調査）のため本フェーズでは project 未配線（spec は保持・testIgnore で非実行）。
+    // ブログ作成は blog route の slug(NOT NULL)未設定で常に500だった→本PRで根治したため再有効化。
+    {
+      name: 'admin-blog',
+      testMatch: /admin-blog\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-jobs',
+      testMatch: /admin-jobs\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
     {
       name: 'admin-featured-ads',
       testMatch: /admin-featured-ads\.spec\.ts/,
