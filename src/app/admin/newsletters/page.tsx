@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
+import ConfirmDialog from '@/components/ConfirmDialog';
 
 type Campaign = {
   id: string;
@@ -42,6 +43,10 @@ export default function NewslettersPage() {
     scheduled_at: '',
   });
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  // 「今すぐ配信」は不可逆な一斉メール送信のため確認ダイアログを挟む。送信対象キャンペーンID。
+  const [sendConfirmId, setSendConfirmId] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
 
   useEffect(() => {
     fetch('/api/admin/newsletter')
@@ -87,6 +92,21 @@ export default function NewslettersPage() {
       setResult({ ok: false, message: data.error || '操作に失敗しました' });
     }
   };
+
+  const handleConfirmSend = async () => {
+    if (!sendConfirmId || sendingRef.current) return;
+    sendingRef.current = true;
+    setSending(true);
+    try {
+      await handleAction(sendConfirmId, 'send');
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
+      setSendConfirmId(null);
+    }
+  };
+
+  const sendConfirmSubject = campaigns.find((c) => c.id === sendConfirmId)?.subject ?? '';
 
   const openRate = (stats: Campaign['stats']) =>
     stats.sent > 0 ? Math.round((stats.opened / stats.sent) * 100) : 0;
@@ -255,7 +275,7 @@ export default function NewslettersPage() {
                       <>
                         <button
                           type="button"
-                          onClick={() => handleAction(c.id, 'send')}
+                          onClick={() => setSendConfirmId(c.id)}
                           className="text-xs bg-green-500 text-white px-3 py-1 rounded-lg hover:bg-green-600 transition-colors"
                         >
                           今すぐ配信
@@ -300,6 +320,16 @@ export default function NewslettersPage() {
           Cronジョブ: <code className="bg-white/50 px-1 rounded text-xs">/api/cron/newsletter-digest</code>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={sendConfirmId !== null}
+        title="今すぐ一斉配信しますか？"
+        message={`「${sendConfirmSubject}」を対象購読者全員へ今すぐメール配信します。配信後は取り消せません。よろしいですか？`}
+        confirmLabel={sending ? '配信中...' : '配信する'}
+        confirmDisabled={sending}
+        onConfirm={handleConfirmSend}
+        onCancel={() => { if (!sending) setSendConfirmId(null); }}
+      />
     </div>
   );
 }

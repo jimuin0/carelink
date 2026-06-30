@@ -8,6 +8,8 @@ interface ConfirmDialogProps {
   message: string;
   confirmLabel?: string;
   cancelLabel?: string;
+  /** 確定ボタンを無効化する（処理中の二重発火防止など）。true の間は確定不可。 */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -18,6 +20,7 @@ export default function ConfirmDialog({
   message,
   confirmLabel = '送信する',
   cancelLabel = 'キャンセル',
+  confirmDisabled = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -93,7 +96,8 @@ export default function ConfirmDialog({
           <button
             type="button"
             onClick={onConfirm}
-            className="btn-primary flex-1 !py-3 !px-4 text-sm"
+            disabled={confirmDisabled}
+            className="btn-primary flex-1 !py-3 !px-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {confirmLabel}
           </button>
