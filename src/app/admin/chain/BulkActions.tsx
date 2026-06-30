@@ -108,8 +108,9 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
         {tab === 'coupon' && (
           <div className="space-y-4 max-w-md">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">クーポン名 <span className="text-red-500">*</span></label>
+              <label htmlFor="chain-coupon-name" className="block text-xs font-medium text-gray-700 mb-1">クーポン名 <span className="text-red-500">*</span></label>
               <input
+                id="chain-coupon-name"
                 type="text"
                 value={couponName}
                 onChange={(e) => setCouponName(e.target.value)}
@@ -130,10 +131,11 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
               </div>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">
+              <label htmlFor="chain-discount-value" className="block text-xs font-medium text-gray-700 mb-1">
                 {discountType === 'percent' ? '割引率(%)' : discountType === 'fixed' ? '割引額(円)' : '特別価格(円)'} <span className="text-red-500">*</span>
               </label>
               <input
+                id="chain-discount-value"
                 type="number"
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
@@ -143,8 +145,9 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">有効期限（任意）</label>
+              <label htmlFor="chain-valid-until" className="block text-xs font-medium text-gray-700 mb-1">有効期限（任意）</label>
               <input
+                id="chain-valid-until"
                 type="date"
                 value={validUntil}
                 onChange={(e) => setValidUntil(e.target.value)}

@@ -188,28 +188,28 @@ export default function SubscriptionPlansPage() {
               <h2 className="font-bold text-sm">新規プランを作成</h2>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">プラン名 <span className="text-red-500">*</span></label>
-                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  <label htmlFor="sp-name" className="text-xs text-gray-500 block mb-1">プラン名 <span className="text-red-500">*</span></label>
+                  <input id="sp-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                     maxLength={100} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="月4回プラン など" />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">月額料金（円）</label>
-                  <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
+                  <label htmlFor="sp-price" className="text-xs text-gray-500 block mb-1">月額料金（円）</label>
+                  <input id="sp-price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min={0} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">月あたり回数</label>
-                  <input type="number" value={form.sessions_per_month} onChange={(e) => setForm({ ...form, sessions_per_month: Number(e.target.value) })}
+                  <label htmlFor="sp-sessions" className="text-xs text-gray-500 block mb-1">月あたり回数</label>
+                  <input id="sp-sessions" type="number" value={form.sessions_per_month} onChange={(e) => setForm({ ...form, sessions_per_month: Number(e.target.value) })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min={1} max={100} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">最低契約月数</label>
-                  <input type="number" value={form.valid_months} onChange={(e) => setForm({ ...form, valid_months: Number(e.target.value) })}
+                  <label htmlFor="sp-valid-months" className="text-xs text-gray-500 block mb-1">最低契約月数</label>
+                  <input id="sp-valid-months" type="number" value={form.valid_months} onChange={(e) => setForm({ ...form, valid_months: Number(e.target.value) })}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min={1} max={24} />
                 </div>
                 <div className="sm:col-span-2">
-                  <label className="text-xs text-gray-500 block mb-1">説明文</label>
-                  <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  <label htmlFor="sp-description" className="text-xs text-gray-500 block mb-1">説明文</label>
+                  <textarea id="sp-description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
                     rows={2} maxLength={500} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="月4回まで鍼灸施術を受けられるお得なプラン" />
                 </div>
               </div>

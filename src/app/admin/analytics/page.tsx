@@ -3,7 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
 import { RevenueChart, BookingTrendChart, CustomerSegmentChart, RepeatRateCard, ViewCountCard } from '@/components/admin/DynamicAnalyticsCharts';
 import { jstMonthInfo } from '@/lib/admin-date';
-import { SbPageHeader } from '@/components/admin/SbUi';
+import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 
 export default async function AdminAnalyticsPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -66,14 +66,8 @@ export default async function AdminAnalyticsPage() {
       <SbPageHeader title="売上分析" />
 
       <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <p className="text-sm text-gray-500">直近6ヶ月の売上</p>
-          <p className="text-2xl font-bold">¥{totalRevenue.toLocaleString()}</p>
-        </div>
-        <div className="bg-white rounded-xl p-6 shadow-sm">
-          <p className="text-sm text-gray-500">完了予約数</p>
-          <p className="text-2xl font-bold">{totalBookings}件</p>
-        </div>
+        <SbStatCard label="直近6ヶ月の売上" value={`¥${totalRevenue.toLocaleString()}`} />
+        <SbStatCard label="完了予約数" value={totalBookings} unit="件" />
       </div>
 
       <div className="bg-white rounded-xl p-6 shadow-sm">

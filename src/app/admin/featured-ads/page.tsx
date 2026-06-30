@@ -133,8 +133,9 @@ export default function FeaturedAdsPage() {
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">対象エリア（任意）</label>
+              <label htmlFor="ads-area" className="block text-xs font-medium text-gray-700 mb-1">対象エリア（任意）</label>
               <input
+                id="ads-area"
                 type="text"
                 value={form.area}
                 onChange={(e) => setForm((f) => ({ ...f, area: e.target.value }))}
@@ -144,8 +145,9 @@ export default function FeaturedAdsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">対象業種（任意）</label>
+              <label htmlFor="ads-business-type" className="block text-xs font-medium text-gray-700 mb-1">対象業種（任意）</label>
               <input
+                id="ads-business-type"
                 type="text"
                 value={form.business_type}
                 onChange={(e) => setForm((f) => ({ ...f, business_type: e.target.value }))}
@@ -155,8 +157,9 @@ export default function FeaturedAdsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">掲載開始日</label>
+              <label htmlFor="ads-starts-at" className="block text-xs font-medium text-gray-700 mb-1">掲載開始日</label>
               <input
+                id="ads-starts-at"
                 type="date"
                 value={form.starts_at}
                 onChange={(e) => setForm((f) => ({ ...f, starts_at: e.target.value }))}
@@ -164,8 +167,9 @@ export default function FeaturedAdsPage() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">掲載終了日</label>
+              <label htmlFor="ads-ends-at" className="block text-xs font-medium text-gray-700 mb-1">掲載終了日</label>
               <input
+                id="ads-ends-at"
                 type="date"
                 value={form.ends_at}
                 onChange={(e) => setForm((f) => ({ ...f, ends_at: e.target.value }))}

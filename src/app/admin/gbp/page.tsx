@@ -261,12 +261,13 @@ export default function AdminGbpPage() {
 
             <div className="space-y-4 mb-5">
               <div>
-                <label className="text-sm font-medium text-gray-700">Place ID</label>
+                <label htmlFor="gbp-place-id" className="text-sm font-medium text-gray-700">Place ID</label>
                 <p className="text-xs text-gray-400 mb-1">
                   <a href="https://developers.google.com/maps/documentation/javascript/examples/places-placeid-finder" target="_blank" rel="noopener noreferrer" className="text-sky-500 underline">Place ID Finder</a>
                   {' '}で自店舗を検索して取得。「ChIJ...」から始まる文字列。
                 </p>
                 <input
+                  id="gbp-place-id"
                   type="text"
                   value={placeId}
                   onChange={(e) => setPlaceId(e.target.value)}
@@ -276,11 +277,12 @@ export default function AdminGbpPage() {
                 />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">GBP CID（任意）</label>
+                <label htmlFor="gbp-cid" className="text-sm font-medium text-gray-700">GBP CID（任意）</label>
                 <p className="text-xs text-gray-400 mb-1">
                   GBP管理画面のURLに含まれる数字のID（あれば入力）
                 </p>
                 <input
+                  id="gbp-cid"
                   type="text"
                   value={gbpCid}
                   onChange={(e) => setGbpCid(e.target.value)}
@@ -589,8 +591,8 @@ export default function AdminGbpPage() {
               <h3 className="font-bold text-gray-700 mb-4">投稿内容を作成</h3>
               <div className="space-y-3">
                 <div>
-                  <label className="text-xs font-medium text-gray-600">投稿タイプ</label>
-                  <select value={newPost.post_type} onChange={(e) => setNewPost((p) => ({ ...p, post_type: e.target.value }))}
+                  <label htmlFor="gbp-post-type" className="text-xs font-medium text-gray-600">投稿タイプ</label>
+                  <select id="gbp-post-type" value={newPost.post_type} onChange={(e) => setNewPost((p) => ({ ...p, post_type: e.target.value }))}
                           className="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
                     <option value="STANDARD">通常投稿</option>
                     <option value="OFFER">キャンペーン/クーポン</option>
@@ -598,15 +600,15 @@ export default function AdminGbpPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">タイトル（任意）</label>
-                  <input type="text" value={newPost.title} onChange={(e) => setNewPost((p) => ({ ...p, title: e.target.value }))}
+                  <label htmlFor="gbp-post-title" className="text-xs font-medium text-gray-600">タイトル（任意）</label>
+                  <input id="gbp-post-title" type="text" value={newPost.title} onChange={(e) => setNewPost((p) => ({ ...p, title: e.target.value }))}
                          placeholder="例: 【期間限定】春のキャンペーン"
                          maxLength={58}
                          className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
                 </div>
                 <div>
-                  <label className="text-xs font-medium text-gray-600">本文 *</label>
-                  <textarea value={newPost.body} onChange={(e) => setNewPost((p) => ({ ...p, body: e.target.value }))}
+                  <label htmlFor="gbp-post-body" className="text-xs font-medium text-gray-600">本文 *</label>
+                  <textarea id="gbp-post-body" value={newPost.body} onChange={(e) => setNewPost((p) => ({ ...p, body: e.target.value }))}
                             rows={6} maxLength={1500}
                             placeholder="投稿の内容を入力... (最大1500文字)"
                             className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
@@ -614,8 +616,8 @@ export default function AdminGbpPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-gray-600">CTAボタン（任意）</label>
-                    <select value={newPost.cta_type} onChange={(e) => setNewPost((p) => ({ ...p, cta_type: e.target.value }))}
+                    <label htmlFor="gbp-cta-type" className="text-xs font-medium text-gray-600">CTAボタン（任意）</label>
+                    <select id="gbp-cta-type" value={newPost.cta_type} onChange={(e) => setNewPost((p) => ({ ...p, cta_type: e.target.value }))}
                             className="mt-1 w-full border rounded-lg px-3 py-2 text-sm">
                       <option value="">なし</option>
                       <option value="BOOK">予約する</option>
@@ -626,8 +628,8 @@ export default function AdminGbpPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600">CTA URL（任意）</label>
-                    <input type="url" value={newPost.cta_url} onChange={(e) => setNewPost((p) => ({ ...p, cta_url: e.target.value }))}
+                    <label htmlFor="gbp-cta-url" className="text-xs font-medium text-gray-600">CTA URL（任意）</label>
+                    <input id="gbp-cta-url" type="url" value={newPost.cta_url} onChange={(e) => setNewPost((p) => ({ ...p, cta_url: e.target.value }))}
                            placeholder="https://..." maxLength={500}
                            className="mt-1 w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-300" />
                   </div>

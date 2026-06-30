@@ -102,8 +102,9 @@ export default function NewPlatformBlogPage() {
 
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">タイトル <span className="text-red-500">*</span></label>
+          <label htmlFor="pb-title" className="text-xs font-medium text-gray-600 block mb-1">タイトル <span className="text-red-500">*</span></label>
           <input
+            id="pb-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             onBlur={handleTitleBlur}
@@ -114,8 +115,9 @@ export default function NewPlatformBlogPage() {
         </div>
 
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">スラッグ（URL） <span className="text-red-500">*</span></label>
+          <label htmlFor="pb-slug" className="text-xs font-medium text-gray-600 block mb-1">スラッグ（URL） <span className="text-red-500">*</span></label>
           <input
+            id="pb-slug"
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-400"
@@ -126,8 +128,9 @@ export default function NewPlatformBlogPage() {
         </div>
 
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">概要文</label>
+          <label htmlFor="pb-description" className="text-xs font-medium text-gray-600 block mb-1">概要文</label>
           <textarea
+            id="pb-description"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
             rows={2}
@@ -139,8 +142,9 @@ export default function NewPlatformBlogPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">カテゴリ</label>
+            <label htmlFor="pb-category" className="text-xs font-medium text-gray-600 block mb-1">カテゴリ</label>
             <input
+              id="pb-category"
               value={category}
               onChange={(e) => setCategory(e.target.value)}
               list="category-options"
@@ -155,8 +159,9 @@ export default function NewPlatformBlogPage() {
             </datalist>
           </div>
           <div>
-            <label className="text-xs font-medium text-gray-600 block mb-1">読了時間（分）</label>
+            <label htmlFor="pb-reading-time" className="text-xs font-medium text-gray-600 block mb-1">読了時間（分）</label>
             <input
+              id="pb-reading-time"
               type="number"
               value={readingTime}
               onChange={(e) => setReadingTime(parseInt(e.target.value) || 5)}
@@ -168,8 +173,9 @@ export default function NewPlatformBlogPage() {
         </div>
 
         <div>
-          <label className="text-xs font-medium text-gray-600 block mb-1">タグ（カンマ区切り）</label>
+          <label htmlFor="pb-tags" className="text-xs font-medium text-gray-600 block mb-1">タグ（カンマ区切り）</label>
           <input
+            id="pb-tags"
             value={tags}
             onChange={(e) => setTags(e.target.value)}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
@@ -182,7 +188,7 @@ export default function NewPlatformBlogPage() {
       {/* コンテンツ編集 */}
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-3">
         <div className="flex items-center justify-between">
-          <label className="text-xs font-medium text-gray-600">本文コンテンツ（JSON配列）</label>
+          <label htmlFor="pb-content" className="text-xs font-medium text-gray-600">本文コンテンツ（JSON配列）</label>
           <span className="text-xs text-gray-400">sections: {(() => { try { return JSON.parse(contentJson).length; } catch { return '?'; } })()}</span>
         </div>
 
@@ -202,6 +208,7 @@ export default function NewPlatformBlogPage() {
         </div>
 
         <textarea
+          id="pb-content"
           value={contentJson}
           onChange={(e) => { setContentJson(e.target.value); validateJson(e.target.value); }}
           rows={14}

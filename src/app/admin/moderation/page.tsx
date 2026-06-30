@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 
@@ -91,15 +92,16 @@ export default function ModerationPage() {
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">コンテンツモデレーション</h1>
-          {pendingCount > 0 && statusFilter === 'pending' && (
-            <p className="text-sm text-amber-600 mt-0.5">{pendingCount}件の未審査コンテンツがあります</p>
-          )}
-        </div>
-        <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
-      </div>
+      <SbPageHeader
+        title="コンテンツモデレーション"
+        description="投稿されたレビュー・写真・Q&A回答を審査・管理します"
+        actions={
+          <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
+        }
+      />
+      {pendingCount > 0 && statusFilter === 'pending' && (
+        <p className="text-sm text-amber-600 -mt-4">{pendingCount}件の未審査コンテンツがあります</p>
+      )}
 
       {/* フィルター */}
       <div className="flex gap-2">
