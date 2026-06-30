@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
@@ -130,17 +130,25 @@ export default function SubscriptionPlansPage() {
     load();
   };
 
+  // 連打による多重リクエストを弾く同期ガード（ステート反映前の二重クリック対策）。
+  const updatingStatusRef = useRef(false);
   const updateSubStatus = async (sub: Subscription, status: string) => {
-    const res = await fetch('/api/admin/user-subscriptions', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription_id: sub.id, status }),
-    });
-    if (!res.ok) {
-      const e = await res.json().catch(() => null);
-      setToast({ type: 'error', message: e?.error ?? '更新に失敗しました' });
+    if (updatingStatusRef.current) return;
+    updatingStatusRef.current = true;
+    try {
+      const res = await fetch('/api/admin/user-subscriptions', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscription_id: sub.id, status }),
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: e?.error ?? '更新に失敗しました' });
+      }
+      await load();
+    } finally {
+      updatingStatusRef.current = false;
     }
-    load();
   };
 
   if (loading) return <AdminPageLoading />;
@@ -289,6 +297,12 @@ export default function SubscriptionPlansPage() {
                     <button type="button" onClick={() => updateSubStatus(sub, 'active')}
                       className="text-xs text-green-600 border border-green-200 rounded px-2 py-1 hover:bg-green-50 shrink-0">
                       再開
+                    </button>
+                  )}
+                  {sub.status === 'cancelled' && (
+                    <button type="button" onClick={() => updateSubStatus(sub, 'active')}
+                      className="text-xs text-green-600 border border-green-200 rounded px-2 py-1 hover:bg-green-50 shrink-0">
+                      復活
                     </button>
                   )}
                 </div>

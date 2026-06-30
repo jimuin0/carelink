@@ -288,12 +288,12 @@ test('POST: 正常付与 → 201 with subscription', async () => {
 
 // ─── PATCH: status update path ───────────────────────────────────────────────
 
-test('PATCH: ステータス変更 (cancelled) → 200', async () => {
+test('PATCH: ステータス変更 active→cancelled（解約・許可遷移）→ 200', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID }); // sub lookup
+    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID, status: 'active' }); // sub lookup
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
@@ -308,12 +308,56 @@ test('PATCH: ステータス変更 (cancelled) → 200', async () => {
   expect(res.status).toBe(200);
 });
 
+test('PATCH: ステータス変更 cancelled→active（誤解約の復活・許可遷移）→ 200', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID, status: 'cancelled' });
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, status: 'active' }));
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: 不正な状態遷移 cancelled→paused → 400（更新に到達しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID, status: 'cancelled' }));
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, status: 'paused' }));
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 期限切れからの手動復活 expired→active → 400（許可遷移なし）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID, status: 'expired' }));
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, status: 'active' }));
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: 未知の現在ステータス → 400（ラベル未定義は現在値をそのまま表示）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  // DB が想定外の値を返した場合の防御。ラベル fallback（?? current）で生値を表示する。
+  mockAdminFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID, status: 'legacy_unknown' }));
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, status: 'active' }));
+  expect(res.status).toBe(400);
+  const body = await res.json();
+  expect(body.error).toContain('legacy_unknown');
+});
+
 test('PATCH: ステータス変更DB失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID, status: 'active' });
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({

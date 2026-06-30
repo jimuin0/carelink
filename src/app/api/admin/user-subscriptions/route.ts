@@ -7,6 +7,11 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import {
+  isAllowedSubscriptionStatusTransition,
+  SUBSCRIPTION_STATUS_LABEL,
+  type SubscriptionStatus,
+} from '@/lib/subscription-status';
 
 const grantSchema = z.object({
   facility_id: z.string().uuid(),
@@ -159,11 +164,23 @@ export async function PATCH(request: NextRequest) {
   const statusParsed = updateStatusSchema.safeParse(body);
   if (statusParsed.success && body.status) {
     const admin = createServiceRoleClient();
-    const { data: sub } = await admin.from('user_subscriptions').select('facility_id').eq('id', statusParsed.data.subscription_id).single();
+    const { data: sub } = await admin.from('user_subscriptions').select('facility_id, status').eq('id', statusParsed.data.subscription_id).single();
     if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const isAdmin = await checkAdminMembership(supabase, user.id, sub.facility_id);
     if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    // 状態遷移ガード（SSOT）。現在の状態から到達不可能な遷移は弾く。無条件 update による
+    // 不正な巻き戻し（例：解約→一時停止、期限切れ→契約中の無期限復活、同状態の無意味な再書込）を防ぐ。
+    const current = sub.status as SubscriptionStatus;
+    const next = statusParsed.data.status;
+    if (!isAllowedSubscriptionStatusTransition(current, next)) {
+      const currentLabel = SUBSCRIPTION_STATUS_LABEL[current] ?? current;
+      return NextResponse.json(
+        { error: `現在の状態（${currentLabel}）から「${SUBSCRIPTION_STATUS_LABEL[next]}」へは変更できません` },
+        { status: 400 },
+      );
+    }
 
     const { data, error } = await admin.from('user_subscriptions')
       .update({ status: statusParsed.data.status })
