@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: 'ビデオチュートリアル | 管理画面 | CareLink' };
 
@@ -39,10 +40,7 @@ const TUTORIALS = [
 export default function TutorialsPage() {
   return (
     <div className="max-w-4xl space-y-8">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">ビデオチュートリアル</h1>
-        <p className="text-sm text-gray-500 mt-1">CareLink管理画面の使い方を動画でご確認いただけます</p>
-      </div>
+      <SbPageHeader title="ビデオチュートリアル" description="CareLink管理画面の使い方を動画でご確認いただけます" />
 
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
         動画は順次公開予定です。公開され次第この画面に掲載されます。

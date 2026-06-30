@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import Toast from '@/components/Toast';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 interface FeatureFlag {
   id: string;
@@ -51,10 +52,10 @@ export default function FeatureFlagsPage() {
     <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">Feature Flags</h1>
-        <button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>
-      </div>
+      <SbPageHeader
+        title="Feature Flags"
+        actions={<button type="button" onClick={load} className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200">更新</button>}
+      />
 
       <p className="text-sm text-gray-500">
         機能の段階的リリース・緊急停止スイッチを管理します。変更後は反映まで5分程度かかります（サーバーキャッシュ）。

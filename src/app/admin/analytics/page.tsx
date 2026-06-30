@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import StaffSalesTab from './StaffSalesTab';
 import { RevenueChart, BookingTrendChart, CustomerSegmentChart, RepeatRateCard, ViewCountCard } from '@/components/admin/DynamicAnalyticsCharts';
 import { jstMonthInfo } from '@/lib/admin-date';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default async function AdminAnalyticsPage() {
   const supabase = await createServerSupabaseAuthClient();
@@ -62,7 +63,7 @@ export default async function AdminAnalyticsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">売上分析</h1>
+      <SbPageHeader title="売上分析" />
 
       <div className="grid grid-cols-2 gap-4 mb-8">
         <div className="bg-white rounded-xl p-6 shadow-sm">

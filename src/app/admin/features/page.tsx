@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge, SbInput } from '@/components/admin/SbUi';
+import { SbBadge, SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface FeatureArticle {
@@ -166,12 +166,14 @@ export default function AdminFeaturesPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">特集管理</h1>
-        <button type="button" onClick={() => setEditForm({ ...emptyForm, sort_order: features.length.toString() })} className="btn-primary px-5 !py-2.5">
-          特集を追加
-        </button>
-      </div>
+      <SbPageHeader
+        title="特集管理"
+        actions={
+          <button type="button" onClick={() => setEditForm({ ...emptyForm, sort_order: features.length.toString() })} className="btn-primary px-5 !py-2.5">
+            特集を追加
+          </button>
+        }
+      />
 
       {/* Edit/Add Form Modal */}
       {editForm && (

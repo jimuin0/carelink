@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default function AccountingPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
@@ -53,10 +54,7 @@ export default function AccountingPage() {
 
   return (
     <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-xl font-bold">会計ソフト連携</h1>
-        <p className="text-xs text-gray-400 mt-0.5">確定・完了した予約データを会計ソフト用CSVでエクスポート</p>
-      </div>
+      <SbPageHeader title="会計ソフト連携" description="確定・完了した予約データを会計ソフト用CSVでエクスポート" />
 
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-5">
         {/* フォーマット選択 */}
