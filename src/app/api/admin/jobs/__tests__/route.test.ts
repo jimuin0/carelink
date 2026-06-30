@@ -21,9 +21,14 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
+const mockAdminFrom = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+}));
+// メンバーシップ検証後の facility_jobs 操作は service role で行う（RLS バイパス）。
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({ from: mockAdminFrom }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -49,11 +54,6 @@ function validJob(overrides: object = {}) {
     employment_type: '正社員',
     ...overrides,
   };
-}
-
-/** facility_id を付けた validJob */
-function validJobWithFacility(facilityId: string = FACILITY_UUID, overrides: object = {}) {
-  return validJob({ facility_id: facilityId, ...overrides });
 }
 
 // facility_members list — ends with .in() as Promise
@@ -115,12 +115,8 @@ test('GET: 施設メンバーシップなし → 200 jobs:[]', async () => {
 });
 
 test('GET: 正常取得 → 200 with jobs', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return jobListChain([{ id: 'job-1', title: 'テスト求人' }]);
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(jobListChain([{ id: 'job-1', title: 'テスト求人' }]));
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
@@ -148,18 +144,15 @@ test('POST: 施設メンバーシップなし → 403', async () => {
 });
 
 test('POST: 単一施設で facility_id 省略 → 201 (省略時は唯一の施設を使う)', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return insertSingle({ id: 'job-1', title: 'テスト求人' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'job-1', title: 'テスト求人' }));
   const res = await POST(makePostRequest(validJob())); // facility_id なし・単一施設 → 省略可
   expect(res.status).toBe(201);
 });
 
 test('POST: facility_id が所属施設以外 → 403', async () => {
   mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  // insert には到達しない（403）。admin mock は設定不要。
   const res = await POST(makePostRequest(validJob({ facility_id: '99999999-9999-9999-9999-999999999999' })));
   expect(res.status).toBe(403);
 });
@@ -175,23 +168,15 @@ test('POST: title が空 → 400', async () => {
 });
 
 test('POST: DB挿入失敗 → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return insertSingle(null, { message: 'DB error' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(insertSingle(null, { message: 'DB error' }));
   const res = await POST(makePostRequest(validJob()));
   expect(res.status).toBe(500);
 });
 
 test('POST: 正常作成 → 201 with job', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return insertSingle({ id: 'job-1', title: 'テスト求人' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'job-1', title: 'テスト求人' }));
   const res = await POST(makePostRequest(validJob()));
   const json = await res.json();
   expect(res.status).toBe(201);
@@ -201,34 +186,20 @@ test('POST: 正常作成 → 201 with job', async () => {
 const FACILITY_UUID_2 = '44444444-4444-4444-4444-444444444444';
 
 test('POST: facility_id 指定(所有施設) → その施設で201', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]);
-    return insertSingle({ id: 'job-2', title: 'テスト求人' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'job-2', title: 'テスト求人' }));
   const res = await POST(makePostRequest(validJob({ facility_id: FACILITY_UUID_2 })));
   expect(res.status).toBe(201);
 });
 
 test('POST: facility_id 指定(非所有施設) → 403', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return insertSingle({ id: 'x', title: 'x' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
   const res = await POST(makePostRequest(validJob({ facility_id: '99999999-9999-9999-9999-999999999999' })));
   expect(res.status).toBe(403);
 });
 
 test('POST: 複数施設オーナーが facility_id 未指定 → 400(投稿先を要求)', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]);
-    return insertSingle({ id: 'x', title: 'x' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }, { facility_id: FACILITY_UUID_2 }]));
   const res = await POST(makePostRequest(validJob()));
   expect(res.status).toBe(400);
 });
@@ -241,12 +212,8 @@ test('POST: CSRF エラー → 403', async () => {
 });
 
 test('GET: DB エラー → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return jobListChain([], { message: 'DB error' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(jobListChain([], { message: 'DB error' }));
   const res = await GET(makeGetRequest());
   expect(res.status).toBe(500);
 });
@@ -260,12 +227,8 @@ test('GET: レスポンスが { jobs: [] } 形式', async () => {
 });
 
 test('POST: レスポンスが { job: ... } 形式', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return insertSingle({ id: 'job-1', title: 'テスト求人' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'job-1', title: 'テスト求人' }));
   const res = await POST(makePostRequest(validJob()));
   const json = await res.json();
   expect(json.job).toBeDefined();
@@ -293,12 +256,8 @@ test('GET: memberships が null → 200 jobs:[]', async () => {
 });
 
 test('GET: data が null → 200 with []', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return jobListChain(null as unknown as unknown[]);
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(jobListChain(null as unknown as unknown[]));
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(res.status).toBe(200);
@@ -322,12 +281,8 @@ test('POST: 不正JSONボディ → 400', async () => {
 });
 
 test('POST: 全任意フィールド指定 → 201', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID }]);
-    return insertSingle({ id: 'job-2' });
-  });
+  mockAnonFrom.mockReturnValue(membersChain([{ facility_id: FACILITY_UUID }]));
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'job-2' }));
   const res = await POST(makePostRequest(validJob({
     salary_min: 200000,
     salary_max: 400000,

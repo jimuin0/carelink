@@ -7,13 +7,16 @@ export const jobFormSchema = z
     title: z.string().trim().min(1, 'タイトルを入力してください').max(120, '120文字以内で入力してください'),
     job_type: z.string().trim().min(1, '職種を入力してください').max(60),
     employment_type: z.enum(EMPLOYMENT_TYPES, { message: '雇用形態を選択してください' }),
+    // null も受理する：このスキーマはフォーム入力（string）と、フォームが
+    // zodResolver で変換した後の値（空欄→null）を API ルートが再検証する両方で使う。
+    // null を受けないと「給与未入力の求人作成」が POST 再検証で 400 になる（冪等性が要件）。
     salary_min: z
-      .union([z.string(), z.number()])
+      .union([z.string(), z.number(), z.null()])
       .optional()
       .transform((v) => (v === '' || v == null ? null : Number(v)))
       .refine((v) => v === null || (Number.isFinite(v) && v >= 0), '0以上の数値を入力'),
     salary_max: z
-      .union([z.string(), z.number()])
+      .union([z.string(), z.number(), z.null()])
       .optional()
       .transform((v) => (v === '' || v == null ? null : Number(v)))
       .refine((v) => v === null || (Number.isFinite(v) && v >= 0), '0以上の数値を入力'),
