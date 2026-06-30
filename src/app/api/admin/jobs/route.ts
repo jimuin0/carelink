@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -29,11 +30,15 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
   try {
-    const { supabase, user, facilityIds } = await getOwnerFacilityIds();
+    const { user, facilityIds } = await getOwnerFacilityIds();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     if (facilityIds.length === 0) return NextResponse.json({ jobs: [] });
 
-    const { data, error } = await supabase
+    // メンバーシップ検証後の DB 操作は service role で行う（menus/staff と同型）。facility_jobs の
+    // RLS は published 施設の公開 read ポリシーのみで、INSERT/未公開施設の自店 read を許す
+    // ポリシーが無いため、auth クライアントでは未公開施設の自店求人が読めず・作成も弾かれる。
+    const admin = createServiceRoleClient();
+    const { data, error } = await admin
       .from('facility_jobs')
       .select('*')
       .in('facility_id', facilityIds)
@@ -63,7 +68,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '入力値が不正です', issues: parsed.error.issues }, { status: 400 });
     }
 
-    const { supabase, user, facilityIds } = await getOwnerFacilityIds();
+    const { user, facilityIds } = await getOwnerFacilityIds();
     if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
     if (facilityIds.length === 0) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
@@ -97,7 +102,10 @@ export async function POST(request: Request) {
       benefits: v.benefits || null,
     };
 
-    const { data, error } = await supabase
+    // メンバーシップ検証後の INSERT は service role で行う（RLS に INSERT ポリシーが無く
+    // auth クライアントでは弾かれるため。menus/staff と同型の信頼サーバ文脈での書き込み）。
+    const admin = createServiceRoleClient();
+    const { data, error } = await admin
       .from('facility_jobs')
       .insert(insertRow)
       .select('*')
