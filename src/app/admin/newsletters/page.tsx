@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import Toast from '@/components/Toast';
 
 type Campaign = {
   id: string;
@@ -131,10 +132,11 @@ export default function NewslettersPage() {
       </div>
 
       {result && (
-        <div className={`p-4 rounded-lg text-sm ${result.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-          {result.message}
-          <button type="button" onClick={() => setResult(null)} className="ml-2 underline">閉じる</button>
-        </div>
+        <Toast
+          type={result.ok ? 'success' : 'error'}
+          message={result.message}
+          onClose={() => setResult(null)}
+        />
       )}
 
       {/* Quick stats */}
