@@ -77,11 +77,19 @@ function singleChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    in: jest.fn(() => Promise.resolve({ data: Array.isArray(data) ? data : [data], error })),
     order: jest.fn().mockReturnThis(),
     limit: jest.fn(() => Promise.resolve({ data: Array.isArray(data) ? data : [data], error })),
     single: jest.fn(() => Promise.resolve({ data, error })),
     maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
   };
+}
+// user_subscriptions 取得チェーン（select→eq→order→limit）と profiles 別取得チェーン（select→in）。
+function usChain(rows: unknown[], error: unknown = null) {
+  return { select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(), order: jest.fn().mockReturnThis(), limit: jest.fn(() => Promise.resolve({ data: rows, error })) };
+}
+function profilesChain(profs: unknown[], error: unknown = null) {
+  return { select: jest.fn().mockReturnThis(), in: jest.fn(() => Promise.resolve({ data: profs, error })) };
 }
 
 // usage log（subscription_usage_logs）への insert を受けるチェーン
@@ -157,6 +165,51 @@ test('GET: 管理者 → 200 with subscriptions', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.subscriptions).toBeDefined();
+});
+
+test('GET: 正常 → 200（profiles を別取得してマージ＝embed不使用の回帰）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles'
+      ? profilesChain([{ id: USER_ID, display_name: '花子', email: 'h@example.com' }])
+      : usChain([buildActiveSub()]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.subscriptions[0].profiles).toEqual({ display_name: '花子', email: 'h@example.com' });
+});
+
+test('GET: 0件 → 200（profiles 取得をスキップ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : usChain([])));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.subscriptions).toEqual([]);
+});
+
+test('GET: user_subscriptions が null(エラー無し) → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) => (table === 'profiles' ? profilesChain([]) : usChain(null as unknown as unknown[])));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: profiles 取得失敗 → 500', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles' ? profilesChain(null as unknown as unknown[], { message: 'db' }) : usChain([buildActiveSub()]));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
+test('GET: 該当 profiles 無しの行は profiles=null になる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'profiles' ? profilesChain([]) : usChain([buildActiveSub()]));
+  const res = await GET(makeGetRequest());
+  const json = await res.json();
+  expect(json.subscriptions[0].profiles).toBeNull();
 });
 
 // ─── POST: grant subscription ────────────────────────────────────────────────
