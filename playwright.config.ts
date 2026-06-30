@@ -216,8 +216,16 @@ export default defineConfig({
       dependencies: ['admin-batch-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },
-    // admin-blog / admin-jobs は作成後の /admin/blog・/admin/jobs への遷移が CI で不成立
-    // （原因未確定・要実機調査）のため本フェーズでは project 未配線（spec は保持・testIgnore で非実行）。
+    // ブログ作成は blog route の slug(NOT NULL)未設定で常に500だった→本PRで根治したため再有効化。
+    {
+      name: 'admin-blog',
+      testMatch: /admin-blog\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    // admin-jobs は project 未配線。求人作成 route/schema/列は正常だが、jobs/new が react-hook-form
+    // (uncontrolled)のため E2E がハイドレーション完了前に fill すると rhf が defaultValues でリセットし
+    // 検証落ちで送信されない(実ユーザーは hydration 後入力のため非発症)。spec の hydration 堅牢化後に再配線する。
     {
       name: 'admin-featured-ads',
       testMatch: /admin-featured-ads\.spec\.ts/,
