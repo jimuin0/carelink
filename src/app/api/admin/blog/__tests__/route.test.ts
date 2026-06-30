@@ -137,6 +137,29 @@ test('POST: is_published=true → 201 (published_at が設定される)', async 
   expect(res.status).toBe(201);
 });
 
+test('POST: slug が必ず設定される（NOT NULL違反による500回避の回帰）', async () => {
+  // 日本語タイトルは ASCII slug 化で base が空になり 'post-<token>' になる（base空分岐）。
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const insertMock = jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'post-1' }, error: null }) }),
+  });
+  mockAdminFrom.mockReturnValue({ insert: insertMock });
+  const res = await POST(makeRequest(validBody({ title: 'テスト記事' })));
+  expect(res.status).toBe(201);
+  expect(insertMock.mock.calls[0][0].slug).toMatch(/^post-[0-9a-f]{10}$/);
+});
+
+test('POST: ASCIIタイトルは slug にタイトル由来の base が入る（base非空分岐）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  const insertMock = jest.fn().mockReturnValue({
+    select: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'post-2' }, error: null }) }),
+  });
+  mockAdminFrom.mockReturnValue({ insert: insertMock });
+  const res = await POST(makeRequest(validBody({ title: 'Hello World Post' })));
+  expect(res.status).toBe(201);
+  expect(insertMock.mock.calls[0][0].slug).toMatch(/^hello-world-post-[0-9a-f]{10}$/);
+});
+
 test('POST: CSRF エラー → 403', async () => {
   const { checkCsrf } = require('@/lib/csrf');
   (checkCsrf as jest.Mock).mockReturnValueOnce(new Response(JSON.stringify({ error: 'CSRF' }), { status: 403 }));
