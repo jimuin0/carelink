@@ -194,6 +194,23 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
   }
 
+  // 冪等化（二重消費防止）: 同一 booking_id で既に消費済みなら減算しない。
+  // 「1回使用」ボタンの連打/リトライで顧客の前払い分が二重に減るのを防ぐ（逐次再呼び出し対策）。
+  // 並行の同時更新は下の CAS が、真の同時挿入は package_usage_logs(user_package_id, booking_id) の
+  // 部分 UNIQUE（migration・多層防御）が弾く。
+  if (parsed.data.booking_id) {
+    const { data: existingLog } = await admin
+      .from('package_usage_logs')
+      .select('id')
+      .eq('user_package_id', parsed.data.user_package_id)
+      .eq('booking_id', parsed.data.booking_id)
+      .limit(1)
+      .maybeSingle();
+    if (existingLog) {
+      return NextResponse.json({ error: 'この予約は既に回数券を消費済みです' }, { status: 409 });
+    }
+  }
+
   // Atomic decrement: require sessions_remaining matches what we read (optimistic lock)
   // Prevents double-debit if two concurrent requests race past the > 0 check above.
   const { data: updated, error } = await admin
