@@ -225,6 +225,20 @@ export async function PATCH(request: NextRequest) {
     if (!bookingOwnsUser && !bookingInFacility) {
       return NextResponse.json({ error: '予約がサブスクリプションと一致しません' }, { status: 400 });
     }
+
+    // 冪等化（二重消費防止）: 同一 booking_id で既に消費済みなら当月利用回数を二重カウントしない
+    // （「1回使用」の連打/リトライ対策）。subscription_usage_logs(subscription_id, booking_id) の
+    // 部分 UNIQUE（migration・多層防御）が真の同時挿入を弾く。
+    const { data: existingLog } = await admin
+      .from('subscription_usage_logs')
+      .select('id')
+      .eq('subscription_id', useParsed.data.subscription_id)
+      .eq('booking_id', useParsed.data.booking_id)
+      .limit(1)
+      .maybeSingle();
+    if (existingLog) {
+      return NextResponse.json({ error: 'この予約は既に当月の利用として記録済みです' }, { status: 409 });
+    }
   }
 
   // 月次リセット・上限判定・インクリメントは consume_subscription_session RPC に集約する。

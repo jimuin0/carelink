@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Toast from '@/components/Toast';
+import LoadError from '@/components/admin/LoadError';
 
 type Application = {
   id: string;
@@ -30,29 +32,47 @@ const STATUS_LABELS: Record<string, { label: string; color: string }> = {
 export default function JobApplicationsPage() {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [selected, setSelected] = useState<Application | null>(null);
   const [updating, setUpdating] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  useEffect(() => {
+  const load = () => {
+    setLoadError(false);
+    setLoading(true);
     fetch('/api/admin/job-applications')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setApplications(d.applications || []); setLoading(false); })
-      .catch(() => setLoading(false));
-  }, []);
+      // 読み込み失敗を「応募0件」と誤表示しないよう、エラー状態を保持して LoadError を出す。
+      .catch(() => { setLoadError(true); setLoading(false); });
+  };
+
+  useEffect(() => { load(); }, []);
 
   const updateStatus = async (id: string, status: string, referralFee?: number) => {
     setUpdating(true);
-    const res = await fetch(`/api/admin/job-applications/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status, referral_fee_yen: referralFee }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setApplications((prev) => prev.map((a) => a.id === id ? data.application : a));
-      setSelected(data.application);
+    try {
+      const res = await fetch(`/api/admin/job-applications/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, referral_fee_yen: referralFee }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setApplications((prev) => prev.map((a) => a.id === id ? data.application : a));
+        setSelected(data.application);
+        // 採用・紹介手数料の登録が成功したことを明示（無音成功で誤認させない）。
+        setToast({ type: 'success', message: status === 'hired' ? '採用情報を保存しました' : 'ステータスを更新しました' });
+      } else {
+        // 従来は失敗時に何も起きず、採用・手数料登録が失敗しても成功と誤認していた。
+        const e = await res.json().catch(() => null);
+        setToast({ type: 'error', message: e?.error || '更新に失敗しました。時間をおいて再度お試しください' });
+      }
+    } catch {
+      setToast({ type: 'error', message: '通信エラーが発生しました' });
+    } finally {
+      setUpdating(false);
     }
-    setUpdating(false);
   };
 
   const stats = {
@@ -64,6 +84,7 @@ export default function JobApplicationsPage() {
 
   return (
     <div className="max-w-5xl space-y-6">
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       <div>
         <h1 className="text-2xl font-bold text-gray-900">求人応募管理</h1>
         <p className="text-sm text-gray-500 mt-1">人材紹介連動 — 採用時に紹介手数料が発生します</p>
@@ -89,6 +110,8 @@ export default function JobApplicationsPage() {
           <div className="px-6 py-4 border-b font-semibold text-gray-900">応募一覧</div>
           {loading ? (
             <div className="p-8 text-center text-gray-400">読み込み中...</div>
+          ) : loadError ? (
+            <div className="p-6"><LoadError onRetry={load} message="応募の読み込みに失敗しました" /></div>
           ) : applications.length === 0 ? (
             <div className="p-8 text-center text-gray-400">まだ応募がありません</div>
           ) : (
@@ -168,8 +191,15 @@ export default function JobApplicationsPage() {
                       placeholder="例: 300000"
                       className="flex-1 border rounded-lg px-3 py-1.5 text-sm"
                       onBlur={(e) => {
-                        const val = parseInt(e.target.value);
-                        if (!isNaN(val)) updateStatus(selected.id, 'hired', val);
+                        const raw = e.target.value.trim();
+                        if (raw === '') return; // 空欄でフォーカスアウトは無操作（保存しない）
+                        const val = parseInt(raw, 10);
+                        if (!isNaN(val) && val >= 0) {
+                          updateStatus(selected.id, 'hired', val);
+                        } else {
+                          // 不正値を無音で握り潰さず明示する。
+                          setToast({ type: 'error', message: '紹介手数料は0以上の数値で入力してください' });
+                        }
                       }}
                     />
                     <span className="text-sm text-gray-500 self-center">円</span>

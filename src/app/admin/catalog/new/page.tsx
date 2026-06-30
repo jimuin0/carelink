@@ -20,7 +20,7 @@ export default function NewCatalogPage() {
 
     const supabase = createBrowserSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaving(false); return; }
+    if (!user) { setToast({ type: 'error', message: 'セッションが切れました。再ログインしてください' }); setSaving(false); return; }
 
     const { data: membership, error: memErr } = await supabase
       .from('facility_members')
@@ -29,7 +29,7 @@ export default function NewCatalogPage() {
       .limit(1)
       .single();
 
-    if (memErr || !membership) { setSaving(false); return; }
+    if (memErr || !membership) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); setSaving(false); return; }
 
     const res = await fetch(`/api/admin/catalog?facility_id=${membership.facility_id}`, {
       method: 'POST',

@@ -83,6 +83,16 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
+// package_usage_logs 事前チェック（select→eq→eq→limit→maybeSingle）用。limit は this を返す。
+function usageLogChain(existing: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: existing, error: null })),
+  };
+}
+
 function buildUserPackage(overrides: Record<string, unknown> = {}) {
   return {
     id: UP_UUID,
@@ -574,7 +584,8 @@ test('PATCH: booking_id 付きで正常使用 → 200', async () => {
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildUserPackage());
-    if (callNum === 2) {
+    if (callNum === 2) return usageLogChain(null); // package_usage_logs 事前チェック: 既存ログ無し
+    if (callNum === 3) {
       return {
         update: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
@@ -591,4 +602,18 @@ test('PATCH: booking_id 付きで正常使用 → 200', async () => {
   });
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
   expect(res.status).toBe(200);
+});
+
+test('PATCH: booking_id が既に消費済み → 409（二重消費防止）', async () => {
+  const BOOKING_UUID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    // 事前チェックで同一 booking_id の既存ログがヒット → 減算せず 409
+    return usageLogChain({ id: "existing-log" });
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(409);
 });

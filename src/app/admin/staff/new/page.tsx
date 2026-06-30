@@ -30,9 +30,10 @@ export default function NewStaffPage() {
     try {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      // 従来はセッション切れ・所属取得失敗時に無音 return でボタンが無反応に見えた。原因を明示する。
+      if (!user) { setToast({ type: 'error', message: 'セッションが切れました。再ログインしてください' }); return; }
       const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-      if (memErr || !membership) return;
+      if (memErr || !membership) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); return; }
 
       const res = await fetch(`/api/admin/staff?facility_id=${membership.facility_id}`, {
         method: 'POST',
