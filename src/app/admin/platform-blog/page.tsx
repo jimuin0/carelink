@@ -47,7 +47,7 @@ export default async function PlatformBlogPage() {
           <Link href="/blog" target="_blank" rel="noopener noreferrer" className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
             公開ページ →
           </Link>
-          <Link href="/admin/platform-blog/new" className="text-sm px-4 py-1.5 bg-sky-600 text-white rounded-lg hover:bg-sky-700 font-medium">
+          <Link href="/admin/platform-blog/new" className="btn-primary text-sm !px-4 !py-1.5">
             新規作成
           </Link>
         </div>

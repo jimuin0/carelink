@@ -14,7 +14,7 @@ export default function BookingsError({ error, reset }: { error: Error & { diges
       <button
         type="button"
         onClick={reset}
-        className="px-4 py-1.5 rounded-md text-sm font-bold bg-sky-600 text-white hover:bg-sky-700"
+        className="btn-primary !px-4 !py-1.5 text-sm"
       >
         再読み込み
       </button>

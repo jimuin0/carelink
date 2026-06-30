@@ -217,7 +217,7 @@ export default function AdminReviewsPage() {
                   type="button"
                   onClick={() => submitReply(review.id)}
                   disabled={replyingTo === review.id || !(replyText[review.id]?.trim())}
-                  className="shrink-0 text-xs px-4 py-2 bg-sky-600 text-white rounded-lg font-bold hover:bg-sky-700 disabled:opacity-50 transition-colors"
+                  className="btn-primary shrink-0 text-xs !px-4 !py-2"
                 >
                   返信
                 </button>

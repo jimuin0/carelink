@@ -95,7 +95,7 @@ export default function FeaturedAdsPage() {
         <button
           type="button"
           onClick={() => setShowCreate(true)}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors"
+          className="btn-primary !px-4 !py-2 text-sm"
         >
           広告枠を購入
         </button>
@@ -208,7 +208,7 @@ export default function FeaturedAdsPage() {
                   setSubmitting(false);
                 }
               }}
-              className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 transition-colors disabled:opacity-50"
+              className="btn-primary !px-4 !py-2 text-sm"
             >
               {submitting ? '処理中...' : '決済へ進む'}
             </button>

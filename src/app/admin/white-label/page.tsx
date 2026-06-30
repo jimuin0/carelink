@@ -178,7 +178,7 @@ export default function WhiteLabelPage() {
           type="button"
           onClick={handleSave}
           disabled={saving || !form.domain}
-          className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-sky-600 disabled:opacity-50 transition-colors"
+          className="btn-primary !px-4 !py-2 text-sm"
         >
           {saving ? '保存中...' : '設定を保存'}
         </button>
