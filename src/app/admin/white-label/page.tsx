@@ -110,8 +110,9 @@ export default function WhiteLabelPage() {
         <h2 className="font-semibold text-gray-900">ドメイン設定</h2>
 
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">独自ドメイン <span className="text-red-500">*</span></label>
+          <label htmlFor="wl-domain" className="block text-xs font-medium text-gray-700 mb-1">独自ドメイン <span className="text-red-500">*</span></label>
           <input
+            id="wl-domain"
             type="text"
             value={form.domain}
             onChange={(e) => setForm((f) => ({ ...f, domain: e.target.value }))}
@@ -120,12 +121,13 @@ export default function WhiteLabelPage() {
             disabled={loading}
             className="w-full border rounded-lg px-3 py-2 text-sm font-mono"
           />
-          <p className="text-xs text-gray-500 mt-1">サブドメイン推奨（例: booking.yoursite.com）</p>
+          <p className="text-xs text-gray-500 mt-1">サブドメイン推奨（例：booking.yoursite.com）</p>
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">ブランド名</label>
+          <label htmlFor="wl-brand" className="block text-xs font-medium text-gray-700 mb-1">ブランド名</label>
           <input
+            id="wl-brand"
             type="text"
             value={form.brand_name}
             onChange={(e) => setForm((f) => ({ ...f, brand_name: e.target.value }))}
@@ -137,15 +139,17 @@ export default function WhiteLabelPage() {
 
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">ブランドカラー</label>
+            <label htmlFor="wl-color" className="block text-xs font-medium text-gray-700 mb-1">ブランドカラー</label>
             <div className="flex items-center gap-2">
               <input
                 type="color"
+                aria-label="ブランドカラー（カラーピッカー）"
                 value={form.primary_color}
                 onChange={(e) => setForm((f) => ({ ...f, primary_color: e.target.value }))}
                 className="w-10 h-10 rounded border cursor-pointer"
               />
               <input
+                id="wl-color"
                 type="text"
                 value={form.primary_color}
                 onChange={(e) => setForm((f) => ({ ...f, primary_color: e.target.value }))}
@@ -155,8 +159,9 @@ export default function WhiteLabelPage() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">ロゴURL（任意）</label>
+            <label htmlFor="wl-logo" className="block text-xs font-medium text-gray-700 mb-1">ロゴURL（任意）</label>
             <input
+              id="wl-logo"
               type="url"
               value={form.logo_url}
               onChange={(e) => setForm((f) => ({ ...f, logo_url: e.target.value }))}
