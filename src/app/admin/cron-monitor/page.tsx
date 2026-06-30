@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
-import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 
 interface CronLog {
   id: string;
@@ -102,26 +102,10 @@ export default function CronMonitorPage() {
 
       {/* サマリーカード */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <div className="bg-white rounded-xl p-4 border border-gray-100">
-          <p className="text-xs text-gray-500 mb-1">総実行数（30日）</p>
-          <p className="text-2xl font-bold text-gray-800">{logs.length}</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-100">
-          <p className="text-xs text-gray-500 mb-1">成功率</p>
-          <p className={`text-2xl font-bold ${successRate >= 95 ? 'text-emerald-600' : successRate >= 80 ? 'text-amber-500' : 'text-red-600'}`}>
-            {successRate}%
-          </p>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-100">
-          <p className="text-xs text-gray-500 mb-1">エラー数</p>
-          <p className={`text-2xl font-bold ${errorCount > 0 ? 'text-red-600' : 'text-gray-400'}`}>
-            {errorCount}
-          </p>
-        </div>
-        <div className="bg-white rounded-xl p-4 border border-gray-100">
-          <p className="text-xs text-gray-500 mb-1">ジョブ種類</p>
-          <p className="text-2xl font-bold text-gray-800">{latestByJob.length}</p>
-        </div>
+        <SbStatCard label="総実行数（30日）" value={logs.length} />
+        <SbStatCard label="成功率" value={`${successRate}%`} accent={successRate >= 95 ? 'emerald' : successRate >= 80 ? 'amber' : 'rose'} />
+        <SbStatCard label="エラー数" value={errorCount} accent={errorCount > 0 ? 'rose' : 'gray'} />
+        <SbStatCard label="ジョブ種類" value={latestByJob.length} />
       </div>
 
       {/* 最新実行ステータス */}

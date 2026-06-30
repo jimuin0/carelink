@@ -210,13 +210,13 @@ export default function PackagesPage() {
           <h2 className="font-bold text-sm text-gray-700">新規パッケージ</h2>
           <div className="grid sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs text-gray-500 block mb-1">名前 <span className="text-red-500">*</span></label>
-              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+              <label htmlFor="pkg-name" className="text-xs text-gray-500 block mb-1">名前 <span className="text-red-500">*</span></label>
+              <input id="pkg-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5回券（お得パック）" maxLength={100} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">対象メニュー</label>
-              <select value={form.menu_id} onChange={(e) => setForm({ ...form, menu_id: e.target.value })}
+              <label htmlFor="pkg-menu" className="text-xs text-gray-500 block mb-1">対象メニュー</label>
+              <select id="pkg-menu" value={form.menu_id} onChange={(e) => setForm({ ...form, menu_id: e.target.value })}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">全メニュー共通</option>
                 {menus.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
@@ -224,29 +224,29 @@ export default function PackagesPage() {
             </div>
           </div>
           <div>
-            <label className="text-xs text-gray-500 block mb-1">説明</label>
-            <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
+            <label htmlFor="pkg-description" className="text-xs text-gray-500 block mb-1">説明</label>
+            <textarea id="pkg-description" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={2} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" placeholder="5回ご利用で1回分無料のお得なパッケージ" maxLength={500} />
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div>
-              <label className="text-xs text-gray-500 block mb-1">購入回数</label>
-              <input type="number" value={form.session_count} onChange={(e) => setForm({ ...form, session_count: parseInt(e.target.value) || 1 })}
+              <label htmlFor="pkg-session-count" className="text-xs text-gray-500 block mb-1">購入回数</label>
+              <input id="pkg-session-count" type="number" value={form.session_count} onChange={(e) => setForm({ ...form, session_count: parseInt(e.target.value) || 1 })}
                 min={1} max={100} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">ボーナス回数</label>
-              <input type="number" value={form.bonus_count} onChange={(e) => setForm({ ...form, bonus_count: parseInt(e.target.value) || 0 })}
+              <label htmlFor="pkg-bonus-count" className="text-xs text-gray-500 block mb-1">ボーナス回数</label>
+              <input id="pkg-bonus-count" type="number" value={form.bonus_count} onChange={(e) => setForm({ ...form, bonus_count: parseInt(e.target.value) || 0 })}
                 min={0} max={50} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">価格（円）</label>
-              <input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: parseInt(e.target.value) || 0 })}
+              <label htmlFor="pkg-price" className="text-xs text-gray-500 block mb-1">価格（円）</label>
+              <input id="pkg-price" type="number" value={form.price} onChange={(e) => setForm({ ...form, price: parseInt(e.target.value) || 0 })}
                 min={0} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">有効期限（日）</label>
-              <input type="number" value={form.valid_days} onChange={(e) => setForm({ ...form, valid_days: parseInt(e.target.value) || 365 })}
+              <label htmlFor="pkg-valid-days" className="text-xs text-gray-500 block mb-1">有効期限（日）</label>
+              <input id="pkg-valid-days" type="number" value={form.valid_days} onChange={(e) => setForm({ ...form, valid_days: parseInt(e.target.value) || 365 })}
                 min={1} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
           </div>
