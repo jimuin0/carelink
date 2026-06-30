@@ -9,6 +9,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 const MAX_PHOTOS = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (before compression)
@@ -185,6 +186,11 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
         }
       }
 
+      // reCAPTCHA v3 トークン取得（site key 設定時のみ実トークン・未設定の dev/CI では null）。
+      // サーバ /api/review は secret 設定時に token を必須化（fail-closed）するため、ここで送らないと
+      // 本番で全レビュー投稿が 403 になる。null の場合は従来通り token 無しで送る（secret 未設定環境）。
+      const recaptchaToken = await getRecaptchaToken('review');
+
       // レビュー投稿はサーバーサイドAPIを経由（IP記録のため）
       const res = await fetch('/api/review', {
         method: 'POST',
@@ -199,6 +205,7 @@ export default function ReviewForm({ facilityId, facilitySlug, facilityName, onR
           rating_explanation: data.rating_explanation,
           comment: data.comment || null,
           photo_urls: photo_urls.length > 0 ? photo_urls : null,
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
 
