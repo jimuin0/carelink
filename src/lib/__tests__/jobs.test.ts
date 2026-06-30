@@ -124,6 +124,23 @@ describe('jobFormSchema — salary fields union transform', () => {
     if (r.success) expect(r.data.salary_min).toBe(5000);
   });
 
+  test('salary_min/max が null でも受理（冪等再検証＝給与未入力の求人作成が POST 再検証で 400 にならない）', () => {
+    // フォームが zodResolver で空欄→null に変換した値を、API ルートが同じスキーマで
+    // 再検証する経路。null を弾くと給与未入力の求人作成が 400 になる回帰の固定。
+    const r = jobFormSchema.safeParse({
+      title: 'OK',
+      job_type: 'x',
+      employment_type: '正社員',
+      salary_min: null,
+      salary_max: null,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.salary_min).toBeNull();
+      expect(r.data.salary_max).toBeNull();
+    }
+  });
+
   test('salary_min negative → refine fails', () => {
     const r = jobFormSchema.safeParse({
       title: 'OK',
