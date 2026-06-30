@@ -60,9 +60,9 @@ export default function FeaturedAdsPage() {
     const supabase = createBrowserSupabaseClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setLoadError(true); setLoading(false); return; }
-    const { data: membership } = await supabase
+    const { data: membership, error: memErr } = await supabase
       .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
-    if (!membership?.facility_id) { setLoadError(true); setLoading(false); return; }
+    if (memErr || !membership?.facility_id) { setLoadError(true); setLoading(false); return; }
     setFacilityId(membership.facility_id as string);
     loadSlots(membership.facility_id as string);
   }, [loadSlots]);
