@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -172,6 +172,73 @@ export default defineConfig({
       testMatch: /customers\.spec\.ts/,
       dependencies: ['customers-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-customers.json' },
+    },
+    // オーナー商品設定/マーケの編集・削除・作成系（全て admin-batch setup の owner 認証を共有）
+    {
+      name: 'admin-menus',
+      testMatch: /admin-menus\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-coupons',
+      testMatch: /admin-coupons\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-catalog',
+      testMatch: /admin-catalog\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-packages-edit',
+      testMatch: /admin-packages-edit\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-subscription-plans-edit',
+      testMatch: /admin-subscription-plans-edit\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-staff-edit',
+      testMatch: /admin-staff-edit\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-qa',
+      testMatch: /admin-qa\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-blog',
+      testMatch: /admin-blog\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-jobs',
+      testMatch: /admin-jobs\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-featured-ads',
+      testMatch: /admin-featured-ads\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    {
+      name: 'admin-qrcode',
+      testMatch: /admin-qrcode\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },
   ],
   webServer: process.env.CI
