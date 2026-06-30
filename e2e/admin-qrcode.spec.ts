@@ -5,7 +5,8 @@ import { test, expect } from '@playwright/test';
 
 test('オーナーが施設QRコードを生成しPNG保存できる', async ({ page }) => {
   await page.goto('/admin/qrcode');
-  await expect(page.getByRole('heading', { name: 'QRコード' })).toBeVisible({ timeout: 15000 });
+  // 見出しは h1「QRコード」と h2「施設ページQRコード」があり後者も部分一致するため exact 指定。
+  await expect(page.getByRole('heading', { name: 'QRコード', exact: true })).toBeVisible({ timeout: 15000 });
 
   // qrcode npm でローカル生成された QR 画像（data URL PNG）が表示される（外部依存なし）。
   const qrImg = page.getByRole('img', { name: 'QRコード' }).first();
