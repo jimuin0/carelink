@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-jobs\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/, /admin-subscribers\.setup\.ts/, /admin-subscribers\.spec\.ts/, /admin-menus\.spec\.ts/, /admin-coupons\.spec\.ts/, /admin-catalog\.spec\.ts/, /admin-packages-edit\.spec\.ts/, /admin-subscription-plans-edit\.spec\.ts/, /admin-staff-edit\.spec\.ts/, /admin-qa\.spec\.ts/, /admin-blog\.spec\.ts/, /admin-featured-ads\.spec\.ts/, /admin-qrcode\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -223,9 +223,15 @@ export default defineConfig({
       dependencies: ['admin-batch-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },
-    // admin-jobs は project 未配線。求人作成 route/schema/列は正常だが、jobs/new が react-hook-form
-    // (uncontrolled)のため E2E がハイドレーション完了前に fill すると rhf が defaultValues でリセットし
-    // 検証落ちで送信されない(実ユーザーは hydration 後入力のため非発症)。spec の hydration 堅牢化後に再配線する。
+    // 求人作成。jobs/new は react-hook-form(uncontrolled)で、spec が fill→値検証を toPass で
+    // 繰り返しハイドレーション後の入力定着を待つ堅牢化を入れたため再配線（旧: 配線前は hydration
+    // 前 fill が rhf defaultValues でリセットされ検証落ち）。
+    {
+      name: 'admin-jobs',
+      testMatch: /admin-jobs\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
     {
       name: 'admin-featured-ads',
       testMatch: /admin-featured-ads\.spec\.ts/,
