@@ -223,9 +223,16 @@ export default defineConfig({
       dependencies: ['admin-batch-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },
-    // admin-jobs は project 未配線。求人作成 route/schema/列は正常だが、jobs/new が react-hook-form
-    // (uncontrolled)のため E2E がハイドレーション完了前に fill すると rhf が defaultValues でリセットし
-    // 検証落ちで送信されない(実ユーザーは hydration 後入力のため非発症)。spec の hydration 堅牢化後に再配線する。
+    // 求人作成。jobs/new は react-hook-form(uncontrolled)で、hydration 完了前の fill が rhf 内部 state へ
+    // 届かず検証落ちで送信されないレースがあった（実ユーザーは hydration 後入力のため非発症＝製品バグでない）。
+    // spec 側を「fill→submit→遷移」を真の成功条件にして決定的に再試行する形に堅牢化したため再配線する。
+    // 公開プロジェクト(chromium / Mobile Safari)の誤実行を防ぐため admin-jobs.spec.ts は両 testIgnore に残す。
+    {
+      name: 'admin-jobs',
+      testMatch: /admin-jobs\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
     {
       name: 'admin-featured-ads',
       testMatch: /admin-featured-ads\.spec\.ts/,
