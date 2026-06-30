@@ -61,7 +61,7 @@ export default function AccountingPage() {
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-5">
         {/* フォーマット選択 */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-3">出力形式</label>
+          <p className="block text-sm font-medium text-gray-700 mb-3">出力形式</p>
           <div className="space-y-2">
             {(Object.entries(FORMAT_INFO) as [keyof typeof FORMAT_INFO, typeof FORMAT_INFO[keyof typeof FORMAT_INFO]][]).map(([key, info]) => (
               <label key={key} className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-colors ${
@@ -81,13 +81,13 @@ export default function AccountingPage() {
         {/* 期間選択 */}
         <div className="grid sm:grid-cols-2 gap-4">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">開始日</label>
-            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)}
+            <label htmlFor="ac-from" className="block text-xs text-gray-500 mb-1">開始日</label>
+            <input id="ac-from" type="date" value={from} onChange={(e) => setFrom(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">終了日</label>
-            <input type="date" value={to} onChange={(e) => setTo(e.target.value)}
+            <label htmlFor="ac-to" className="block text-xs text-gray-500 mb-1">終了日</label>
+            <input id="ac-to" type="date" value={to} onChange={(e) => setTo(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
           </div>
         </div>
@@ -104,7 +104,7 @@ export default function AccountingPage() {
 
       {/* 注意事項 */}
       <div className="bg-amber-50 rounded-xl p-4 text-xs text-amber-800 space-y-1">
-        <p><strong>注意事項:</strong></p>
+        <p><strong>注意事項：</strong></p>
         <p>• 出力対象は「確定」「完了」ステータスの予約のみです</p>
         <p>• 消費税率は一律10%で計算しています</p>
         <p>• 実際の申告前に税理士・会計士にご確認ください</p>

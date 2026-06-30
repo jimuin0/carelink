@@ -158,8 +158,9 @@ export default function NewslettersPage() {
           <h2 className="font-semibold text-gray-900">新規キャンペーン</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">タイプ</label>
+              <label htmlFor="nl-type" className="block text-xs font-medium text-gray-700 mb-1">タイプ</label>
               <select
+                id="nl-type"
                 value={form.campaign_type}
                 onChange={(e) => setForm((f) => ({ ...f, campaign_type: e.target.value as Campaign['campaign_type'] }))}
                 className="w-full border rounded-lg px-3 py-2 text-sm"
@@ -170,8 +171,9 @@ export default function NewslettersPage() {
               </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-700 mb-1">配信予定日時（任意）</label>
+              <label htmlFor="nl-scheduled" className="block text-xs font-medium text-gray-700 mb-1">配信予定日時（任意）</label>
               <input
+                id="nl-scheduled"
                 type="datetime-local"
                 value={form.scheduled_at}
                 onChange={(e) => setForm((f) => ({ ...f, scheduled_at: e.target.value }))}
@@ -180,19 +182,21 @@ export default function NewslettersPage() {
             </div>
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">件名 <span className="text-red-500">*</span></label>
+            <label htmlFor="nl-subject" className="block text-xs font-medium text-gray-700 mb-1">件名 <span className="text-red-500">*</span></label>
             <input
+              id="nl-subject"
               type="text"
               value={form.subject}
               onChange={(e) => setForm((f) => ({ ...f, subject: e.target.value }))}
-              placeholder="例: 【CareLink】4月の施設オーナー様向けニュースレター"
+              placeholder="例：【CareLink】4月の施設オーナー様向けニュースレター"
               maxLength={200}
               className="w-full border rounded-lg px-3 py-2 text-sm"
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">HTMLコンテンツ <span className="text-red-500">*</span></label>
+            <label htmlFor="nl-html" className="block text-xs font-medium text-gray-700 mb-1">HTMLコンテンツ <span className="text-red-500">*</span></label>
             <textarea
+              id="nl-html"
               value={form.html_content}
               onChange={(e) => setForm((f) => ({ ...f, html_content: e.target.value }))}
               placeholder="<p>こんにちは...</p>"
@@ -202,8 +206,9 @@ export default function NewslettersPage() {
             />
           </div>
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">プレーンテキスト（任意）</label>
+            <label htmlFor="nl-text" className="block text-xs font-medium text-gray-700 mb-1">プレーンテキスト（任意）</label>
             <textarea
+              id="nl-text"
               value={form.text_content}
               onChange={(e) => setForm((f) => ({ ...f, text_content: e.target.value }))}
               placeholder="メールをテキストで読む方向け"
@@ -257,9 +262,9 @@ export default function NewslettersPage() {
                     </div>
                     <div className="font-medium text-gray-900 mt-1 truncate">{c.subject}</div>
                     <div className="text-xs text-gray-500 mt-1 space-x-3">
-                      {c.scheduled_at && <span>予定: {new Date(c.scheduled_at).toLocaleString('ja-JP')}</span>}
-                      {c.sent_at && <span>送信: {new Date(c.sent_at).toLocaleString('ja-JP')}</span>}
-                      <span>作成: {new Date(c.created_at).toLocaleDateString('ja-JP')}</span>
+                      {c.scheduled_at && <span>予定：{new Date(c.scheduled_at).toLocaleString('ja-JP')}</span>}
+                      {c.sent_at && <span>送信：{new Date(c.sent_at).toLocaleString('ja-JP')}</span>}
+                      <span>作成：{new Date(c.created_at).toLocaleDateString('ja-JP')}</span>
                     </div>
                     {c.status === 'sent' && (
                       <div className="mt-2 flex gap-4 text-xs text-gray-600">

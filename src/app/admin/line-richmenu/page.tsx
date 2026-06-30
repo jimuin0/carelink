@@ -106,12 +106,13 @@ export default function LineRichMenuPage() {
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-3">
         <h2 className="font-bold text-gray-800">設定</h2>
         <div>
-          <label className="block text-xs text-gray-500 mb-1">LIFF ID（マイページ用）</label>
+          <label htmlFor="lr-liff" className="block text-xs text-gray-500 mb-1">LIFF ID（マイページ用）</label>
           <input
+            id="lr-liff"
             type="text"
             value={liffId}
             onChange={(e) => setLiffId(e.target.value)}
-            placeholder="例: 1234567890-AbCdEfGh"
+            placeholder="例：1234567890-AbCdEfGh"
             maxLength={50}
             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-sky-300"
           />
