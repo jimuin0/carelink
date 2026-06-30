@@ -23,12 +23,12 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/],
     },
     {
       name: 'Mobile Safari',
       use: { ...devices['iPhone 13'] },
-      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/],
+      testIgnore: [/admin\.setup\.ts/, /admin\.spec\.ts/, /booking-complete\.setup\.ts/, /booking-complete\.spec\.ts/, /visitor-cancel\.setup\.ts/, /visitor-cancel\.spec\.ts/, /owner-cancel\.setup\.ts/, /owner-cancel\.spec\.ts/, /visitor-change\.setup\.ts/, /visitor-change\.spec\.ts/, /intake\.setup\.ts/, /intake\.spec\.ts/, /admin-batch\.setup\.ts/, /admin-settings\.spec\.ts/, /admin-packages\.spec\.ts/, /visitor-favorite\.setup\.ts/, /visitor-favorite\.spec\.ts/, /customers\.setup\.ts/, /customers\.spec\.ts/, /admin-subscriptions\.spec\.ts/],
     },
     // オーナー認証の seed＋ログイン（storageState を作る）
     {
@@ -125,6 +125,13 @@ export default defineConfig({
     {
       name: 'admin-packages',
       testMatch: /admin-packages\.spec\.ts/,
+      dependencies: ['admin-batch-setup'],
+      use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
+    },
+    // 認証済み storageState でオーナーのサブスクプラン作成を検証（admin-batch setup を共有）
+    {
+      name: 'admin-subscriptions',
+      testMatch: /admin-subscriptions\.spec\.ts/,
       dependencies: ['admin-batch-setup'],
       use: { ...devices['Desktop Chrome'], storageState: 'e2e/.auth/admin-batch.json' },
     },

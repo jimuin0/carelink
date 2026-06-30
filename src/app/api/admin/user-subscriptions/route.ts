@@ -56,17 +56,33 @@ export async function GET(request: NextRequest) {
   if (!isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+  // profiles(display_name, email) を embed しない：user_subscriptions.user_id は auth.users(id) を参照し
+  // user_subscriptions→profiles の FK が無いため、PostgREST が関係を解決できずデータの有無に関わらず
+  // 全件エラー(500)になり、サブスク管理ページ全体が LoadError に落ちる実バグだった（user-packages /
+  // newsletter と同根）。profiles は user_id で別取得し JS マージしてレスポンス形状を不変に保つ。
   let query = admin
     .from('user_subscriptions')
-    .select('*, subscription_plans(name, price, sessions_per_month), profiles(display_name, email)')
+    .select('*, subscription_plans(name, price, sessions_per_month)')
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false });
 
   if (userId) query = query.eq('user_id', userId);
 
-  const { data, error } = await query.limit(200);
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-  return NextResponse.json({ subscriptions: data });
+  const { data: rows, error } = await query.limit(200);
+  if (error || !rows) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const userIds = [...new Set(rows.map((r) => r.user_id as string))];
+  const profilesById: Record<string, { display_name: string | null; email: string | null }> = {};
+  if (userIds.length > 0) {
+    const { data: profs, error: profErr } = await admin
+      .from('profiles')
+      .select('id, display_name, email')
+      .in('id', userIds);
+    if (profErr || !profs) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    for (const p of profs) profilesById[p.id as string] = { display_name: p.display_name, email: p.email };
+  }
+  const subscriptions = rows.map((r) => ({ ...r, profiles: profilesById[r.user_id as string] ?? null }));
+  return NextResponse.json({ subscriptions });
 }
 
 // 管理者がユーザーにサブスクを付与
