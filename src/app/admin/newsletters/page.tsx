@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { SbBadge, SbPageHeader, type SbBadgeTone } from '@/components/admin/SbUi';
+import { SbBadge, SbPageHeader, SbStatCard, type SbBadgeTone } from '@/components/admin/SbUi';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 
@@ -141,17 +141,10 @@ export default function NewslettersPage() {
 
       {/* Quick stats */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: '総キャンペーン', value: campaigns.length },
-          { label: '配信済み', value: campaigns.filter((c) => c.status === 'sent').length },
-          { label: '予定', value: campaigns.filter((c) => c.status === 'scheduled').length },
-          { label: '下書き', value: campaigns.filter((c) => c.status === 'draft').length },
-        ].map((s) => (
-          <div key={s.label} className="bg-white rounded-xl border p-4">
-            <div className="text-2xl font-bold text-gray-900">{s.value}</div>
-            <div className="text-xs text-gray-500 mt-1">{s.label}</div>
-          </div>
-        ))}
+        <SbStatCard label="総キャンペーン" value={campaigns.length} unit="件" accent="sky" />
+        <SbStatCard label="配信済み" value={campaigns.filter((c) => c.status === 'sent').length} unit="件" accent="emerald" />
+        <SbStatCard label="予定" value={campaigns.filter((c) => c.status === 'scheduled').length} unit="件" accent="amber" />
+        <SbStatCard label="下書き" value={campaigns.filter((c) => c.status === 'draft').length} unit="件" accent="gray" />
       </div>
 
       {/* Create form */}
