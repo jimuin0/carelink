@@ -2,7 +2,6 @@ import Image from 'next/image';
 import Link from 'next/link';
 import type { FacilityCardData } from '@/types';
 import { SHIMMER_BLUR, cardUrl } from '@/lib/image-utils';
-import CompareButton from './CompareButton';
 
 function CardStarRating({ rating, count }: { rating: number; count: number }) {
   return (
@@ -144,8 +143,8 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
           )}
         </div>
 
-        {/* 位置情報 + ポイントバッジ */}
-        <div className="flex items-center justify-between mt-2">
+        {/* 位置情報 */}
+        <div className="mt-2">
           <p className="text-gray-500 text-xs flex items-center gap-1 min-w-0">
             <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -156,9 +155,6 @@ export default function FacilityCard({ facility, showBadges = true, monthlyBooki
               {facility.access_info && ` / ${facility.access_info}`}
             </span>
           </p>
-          <div className="shrink-0 ml-2">
-            <CompareButton facilityId={facility.id} />
-          </div>
         </div>
       </div>
     </Link>
