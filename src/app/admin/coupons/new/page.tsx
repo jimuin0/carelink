@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 
 export default function NewCouponPage() {
   const router = useRouter();
@@ -87,7 +87,7 @@ export default function NewCouponPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">クーポン新規作成</h1>
+      <SbPageHeader title="クーポン新規作成" />
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>

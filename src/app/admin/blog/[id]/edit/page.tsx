@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import type { BlogPost } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -137,7 +137,7 @@ export default function EditBlogPage() {
   if (loadError) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">ブログ編集</h1>
+        <SbPageHeader title="ブログ編集" />
         <LoadError onRetry={load} message="記事の読み込みに失敗しました" />
       </div>
     );
@@ -145,7 +145,7 @@ export default function EditBlogPage() {
 
   return (
     <div onChange={() => setDirty(true)}>
-      <h1 className="text-2xl font-bold mb-6">ブログ編集</h1>
+      <SbPageHeader title="ブログ編集" />
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>

@@ -1,7 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
 
 export const dynamic = 'force-dynamic';
 
@@ -38,20 +38,20 @@ export default async function PlatformBlogPage() {
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold">プラットフォームブログ</h1>
-          <p className="text-xs text-gray-400 mt-0.5">CareLink 公式コラム記事の管理</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Link href="/blog" target="_blank" rel="noopener noreferrer" className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
-            公開ページ →
-          </Link>
-          <Link href="/admin/platform-blog/new" className="btn-primary text-sm !px-4 !py-1.5">
-            新規作成
-          </Link>
-        </div>
-      </div>
+      <SbPageHeader
+        title="プラットフォームブログ"
+        description="CareLink 公式コラム記事の管理"
+        actions={
+          <div className="flex items-center gap-2">
+            <Link href="/blog" target="_blank" rel="noopener noreferrer" className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+              公開ページ →
+            </Link>
+            <Link href="/admin/platform-blog/new" className="btn-primary text-sm !px-4 !py-1.5">
+              新規作成
+            </Link>
+          </div>
+        }
+      />
 
       <div className="bg-white rounded-xl border border-gray-100 overflow-hidden">
         {posts.length === 0 ? (
