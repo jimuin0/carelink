@@ -6,6 +6,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface QAItem {
@@ -145,14 +146,14 @@ export default function AdminQAPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Q&A管理</h1>
-        {pendingCount > 0 && (
+      <SbPageHeader
+        title="Q&A管理"
+        actions={pendingCount > 0 && (
           <span className="bg-red-500 text-white text-xs font-bold px-2.5 py-1 rounded-full">
             未回答 {pendingCount}件
           </span>
         )}
-      </div>
+      />
 
       {/* Filter tabs */}
       <div className="flex gap-2 mb-4">

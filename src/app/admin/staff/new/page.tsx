@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 
 export default function NewStaffPage() {
   const router = useRouter();
@@ -66,7 +66,7 @@ export default function NewStaffPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">スタッフ追加</h1>
+      <SbPageHeader title="スタッフ追加" />
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>

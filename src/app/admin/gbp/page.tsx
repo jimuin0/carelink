@@ -6,6 +6,7 @@ import type { PlaceDetails, GbpAuditResult } from '@/lib/gbp';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 type TabId = 'setup' | 'audit' | 'reviews' | 'posts';
@@ -204,7 +205,7 @@ export default function AdminGbpPage() {
   if (loadError) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">GBP管理（Googleビジネスプロフィール）</h1>
+        <SbPageHeader title="GBP管理（Googleビジネスプロフィール）" />
         <LoadError onRetry={() => { init().catch(() => { setLoadError(true); setLoading(false); }); }} message="GBP設定の読み込みに失敗しました" />
       </div>
     );
@@ -229,15 +230,15 @@ export default function AdminGbpPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">GBP管理（Googleビジネスプロフィール）</h1>
-        {placeId && (
+      <SbPageHeader
+        title="GBP管理（Googleビジネスプロフィール）"
+        actions={placeId && (
           <a href={gbpManageUrl} target="_blank" rel="noopener noreferrer"
              className="text-sm bg-sky-600 text-white px-4 py-2 rounded-lg hover:bg-sky-700 transition-colors">
             GBP管理画面を開く ↗
           </a>
         )}
-      </div>
+      />
 
       {/* タブ */}
       <div className="flex border-b mb-6 gap-1 flex-wrap">

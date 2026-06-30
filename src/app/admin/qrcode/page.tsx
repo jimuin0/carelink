@@ -5,6 +5,7 @@ import QRCode from 'qrcode';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export default function AdminQrCodePage() {
@@ -69,7 +70,7 @@ export default function AdminQrCodePage() {
   if (loadError) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">QRコード</h1>
+        <SbPageHeader title="QRコード" />
         <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="施設情報の読み込みに失敗しました" />
       </div>
     );
@@ -83,7 +84,7 @@ export default function AdminQrCodePage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">QRコード</h1>
+      <SbPageHeader title="QRコード" />
 
       <div className="grid sm:grid-cols-2 gap-6">
         {/* QRコードプレビュー */}

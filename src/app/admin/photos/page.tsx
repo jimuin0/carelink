@@ -6,7 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import type { FacilityPhoto } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -172,7 +172,7 @@ export default function AdminPhotosPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">写真管理</h1>
+      <SbPageHeader title="写真管理" />
 
       {/* 医療広告ガイドライン注意書き */}
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-6 text-sm text-amber-800">
