@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCustomerVisits } from '@/lib/admin';
 import Breadcrumb from '@/components/Breadcrumb';
 import { UUID_REGEX } from '@/lib/constants';
+import { SbStatCard } from '@/components/admin/SbUi';
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -52,14 +53,8 @@ export default async function CustomerDetailPage(props: Props) {
       {customer.email && <p className="text-sm text-gray-500 mb-6">{customer.email}</p>}
 
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-xl p-4 shadow-sm">
-          <p className="text-sm text-gray-500">来店回数</p>
-          <p className="text-2xl font-bold">{visits.length}回</p>
-        </div>
-        <div className="bg-white rounded-xl p-4 shadow-sm">
-          <p className="text-sm text-gray-500">合計売上</p>
-          <p className="text-2xl font-bold">¥{totalSpent.toLocaleString()}</p>
-        </div>
+        <SbStatCard label="来店回数" value={visits.length} unit="回" accent="sky" />
+        <SbStatCard label="合計売上" value={`¥${totalSpent.toLocaleString()}`} accent="emerald" />
       </div>
 
       <h2 className="font-bold mb-3">来店履歴</h2>

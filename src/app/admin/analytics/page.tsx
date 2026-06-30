@@ -66,8 +66,8 @@ export default async function AdminAnalyticsPage() {
       <SbPageHeader title="売上分析" />
 
       <div className="grid grid-cols-2 gap-4 mb-8">
-        <SbStatCard label="直近6ヶ月の売上" value={`¥${totalRevenue.toLocaleString()}`} />
-        <SbStatCard label="完了予約数" value={totalBookings} unit="件" />
+        <SbStatCard label="直近6ヶ月の売上" value={`¥${totalRevenue.toLocaleString()}`} accent="sky" />
+        <SbStatCard label="完了予約数" value={totalBookings} unit="件" accent="emerald" />
       </div>
 
       <div className="bg-white rounded-xl p-6 shadow-sm">
