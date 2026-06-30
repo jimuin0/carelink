@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
@@ -68,6 +68,9 @@ export default function CustomersManager({
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  // ステート更新が次レンダーまで反映されない隙の二重クリックも弾く同期ガード。
+  const deletingRef = useRef(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   // HPB お客様情報一覧型の検索（入力=draft、「検索する」で適用=search）。データはクライアントに
@@ -147,7 +150,9 @@ export default function CustomersManager({
   };
 
   const handleDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteId || deletingRef.current) return;
+    deletingRef.current = true;
+    setDeleting(true);
     try {
       const res = await fetch(`/api/admin/customers/${deleteId}?facility_id=${facilityId}`, { method: 'DELETE' });
       if (!res.ok) {
@@ -160,6 +165,8 @@ export default function CustomersManager({
     } catch {
       setToast({ type: 'error', message: '通信エラーが発生しました' });
     } finally {
+      deletingRef.current = false;
+      setDeleting(false);
       setDeleteId(null);
     }
   };
@@ -382,9 +389,10 @@ export default function CustomersManager({
         open={deleteId !== null}
         title="顧客を削除"
         message="この顧客をマスターから削除します。来店履歴（予約データ）は残ります。よろしいですか？"
-        confirmLabel="削除する"
+        confirmLabel={deleting ? '削除中...' : '削除する'}
+        confirmDisabled={deleting}
         onConfirm={handleDelete}
-        onCancel={() => setDeleteId(null)}
+        onCancel={() => { if (!deleting) setDeleteId(null); }}
       />
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
