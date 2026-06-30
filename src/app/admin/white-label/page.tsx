@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Toast from '@/components/Toast';
 
 type WhiteLabelDomain = {
   id: string;
@@ -86,10 +87,11 @@ export default function WhiteLabelPage() {
       </div>
 
       {message && (
-        <div role={message.ok ? undefined : 'alert'} className={`p-4 rounded-lg text-sm ${message.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
-          {message.text}
-          <button type="button" onClick={() => setMessage(null)} className="ml-2 underline">閉じる</button>
-        </div>
+        <Toast
+          type={message.ok ? 'success' : 'error'}
+          message={message.text}
+          onClose={() => setMessage(null)}
+        />
       )}
 
       {/* Plan requirement notice */}
