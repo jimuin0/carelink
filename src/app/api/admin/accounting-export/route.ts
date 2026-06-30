@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
   // 実列 total_price をエイリアスで total_amount として取得し、menu_name は取得後に平坦化する。
   type BookingRow = {
     id: string; booking_date: string;
+    user_id: string | null;
     menu: { name: string } | { name: string }[] | null;
     menu_ids: string[] | null;
     total_amount: number | null;
@@ -80,7 +81,7 @@ export async function GET(request: NextRequest) {
       // なっていた（8体監査 A3）。
       let q = admin
         .from('bookings')
-        .select('id, booking_date, menu:facility_menus(name), menu_ids, total_amount:total_price, status, profiles(display_name, email)')
+        .select('id, booking_date, user_id, menu:facility_menus(name), menu_ids, total_amount:total_price, status')
         .eq('facility_id', facilityId)
         .eq('status', 'completed')
         .order('booking_date');
@@ -110,6 +111,20 @@ export async function GET(request: NextRequest) {
     for (const m of (menuRows ?? []) as { id: string; name: string }[]) {
       menuNameMap.set(m.id, m.name);
     }
+  }
+
+  // profiles(display_name, email) は embed しない：bookings.user_id は auth.users(id) 参照で
+  // bookings→profiles の FK が無く、PostgREST が embed を解決できず会計CSVエクスポートが常時 500 に
+  // 落ちる実バグだった（user-packages / user-subscriptions と同根）。user_id で別取得しマージする。
+  const customerUserIds = Array.from(new Set(bookings.map((b) => b.user_id).filter(Boolean) as string[]));
+  if (customerUserIds.length > 0) {
+    const { data: profs, error: profErr } = await admin
+      .from('profiles')
+      .select('id, display_name, email')
+      .in('id', customerUserIds);
+    if (profErr) return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
+    const profMap = new Map((profs ?? []).map((p) => [p.id as string, { display_name: p.display_name ?? undefined, email: p.email ?? undefined }]));
+    for (const b of bookings) b.profiles = b.user_id ? (profMap.get(b.user_id) ?? null) : null;
   }
 
   // embed した menu を従来の menu_name フラット形へ平坦化。複数メニュー時は menu_ids 順に全名を
