@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import { SbBadge } from '@/components/admin/SbUi';
+import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 type FeaturedSlot = {
   id: string;
@@ -40,18 +41,33 @@ export default function FeaturedAdsPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [selectedPlan, setSelectedPlan] = useState<string>('search_top');
   const [form, setForm] = useState({ area: '', business_type: '', starts_at: '', ends_at: '' });
+  const [facilityId, setFacilityId] = useState<string | null>(null);
   const searchParams = useSearchParams();
   const paymentStatus = searchParams.get('payment');
 
-  const loadSlots = useCallback(() => {
+  const loadSlots = useCallback((fId: string) => {
     setLoadError(false);
-    fetch('/api/admin/featured-ads')
+    // GET /api/admin/featured-ads は facility_id 必須。従来このページは facility_id を取得・付与して
+    // いなかったため常に 400→LoadError になり広告機能が丸ごと使用不能だった。
+    fetch(`/api/admin/featured-ads?facility_id=${fId}`)
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => { setSlots(d.slots || []); setLoading(false); })
       .catch(() => { setLoadError(true); setLoading(false); });
   }, []);
 
-  useEffect(() => { loadSlots(); }, [loadSlots]);
+  const reload = useCallback(async () => {
+    setLoadError(false);
+    const supabase = createBrowserSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setLoadError(true); setLoading(false); return; }
+    const { data: membership } = await supabase
+      .from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+    if (!membership?.facility_id) { setLoadError(true); setLoading(false); return; }
+    setFacilityId(membership.facility_id as string);
+    loadSlots(membership.facility_id as string);
+  }, [loadSlots]);
+
+  useEffect(() => { reload(); }, [reload]);
 
   const ctr = (slot: FeaturedSlot) =>
     slot.impressions > 0 ? ((slot.clicks / slot.impressions) * 100).toFixed(1) : '0.0';
@@ -170,12 +186,14 @@ export default function FeaturedAdsPage() {
               disabled={submitting || !form.starts_at || !form.ends_at}
               onClick={async () => {
                 if (submitting) return;
+                if (!facilityId) { setToast({ type: 'error', message: '施設情報の取得に失敗しました。再読み込みしてください' }); return; }
                 setSubmitting(true);
                 try {
+                  // POST も facility_id 必須。従来 body に含めず常に 400 になっていた。
                   const res = await fetch('/api/admin/featured-ads', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ slot_type: selectedPlan, ...form }),
+                    body: JSON.stringify({ facility_id: facilityId, slot_type: selectedPlan, ...form }),
                   });
                   const data = await res.json().catch(() => ({}));
                   if (!res.ok) {
@@ -213,7 +231,7 @@ export default function FeaturedAdsPage() {
         {loading ? (
           <div className="p-8 text-center text-gray-400">読み込み中...</div>
         ) : loadError ? (
-          <div className="p-6"><LoadError onRetry={() => { setLoading(true); loadSlots(); }} message="広告枠の読み込みに失敗しました" /></div>
+          <div className="p-6"><LoadError onRetry={() => { setLoading(true); reload(); }} message="広告枠の読み込みに失敗しました" /></div>
         ) : slots.length === 0 ? (
           <div className="p-8 text-center text-gray-400">
             <p>まだ広告枠がありません</p>
