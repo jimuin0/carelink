@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge } from '@/components/admin/SbUi';
+import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
 type FeaturedSlot = {
@@ -87,19 +87,19 @@ export default function FeaturedAdsPage() {
           決済がキャンセルされました。再度お試しください。
         </div>
       )}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">広告・上位表示</h1>
-          <p className="text-sm text-gray-500 mt-1">検索結果の上位表示・バナー広告枠を管理します</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="btn-primary !px-4 !py-2 text-sm"
-        >
-          広告枠を購入
-        </button>
-      </div>
+      <SbPageHeader
+        title="広告・上位表示"
+        description="検索結果の上位表示・バナー広告枠を管理します"
+        actions={
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            className="btn-primary !px-4 !py-2 text-sm"
+          >
+            広告枠を購入
+          </button>
+        }
+      />
 
       {/* Plans */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

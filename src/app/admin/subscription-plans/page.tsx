@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge } from '@/components/admin/SbUi';
+import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -157,18 +157,16 @@ export default function SubscriptionPlansPage() {
     <div className="space-y-5 max-w-4xl">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div className="flex items-center justify-between gap-3 flex-wrap">
-        <div>
-          <h1 className="text-xl font-bold">月額プラン</h1>
-          <p className="text-xs text-gray-400 mt-0.5">サブスクリプション定義と契約者管理</p>
-        </div>
-        {tab === 'plans' && (
+      <SbPageHeader
+        title="月額プラン"
+        description="サブスクリプション定義と契約者管理"
+        actions={tab === 'plans' && (
           <button type="button" onClick={() => setShowForm(true)}
             className="btn-primary text-sm !px-4 !py-1.5">
             + 新規プラン
           </button>
         )}
-      </div>
+      />
 
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         {(['plans', 'subscribers'] as const).map((t) => (
