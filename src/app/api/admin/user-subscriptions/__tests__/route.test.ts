@@ -97,6 +97,16 @@ function insertChain() {
   return { insert: jest.fn(() => Promise.resolve({ error: null })) };
 }
 
+// 二重消費防止の事前チェック（select→eq→eq→limit→maybeSingle）用。limit は this を返す。
+function usageLogSelectChain(existing: unknown) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockReturnThis(),
+    maybeSingle: jest.fn(() => Promise.resolve({ data: existing, error: null })),
+  };
+}
+
 // booking 検証用の maybeSingle チェーン
 function bookingChain(data: unknown) {
   return {
@@ -432,6 +442,20 @@ test('PATCH: 正常セッション使用 → 200（RPC ok→利用ログ）', as
   expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', { p_subscription_id: SUB_UUID });
 });
 
+test('PATCH: booking_id が既に当月利用記録済み → 409（二重消費防止・RPC到達せず）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildActiveSub());
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: FACILITY_UUID });
+    return usageLogSelectChain({ id: 'existing-log' }); // 事前チェック: 既存ログあり
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(409);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
+});
+
 // ─── GET: additional branches ─────────────────────────────────────────────────
 
 test('GET: レートリミット → 429', async () => {
@@ -581,6 +605,7 @@ test('PATCH: booking_id が施設の予約に一致 → 正常 (200)', async () 
     callNum++;
     if (callNum === 1) return singleChain(buildActiveSub());
     if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: 'other-user', facility_id: FACILITY_UUID });
+    if (callNum === 3) return usageLogSelectChain(null); // 二重消費事前チェック: 既存ログ無し
     return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
@@ -619,6 +644,7 @@ test('PATCH: booking_id が本サブスクのuser_id所属 → 200', async () =>
     callNum++;
     if (callNum === 1) return singleChain(buildActiveSub());
     if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: 'other-facility' });
+    if (callNum === 3) return usageLogSelectChain(null); // 二重消費事前チェック: 既存ログ無し
     return insertChain();
   });
   const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
