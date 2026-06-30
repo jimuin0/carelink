@@ -31,8 +31,11 @@ describe('newsletter-unsub 暗号化トークン（メールを URL に露出し
 
   it('改ざんされたトークンは null（GCM 認証タグで検知）', () => {
     const token = encryptUnsubEmail('user@example.com');
-    // 末尾1文字を別の base64url 文字に書き換える（認証タグ破壊）。
-    const tampered = token.slice(0, -1) + (token.endsWith('A') ? 'B' : 'A');
+    // 先頭文字（IV 領域・base64url パディングビット非依存）を書き換えて IV を破壊する。
+    // 末尾改ざんは token 長 % 4 == 3 のとき最終 base64url 文字が
+    // パディングビットのみを含む場合があり、デコード後バイト列が変わらず
+    // GCM 検証が通ってしまうフレーキーが発生する（token.length=59 の場合に再現）。
+    const tampered = (token[0] === 'A' ? 'B' : 'A') + token.slice(1);
     expect(decryptUnsubEmail(tampered)).toBeNull();
   });
 

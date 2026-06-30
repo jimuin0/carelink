@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import type { FacilityJob } from '@/lib/jobs';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,7 +24,7 @@ export default async function AdminJobsPage() {
   if (facilityIds.length === 0) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">求人管理</h1>
+        <SbPageHeader title="求人管理" />
         <div className="bg-white rounded-xl p-8 text-center text-gray-400">管理可能な施設がありません</div>
       </div>
     );
@@ -43,10 +44,9 @@ export default async function AdminJobsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">求人管理</h1>
+      <SbPageHeader title="求人管理" actions={
         <Link href="/admin/jobs/new" className="btn-primary text-sm !py-2 !px-4">新規作成</Link>
-      </div>
+      } />
 
       {list.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">
