@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import type { FacilityJob } from '@/lib/jobs';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +29,11 @@ export default async function AdminJobsPage() {
     );
   }
 
-  const { data: jobs } = await supabase
+  // メンバーシップ検証後の facility_jobs read は service role で行う（API ルート POST/GET と同型）。
+  // facility_jobs の RLS は「published 施設の公開 read」のみで、未公開施設のオーナーは auth
+  // クライアントでは自店の求人を読めず一覧が空になる（自店管理が機能しない実バグ）ため。
+  const admin = createServiceRoleClient();
+  const { data: jobs } = await admin
     .from('facility_jobs')
     .select('id, facility_id, title, job_type, employment_type, salary_min, salary_max, created_at, updated_at, salary_note, description, requirements, benefits')
     .in('facility_id', facilityIds)
