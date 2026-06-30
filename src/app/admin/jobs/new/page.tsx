@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import JobForm from '@/components/admin/JobForm';
 import Toast from '@/components/Toast';
 import type { JobFormValues } from '@/lib/jobs';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default function NewJobPage() {
   const router = useRouter();
@@ -36,7 +37,7 @@ export default function NewJobPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">求人新規作成</h1>
+      <SbPageHeader title="求人新規作成" />
       <JobForm
         submitLabel="求人を作成"
         submitting={submitting}

@@ -6,6 +6,7 @@ import JobForm from '@/components/admin/JobForm';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import type { JobFormInput, JobFormValues } from '@/lib/jobs';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default function EditJobPage() {
   const params = useParams();
@@ -91,7 +92,7 @@ export default function EditJobPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">求人編集</h1>
+      <SbPageHeader title="求人編集" />
       {loading || !defaults ? (
         <div className="bg-white rounded-xl p-8 text-center text-gray-400">読み込み中...</div>
       ) : (

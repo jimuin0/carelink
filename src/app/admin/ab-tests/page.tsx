@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 interface Flag {
   key: string;
@@ -51,10 +52,7 @@ export default function AbTestsPage() {
 
   return (
     <div className="space-y-5 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-bold">A/Bテスト管理</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Feature Flagのロールアウト設定でA/Bテストを実行</p>
-      </div>
+      <SbPageHeader title="A/Bテスト管理" description="Feature Flagのロールアウト設定でA/Bテストを実行" />
 
       <div className="bg-sky-50 border border-sky-100 rounded-xl p-4 text-sm text-sky-800">
         <strong>使い方:</strong>{' '}

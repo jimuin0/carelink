@@ -6,6 +6,7 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import type { FacilityReview } from '@/types';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export default function AdminReviewsPage() {
   const [reviews, setReviews] = useState<FacilityReview[]>([]);
@@ -135,7 +136,7 @@ export default function AdminReviewsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">口コミ管理</h1>
+      <SbPageHeader title="口コミ管理" />
 
       {/* フィルタ */}
       <div className="flex gap-2 mb-6">

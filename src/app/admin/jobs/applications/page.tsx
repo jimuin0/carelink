@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 type Application = {
   id: string;
@@ -85,10 +86,7 @@ export default function JobApplicationsPage() {
   return (
     <div className="max-w-5xl space-y-6">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">求人応募管理</h1>
-        <p className="text-sm text-gray-500 mt-1">人材紹介連動 — 採用時に紹介手数料が発生します</p>
-      </div>
+      <SbPageHeader title="求人応募管理" description="人材紹介連動 — 採用時に紹介手数料が発生します" />
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         {[

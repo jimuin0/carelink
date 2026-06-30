@@ -5,7 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
-import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface ServicePackage {
@@ -179,12 +179,7 @@ export default function PackagesPage() {
     <div className="space-y-5 max-w-4xl">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">回数券・パッケージ管理</h1>
-        <button type="button" onClick={() => setShowForm(true)} className="btn-primary text-sm !px-4 !py-1.5">
-          + 新規作成
-        </button>
-      </div>
+      <SbPageHeader title="回数券・パッケージ管理" actions={<button type="button" onClick={() => setShowForm(true)} className="btn-primary text-sm !px-4 !py-1.5">+ 新規作成</button>} />
 
       {/* タブ */}
       <div className="flex border-b">

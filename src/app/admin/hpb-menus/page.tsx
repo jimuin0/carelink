@@ -5,7 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge, SbInput } from '@/components/admin/SbUi';
+import { SbBadge, SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 /** hpb_menu_durations 1行(GET /api/admin/hpb-menus のレスポンス)。 */
@@ -206,13 +206,7 @@ export default function AdminHpbMenusPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">HPBメニュー取得</h1>
-        <p className="text-sm text-gray-400 mt-1">
-          ホットペッパービューティーの予約ページから、メニュー名・施術時間・価格・内容を取得します。
-          取得後の手直し（名前・時間・価格・非表示）は再取得しても消えません。
-        </p>
-      </div>
+      <SbPageHeader title="HPBメニュー取得" description="ホットペッパービューティーの予約ページから、メニュー名・施術時間・価格・内容を取得します。取得後の手直し（名前・時間・価格・非表示）は再取得しても消えません。" />
 
       {/* HPB 店舗ID 設定 */}
       <div className="bg-white rounded-xl shadow-sm p-5 mb-6">

@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Toast from '@/components/Toast';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 const SECTION_TEMPLATES = {
   paragraph: '{"type":"paragraph","text":"テキストをここに入力"}',
@@ -93,12 +94,7 @@ export default function NewPlatformBlogPage() {
     <div className="max-w-3xl space-y-5">
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">新規コラム記事</h1>
-        <button type="button" onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">
-          ← 一覧に戻る
-        </button>
-      </div>
+      <SbPageHeader title="新規コラム記事" actions={<button type="button" onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">← 一覧に戻る</button>} />
 
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
         <div>

@@ -1,14 +1,12 @@
 import type { Metadata } from 'next';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: 'メール配信設定 | 管理画面 | CareLink' };
 
 export default function EmailSetupPage() {
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-xl font-bold">メール配信設定</h1>
-        <p className="text-xs text-gray-400 mt-0.5">DKIM/SPF/DMARC の設定とメール到達率の改善ガイド</p>
-      </div>
+      <SbPageHeader title="メール配信設定" description="DKIM/SPF/DMARC の設定とメール到達率の改善ガイド" />
 
       {/* Current config */}
       <div className="bg-white rounded-xl border border-gray-100 p-6 space-y-4">

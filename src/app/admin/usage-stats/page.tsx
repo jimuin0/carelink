@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { jstDayStartIso, jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: '利用状況分析' };
 export const dynamic = 'force-dynamic';
@@ -88,10 +89,7 @@ export default async function UsageStatsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-bold">利用状況分析</h1>
-        <p className="text-xs text-gray-400 mt-0.5">ユーザーの利用頻度・継続率を可視化</p>
-      </div>
+      <SbPageHeader title="利用状況分析" description="ユーザーの利用頻度・継続率を可視化" />
 
       {/* KPIカード */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">

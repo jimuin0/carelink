@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
+import { SbBadge, type SbBadgeTone, SbPageHeader } from '@/components/admin/SbUi';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 
@@ -117,19 +117,7 @@ export default function NewslettersPage() {
 
   return (
     <div className="max-w-5xl space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">ニュースレター管理</h1>
-          <p className="text-sm text-gray-500 mt-1">施設オーナー向け月次メール・ユーザー向けメルマガを管理</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setShowCreate(true)}
-          className="btn-primary !px-4 !py-2 text-sm"
-        >
-          新規キャンペーン作成
-        </button>
-      </div>
+      <SbPageHeader title="ニュースレター管理" description="施設オーナー向け月次メール・ユーザー向けメルマガを管理" actions={<button type="button" onClick={() => setShowCreate(true)} className="btn-primary !px-4 !py-2 text-sm">新規キャンペーン作成</button>} />
 
       {result && (
         <Toast

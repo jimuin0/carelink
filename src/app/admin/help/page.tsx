@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 const faqItems = [
   {
@@ -38,7 +39,7 @@ const faqItems = [
 export default function AdminHelpPage() {
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">ヘルプ・FAQ</h1>
+      <SbPageHeader title="ヘルプ・FAQ" />
 
       <div className="bg-sky-50 rounded-xl p-5 mb-6">
         <p className="text-sm text-sky-800">

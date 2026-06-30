@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -96,7 +96,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   if (loadError) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">スタッフ編集</h1>
+        <SbPageHeader title="スタッフ編集" />
         <LoadError onRetry={load} message="スタッフ情報の読み込みに失敗しました" />
       </div>
     );
@@ -104,7 +104,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
 
   return (
     <div onChange={() => setDirty(true)}>
-      <h1 className="text-2xl font-bold mb-6">スタッフ編集</h1>
+      <SbPageHeader title="スタッフ編集" />
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>

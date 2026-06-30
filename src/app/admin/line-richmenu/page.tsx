@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 const RICH_MENU_AREAS = [
   {
@@ -80,10 +81,7 @@ export default function LineRichMenuPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-xl font-bold">LINE リッチメニュー設定</h1>
-        <p className="text-xs text-gray-400 mt-0.5">予約確認・新規予約・ポイント確認などをLINE内で完結させるリッチメニューの設定ガイド</p>
-      </div>
+      <SbPageHeader title="LINE リッチメニュー設定" description="予約確認・新規予約・ポイント確認などをLINE内で完結させるリッチメニューの設定ガイド" />
 
       {/* Preview */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">

@@ -1,5 +1,6 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { getCatalogsByFacility } from '@/lib/catalogs';
+import { SbPageHeader } from '@/components/admin/SbUi';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
@@ -20,12 +21,7 @@ export default async function AdminCatalogPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">カタログ管理</h1>
-        <Link href="/admin/catalog/new" className="btn-primary text-sm !py-2 !px-4">
-          新規追加
-        </Link>
-      </div>
+      <SbPageHeader title="カタログ管理" actions={<Link href="/admin/catalog/new" className="btn-primary text-sm !py-2 !px-4">新規追加</Link>} />
 
       {catalogs.length === 0 ? (
         <div className="bg-white rounded-xl p-8 text-center">

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 interface Salon {
   id: string;
@@ -92,7 +93,7 @@ export default function AdminRegistrationsPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold mb-6">施設登録管理</h1>
+      <SbPageHeader title="施設登録管理" />
 
       {loading ? (
         <div className="animate-pulse space-y-3">

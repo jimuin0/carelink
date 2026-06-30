@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
-import { SbInput } from '@/components/admin/SbUi';
+import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 export default function CouponEditPage() {
@@ -139,7 +139,7 @@ export default function CouponEditPage() {
   if (loadError) {
     return (
       <div>
-        <h1 className="text-2xl font-bold mb-6">クーポン編集</h1>
+        <SbPageHeader title="クーポン編集" />
         <LoadError onRetry={loadCoupon} message="クーポンの読み込みに失敗しました" />
       </div>
     );
@@ -147,7 +147,7 @@ export default function CouponEditPage() {
 
   return (
     <div onChange={() => setDirty(true)}>
-      <h1 className="text-2xl font-bold mb-6">クーポン編集</h1>
+      <SbPageHeader title="クーポン編集" />
 
       <div className="bg-white rounded-xl shadow-sm p-6 space-y-4">
         <div>

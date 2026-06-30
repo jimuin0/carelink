@@ -8,6 +8,7 @@ import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 const SECTION_TEMPLATES = {
   paragraph: '{"type":"paragraph","text":"テキストをここに入力"}',
@@ -134,7 +135,7 @@ export default function EditPlatformBlogPage(props: Props) {
   if (loadError) {
     return (
       <div className="max-w-3xl">
-        <h1 className="text-xl font-bold mb-6">コラム記事を編集</h1>
+        <SbPageHeader title="コラム記事を編集" />
         <LoadError onRetry={load} message="記事の読み込みに失敗しました" />
       </div>
     );
@@ -144,19 +145,7 @@ export default function EditPlatformBlogPage(props: Props) {
     <div className="max-w-3xl space-y-5" onChange={() => setDirty(true)}>
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
 
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold">コラム記事を編集</h1>
-        <div className="flex items-center gap-3">
-          {isPublished && (
-            <a href={`/blog/${slug}`} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-500 hover:text-sky-600">
-              表示 →
-            </a>
-          )}
-          <button type="button" onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">
-            ← 一覧
-          </button>
-        </div>
-      </div>
+      <SbPageHeader title="コラム記事を編集" actions={<div className="flex items-center gap-3">{isPublished && (<a href={`/blog/${slug}`} target="_blank" rel="noopener noreferrer" className="text-sm text-gray-500 hover:text-sky-600">表示 →</a>)}<button type="button" onClick={() => router.push('/admin/platform-blog')} className="text-sm text-gray-500 hover:underline">← 一覧</button></div>} />
 
       <div className="bg-white rounded-xl border border-gray-100 p-5 space-y-4">
         <div>

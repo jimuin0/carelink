@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import PrintButton from './PrintButton';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: '操作マニュアル | 管理画面 | CareLink' };
 
@@ -114,13 +115,7 @@ const SECTIONS = [
 export default function ManualPage() {
   return (
     <div className="max-w-3xl space-y-8">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">操作マニュアル</h1>
-          <p className="text-sm text-gray-500 mt-1">CareLink管理画面の操作方法をご確認いただけます</p>
-        </div>
-        <PrintButton />
-      </div>
+      <SbPageHeader title="操作マニュアル" description="CareLink管理画面の操作方法をご確認いただけます" actions={<PrintButton />} />
 
       {/* Table of contents */}
       <div className="bg-sky-50 rounded-xl p-5">

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge, type SbBadgeTone } from '@/components/admin/SbUi';
+import { SbBadge, type SbBadgeTone, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface PaymentSession {
@@ -100,7 +100,7 @@ export default function AdminPaymentsPage() {
   if (loadError) {
     return (
       <div className="space-y-6 max-w-4xl">
-        <h1 className="text-xl font-bold">決済・入金設定</h1>
+        <SbPageHeader title="決済管理" />
         <LoadError onRetry={() => { load().catch(() => { setLoadError(true); setLoading(false); }); }} message="決済情報の読み込みに失敗しました" />
       </div>
     );
@@ -108,10 +108,7 @@ export default function AdminPaymentsPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-bold">決済管理</h1>
-        <p className="text-xs text-gray-400 mt-0.5">Stripe連携・デポジット設定・入金状況確認</p>
-      </div>
+      <SbPageHeader title="決済管理" description="Stripe連携・デポジット設定・入金状況確認" />
 
       {/* KPI cards */}
       <div className="grid grid-cols-3 gap-4">

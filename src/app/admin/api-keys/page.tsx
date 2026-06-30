@@ -5,7 +5,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
-import { SbBadge } from '@/components/admin/SbUi';
+import { SbBadge, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
 interface ApiKey {
@@ -110,10 +110,7 @@ export default function ApiKeysPage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-xl font-bold">外部API / APIキー管理</h1>
-        <p className="text-xs text-gray-400 mt-0.5">POS・会計ソフト・カスタムアプリとの連携用APIキーを発行・管理します</p>
-      </div>
+      <SbPageHeader title="外部API / APIキー管理" description="POS・会計ソフト・カスタムアプリとの連携用APIキーを発行・管理します" />
 
       {/* Generated key banner */}
       {generatedKey && (
