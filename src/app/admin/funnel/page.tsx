@@ -3,6 +3,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notFound } from 'next/navigation';
 import { jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: 'コンバージョンファネル' };
 export const dynamic = 'force-dynamic';
@@ -117,10 +118,7 @@ export default async function FunnelPage() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div>
-        <h1 className="text-xl font-bold">コンバージョンファネル</h1>
-        <p className="text-xs text-gray-400 mt-0.5">ページ閲覧から予約開始・確定・レビューまでの転換率</p>
-      </div>
+      <SbPageHeader title="コンバージョンファネル" description="ページ閲覧から予約開始・確定・レビューまでの転換率" />
 
       {/* ファネルチャート */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">

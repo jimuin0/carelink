@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Toast from '@/components/Toast';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 type WhiteLabelDomain = {
   id: string;
@@ -81,10 +82,7 @@ export default function WhiteLabelPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">ホワイトラベル設定</h1>
-        <p className="text-sm text-gray-500 mt-1">施設独自のドメインでCareLink予約ページを提供できます（エンタープライズプラン）</p>
-      </div>
+      <SbPageHeader title="ホワイトラベル設定" description="施設独自のドメインでCareLink予約ページを提供できます（エンタープライズプラン）" />
 
       {message && (
         <Toast

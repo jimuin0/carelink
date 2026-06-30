@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: 'Uptime監視 | 管理画面 | CareLink' };
 
@@ -26,10 +27,7 @@ export default async function UptimePage() {
 
   return (
     <div className="space-y-6 max-w-3xl">
-      <div>
-        <h1 className="text-xl font-bold">Uptime 監視設定</h1>
-        <p className="text-xs text-gray-400 mt-0.5">外部監視サービスの設定ガイドと現在のヘルス状態</p>
-      </div>
+      <SbPageHeader title="Uptime 監視設定" description="外部監視サービスの設定ガイドと現在のヘルス状態" />
 
       {/* Current health */}
       <div className="bg-white rounded-xl border border-gray-100 p-6">

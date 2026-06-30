@@ -5,7 +5,7 @@ import { redirect } from 'next/navigation';
 import Link from 'next/link';
 import BulkActions from './BulkActions';
 import { jstMonthStartIso } from '@/lib/admin-date';
-import { SbTable, SbThead, SbTh, SbTbody, SbTd } from '@/components/admin/SbUi';
+import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: 'チェーン一括管理' };
 export const dynamic = 'force-dynamic';
@@ -38,7 +38,7 @@ export default async function ChainManagementPage() {
   if (!memberships || memberships.length < 2) {
     return (
       <div className="space-y-4 max-w-2xl">
-        <h1 className="text-xl font-bold">チェーン一括管理</h1>
+        <SbPageHeader title="チェーン一括管理" />
         <div className="bg-white rounded-xl p-8 text-center text-gray-500 text-sm">
           複数の施設を管理している場合にご利用いただける機能です。
           <br />
@@ -119,10 +119,7 @@ export default async function ChainManagementPage() {
 
   return (
     <div className="space-y-6 max-w-5xl">
-      <div>
-        <h1 className="text-xl font-bold">チェーン一括管理</h1>
-        <p className="text-xs text-gray-400 mt-0.5">{stats.length}施設の統合レポート</p>
-      </div>
+      <SbPageHeader title="チェーン一括管理" description={`${stats.length}施設の統合レポート`} />
 
       {/* サマリーカード */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
