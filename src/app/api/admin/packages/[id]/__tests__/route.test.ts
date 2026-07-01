@@ -380,3 +380,25 @@ test('PATCH: package 存在・membership null → verifyPackage null → 401（l
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(401);
 });
+
+// Branch coverage: L107 — user_packages count クエリ失敗 → 500
+test('DELETE: countErr → 500 (L107 countErr 分岐)', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID }); // package lookup
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Promise.resolve({ count: null, error: { message: 'DB error' } })),
+        }),
+      };
+    }
+    return singleChain(null);
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.error).toBeDefined();
+});

@@ -1,5 +1,3 @@
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { mutationRateLimit } from '@/lib/rate-limit';
@@ -17,30 +15,7 @@ const profileSchema = z.object({
   gender: z.enum(['male', 'female', 'other', 'unspecified']).nullable().optional(),
 });
 
-export const PUT = withRoute(async (request) => {
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() { return cookieStore.getAll(); },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
-      },
-    }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-  }
-
+export const PUT = withRoute(async (request, ctx) => {
   const body = await request.json().catch(() => ({}));
   const parsed = profileSchema.safeParse(body);
   if (!parsed.success) {
@@ -60,7 +35,7 @@ export const PUT = withRoute(async (request) => {
       gender: d.gender ?? null,
       updated_at: new Date().toISOString(),
     })
-    .eq('id', user.id);
+    .eq('id', ctx.user!.id);
 
   if (error) {
     return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
@@ -69,6 +44,7 @@ export const PUT = withRoute(async (request) => {
   return NextResponse.json({ success: true });
 }, {
   csrf: true,
+  requireAuth: true,
   rateLimit: { limiter: mutationRateLimit, limit: 10, windowMs: 60_000, prefix: 'profile' },
   sentryTag: 'profile',
 });

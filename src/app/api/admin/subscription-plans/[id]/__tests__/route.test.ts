@@ -386,3 +386,28 @@ test('PATCH: plan 存在・facility_members null → verifyAdmin null → 401（
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(401);
 });
+
+// Branch coverage: L97 — user_subscriptions count クエリ失敗 → 500
+test('DELETE: countErr → 500 (L97 countErr 分岐)', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID }); // verifyAdmin: plan lookup
+    if (adminCallNum === 2) {
+      // user_subscriptions count check fails
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn(() => Promise.resolve({ count: null, error: { message: 'DB error' } })),
+          }),
+        }),
+      };
+    }
+    return planChain(null);
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.error).toBeDefined();
+});

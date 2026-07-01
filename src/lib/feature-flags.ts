@@ -30,7 +30,7 @@ const CACHE_TTL_MS = 5 * 60 * 1000;
 
 async function loadFlags(): Promise<Map<string, FeatureFlag>> {
   const now = Date.now();
-  if (flagCache.flags.size > 0 && now - flagCache.loadedAt < CACHE_TTL_MS) {
+  if (flagCache.loadedAt > 0 && now - flagCache.loadedAt < CACHE_TTL_MS) {
     return flagCache.flags;
   }
 

@@ -51,7 +51,7 @@ export async function GET(request: Request) {
   }
 
   const admin = createServiceRoleClient();
-  const { data: reviews } = await admin
+  const { data: reviews, error: reviewsErr } = await admin
     .from('facility_reviews')
     .select('rating, comment, rating_skill, rating_service, rating_atmosphere')
     .eq('facility_id', facilityId)
@@ -60,6 +60,7 @@ export async function GET(request: Request) {
     .order('created_at', { ascending: false })
     .limit(20);
 
+  if (reviewsErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!reviews || reviews.length < 3) {
     return NextResponse.json({ summary: null, reason: '口コミが少なすぎます（3件以上必要）' });
   }

@@ -207,3 +207,12 @@ test('GET: 施設メンバー（owner/admin）でもアクセス可能', async (
   const res = await GET(makeRequest());
   expect(res.status).toBe(200);
 });
+
+test('GET: facility_reviews DB エラー → 500 (L63 reviewsErr 分岐)', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(reviewsChain([], { message: 'DB error' }));
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.error).toBeDefined();
+});

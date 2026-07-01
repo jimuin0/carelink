@@ -377,6 +377,29 @@ describe('bookingDetailHtml — オプションフィールド省略', () => {
   });
 });
 
+describe('EMAIL_FROM未設定時 — FROM のデフォルト値フォールバック', () => {
+  test('EMAIL_FROM 未設定でもデフォルト差出人でメールを送信する（行13フォールバック）', async () => {
+    const origFrom = process.env.EMAIL_FROM;
+    const origKey = process.env.RESEND_API_KEY;
+    delete process.env.EMAIL_FROM;
+    process.env.RESEND_API_KEY = 'test-key';
+    jest.resetModules();
+    const sendMock = jest.fn().mockResolvedValue({});
+    jest.mock('resend', () => ({ Resend: jest.fn().mockImplementation(() => ({ emails: { send: sendMock } })) }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { sendBookingConfirmation } = require('../email');
+    await sendBookingConfirmation({
+      customerName: 'テスト', customerEmail: 'a@b.com', facilityName: 'サロン',
+      bookingDate: '2026-04-01', startTime: '10:00', endTime: '11:00', bookingId: 'x',
+    });
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock.mock.calls[0][0].from).toBe('CareLink <noreply@carelink-jp.com>');
+    if (origFrom !== undefined) process.env.EMAIL_FROM = origFrom;
+    process.env.RESEND_API_KEY = origKey;
+  });
+});
+
 describe('RESEND_API_KEY未設定時 — 全send関数', () => {
   test('全send関数がスキップされる（resend=null）', async () => {
     const origKey = process.env.RESEND_API_KEY;

@@ -14,6 +14,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,6 +106,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       })
       .eq('id', item.content_id);
     if (hideErr) {
+      safeCaptureException(hideErr, 'moderation-review-hide');
       console.error('[moderation] review hide failed — review remains visible', { reviewId: item.content_id, err: hideErr });
     }
   }

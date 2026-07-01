@@ -37,6 +37,10 @@ const DEFAULTS = {
   ADMIN_COOKIE_SECRET: 'test-admin-cookie-' + 'x'.repeat(20),
   RECAPTCHA_SECRET_KEY: 'test-recaptcha-secret',
   NEXT_PUBLIC_RECAPTCHA_SITE_KEY: 'test-recaptcha-site-key',
+  // EMAIL_FROM: .env から本番の差出人アドレスが流入するとテストで FROM || フォールバック
+  // 右辺が評価されず行23/行13 のブランチカバレッジが取れない。ダミー値で上書きし、
+  // 「フォールバックを確認したいテスト」は beforeEach で delete してから実行する。
+  EMAIL_FROM: 'Test <test@example.com>',
 };
 
 // (1) テスト用ダミーを「無条件」で上書き（.env の本番値より常に優先）。

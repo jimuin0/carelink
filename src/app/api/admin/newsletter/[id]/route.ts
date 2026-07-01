@@ -52,12 +52,13 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     if (campaign.status !== 'scheduled') {
       return NextResponse.json({ error: 'Only scheduled campaigns can be cancelled' }, { status: 400 });
     }
-    const { data: updated } = await admin
+    const { data: updated, error: cancelErr } = await admin
       .from('newsletter_campaigns')
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
       .eq('id', params.id)
       .select()
       .single();
+    if (cancelErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     return NextResponse.json({ campaign: updated });
   }
 
@@ -65,12 +66,13 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     if (campaign.status !== 'draft') {
       return NextResponse.json({ error: 'Only draft campaigns can be scheduled' }, { status: 400 });
     }
-    const { data: updated } = await admin
+    const { data: updated, error: scheduleErr } = await admin
       .from('newsletter_campaigns')
       .update({ status: 'scheduled', updated_at: new Date().toISOString() })
       .eq('id', params.id)
       .select()
       .single();
+    if (scheduleErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     return NextResponse.json({ campaign: updated });
   }
 

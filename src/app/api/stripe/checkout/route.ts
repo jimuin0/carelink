@@ -12,6 +12,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { UUID_REGEX } from '@/lib/constants';
+import { alertCaughtError } from '@/lib/alert';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
   apiVersion: '2026-06-24.dahlia',
@@ -146,6 +147,8 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({ url: session.url, session_id: session.id });
   } catch (e) {
     console.error('[stripe/checkout] unexpected error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('stripe-checkout', e, '/api/stripe/checkout');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

@@ -311,6 +311,20 @@ test('GET: slots が null → 空配列で返す', async () => {
   expect(json.slots).toEqual([]);
 });
 
+// Branch coverage: L50 — featured_slots クエリ失敗 → 500
+test('GET: slotsErr → 500 (L50 slotsErr 分岐)', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+    return listChain([], { message: 'DB error' });
+  });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+  const json = await res.json();
+  expect(json.error).toBeDefined();
+});
+
 test('POST: 不正な JSON body → 400 (slot_type 欠落で)', async () => {
   mockAdminFrom.mockReturnValue(facilityIdChain({ facility_id: FACILITY_UUID }));
   const req = new NextRequest('http://localhost/api/admin/featured-ads', {

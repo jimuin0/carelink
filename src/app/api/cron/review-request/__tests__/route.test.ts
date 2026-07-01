@@ -638,6 +638,17 @@ describe('GET /api/cron/review-request', () => {
     delete process.env.EMAIL_FROM;
   });
 
+  test('EMAIL_FROM 未設定 → デフォルト差出人 CareLink <noreply@carelink-jp.com> を使う（行126フォールバック）', async () => {
+    delete process.env.EMAIL_FROM;
+    setupDefaultMocks(1);
+    const { Resend } = require('resend');
+
+    await GET(makeRequest() as any);
+
+    const call = Resend.mock.results[0].value.emails.send.mock.calls[0];
+    expect(call[0].from).toBe('CareLink <noreply@carelink-jp.com>');
+  });
+
   test('non-Error throw → String fallback', async () => {
     mockFrom.mockImplementation(() => { throw 'plain string'; });
 

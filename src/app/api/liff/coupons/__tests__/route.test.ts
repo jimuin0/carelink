@@ -19,6 +19,9 @@ jest.mock('@/lib/line', () => ({
   verifyLineAccessToken: jest.fn(() => Promise.resolve({ ok: true, userId: 'line-user-verified' })),
 }));
 jest.mock('@/lib/supabase-server');
+jest.mock('@/lib/alert', () => ({
+  alertCaughtError: jest.fn(),
+}));
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyLineAccessToken } from '@/lib/line';
@@ -282,6 +285,16 @@ describe('GET /api/liff/coupons', () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json.coupons).toEqual([]);
+  });
+
+  test('予期しない例外 → 500（catch ブロック・Slack 通知）', async () => {
+    const { alertCaughtError } = require('@/lib/alert');
+    (verifyLineAccessToken as jest.Mock).mockRejectedValue(new Error('unexpected'));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('Internal Server Error');
+    expect(alertCaughtError).toHaveBeenCalledWith('liff-coupons', expect.any(Error), '/api/liff/coupons');
   });
 
   test('coupons が null → ?? [] フォールバック', async () => {

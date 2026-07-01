@@ -5,6 +5,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -160,6 +161,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     return NextResponse.json({ success: true });
   } catch (e) {
     safeCaptureException(e, 'booking-change');
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('booking-change', e, '/api/booking/[id]/change');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
