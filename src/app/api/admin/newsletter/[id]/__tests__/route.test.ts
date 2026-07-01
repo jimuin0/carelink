@@ -280,6 +280,28 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(400);
     });
 
+    test('DB 更新エラー → 500 (L61 cancelErr 分岐)', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'scheduled' }));
+        return {
+          update: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+              }),
+            }),
+          }),
+        };
+      });
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toBeDefined();
+    });
+
     test('updates campaign status to cancelled', async () => {
       mockAnonFrom.mockReturnValue(profileChain(true));
       const updatedCampaign = { id: CAMPAIGN_UUID, status: 'cancelled' };
@@ -334,6 +356,28 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
       const json = await res.json();
       expect(json.campaign.status).toBe('scheduled');
+    });
+
+    test('DB 更新エラー → 500 (L75 scheduleErr 分岐)', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'draft' }));
+        return {
+          update: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+              }),
+            }),
+          }),
+        };
+      });
+      const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toBeDefined();
     });
   });
 

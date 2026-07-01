@@ -6,7 +6,7 @@
  *   - CSRF + rate limiting (10 req/min), auth required
  *   - facilityId UUID validation
  *   - Published facility verification
- *   - Toggle logic (insert/delete)
+ *   - Toggle logic (insert/delete) via service_role
  *   - isFavorited response
  */
 
@@ -17,6 +17,10 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+  createServerSupabaseClient: jest.fn(),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -48,9 +52,15 @@ function setupDefaultMocks(
   const facilityMaybeSingle = jest.fn().mockResolvedValue({ data: facilityExists ? { id: 'fac-123' } : null });
   const favoriteMaybeSingle = jest.fn().mockResolvedValue({ data: isFavorited ? { id: 'fav-123' } : null });
 
+  // 認証判定のみ anon SSR クライアント（createServerClient）
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
+  });
+
+  // DB 操作は service_role クライアント（createServiceRoleClient）
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  (createServiceRoleClient as jest.Mock).mockReturnValue({
     from: jest.fn().mockReturnValue({
       select: jest.fn()
         .mockReturnValueOnce({
@@ -168,7 +178,7 @@ describe('POST /api/favorites', () => {
   });
 
   test('inserts when not favorited', async () => {
-    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+    await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(mockInsert).toHaveBeenCalled();
   });
@@ -176,7 +186,7 @@ describe('POST /api/favorites', () => {
   test('deletes when already favorited', async () => {
     setupDefaultMocks(true, true, true);
 
-    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
+    await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
 
     expect(mockDelete).toHaveBeenCalled();
   });
@@ -254,23 +264,5 @@ describe('POST /api/favorites', () => {
     });
     const res = await POST(req as any);
     expect(res.status).toBe(400);
-  });
-
-  test('cookie callbacks (getAll/setAll/forEach) invoked during client creation', async () => {
-    const { createServerClient } = require('@supabase/ssr');
-    const { cookies } = require('next/headers');
-    const mockCookieStore = { getAll: jest.fn(() => [] as any[]), set: jest.fn() };
-    cookies.mockResolvedValue(mockCookieStore);
-
-    createServerClient.mockImplementation((_url: string, _key: string, opts: any) => {
-      opts.cookies.getAll();
-      opts.cookies.setAll([{ name: 'sb', value: 'val', options: {} }]);
-      return { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) }, from: jest.fn() };
-    });
-
-    const res = await POST(makeRequest({ facilityId: '11111111-1111-1111-1111-111111111111' }) as any);
-    expect(res.status).toBe(401);
-    expect(mockCookieStore.getAll).toHaveBeenCalled();
-    expect(mockCookieStore.set).toHaveBeenCalled();
   });
 });

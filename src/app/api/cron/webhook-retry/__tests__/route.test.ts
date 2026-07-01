@@ -560,4 +560,50 @@ describe('GET /api/cron/webhook-retry', () => {
 
     // Should filter by scheduled_at <= now
   });
+
+  test('email webhook: p.from も EMAIL_FROM も未設定 → デフォルト差出人を使う（行90フォールバック）', async () => {
+    // p.from も process.env.EMAIL_FROM も falsy のケース → デフォルト 'CareLink <noreply@carelink-jp.com>'
+    delete process.env.EMAIL_FROM;
+    const sendSpy = jest.fn().mockResolvedValue({ success: true });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
+    mockJobsSelect = jest.fn().mockResolvedValue({
+      data: [{
+        id: 'jf2',
+        webhook_type: 'email',
+        // from は意図的に省略（p.from = undefined）
+        payload: { to: 't@x.com', subject: 's', html: '<p>x</p>' },
+        status: 'pending',
+        attempt_count: 0,
+        scheduled_at: new Date().toISOString(),
+      }],
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'webhook_retry_queue') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                lte: jest.fn().mockReturnValue({
+                  order: jest.fn().mockReturnValue({ limit: mockJobsSelect }),
+                }),
+              }),
+            }),
+            update: (data: any) => {
+              if (data.status === 'processing') return mockClaimUpdate(data);
+              if (data.status === 'success') return mockSuccessUpdate(data);
+              return { eq: jest.fn().mockReturnValue({ lt: jest.fn().mockResolvedValue({ error: null }) }) };
+            },
+          };
+        }
+        return {};
+      }),
+    });
+
+    await GET(makeRequest() as any);
+    expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({
+      from: 'CareLink <noreply@carelink-jp.com>',
+    }));
+  });
 });

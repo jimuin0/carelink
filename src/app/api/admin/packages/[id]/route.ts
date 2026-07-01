@@ -103,7 +103,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const admin = createServiceRoleClient();
 
   // 購入済みユーザーがいる場合は無効化のみ（削除しない）
-  const { count } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
+  const { count, error: countErr } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
+  if (countErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (count && count > 0) {
     const { error: deactivateErr } = await admin.from('service_packages').update({ is_active: false }).eq('id', params.id).eq('facility_id', auth.facilityId);
     if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });

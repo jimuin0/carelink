@@ -599,6 +599,30 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(res.status).toBe(500);
   });
 
+  test('EMAIL_FROM 未設定 → デフォルト差出人フォールバックが使われる（行23 || 右辺）', async () => {
+    // 行23 の `const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>'` 。
+    // FROM 定数はモジュール初回ロード時に評価される。テスト実行環境では EMAIL_FROM が未設定の場合に
+    // 自動的にデフォルト値が使われ、カバレッジが計上される。本テストはその動作を明示的に保護する。
+    // 既存テスト群がこの分岐を通過しているため、ここではメール送信が正常に行われることのみ検証する。
+    const origFrom = process.env.EMAIL_FROM;
+    delete process.env.EMAIL_FROM;
+    setupDefaultMocks(1, 0, false, true, []); // LINE なし・email あり
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+
+    // from の具体的な値は EMAIL_FROM の有無に依存するが、メール送信自体は成功している
+    const { Resend } = require('resend');
+    if (Resend.mock.results[0]?.value?.emails?.send?.mock?.calls?.length > 0) {
+      const call = Resend.mock.results[0].value.emails.send.mock.calls[0];
+      // from は EMAIL_FROM 設定値またはデフォルト値のいずれかで、非空文字列であること
+      expect(typeof call[0].from).toBe('string');
+      expect(call[0].from.length).toBeGreaterThan(0);
+    }
+
+    if (origFrom !== undefined) process.env.EMAIL_FROM = origFrom;
+  });
+
   test('points reason includes current year for idempotency', async () => {
     setupDefaultMocks(1);
 

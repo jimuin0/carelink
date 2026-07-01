@@ -138,7 +138,7 @@ export async function POST(request: Request) {
     }
 
     // 監査ログ（fire-and-forget）
-    writeAuditLog({
+    void writeAuditLog({
       userId: user.id,
       facilityId: booking.facility_id,
       action: 'booking_adjust_request',

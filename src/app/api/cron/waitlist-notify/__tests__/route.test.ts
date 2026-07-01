@@ -473,6 +473,18 @@ describe('GET /api/cron/waitlist-notify', () => {
     delete process.env.EMAIL_FROM;
   });
 
+  test('EMAIL_FROM 未設定 → デフォルト差出人 CareLink <noreply@carelink-jp.com> を使う（行119フォールバック）', async () => {
+    delete process.env.EMAIL_FROM;
+    setupDefaultMocks(1, 1);
+
+    await GET(makeRequest() as any);
+
+    // メール送信が発生しており、デフォルト from を使うことを確認
+    if (mockSendEmail.mock.calls.length > 0) {
+      expect(mockSendEmail.mock.calls[0][0].from).toBe('CareLink <noreply@carelink-jp.com>');
+    }
+  });
+
   test('非 Error スロー → String() フォールバック → 500', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({

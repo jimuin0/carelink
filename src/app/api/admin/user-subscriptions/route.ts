@@ -289,11 +289,17 @@ export async function PATCH(request: NextRequest) {
   }
   const updated = result.subscription;
 
-  await admin.from('subscription_usage_logs').insert({
+  const { error: logErr } = await admin.from('subscription_usage_logs').insert({
     subscription_id: useParsed.data.subscription_id,
     booking_id: useParsed.data.booking_id ?? null,
     notes: useParsed.data.notes,
   });
+  if (logErr) {
+    // RPC でセッション消費済み・ログのみ失敗のため best-effort で続行するが、
+    // 冪等チェックが次回すり抜けないよう警告ログを残す（booking_id ありの場合は
+    // DB の部分 UNIQUE インデックスが二重消費を弾くため実害は低い）。
+    console.error('[user-subscriptions] usage log insert failed', { subscriptionId: useParsed.data.subscription_id, bookingId: useParsed.data.booking_id, err: logErr });
+  }
 
   return NextResponse.json({ subscription: updated });
 }

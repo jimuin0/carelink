@@ -487,6 +487,46 @@ describe('POST /api/booking', () => {
     );
   });
 
+  test('coupon_id + percentage割引 100% 超でも価格が負にならない（Math.max(0) ガード）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    // discount_value: 150 (150% off) → 計算結果は負 → Math.max(0,...) で 0 になるべき
+    const couponChain = fluent({ data: { discount_type: 'percentage', discount_value: 150, is_active: true, valid_from: null, valid_until: null }, error: null });
+
+    const nullChain = fluent({ data: null });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return couponChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_total_price: 0 })
+    );
+  });
+
   test('coupon_id + special_price だが special_price=null（設定不備）→ メニュー定価を維持（NULL伝播しない）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';

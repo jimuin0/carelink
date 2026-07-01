@@ -128,7 +128,7 @@ export async function POST(request: Request) {
           (coupon.valid_until == null || coupon.valid_until >= nowIso);
         if (couponValid && serverTotalPrice != null) {
           if (coupon.discount_type === 'percentage') {
-            serverTotalPrice = Math.round(serverTotalPrice * (1 - coupon.discount_value / 100));
+            serverTotalPrice = Math.max(0, Math.round(serverTotalPrice * (1 - coupon.discount_value / 100)));
           } else if (coupon.discount_type === 'fixed') {
             serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
           } else if (coupon.discount_type === 'special_price') {

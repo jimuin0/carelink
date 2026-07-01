@@ -14,8 +14,10 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
 import { SLOT_OCCUPYING_STATUSES } from '@/lib/booking-status';
+import { alertCaughtError } from '@/lib/alert';
 
 export async function GET(req: NextRequest) {
+  try {
   const ip = getClientIp(req);
   if (await checkRateLimit(null, ip, 30, 60_000, 'liff-coupons')) {
     return NextResponse.json({ error: 'Too Many Requests' }, { status: 429 });
@@ -95,4 +97,9 @@ export async function GET(req: NextRequest) {
     .limit(30);
 
   return NextResponse.json({ coupons: coupons ?? [] });
+  } catch (e) {
+    console.error('[liff/coupons] unexpected error:', e);
+    alertCaughtError('liff-coupons', e, '/api/liff/coupons');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 }

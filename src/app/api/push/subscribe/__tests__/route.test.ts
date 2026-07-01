@@ -8,7 +8,7 @@
  *   - Auth required (user context)
  *   - Subscription payload validation (endpoint, keys)
  *   - Endpoint HTTPS + length validation
- *   - Upsert to push_subscriptions table
+ *   - Upsert to push_subscriptions table (via service_role)
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -18,6 +18,10 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+  createServerSupabaseClient: jest.fn(),
+}));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -40,9 +44,15 @@ function setupDefaultMocks(
     error: upsertSucceeds ? null : { message: 'Upsert failed' },
   });
 
+  // 認証判定のみ anon SSR クライアント（createServerClient）
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
+  });
+
+  // DB 書き込みは service_role クライアント（createServiceRoleClient）
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  (createServiceRoleClient as jest.Mock).mockReturnValue({
     from: jest.fn().mockReturnValue({
       upsert: mockUpsert,
     }),
@@ -51,6 +61,7 @@ function setupDefaultMocks(
   const { cookies } = require('next/headers');
   cookies.mockResolvedValue({
     get: jest.fn(() => ({ value: 'cookie-value' })),
+    getAll: jest.fn(() => []),
   });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -205,7 +216,7 @@ describe('POST /api/push/subscribe', () => {
   });
 
   test('upserts subscription with user_id', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         endpoint: 'https://example.com/subscription',
         keys: { p256dh: 'key1', auth: 'key2' },
@@ -221,7 +232,7 @@ describe('POST /api/push/subscribe', () => {
   });
 
   test('upsert uses onConflict=user_id', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         endpoint: 'https://example.com/subscription',
         keys: { p256dh: 'key1', auth: 'key2' },
@@ -246,7 +257,7 @@ describe('POST /api/push/subscribe', () => {
   });
 
   test('includes updated_at timestamp', async () => {
-    const res = await POST(
+    await POST(
       makeRequest({
         endpoint: 'https://example.com',
         keys: { p256dh: 'abc', auth: 'def' },
@@ -310,7 +321,7 @@ describe('POST /api/push/subscribe', () => {
     expect(res.status).toBe(500);
   });
 
-  // Branch coverage: line 15 — x-forwarded-for ヘッダなし → ?? 'unknown' フォールバック（false 分岐）
+  // Branch coverage: x-forwarded-for ヘッダなし → ?? 'unknown' フォールバック（false 分岐）
   test('x-forwarded-for ヘッダなし → IP=unknown（line 15 ?? false 分岐）', async () => {
     (checkRateLimit as jest.Mock).mockClear();
     const req = new Request('http://localhost/api/push/subscribe', {

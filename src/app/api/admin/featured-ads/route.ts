@@ -41,12 +41,13 @@ export async function GET(req: NextRequest) {
   if (!isMember) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
-  const { data: slots } = await admin
+  const { data: slots, error: slotsErr } = await admin
     .from('featured_slots')
     .select('*')
     .eq('facility_id', facilityId)
     .order('starts_at', { ascending: false });
 
+  if (slotsErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ slots: slots || [] });
 }
 

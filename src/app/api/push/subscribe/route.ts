@@ -5,6 +5,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +21,7 @@ export async function POST(request: NextRequest) {
     }
 
     const cookieStore = await cookies();
+    // 認証判定のみ anon SSR クライアント（cookie からセッション解決）。
     const supabase = createServerClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
@@ -47,7 +49,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
 
-    const { error } = await supabase
+    // DB 書き込みは service_role に集約（anon UPSERT ポリシー削除後も継続動作・RLS 依存排除）。
+    const serviceClient = createServiceRoleClient();
+    const { error } = await serviceClient
       .from('push_subscriptions')
       .upsert(
         {

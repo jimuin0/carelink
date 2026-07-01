@@ -26,9 +26,15 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
+const mockServiceFrom = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
+}));
+
+// service role クライアント（authorize 内の facility_jobs 読み取り・PATCH/DELETE の書き込みに使用）
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: () => ({ from: mockServiceFrom }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -108,13 +114,10 @@ function jobDeleteChain(error: unknown = null) {
 }
 
 function setupAuthorize(job: unknown = MOCK_JOB) {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    return jobSelectChain(job);
-  });
-  return () => callNum;
+  // auth クライアント（mockAnonFrom）は facility_members のみ担当
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  // service role クライアント（mockServiceFrom）は facility_jobs 読み取り担当
+  mockServiceFrom.mockImplementation(() => jobSelectChain(job));
 }
 
 beforeEach(() => {
@@ -145,18 +148,14 @@ test('GET: 不正なUUID → 400', async () => {
 });
 
 test('GET: 施設メンバーシップなし → 403', async () => {
-  mockAnonFrom.mockImplementationOnce(() => membersChain([]));
+  mockAnonFrom.mockImplementation(() => membersChain([]));
   const res = await GET(makeGetRequest(), makeProps());
   expect(res.status).toBe(403);
 });
 
 test('GET: 求人が見つからない → 404', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    return jobSelectChain(null);
-  });
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  mockServiceFrom.mockImplementation(() => jobSelectChain(null));
   const res = await GET(makeGetRequest(), makeProps());
   expect(res.status).toBe(404);
 });
@@ -190,11 +189,11 @@ test('PATCH: salary_max < salary_min → 400 (refine)', async () => {
 });
 
 test('PATCH: DB更新失敗 → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
     return jobUpdateChain(null, { message: 'DB error' });
   });
   const res = await PATCH(makeRequest('PATCH', validJob()), makeProps());
@@ -202,11 +201,11 @@ test('PATCH: DB更新失敗 → 500', async () => {
 });
 
 test('PATCH: 正常更新 → 200 with job', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
     return jobUpdateChain({ ...MOCK_JOB, title: '更新済み求人' });
   });
   const res = await PATCH(makeRequest('PATCH', validJob()), makeProps());
@@ -224,22 +223,18 @@ test('DELETE: 未認証 → 401', async () => {
 });
 
 test('DELETE: 求人が見つからない → 404', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    return jobSelectChain(null);
-  });
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  mockServiceFrom.mockImplementation(() => jobSelectChain(null));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(404);
 });
 
 test('DELETE: 正常削除 → 200', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
     return jobDeleteChain(null);
   });
   const res = await DELETE(makeRequest('DELETE'), makeProps());
@@ -297,11 +292,11 @@ test('PATCH: 不正な JSON body → 400', async () => {
 });
 
 test('DELETE: DB削除失敗 → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
     return jobDeleteChain({ message: 'DB error' });
   });
   const res = await DELETE(makeRequest('DELETE'), makeProps());
@@ -326,20 +321,20 @@ test('GET: 例外発生 → 500 (catchブロック)', async () => {
   expect(res.status).toBe(500);
 });
 
-// Branch coverage: line 25 — memberships が null のとき ?? [] でフォールバック（true 分岐 → facilityIds.length===0 → 403）
-test('GET: memberships が null → facilityIds 空 → 403（line 25 ?? フォールバック）', async () => {
-  mockAnonFrom.mockImplementationOnce(() => membersChain(null as unknown as unknown[]));
+// Branch coverage: memberships が null のとき ?? [] でフォールバック（true 分岐 → facilityIds.length===0 → 403）
+test('GET: memberships が null → facilityIds 空 → 403（?? フォールバック）', async () => {
+  mockAnonFrom.mockImplementation(() => membersChain(null as unknown as unknown[]));
   const res = await GET(makeGetRequest(), makeProps());
   expect(res.status).toBe(403);
 });
 
 test('PATCH: salary_note/description/requirements/benefits 空文字 → null として保存', async () => {
   let captured: Record<string, unknown> | undefined;
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]);
-    if (callNum === 2) return jobSelectChain(MOCK_JOB);
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
     return {
       update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
         eq: jest.fn().mockReturnValue({

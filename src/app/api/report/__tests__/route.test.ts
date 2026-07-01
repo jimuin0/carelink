@@ -18,6 +18,10 @@ jest.mock('@/lib/rate-limit', () => ({
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
+jest.mock('@/lib/supabase-server', () => ({
+  createServiceRoleClient: jest.fn(),
+  createServerSupabaseClient: jest.fn(),
+}));
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
@@ -38,9 +42,15 @@ function setupDefaultMocks(
     error: insertSucceeds ? null : { code: 'db-error' },
   });
 
+  // 認証判定のみ anon SSR クライアント（createServerClient）
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
+  });
+
+  // DB 書き込みは service_role クライアント（createServiceRoleClient）
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  (createServiceRoleClient as jest.Mock).mockReturnValue({
     from: jest.fn().mockReturnValue({
       insert: mockInsert,
     }),

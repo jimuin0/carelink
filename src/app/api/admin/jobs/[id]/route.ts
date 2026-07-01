@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -17,6 +18,7 @@ async function authorize(jobId: string) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { error: NextResponse.json({ error: '認証が必要です' }, { status: 401 }) };
 
+  // facility_members は auth クライアント（RLS 束縛・自分のメンバーシップのみ）で取得
   const { data: memberships } = await supabase
     .from('facility_members')
     .select('facility_id, role')
@@ -26,7 +28,11 @@ async function authorize(jobId: string) {
   const facilityIds = (memberships ?? []).map((m) => m.facility_id as string);
   if (facilityIds.length === 0) return { error: NextResponse.json({ error: '権限がありません' }, { status: 403 }) };
 
-  const { data: job } = await supabase
+  // facility_jobs は RLS ポリシーが「published 施設の公開 read のみ」のため、未公開施設の自社求人が
+  // auth クライアントでは読めず 404 になる実バグがあった。jobs/route.ts と同様に
+  // service role で読み取り、IDOR は facilityIds（auth 経由）による .in() で防止する。
+  const admin = createServiceRoleClient();
+  const { data: job } = await admin
     .from('facility_jobs')
     .select('*')
     .eq('id', jobId)
@@ -34,7 +40,7 @@ async function authorize(jobId: string) {
     .single();
 
   if (!job) return { error: NextResponse.json({ error: '求人が見つかりません' }, { status: 404 }) };
-  return { supabase, job, userId: user.id };
+  return { job, userId: user.id };
 }
 
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -72,10 +78,13 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     const result = await authorize(params.id);
     if ('error' in result) return result.error;
-    const { supabase, job, userId } = result;
+    const { job, userId } = result;
 
+    // DB 書き込みは service role クライアント（facility_jobs の RLS は公開 read のみ・
+    // UPDATE/DELETE ポリシーが無いため auth クライアントでは失敗する）
+    const serviceAdmin = createServiceRoleClient();
     const v = parsed.data;
-    const { data, error } = await supabase
+    const { data, error } = await serviceAdmin
       .from('facility_jobs')
       .update({
         title: v.title,
@@ -129,9 +138,12 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
 
     const result = await authorize(params.id);
     if ('error' in result) return result.error;
-    const { supabase, job, userId } = result;
+    const { job, userId } = result;
 
-    const { error } = await supabase
+    // DB 書き込みは service role クライアント（facility_jobs の RLS は公開 read のみ・
+    // DELETE ポリシーが無いため auth クライアントでは失敗する）
+    const serviceAdmin = createServiceRoleClient();
+    const { error } = await serviceAdmin
       .from('facility_jobs')
       .delete()
       .eq('id', job.id)

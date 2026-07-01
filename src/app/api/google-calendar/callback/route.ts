@@ -4,8 +4,10 @@ import crypto from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { alertCaughtError } from '@/lib/alert';
 
 export async function GET(req: NextRequest) {
+  try {
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
   const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
@@ -91,4 +93,10 @@ export async function GET(req: NextRequest) {
   }
 
   return NextResponse.redirect(new URL('/mypage/settings?gcal=success', req.url));
+  } catch (e) {
+    console.error('[google-calendar/callback] unexpected error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('gcal-callback', e, '/api/google-calendar/callback');
+    return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
+  }
 }

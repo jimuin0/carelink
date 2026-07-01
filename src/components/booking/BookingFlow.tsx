@@ -191,7 +191,7 @@ export default function BookingFlow({ facility, staff, menus, coupons }: Props) 
       if (selectedCoupon.discount_type === 'fixed' && selectedCoupon.discount_value) {
         price = Math.max(0, price - selectedCoupon.discount_value);
       } else if (selectedCoupon.discount_type === 'percentage' && selectedCoupon.discount_value) {
-        price = Math.round(price * (1 - selectedCoupon.discount_value / 100));
+        price = Math.max(0, Math.round(price * (1 - selectedCoupon.discount_value / 100)));
       } else if (selectedCoupon.discount_type === 'special_price' && selectedCoupon.special_price !== null) {
         price = selectedCoupon.special_price;
       }

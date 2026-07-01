@@ -68,6 +68,14 @@ describe('isFeatureEnabled', () => {
     await isFeatureEnabled('my_flag');
     expect(createServerSupabaseClient).toHaveBeenCalledTimes(1);
   });
+
+  test('空テーブル（flags=[]）でも2回目はDBを叩かない（キャッシュが効く）', async () => {
+    // feature_flags テーブルが空の場合も loadedAt がセットされ、5分以内は再クエリしない
+    buildMock([]);
+    await isFeatureEnabled('nonexistent');
+    await isFeatureEnabled('nonexistent');
+    expect(createServerSupabaseClient).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('getAllFlags', () => {
