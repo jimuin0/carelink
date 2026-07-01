@@ -1,7 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink } from '@/components/admin/SbUi';
+import { SbPageHeader, SbCard, SbStatusChip, SbButtonLink, SbStatCard } from '@/components/admin/SbUi';
 import { todayJst, addDays, dayOfWeekUtc, jstMonthInfo } from '@/lib/admin-date';
 
 const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
@@ -191,26 +191,34 @@ export default async function AdminDashboard() {
 
       {/* 経営KPI（当月・売上は /admin/analytics と同一定義）。経営者が毎日見たい数値を集約。 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-        <Link href={`/admin/bookings?date=${today}`} className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-          <p className="text-xs text-gray-500">本日の売上</p>
-          <p className="text-xl font-bold text-gray-800 tabular-nums mt-1">¥{todayRevenue.toLocaleString()}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">完了予約ベース</p>
-        </Link>
-        <Link href="/admin/analytics" className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-          <p className="text-xs text-gray-500">今月の売上</p>
-          <p className="text-xl font-bold text-gray-800 tabular-nums mt-1">¥{monthRevenue.toLocaleString()}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">{curM}月・完了{monthCompletedCount}件</p>
-        </Link>
-        <Link href="/admin/analytics" className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-          <p className="text-xs text-gray-500">客単価</p>
-          <p className="text-xl font-bold text-gray-800 tabular-nums mt-1">{avgTicket !== null ? `¥${avgTicket.toLocaleString()}` : '—'}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">今月の平均</p>
-        </Link>
-        <Link href="/admin/bookings?status=no_show" className="bg-white rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow">
-          <p className="text-xs text-gray-500">無断キャンセル率</p>
-          <p className={`text-xl font-bold tabular-nums mt-1 ${noShowRate !== null && noShowRate >= 10 ? 'text-red-600' : 'text-gray-800'}`}>{noShowRate !== null ? `${noShowRate}%` : '—'}</p>
-          <p className="text-[11px] text-gray-400 mt-0.5">今月{noShowCount > 0 ? `・${noShowCount}件` : ''}</p>
-        </Link>
+        <SbStatCard
+          label="本日の売上"
+          value={`¥${todayRevenue.toLocaleString()}`}
+          href={`/admin/bookings?date=${today}`}
+          accent="sky"
+          sub="完了予約ベース"
+        />
+        <SbStatCard
+          label="今月の売上"
+          value={`¥${monthRevenue.toLocaleString()}`}
+          href="/admin/analytics"
+          accent="emerald"
+          sub={`${curM}月・完了${monthCompletedCount}件`}
+        />
+        <SbStatCard
+          label="客単価"
+          value={avgTicket !== null ? `¥${avgTicket.toLocaleString()}` : '—'}
+          href="/admin/analytics"
+          accent="amber"
+          sub="今月の平均"
+        />
+        <SbStatCard
+          label="無断キャンセル率"
+          value={noShowRate !== null ? `${noShowRate}%` : '—'}
+          href="/admin/bookings?status=no_show"
+          accent={noShowRate !== null && noShowRate >= 10 ? 'rose' : 'gray'}
+          sub={`今月${noShowCount > 0 ? `・${noShowCount}件` : ''}`}
+        />
       </div>
 
       {/* 予約状況（本日から14日間＝2週間・grid-cols-7 で2行に並ぶ） */}

@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { jstDayStartIso, jstMonthStartIso, jstMonthInfo } from '@/lib/admin-date';
-import { SbPageHeader } from '@/components/admin/SbUi';
+import { SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
 
 export const metadata: Metadata = { title: '利用状況分析' };
 export const dynamic = 'force-dynamic';
@@ -93,18 +93,16 @@ export default async function UsageStatsPage() {
 
       {/* KPIカード */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        {[
-          { label: 'DAU（今日）', value: dauUsers.size, sub: '今日予約したユーザー', color: 'text-sky-600' },
-          { label: 'WAU（週間）', value: wauUsers.size, sub: '過去7日間', color: 'text-indigo-600' },
-          { label: 'MAU（月間）', value: mauUsers.size, sub: mauGrowth !== null ? `前月比 ${mauGrowth > 0 ? '+' : ''}${mauGrowth}%` : '今月', color: 'text-green-600' },
-          { label: 'リピート率', value: `${repeatRate}%`, sub: `${repeatUsers}/${totalUsers}人`, color: 'text-amber-600' },
-        ].map((card) => (
-          <div key={card.label} className="bg-white rounded-xl border border-gray-100 p-4">
-            <p className="text-xs text-gray-500 mb-1">{card.label}</p>
-            <p className={`text-2xl font-bold ${card.color}`}>{card.value}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{card.sub}</p>
-          </div>
-        ))}
+        <SbStatCard label="DAU（今日）" value={dauUsers.size} unit="人" accent="sky" sub="今日予約したユーザー" />
+        <SbStatCard label="WAU（週間）" value={wauUsers.size} unit="人" accent="sky" sub="過去7日間" />
+        <SbStatCard
+          label="MAU（月間）"
+          value={mauUsers.size}
+          unit="人"
+          accent="emerald"
+          sub={mauGrowth !== null ? `前月比 ${mauGrowth > 0 ? '+' : ''}${mauGrowth}%` : '今月'}
+        />
+        <SbStatCard label="リピート率" value={`${repeatRate}%`} accent="amber" sub={`${repeatUsers}/${totalUsers}人`} />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
