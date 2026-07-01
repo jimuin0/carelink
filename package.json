@@ -46,7 +46,7 @@
     "react-hook-form": "^7.73.1",
     "recharts": "^3.8.1",
     "resend": "^6.9.4",
-    "stripe": "^22.0.2",
+    "stripe": "^22.3.0",
     "web-push": "^3.6.7",
     "zod": "^4.4.3"
   },

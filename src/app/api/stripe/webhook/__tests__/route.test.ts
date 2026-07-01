@@ -282,7 +282,7 @@ describe('POST /api/stripe/webhook', () => {
     const lastCall = Stripe.mock.calls[Stripe.mock.calls.length - 1];
     expect(lastCall[1]).toEqual(
       expect.objectContaining({
-        apiVersion: '2026-03-25.dahlia',
+        apiVersion: '2026-06-24.dahlia',
       })
     );
   });

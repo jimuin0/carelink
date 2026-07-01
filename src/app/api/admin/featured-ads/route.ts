@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ slot, checkout_url: null }, { status: 201 });
   }
 
-  const stripe = new Stripe(stripeKey, { apiVersion: '2026-03-25.dahlia' });
+  const stripe = new Stripe(stripeKey, { apiVersion: '2026-06-24.dahlia' });
   const planLabels: Record<string, string> = {
     search_top: '検索結果トップ表示（月額）',
     area_banner: 'エリアページバナー（月額）',
