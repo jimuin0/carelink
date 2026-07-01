@@ -13,7 +13,7 @@ import { alertCaughtError } from '@/lib/alert';
 export const dynamic = 'force-dynamic';
 
 const getStripe = () => new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2026-03-25.dahlia',
+  apiVersion: '2026-06-24.dahlia',
 });
 
 export async function POST(request: NextRequest) {
