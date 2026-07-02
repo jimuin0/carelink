@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
+import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { sendPushToUser } from '@/lib/push';
 import { reverseCompletionSideEffects } from '@/lib/booking-completion-reversal';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
@@ -207,6 +209,33 @@ export async function POST(request: Request) {
       }
     }
 
+    // cancelled への変更時、顧客の LINE へキャンセル通知（顧客側 /api/booking/[id]/cancel と対称）。
+    // 旧実装はメール＋Push のみで顧客 LINE 通知が欠落しており、LINE 連携済み顧客は管理者による
+    // キャンセルを LINE で受け取れない非対称があった。sendLineCancellation は throw せず false を
+    // 返す契約のため、戻り値を確認して未送達をログに残す（可観測性の確保・非ブロッキング）。
+    if (status === 'cancelled' && booking.user_id && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
+      try {
+        const { data: lineLink } = await supabase
+          .from('line_user_links')
+          .select('line_user_id')
+          .eq('user_id', booking.user_id)
+          .maybeSingle();
+        if (lineLink?.line_user_id) {
+          const lineOk = await sendLineCancellation(lineLink.line_user_id, {
+            facilityName: facility?.name || '',
+            menuName: menuName || '',
+            date: booking.booking_date,
+            time: booking.start_time,
+          });
+          if (!lineOk) {
+            console.error('[admin-booking-status] LINE cancellation notification not delivered', { userId: booking.user_id, bookingId: booking.id });
+          }
+        }
+      } catch (e) {
+        console.error('[admin-booking-status] LINE cancellation notification failed', { bookingId: booking.id, err: e });
+      }
+    }
+
     // Push notification to booking user
     if (booking.user_id && status !== 'arrived') {
       const statusLabels: Record<string, string> = {
@@ -226,6 +255,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true });
   } catch (e) {
     safeCaptureException(e, 'admin-booking-status');
+    // safeCaptureException は console.error のみで Slack 通知しないため、500 経路では別途明示通知する
+    // （catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れる）。cancel/route.ts と対称。
+    alertCaughtError('admin-booking-status', e, '/api/admin/booking-status');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
