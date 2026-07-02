@@ -300,7 +300,12 @@ export async function POST(request: Request) {
       parsed.data.staff_id
         ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
         : Promise.resolve({ data: null }),
-      supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner').single(),
+      // .limit(1) を挟んで PostgREST のレスポンス行数を1行に絞ってから .single() する
+      // （cancel 経路 booking/[id]/cancel/route.ts と同じパターン）。.limit(1) 無しだと
+      // 施設が複数オーナーを持つ場合（運営が手動で facility_members に複数付与した場合に
+      // 起こり得る）PGRST116（複数行エラー）で ownerResult.data が null になり、
+      // どのオーナーにも新規予約メール通知が届かない実バグだった。
+      supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner').limit(1).single(),
     ]);
 
     const emailData = {

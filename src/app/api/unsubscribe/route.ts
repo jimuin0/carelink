@@ -68,10 +68,16 @@ export async function POST(request: Request) {
   const unsubscribeByEmail = async (email: string): Promise<NextResponse> => {
     const normalizedEmail = email.toLowerCase();
 
-    // newsletter_subscriptions を非アクティブ化
+    // newsletter_subscriptions を非アクティブ化。既存行があれば update、無ければ insert する
+    // （UNIQUE制約が email/user_id に無いテーブルのため upsert は使えず select→分岐で行う）。
+    // 旧実装は update のみで、購読レコードを持たないアドレス（例: facility_members からのみ
+    // 宛先化される owner_monthly のオーナー）は 0 行更新となり停止行が一切作られず、
+    // newsletter_subscriptions ベースの判定では永久に配信停止できなかった（実送信 API の
+    // フィルタが profiles.email_unsubscribed も必ず見るよう別途対策済みだが、購読テーブル側の
+    // 記録も一貫させ、どちらの判定経路でも確実に止まるようにする＝多層防御）。
     const { data: sub } = await supabase
       .from('newsletter_subscriptions')
-      .select('is_active')
+      .select('id, is_active')
       .eq('email', normalizedEmail)
       .maybeSingle();
 
@@ -79,13 +85,31 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, already: true });
     }
 
-    const { error: unsubErr } = await supabase
-      .from('newsletter_subscriptions')
-      .update({ is_active: false })
-      .eq('email', normalizedEmail);
-    if (unsubErr) {
-      console.error('[unsubscribe] newsletter_subscriptions update failed', { err: unsubErr });
-      return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+    if (sub) {
+      const { error: unsubErr } = await supabase
+        .from('newsletter_subscriptions')
+        .update({ is_active: false, unsubscribed_at: new Date().toISOString() })
+        .eq('id', sub.id);
+      if (unsubErr) {
+        console.error('[unsubscribe] newsletter_subscriptions update failed', { err: unsubErr });
+        return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+      }
+    } else {
+      // 購読レコードが無いアドレス（オーナーのみ等）にも、以後の判定に使えるよう
+      // 明示的に停止レコードを作成する（source='unsubscribe' で由来を残す）。
+      const { error: insertErr } = await supabase
+        .from('newsletter_subscriptions')
+        .insert({
+          email: normalizedEmail,
+          subscription_type: 'all',
+          is_active: false,
+          unsubscribed_at: new Date().toISOString(),
+          source: 'unsubscribe',
+        });
+      if (insertErr) {
+        console.error('[unsubscribe] newsletter_subscriptions insert failed', { err: insertErr });
+        return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+      }
     }
 
     // profiles に一致するアカウントがあれば email_unsubscribed もセット
