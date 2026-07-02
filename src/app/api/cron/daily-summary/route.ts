@@ -24,18 +24,29 @@ async function sendDailySummaryEmails(
   supabase: ReturnType<typeof createServiceRoleClient>,
   dateStr: string,
 ): Promise<number> {
-  const { data: optedIn } = await supabase
+  const { data: optedIn, error: optedInErr } = await supabase
     .from('facility_notification_settings')
     .select('facility_id')
     .eq('email_daily_summary', true);
+  // error を握り潰すと optedIn=null → 「ON 施設なし」と区別できず無音でメール送信全体が
+  // skip される（設定 ON なのに届かない silent miss）。error を可視化して原因を追える様にする。
+  if (optedInErr) {
+    console.error('[daily-summary] facility_notification_settings fetch failed', { err: optedInErr });
+    return 0;
+  }
   if (!optedIn || optedIn.length === 0) return 0;
   const facilityIds = (optedIn as { facility_id: string }[]).map((r) => r.facility_id);
 
-  const { data: summaries } = await supabase
+  const { data: summaries, error: summariesErr } = await supabase
     .from('daily_revenue_summary')
     .select('facility_id, total_revenue, booking_count, completed_count, cancelled_count, new_customer_count, repeat_customer_count')
     .eq('date', dateStr)
     .in('facility_id', facilityIds);
+  // 同上：daily_revenue_summary の取得失敗を「サマリ 0 件」と区別できず無音 skip するのを防ぐ。
+  if (summariesErr) {
+    console.error('[daily-summary] daily_revenue_summary fetch failed', { err: summariesErr, date: dateStr });
+    return 0;
+  }
   if (!summaries || summaries.length === 0) return 0;
 
   let sent = 0;

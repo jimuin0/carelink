@@ -236,7 +236,21 @@ export async function GET(request: Request) {
         token,
         user_id: profile.id,
       });
-      if (tokenErr) console.error('[favorites-digest] unsubscribe token insert failed', { userId: profile.id, err: tokenErr });
+      // token の保存に失敗したまま送信を続行すると、メール内の配信停止リンクが DB に存在しない
+      // token を指し、受信者が解除しても「token 不明＝該当なし」で無音成功扱いになり配信を止められない。
+      // その上 claim（sent_week=thisWeek）は既に立っているため当該ユーザーはその週ずっと skip され、
+      // 「停止不能なのに成功表示」の恒久状態に落ちる。tokenErr 時は送信せず claim を直前の値へ戻し、
+      // 同週の再 run でトークン保存からやり直せる様にする（送信失敗時と同じ恒久 miss 防止方針）。
+      if (tokenErr) {
+        console.error('[favorites-digest] unsubscribe token insert failed, aborting send', { userId: profile.id, err: tokenErr });
+        const { error: releaseErr } = await supabase
+          .from('profiles')
+          .update({ favorites_digest_sent_week: profile.favorites_digest_sent_week })
+          .eq('id', profile.id);
+        if (releaseErr) console.error('[favorites-digest] claim release failed', { userId: profile.id, err: releaseErr });
+        skipped++;
+        continue;
+      }
 
       // sendFavoritesDigest は throw せず送達可否を boolean で返す（safeSend 仕様）。
       const ok = await sendFavoritesDigest({
