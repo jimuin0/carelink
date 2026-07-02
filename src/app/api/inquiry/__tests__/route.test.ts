@@ -209,3 +209,10 @@ describe('POST /api/inquiry', () => {
     expect(res.status).toBe(500);
   });
 });
+
+// INQ-1: 施設存在確認の error を握り潰さず 500（404 偽装の防止）
+test('INQ-1: 施設確認でDBエラー → 500', async () => {
+  mockFacilityMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
+  const res = await POST(makeRequest(validInquiry));
+  expect(res.status).toBe(500);
+});

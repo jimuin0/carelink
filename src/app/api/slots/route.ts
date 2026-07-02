@@ -6,6 +6,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { isValidIsoDate } from '@/lib/date-utils';
+import { todayJst } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,7 +49,16 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
   }
 
-  return NextResponse.json({ slots: (data ?? []) as AvailableSlot[] });
+  let slots = (data ?? []) as AvailableSlot[];
+  // 当日は「既に過ぎた時刻」の枠を除外する（過去時刻を予約可能に見せない = AV-3）。
+  // slot_start は TIME を "HH:MM:SS" で受け取るため、現在 JST 時刻(同形式)より後の枠のみ残す。
+  // どれだけ先まで受け付けるか(リードタイム)は業務判断のため、ここでは開始済みを除くのみ。
+  if (date === todayJst()) {
+    const nowJst = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(11, 19);
+    slots = slots.filter((s) => s.slot_start > nowJst);
+  }
+
+  return NextResponse.json({ slots });
   } catch (e) {
     safeCaptureException(e, 'slots');
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });

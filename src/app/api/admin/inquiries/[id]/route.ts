@@ -57,15 +57,24 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const payload: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.ticket_status === 'resolved') {
     payload.resolved_at = new Date().toISOString();
+  } else if (parsed.data.ticket_status !== undefined) {
+    // resolved から別状態へ戻す(再オープン)ときは resolved_at を消し、古い解決日時が残らないようにする。
+    payload.resolved_at = null;
   }
 
   const admin = createServiceRoleClient();
   // contacts は施設横断のプラットフォーム問い合わせ。プラットフォーム管理者のみ到達できるため id で更新。
-  const { error } = await admin
+  // .select('id') で更新行を取得し、0 行なら存在しない ID として 404 を返す
+  // （旧実装は 0 行でも ok:true を返し「幻の成功」になっていた = ADM-INQ-1）。
+  const { data: updated, error } = await admin
     .from('contacts')
     .update(payload)
-    .eq('id', params.id);
+    .eq('id', params.id)
+    .select('id');
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!updated || updated.length === 0) {
+    return NextResponse.json({ error: 'チケットが見つかりません' }, { status: 404 });
+  }
   return NextResponse.json({ ok: true });
 }

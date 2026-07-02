@@ -304,3 +304,25 @@ describe('GET /api/slots', () => {
     expect(res.status).toBe(500);
   });
 });
+
+// AV-3: 当日は既に過ぎた時刻の枠を除外する（過去時刻を予約可能に見せない）
+test('AV-3: 当日は現在JST時刻より前の枠を除外', async () => {
+  jest.useFakeTimers().setSystemTime(new Date('2026-07-03T05:00:00Z')); // JST 14:00
+  try {
+    const { todayJst } = require('@/lib/admin-date');
+    const today = todayJst();
+    mockRpc.mockResolvedValue({
+      data: [
+        { slot_start: '10:00:00', slot_end: '11:00:00' }, // 過去 → 除外
+        { slot_start: '18:00:00', slot_end: '19:00:00' }, // 未来 → 残る
+      ],
+      error: null,
+    });
+    const res = await GET(makeRequest(VALID_UUID, VALID_UUID, today) as any);
+    const json = await res.json();
+    expect(json.slots).toHaveLength(1);
+    expect(json.slots[0].slot_start).toBe('18:00:00');
+  } finally {
+    jest.useRealTimers();
+  }
+});

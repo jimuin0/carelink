@@ -1,5 +1,31 @@
 import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
+import { createServiceRoleClient } from '@/lib/supabase-server';
+
+// 施設に有効な問診テンプレがあるか（slug 経由）。予約完了時に問診バナーを出すか判定する。
+// 旧実装は has_intake クエリのみに依存していたが、予約送信元(BookingFlow)が has_intake を
+// 一切付けないためバナーが常に非表示だった（INTAKE-1）。ここで実テンプレの有無から判定する。
+async function facilityHasActiveIntake(slug: string): Promise<boolean> {
+  try {
+    const admin = createServiceRoleClient();
+    const { data: facility } = await admin
+      .from('facility_profiles')
+      .select('id')
+      .eq('slug', slug)
+      .maybeSingle();
+    if (!facility) return false;
+    const { data: tpl } = await admin
+      .from('intake_form_templates')
+      .select('id')
+      .eq('facility_id', facility.id)
+      .eq('is_active', true)
+      .limit(1)
+      .maybeSingle();
+    return !!tpl;
+  } catch {
+    return false;
+  }
+}
 
 interface Props {
   params: Promise<{ slug: string }>;
@@ -77,7 +103,8 @@ export default async function BookingCompletePage(props: Props) {
   const searchParams = await props.searchParams;
   const params = await props.params;
   const bookingId = searchParams.id;
-  const hasIntakeForm = searchParams.has_intake === '1';
+  // has_intake=1 の明示指定、または施設に有効な問診テンプレが実在すればバナーを出す（INTAKE-1）。
+  const hasIntakeForm = searchParams.has_intake === '1' || (await facilityHasActiveIntake(params.slug));
   const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
   const icsDataUri = icsContent ? `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}` : null;
 
