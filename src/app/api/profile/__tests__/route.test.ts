@@ -25,7 +25,7 @@ jest.mock('next/headers');
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { PUT } from '../route';
+import { PUT, GET } from '../route';
 
 let mockGetUser: jest.Mock;
 let mockUpdate: jest.Mock;
@@ -335,5 +335,46 @@ describe('PUT /api/profile', () => {
     expect(res.status).toBe(401);
     expect(mockCookieStore.getAll).toHaveBeenCalled();
     expect(mockCookieStore.set).toHaveBeenCalled();
+  });
+});
+
+// ─── GET /api/profile (M-1): LINE 連携状態を line_user_links から返す ───────────
+// 旧実装は GET ハンドラが無く settings が 405 → 常にエラー表示だった。
+describe('GET /api/profile', () => {
+  function setupLinkMock(row: unknown, error: unknown = null) {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    (createServiceRoleClient as jest.Mock).mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            maybeSingle: jest.fn().mockResolvedValue({ data: row, error }),
+          }),
+        }),
+      }),
+    });
+  }
+
+  function makeGet() {
+    return new Request('http://localhost/api/profile', { method: 'GET' });
+  }
+
+  test('連携あり → { linked: true }', async () => {
+    setupLinkMock({ user_id: 'user-123' });
+    const res = await GET(makeGet() as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ linked: true });
+  });
+
+  test('連携なし → { linked: false }', async () => {
+    setupLinkMock(null);
+    const res = await GET(makeGet() as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ linked: false });
+  });
+
+  test('DBエラー → 500', async () => {
+    setupLinkMock(null, { message: 'db error' });
+    const res = await GET(makeGet() as any);
+    expect(res.status).toBe(500);
   });
 });

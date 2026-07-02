@@ -141,6 +141,15 @@ export async function middleware(request: NextRequest) {
     }
   );
 
+  // redirect レスポンスに、getUser() が更新した認証 Cookie（supabaseResponse に載る）を
+  // 明示コピーしてから返す。NextResponse.redirect は新規レスポンスのため、コピーしないと
+  // リフレッシュ済みセッション Cookie が脱落し、次リクエストで断続的に強制ログアウトされる
+  // （Supabase SSR の既知の落とし穴）。CSP も併せて付与する。
+  const withSessionCookies = (res: NextResponse): NextResponse => {
+    for (const c of supabaseResponse.cookies.getAll()) res.cookies.set(c);
+    return setCsp(res);
+  };
+
   // トークンリフレッシュ（保護ルート・認証ページのみ）
   let user: Awaited<ReturnType<typeof supabase.auth.getUser>>['data']['user'] = null;
   try {
@@ -156,7 +165,7 @@ export async function middleware(request: NextRequest) {
     const url = request.nextUrl.clone();
     url.pathname = '/auth/login';
     url.searchParams.set('redirect', request.nextUrl.pathname);
-    return setCsp(NextResponse.redirect(url));
+    return withSessionCookies(NextResponse.redirect(url));
   }
 
   // /admin ルートへの権限チェック（facility_members owner/admin のみ）
@@ -174,13 +183,22 @@ export async function middleware(request: NextRequest) {
       // キャッシュミス or 署名検証失敗: DBで確認してクッキーにキャッシュ
       // owner/admin ロールの行のみを対象に絞る（複数施設に所属し、別施設では
       // staff/viewer の場合に .limit(1) が任意の行を返して誤判定するのを防ぐ）
-      const { data: membership } = await supabase
+      const { data: membership, error: memErr } = await supabase
         .from('facility_members')
         .select('role')
         .eq('user_id', user.id)
         .in('role', ['owner', 'admin'])
         .limit(1)
         .maybeSingle();
+      if (memErr) {
+        // 一時的な DB エラーで data=null → hasAccess=false を 5 分キャッシュすると、正規の
+        // 管理者が blip 中に /admin から締め出され、キャッシュ期限まで固定される。エラー時は
+        // 否定結果をキャッシュせず、この request のみ fail-closed（/mypage へ）。次リクエストで
+        // 再判定されるため sticky lockout を防ぐ（発症前の恒久根治）。
+        const url = request.nextUrl.clone();
+        url.pathname = '/mypage';
+        return withSessionCookies(NextResponse.redirect(url));
+      }
       hasAccess = !!membership;
 
       // キャッシュを設定（5分TTL、HttpOnly + HMAC署名）— ADMIN_COOKIE_SECRET 未設定時はキャッシュしない
@@ -199,7 +217,7 @@ export async function middleware(request: NextRequest) {
     if (!hasAccess) {
       const url = request.nextUrl.clone();
       url.pathname = '/mypage';
-      return setCsp(NextResponse.redirect(url));
+      return withSessionCookies(NextResponse.redirect(url));
     }
   }
 
@@ -207,7 +225,7 @@ export async function middleware(request: NextRequest) {
   if (user && (request.nextUrl.pathname === '/auth/login' || request.nextUrl.pathname === '/auth/signup')) {
     const url = request.nextUrl.clone();
     url.pathname = '/mypage';
-    return setCsp(NextResponse.redirect(url));
+    return withSessionCookies(NextResponse.redirect(url));
   }
 
   return setCsp(supabaseResponse);

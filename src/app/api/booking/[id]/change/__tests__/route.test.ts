@@ -750,3 +750,48 @@ test('LINE Works: adminSupabase.from が throw → 外側 catch → Sentry + 200
   expect(res.status).toBe(200);
   isLineWorksConfigured.mockReturnValue(false);
 });
+
+// ─── CHG-1: 入力検証を作成(bookingSchema)と同等に強化 ──────────────────────────
+// 旧 changeSchema は形式のみ(99:99・過去日・start>=end を素通し)で作成より弱かった。
+// 時刻は /api/slots が TIME を "HH:MM:SS" で返すため秒は許容しつつ妥当性を検証する。
+
+test('CHG-1: start_time が 25:00（時が24以上）→ 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2026-12-01', start_time: '25:00', end_time: '25:30' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('CHG-1: start_time が 14:60（分が60以上）→ 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2026-12-01', start_time: '14:60', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('CHG-1: 秒が 14:00:60（秒が60以上）→ 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2026-12-01', start_time: '14:00:60', end_time: '15:00:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('CHG-1: HH:MM:SS 形式（空き枠が返す秒つき時刻）は許容 → 200', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  const res = await POST(makeRequest({ booking_date: '2026-12-01', start_time: '14:00:00', end_time: '15:00:00' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('CHG-1: start_time >= end_time → 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2026-12-01', start_time: '15:00', end_time: '14:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('CHG-1: 過去日への変更 → 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2020-01-01', start_time: '14:00', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('CHG-1: 1年以上先の日付 → 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2099-01-01', start_time: '14:00', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('CHG-1: 実在しない日付(2026-02-30) → 400', async () => {
+  const res = await POST(makeRequest({ booking_date: '2026-02-30', start_time: '14:00', end_time: '15:00' }), makeProps());
+  expect(res.status).toBe(400);
+});

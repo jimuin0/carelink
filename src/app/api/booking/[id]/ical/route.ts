@@ -23,6 +23,16 @@ function toIcalDate(isoString: string): string {
   return isoString.replace(/[-:]/g, '').replace(/\.\d{3}/, '').replace('Z', 'Z');
 }
 
+// 予約日(DATE "YYYY-MM-DD") と時刻(TIME "HH:MM" または "HH:MM:SS") を iCal のローカル日時
+// "YYYYMMDDTHHMMSS" に組み立てる。旧実装は日付を持たず start_time/end_time(TIME) だけを
+// toIcalDate に通していたため DTSTART/DTEND が "100000" のような日付欠落値になり、
+// カレンダー取込が壊れていた。TZID=Asia/Tokyo と併用して JST として正しく解釈させる。
+function toIcalLocalDateTime(date: string, time: string): string {
+  const d = date.replace(/-/g, '');                 // "YYYYMMDD"
+  const t = (time.replace(/:/g, '') + '000000').slice(0, 6); // "HHMMSS"（秒欠落も0埋め）
+  return `${d}T${t}`;
+}
+
 export async function GET(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   try {
@@ -39,7 +49,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   const admin = createServiceRoleClient();
   const { data: booking } = await admin
     .from('bookings')
-    .select('id, user_id, facility_id, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
+    .select('id, user_id, facility_id, booking_date, start_time, end_time, menu:facility_menus(name), staff:staff_profiles(name), facility_profiles(name, address, phone)')
     .eq('id', params.id)
     .single();
 
@@ -59,8 +69,9 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
   const staffName = staff?.name ?? null;
 
   const facilityName = facility?.name ?? 'CareLink 予約';
-  const startTime = booking.start_time ? toIcalDate(booking.start_time) : '';
-  const endTime = booking.end_time ? toIcalDate(booking.end_time) : '';
+  const bookingDate = booking.booking_date as string | null;
+  const startTime = bookingDate && booking.start_time ? toIcalLocalDateTime(bookingDate, booking.start_time) : '';
+  const endTime = bookingDate && booking.end_time ? toIcalLocalDateTime(bookingDate, booking.end_time) : '';
   const uid = `carelink-${booking.id}@carelink-jp.com`;
   const now = toIcalDate(new Date().toISOString());
 
@@ -81,8 +92,8 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${now}`,
-    startTime && `DTSTART:${startTime}`,
-    endTime && `DTEND:${endTime}`,
+    startTime && `DTSTART;TZID=Asia/Tokyo:${startTime}`,
+    endTime && `DTEND;TZID=Asia/Tokyo:${endTime}`,
     `SUMMARY:${escapeIcal(summary)}`,
     description && `DESCRIPTION:${escapeIcal(description)}`,
     facility?.address && `LOCATION:${escapeIcal(facility.address)}`,

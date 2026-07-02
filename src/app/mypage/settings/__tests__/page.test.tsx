@@ -32,7 +32,7 @@ test('取得成功 → 連携状態を正しく表示しエラーは出さない
   routeFetch((url) =>
     url === '/api/google-calendar'
       ? { ok: true, status: 200, body: { connected: true } }
-      : { ok: true, status: 200, body: { profile: { line_user_id: 'U123' } } },
+      : { ok: true, status: 200, body: { linked: true } },
   );
   render(<SettingsPage />);
   // LINE 連携済み（一意テキスト）が表示され、どのセクションもエラーを出さない
