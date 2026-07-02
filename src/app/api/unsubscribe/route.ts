@@ -68,13 +68,16 @@ export async function POST(request: Request) {
   const unsubscribeByEmail = async (email: string): Promise<NextResponse> => {
     const normalizedEmail = email.toLowerCase();
 
-    // newsletter_subscriptions を非アクティブ化。既存行があれば update、無ければ insert する
-    // （UNIQUE制約が email/user_id に無いテーブルのため upsert は使えず select→分岐で行う）。
-    // 旧実装は update のみで、購読レコードを持たないアドレス（例: facility_members からのみ
-    // 宛先化される owner_monthly のオーナー）は 0 行更新となり停止行が一切作られず、
-    // newsletter_subscriptions ベースの判定では永久に配信停止できなかった（実送信 API の
-    // フィルタが profiles.email_unsubscribed も必ず見るよう別途対策済みだが、購読テーブル側の
-    // 記録も一貫させ、どちらの判定経路でも確実に止まるようにする＝多層防御）。
+    // D-4: 対応する profiles があれば user_id を紐付ける（監査・以後の判定で有用。取得できない
+    // アドレス（アカウント未登録のオーナー等）は null のまま）。
+    const { data: profileRow } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('email', normalizedEmail)
+      .maybeSingle();
+    const linkedUserId = (profileRow as { id: string } | null)?.id ?? null;
+
+    // already 判定（UI 表示用）。この読みの TOCTOU は表示メッセージのみに影響し無害。
     const { data: sub } = await supabase
       .from('newsletter_subscriptions')
       .select('id, is_active')
@@ -85,30 +88,48 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, already: true });
     }
 
-    if (sub) {
-      const { error: unsubErr } = await supabase
-        .from('newsletter_subscriptions')
-        .update({ is_active: false, unsubscribed_at: new Date().toISOString() })
-        .eq('id', sub.id);
-      if (unsubErr) {
-        console.error('[unsubscribe] newsletter_subscriptions update failed', { err: unsubErr });
+    const unsubbedAt = new Date().toISOString();
+    const row = {
+      email: normalizedEmail,
+      subscription_type: 'all',
+      is_active: false,
+      unsubscribed_at: unsubbedAt,
+      source: 'unsubscribe',
+      user_id: linkedUserId,
+    };
+
+    // D-3: 書き込みは email を衝突キーにした upsert で原子的に行い、並行解除で重複 inactive 行が
+    // できる TOCTOU を塞ぐ。email に UNIQUE 制約がある前提。制約未適用（migration 前）は onConflict が
+    // 42P10 で失敗するため、従来の update/insert 分岐へフォールバックする（deploy 順序非依存）。
+    const up = await supabase
+      .from('newsletter_subscriptions')
+      .upsert(row, { onConflict: 'email' });
+
+    if (up.error) {
+      const missingConstraint =
+        up.error.code === '42P10' || /no unique or exclusion constraint/i.test(up.error.message ?? '');
+      if (!missingConstraint) {
+        console.error('[unsubscribe] newsletter_subscriptions upsert failed', { err: up.error });
         return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
       }
-    } else {
-      // 購読レコードが無いアドレス（オーナーのみ等）にも、以後の判定に使えるよう
-      // 明示的に停止レコードを作成する（source='unsubscribe' で由来を残す）。
-      const { error: insertErr } = await supabase
-        .from('newsletter_subscriptions')
-        .insert({
-          email: normalizedEmail,
-          subscription_type: 'all',
-          is_active: false,
-          unsubscribed_at: new Date().toISOString(),
-          source: 'unsubscribe',
-        });
-      if (insertErr) {
-        console.error('[unsubscribe] newsletter_subscriptions insert failed', { err: insertErr });
-        return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+      // フォールバック（UNIQUE 未適用）: 既存行があれば update、無ければ insert。
+      if (sub) {
+        const { error: unsubErr } = await supabase
+          .from('newsletter_subscriptions')
+          .update({ is_active: false, unsubscribed_at: unsubbedAt, user_id: linkedUserId })
+          .eq('id', sub.id);
+        if (unsubErr) {
+          console.error('[unsubscribe] newsletter_subscriptions update failed', { err: unsubErr });
+          return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+        }
+      } else {
+        const { error: insertErr } = await supabase
+          .from('newsletter_subscriptions')
+          .insert(row);
+        if (insertErr) {
+          console.error('[unsubscribe] newsletter_subscriptions insert failed', { err: insertErr });
+          return NextResponse.json({ error: '配信停止の処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+        }
       }
     }
 
