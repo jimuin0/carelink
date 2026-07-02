@@ -692,7 +692,6 @@ git push origin main
 | 日次売上集計 | `/api/cron/daily-summary` | `0 15 * * *` | 毎日 24:00 JST |
 | 顧客RFM分析 | `/api/cron/customer-segment` | `0 16 * * 0` | 毎週月曜 1:00 JST（UTC日曜16:00） |
 | Google評価同期 | `/api/cron/sync-google-ratings` | `0 18 * * 0` | 毎週日曜 3:00 JST（UTC日曜18:00）。`gbp_place_id`設定済み公開施設の`google_rating`/`google_review_count`を一括更新（v8.12） |
-| ニュースレター配信 | `/api/cron/newsletter-digest` | `0 1 1 * *` | 毎月1日 10:00 JST（UTC1日01:00）。施設別ニュースレター購読者にメール配信（v8.42） |
 | オンボーディングフォロー | `/api/cron/onboarding-followup` | `0 16 * * *` | 毎日 1:00 JST（UTC16:00）。登録3日後に未完了施設へフォローメール送信 |
 | 誕生日クーポン | `/api/cron/birthday-coupon` | `0 14 * * *` | 毎日 23:00 JST（UTC14:00）。誕生日ユーザーにクーポン自動配布 |
 | スパム口コミフラグ | `/api/cron/flag-reviews` | `0 * * * *` | 毎時 00分。同一IP/短時間大量投稿の口コミを自動フラグ |
@@ -1808,7 +1807,6 @@ CREATE POLICY "Allow public read" ON storage.objects FOR SELECT TO anon USING (b
 - `GET/POST /api/admin/backup` — DBバックアップ確認・CSVエクスポート（重要テーブル行数チェック、v8.39）
 - `GET/POST /api/admin/newsletter` — ニュースレターキャンペーン管理（v8.42）
 - `GET/PUT/DELETE /api/admin/newsletter/[id]` — キャンペーン詳細（v8.42）
-- `GET /api/cron/newsletter-digest` — 月次ニュースレター配信Cron（毎月1日 10:00 JST、v8.42）
 - `GET/POST /api/admin/community/posts` — コミュニティ投稿管理（v8.42）
 - `GET/POST/PATCH/DELETE /api/admin/featured-ads` — 広告枠管理・Stripe Checkout（v8.43）
 - `GET/POST /api/admin/job-applications` — 求人応募管理（v8.42）
@@ -1868,7 +1866,6 @@ CREATE POLICY "Allow public read" ON storage.objects FOR SELECT TO anon USING (b
 | 36 | `/api/admin/backup` | GET/POST | 必須 | - | DBバックアップ確認（GET: 重要テーブル行数+Supabase自動バックアップ状態）/ CSVエクスポート（POST: 全テーブルCSV）、v8.39 |
 | 37 | `/api/admin/newsletter` | GET/POST | 必須 | 5回/60秒 | ニュースレターキャンペーン一覧/作成、v8.42 |
 | 38 | `/api/admin/newsletter/[id]` | GET/PUT/DELETE | 必須 | 5回/60秒 | キャンペーン詳細・編集・削除、v8.42 |
-| 39 | `/api/cron/newsletter-digest` | GET | CRON | - | 月次ニュースレター配信（毎月1日 10:00 JST、購読者にメール送信）、v8.42 |
 | 40 | `/api/admin/community/posts` | GET/POST | 必須 | 10回/60秒 | コミュニティ投稿管理（モデレート・承認）、v8.42 |
 | 41 | `/api/admin/featured-ads` | GET/POST/PATCH/DELETE | 必須 | 5回/60秒 | 広告枠管理（featured_slots CRUD + Stripe Checkout Session作成）、v8.43 |
 | 42 | `/api/admin/job-applications` | GET/POST | 必須 | 10回/60秒 | 求人応募一覧・受付、v8.42 |
