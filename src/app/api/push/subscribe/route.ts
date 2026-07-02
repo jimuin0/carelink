@@ -9,6 +9,25 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 
 export const dynamic = 'force-dynamic';
 
+// SSRF 防止: 保存された endpoint は push.ts の webpush.sendNotification が後で任意の URL へ
+// POST する原始的 SSRF プリミティブになり得る（https/長さ検証だけでは内部ネットワーク等へ
+// 向けられる）。実在する Web Push サービスのホストのみ許可する allowlist を設ける。
+function isAllowedPushEndpoint(raw: string): boolean {
+  // 呼び出し側で https:// 始まりは検証済み。ここはホスト名の allowlist 判定に専念する。
+  let host: string;
+  try {
+    host = new URL(raw).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return (
+    host === 'fcm.googleapis.com' ||                 // Chrome / FCM
+    host.endsWith('.push.apple.com') ||              // Safari / Apple(web.push.apple.com 含む)
+    host.endsWith('.push.services.mozilla.com') ||   // Firefox autopush
+    host.endsWith('.notify.windows.com')             // Edge(旧) / WNS
+  );
+}
+
 export async function POST(request: NextRequest) {
   try {
     const csrfError = checkCsrf(request);
@@ -46,6 +65,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
     if (!endpoint.startsWith('https://') || endpoint.length > 2048 || String(keys.p256dh).length > 200 || String(keys.auth).length > 100) {
+      return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
+    }
+    // 既知のプッシュサービス以外の endpoint は拒否（SSRF 防止）。
+    if (!isAllowedPushEndpoint(endpoint)) {
       return NextResponse.json({ error: 'Invalid subscription' }, { status: 400 });
     }
 
