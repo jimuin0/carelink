@@ -15,6 +15,29 @@ const profileSchema = z.object({
   gender: z.enum(['male', 'female', 'other', 'unspecified']).nullable().optional(),
 });
 
+// LINE 連携状態を返す（mypage/settings が連携バッジ表示に使用）。
+// 旧実装は GET ハンドラが無く settings が GET /api/profile → 405 → 常にエラー表示していた。
+// 連携は profiles.line_user_id ではなく line_user_links テーブルで管理される（mypage/profile と同経路）。
+export const GET = withRoute(async (_request, ctx) => {
+  const serviceClient = createServiceRoleClient();
+  const { data, error } = await serviceClient
+    .from('line_user_links')
+    .select('user_id')
+    .eq('user_id', ctx.user!.id)
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
+  }
+
+  return NextResponse.json({ linked: !!data });
+}, {
+  csrf: false,
+  requireAuth: true,
+  rateLimit: { limiter: mutationRateLimit, limit: 30, windowMs: 60_000, prefix: 'profile-get' },
+  sentryTag: 'profile-get',
+});
+
 export const PUT = withRoute(async (request, ctx) => {
   const body = await request.json().catch(() => ({}));
   const parsed = profileSchema.safeParse(body);
