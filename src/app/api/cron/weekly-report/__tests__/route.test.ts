@@ -36,13 +36,14 @@ function chain(resolved: unknown) {
 function setupFrom(opts: {
   rows?: { data: Array<Record<string, number | string | null>> | null; error?: { message: string } | null };
   optedOut?: { facility_id: string }[] | null;
+  optedOutError?: { message: string } | null;
   owner?: { user_id: string } | null;
   prof?: { email?: string | null } | null;
   fac?: { name?: string } | null;
 } = {}) {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'daily_revenue_summary') return chain(opts.rows ?? { data: [], error: null });
-    if (table === 'facility_notification_settings') return chain({ data: 'optedOut' in opts ? opts.optedOut : [] });
+    if (table === 'facility_notification_settings') return chain({ data: 'optedOut' in opts ? opts.optedOut : [], error: opts.optedOutError ?? null });
     if (table === 'facility_members') return chain({ data: 'owner' in opts ? opts.owner : { user_id: 'u1' } });
     if (table === 'profiles') return chain({ data: 'prof' in opts ? opts.prof : { email: 'owner@example.com' } });
     if (table === 'facility_profiles') return chain({ data: 'fac' in opts ? opts.fac : { name: 'テスト施設' } });
@@ -147,6 +148,18 @@ test('opt-out 取得が null でも送信は継続する（?? [] フォールバ
   setupFrom({ rows: { data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null }, optedOut: null });
   const json = await (await GET(makeRequest())).json();
   expect(json.emailsSent).toBe(1);
+});
+
+test('opt-out 一覧の取得エラー → fail-closed で 500（OFF 施設への誤送信を防ぐ）', async () => {
+  setupFrom({
+    rows: { data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null },
+    optedOutError: { message: 'settings boom' },
+  });
+  const res = await GET(makeRequest());
+  expect(res.status).toBe(500);
+  // opt-out を確定できないので 1 通も送らない（fail-open な誤送信を防ぐ）
+  expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+  expect(logCronRun).toHaveBeenCalledWith('weekly-report', 'error', expect.anything(), expect.objectContaining({ error_msg: expect.stringContaining('settings boom') }));
 });
 
 test('予期しない例外 → 500', async () => {

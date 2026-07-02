@@ -41,14 +41,16 @@ function chain(resolved: unknown) {
 // 各テーブルが返すデータを差し替えてメール送信オーケストレーションを検証する。
 function setupEmailFrom(opts: {
   optedIn?: { facility_id: string }[];
+  optedInError?: { message: string } | null;
   summaries?: Array<Record<string, number | string | null>>;
+  summariesError?: { message: string } | null;
   owner?: { user_id: string } | null;
   prof?: { email?: string | null } | null;
   fac?: { name?: string } | null;
 } = {}) {
   mockFrom.mockImplementation((table: string) => {
-    if (table === 'facility_notification_settings') return chain({ data: opts.optedIn ?? [] });
-    if (table === 'daily_revenue_summary') return chain({ data: opts.summaries ?? [] });
+    if (table === 'facility_notification_settings') return chain({ data: opts.optedIn ?? [], error: opts.optedInError ?? null });
+    if (table === 'daily_revenue_summary') return chain({ data: opts.summaries ?? [], error: opts.summariesError ?? null });
     if (table === 'facility_members') return chain({ data: 'owner' in opts ? opts.owner : { user_id: 'u1' } });
     if (table === 'profiles') return chain({ data: 'prof' in opts ? opts.prof : { email: 'owner@example.com' } });
     if (table === 'facility_profiles') return chain({ data: 'fac' in opts ? opts.fac : { name: 'テスト施設' } });
@@ -192,6 +194,36 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     const json = await (await GET(makeRequest())).json();
     expect(json.emailsSent).toBe(0);
     expect(sendDailySummaryEmail).toHaveBeenCalled();
+  });
+
+  test('opt-in 一覧の取得エラー → error ログで可視化しメール送信ゼロ（集計は 200）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupEmailFrom({ optedInError: { message: 'settings boom' } });
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.emailsSent).toBe(0);
+    expect(sendDailySummaryEmail).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[daily-summary] facility_notification_settings fetch failed'),
+      expect.anything(),
+    );
+    errSpy.mockRestore();
+  });
+
+  test('daily_revenue_summary の取得エラー → error ログで可視化しメール送信ゼロ（集計は 200）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupEmailFrom({ optedIn: [{ facility_id: 'f-1' }], summariesError: { message: 'summary boom' } });
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.emailsSent).toBe(0);
+    expect(sendDailySummaryEmail).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[daily-summary] daily_revenue_summary fetch failed'),
+      expect.anything(),
+    );
+    errSpy.mockRestore();
   });
 
   test('メール一括処理が例外でも集計成功は 200 を返す（non-blocking）', async () => {

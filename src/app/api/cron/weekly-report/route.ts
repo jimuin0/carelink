@@ -53,10 +53,17 @@ async function sendWeeklyReports(
     byFacility.set(id, acc);
   }
 
-  const { data: optedOut } = await supabase
+  const { data: optedOut, error: optedOutErr } = await supabase
     .from('facility_notification_settings')
     .select('facility_id')
     .eq('email_weekly_report', false);
+  // opt-out 一覧の取得に失敗した場合、error を握り潰すと optedOut=null → optedOutSet が空になり、
+  // email_weekly_report=false（明示 OFF）の施設にも週次レポートを送ってしまう（fail-open な誤送信）。
+  // 送信対象は opt-out 方式で「設定行が無い＝送る」ため、opt-out 集合が欠けると影響が全体に及ぶ。
+  // fail-closed 化：opt-out を確定できない時はこの run の送信を中止し、error として可視化する。
+  if (optedOutErr) {
+    throw new Error(`facility_notification_settings fetch failed: ${optedOutErr.message}`);
+  }
   const optedOutSet = new Set((optedOut as { facility_id: string }[] | null ?? []).map((r) => r.facility_id));
 
   let sent = 0;

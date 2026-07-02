@@ -98,25 +98,36 @@ export async function GET(request: Request) {
       try {
         // 未完了ステップを特定
         // staff_schedules has no facility_id column — query staff IDs first, then schedules
-        const [
-          { count: menuCount },
-          { data: staffData },
-          { count: photoCount },
-          { data: member },
-        ] = await Promise.all([
+        const [menusRes, staffRes, photosRes, memberRes] = await Promise.all([
           supabase.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
           supabase.from('staff_profiles').select('id').eq('facility_id', facility.id),
           supabase.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', facility.id),
           supabase.from('facility_members').select('user_id').eq('facility_id', facility.id).eq('role', 'owner').maybeSingle(),
         ]);
 
-        const staffIds = (staffData ?? []).map((s: { id: string }) => s.id);
+        // count 系クエリが error だと count=null → `(count ?? 0) === 0` が「未登録」と誤判定し、
+        // 実際は登録済みなのに「メニュー未登録」等の誤内容の督促メールを送ってしまう（一度きり送信のため訂正不能）。
+        // いずれかが error なら判定材料が欠けるため送信せず throw → 下の catch で delivered=false のまま claim を解放し、
+        // 翌 run で正しい判定材料が取れてから再送する（誤内容の永続化を防ぐ発症前予防）。
+        const stepQueryErr = menusRes.error || staffRes.error || photosRes.error || memberRes.error;
+        if (stepQueryErr) {
+          throw new Error(`missing-steps query failed: ${stepQueryErr.message}`);
+        }
+
+        const menuCount = menusRes.count;
+        const photoCount = photosRes.count;
+        const member = memberRes.data;
+        const staffIds = (staffRes.data ?? []).map((s: { id: string }) => s.id);
         let scheduleCount = 0;
         if (staffIds.length > 0) {
-          const { count } = await supabase
+          const { count, error: scheduleErr } = await supabase
             .from('staff_schedules')
             .select('id', { count: 'exact', head: true })
             .in('staff_id', staffIds);
+          // 同上：error を 0 と誤判定して「スケジュール未設定」の誤内容を送らないよう throw で中止する。
+          if (scheduleErr) {
+            throw new Error(`staff_schedules count failed: ${scheduleErr.message}`);
+          }
           scheduleCount = count ?? 0;
         }
 

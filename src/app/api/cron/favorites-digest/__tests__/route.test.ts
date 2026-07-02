@@ -404,12 +404,36 @@ describe('GET /api/cron/favorites-digest', () => {
     );
   });
 
-  test('token insert fails → logs error and continues', async () => {
-    setupDefaultMocks(1, false, false, 1, 0, true);
+  test('token insert fails → 送信中止し claim 解放（停止不能な誤配信を防ぐ・E-1）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupDefaultMocks(1, false, false, 1, 0, true); // tokenInsertFails=true
 
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
+    // token 保存に失敗したら送信しない（DB に無い token を指すメールを送らない）
+    expect(sendFavoritesDigest).not.toHaveBeenCalled();
+    // 中止ログ
+    expect(errSpy).toHaveBeenCalledWith(
+      '[favorites-digest] unsubscribe token insert failed, aborting send',
+      expect.anything(),
+    );
+    // claim を直前の値（null=未送信）へ戻して同週の再 run でやり直せる様にする
+    const calls = (mockProfilesUpdate as jest.Mock).mock.calls.map((c) => c[0]);
+    expect(calls).toContainEqual({ favorites_digest_sent_week: null });
+    errSpy.mockRestore();
+  });
+
+  test('token insert fails かつ claim 解放も失敗 → releaseErr をログ（E-1 releaseErr 分岐）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupDefaultMocks(1, false, false, 1, 0, true, false, { message: 'release boom' });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    expect(sendFavoritesDigest).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith('[favorites-digest] claim release failed', expect.anything());
+    errSpy.mockRestore();
   });
 
   test('sends digest only if facility has updates', async () => {

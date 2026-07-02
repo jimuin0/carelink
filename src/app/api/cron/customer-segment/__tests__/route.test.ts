@@ -32,6 +32,18 @@ let mockBookingsSelect: jest.Mock;
 let mockBookingsIn: jest.Mock;
 let mockUpsert: jest.Mock;
 
+// user_coupon_codes.select は 2 経路で呼ばれる:
+//  (1) loop 前のバッチ dedup: .eq().in().eq().gte()          → await で {data} を解決
+//  (2) insert 直前の TOCTOU 再チェック: .eq().eq().eq().gte().limit(1) → await で {data} を解決
+// そのため .gte() の戻りを「await 可能(thenable)」かつ「.limit() を持つ」オブジェクトにして両対応する。
+// batchVal = バッチ取得の解決値、recheckVal = 再チェック(.limit)の解決値（既定は「既存なし」）。
+function thenableWithLimit(batchVal: any, recheckVal: any = { data: [], error: null }) {
+  return {
+    then: (onF: any, onR: any) => Promise.resolve(batchVal).then(onF, onR),
+    limit: jest.fn().mockResolvedValue(recheckVal),
+  };
+}
+
 function setupDefaultMocks(
   facilitiesCount: number = 2,
   bookingsPerFacility: number = 3
@@ -465,7 +477,7 @@ describe('GET /api/cron/customer-segment', () => {
       mockCouponSelect = jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnThis(),
         in: jest.fn().mockReturnThis(),
-        gte: jest.fn().mockResolvedValue({ data: [] }),
+        gte: jest.fn(() => thenableWithLimit({ data: [] })),
       });
 
       // user_coupon_codes insert → success
@@ -765,7 +777,9 @@ describe('GET /api/cron/customer-segment', () => {
       });
       const gteMock = jest.fn()
         .mockResolvedValueOnce({ data: null, error: { code: '42703', message: 'column "notified_at" does not exist' } })
-        .mockResolvedValueOnce({ data: [] }); // フォールバック: 過去クーポンなし
+        .mockResolvedValueOnce({ data: [] }) // フォールバック: 過去クーポンなし
+        // 3回目 = insert 直前の TOCTOU 再チェック（.gte().limit()）。既存なし({data:[]})で insert に進む。
+        .mockReturnValue(thenableWithLimit({ data: [] }));
       mockCouponSelect = jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnThis(),
         in: jest.fn().mockReturnThis(),
@@ -786,13 +800,105 @@ describe('GET /api/cron/customer-segment', () => {
       const res = await GET(makeRequest() as any);
 
       expect(res.status).toBe(200);
-      expect(gteMock).toHaveBeenCalledTimes(2);
+      // 2 = バッチ(original 42703 + fallback)、+1 = insert 直前の TOCTOU 再チェック。
+      expect(gteMock).toHaveBeenCalledTimes(3);
       // 新規顧客 → クーポン作成 + メール送信（旧来動作）
       expect(mockCouponInsert).toHaveBeenCalled();
       expect(mockSend).toHaveBeenCalled();
       // 列未適用なので update は呼ばない（送信成功後も skip）
       expect(mockUpdate).not.toHaveBeenCalled();
       warnSpy.mockRestore();
+    });
+
+    // -------------------------------------------------------------------
+    // F-7(A): bookings 取得の列欠落以外の DB エラーを可視化（無音 skip にしない）
+    // -------------------------------------------------------------------
+    test('bookings 取得が列欠落以外の DB エラー → error ログで可視化し当該施設を skip', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      // fetchBookings('email_canonical') が 42703 以外の DB エラーを返す（missing column ではない）。
+      mockBookingsSelect = jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            in: jest.fn().mockReturnValue({
+              gte: jest.fn().mockReturnValue({
+                range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db boom' } }),
+              }),
+            }),
+          }),
+        }),
+      });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return { select: () => mockCouponSelect(), insert: (...args: any[]) => mockCouponInsert(...args) };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[customer-segment] bookings fetch failed'),
+        expect.anything(),
+      );
+      // 予約 0 件扱いにせず skip → クーポンもメールも作らない
+      expect(mockCouponInsert).not.toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+
+    // -------------------------------------------------------------------
+    // F-7(B): insert 直前の TOCTOU 再チェック
+    // -------------------------------------------------------------------
+    test('再チェックが DB エラー → error ログで当該 email を skip（新規発行しない）', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockCouponSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        // バッチ=既存なし([])で new 分岐へ。再チェック(.limit)は DB エラーを返す。
+        gte: jest.fn(() => thenableWithLimit({ data: [] }, { data: null, error: { message: 'recheck boom' } })),
+      });
+      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return { select: () => mockCouponSelect(), insert: (...args: any[]) => mockCouponInsert(...args), update: mockUpdate };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('[customer-segment] coupon recheck failed'),
+        expect.anything(),
+      );
+      expect(mockCouponInsert).not.toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
+
+    test('再チェックで既存クーポン検出（別 invocation が発行済み）→ 二重発行を回避しスキップ', async () => {
+      mockCouponSelect = jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnThis(),
+        in: jest.fn().mockReturnThis(),
+        // バッチ=既存なし([])で new 分岐へ。再チェック(.limit)は既存クーポン1件を返す。
+        gte: jest.fn(() => thenableWithLimit({ data: [] }, { data: [{ code: 'EXIST1' }], error: null })),
+      });
+      const mockUpdate = jest.fn().mockReturnValue({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        if (table === 'bookings') return mockBookingsSelect();
+        if (table === 'customer_segments') return { upsert: (...args: any[]) => mockUpsert(...args) };
+        if (table === 'user_coupon_codes') return { select: () => mockCouponSelect(), insert: (...args: any[]) => mockCouponInsert(...args), update: mockUpdate };
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      // 既存が見つかったので二重発行しない・メールも送らない
+      expect(mockCouponInsert).not.toHaveBeenCalled();
+      expect(mockSend).not.toHaveBeenCalled();
     });
   });
 
@@ -1068,7 +1174,7 @@ describe('GET /api/cron/customer-segment', () => {
     const mockCouponSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
-      gte: jest.fn().mockResolvedValue({ data: null }),
+      gte: jest.fn(() => thenableWithLimit({ data: null })),
     });
     const mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
     const makeUC = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
@@ -1239,7 +1345,7 @@ describe('GET /api/cron/customer-segment', () => {
     const mockCouponSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnThis(),
       in: jest.fn().mockReturnThis(),
-      gte: jest.fn().mockResolvedValue({ data: [] }),
+      gte: jest.fn(() => thenableWithLimit({ data: [] })),
     });
     const mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: null });
     const makeUpdateChain2 = () => ({ eq: jest.fn().mockReturnThis(), gte: jest.fn().mockReturnThis(), is: jest.fn().mockResolvedValue({ error: null }) });
