@@ -31,8 +31,24 @@ on:
   workflow_dispatch:
     inputs:
       job:
-        description: '手動実行する cron path (例: /api/cron/flag-reviews)'
+        description: '手動実行する cron path'
         required: true
+        type: choice
+        options:
+          - /api/cron/booking-reminder
+          - /api/cron/daily-summary
+          - /api/cron/customer-segment
+          - /api/cron/review-request
+          - /api/cron/sync-google-ratings
+          - /api/cron/onboarding-followup
+          - /api/cron/birthday-coupon
+          - /api/cron/flag-reviews
+          - /api/cron/favorites-digest
+          - /api/cron/weekly-report
+          - /api/cron/waitlist-notify
+          - /api/cron/webhook-retry
+          - /api/cron/hpb-menu-scrape
+          - /api/cron/schema-drift-check
 
 jobs:
   dispatch:
@@ -45,9 +61,25 @@ jobs:
           MANUAL_JOB: ${{ inputs.job }}
           TRIGGER_CRON: ${{ github.event.schedule }}
         run: |
+          # 手動 dispatch の job 入力を既知パスの allowlist で検証する（C-7 根治）。
+          # 従来は無検証でそのまま Bearer CRON_SECRET 付き curl の宛先に使っており、
+          # dispatch 権限を持つ Actions アクターが任意の自ドメインパスへ CRON_SECRET 付き
+          # リクエストを送れた（本ワークフロー自体は最小権限だが、CRON_SECRET の悪用面を
+          # 広げていた）。schedule 経由は case 文で既に既知パスに限定されているため、
+          # 手動経路も同じ既知パス集合のみ許可する。
+          ALLOWED_JOBS="/api/cron/booking-reminder /api/cron/daily-summary /api/cron/customer-segment /api/cron/review-request /api/cron/sync-google-ratings /api/cron/onboarding-followup /api/cron/birthday-coupon /api/cron/flag-reviews /api/cron/favorites-digest /api/cron/weekly-report /api/cron/waitlist-notify /api/cron/webhook-retry /api/cron/hpb-menu-scrape /api/cron/schema-drift-check"
           if [ -n "$MANUAL_JOB" ]; then
-            echo "path=$MANUAL_JOB" >> "$GITHUB_OUTPUT"
-            exit 0
+            MATCH=0
+            for p in $ALLOWED_JOBS; do
+              if [ "$p" = "$MANUAL_JOB" ]; then MATCH=1; fi
+            done
+            if [ "$MATCH" -eq 1 ]; then
+              echo "path=$MANUAL_JOB" >> "$GITHUB_OUTPUT"
+              exit 0
+            else
+              echo "Unknown manual job (not in allowlist): $MANUAL_JOB"
+              exit 1
+            fi
           fi
           case "$TRIGGER_CRON" in
             "0 15 * * *")    P="/api/cron/booking-reminder" ;;
