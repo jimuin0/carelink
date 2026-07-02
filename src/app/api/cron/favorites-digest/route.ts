@@ -213,12 +213,19 @@ export async function GET(request: Request) {
 
       if (updatedFacilities.length === 0) { skipped++; continue; }
 
-      // Claim this week's slot before sending (CAS guard)
+      // Claim this week's slot before sending (CAS guard).
+      // 条件は「まだ今週送っていない」= favorites_digest_sent_week が NULL または thisWeek 以外。
+      // 旧実装は `.neq('favorites_digest_sent_week', thisWeek)` 単独だったが、PostgREST の neq は
+      // SQL `<>` を生成し、三値論理により `NULL <> 'YYYY-WNN'` は NULL（真でない）と評価されて
+      // WHERE から除外される。favorites_digest_sent_week は列 DEFAULT が無く全ユーザー NULL 始まりで、
+      // この列に非 NULL を書くのはこの CAS だけのため、NULL 行が永久に claim されず
+      // 「お気に入りダイジェストが誰にも一度も送信されない」恒久バグだった。
+      // `.or(is.null, neq)` で NULL 行も claim 対象に含める（他 cron の .is(col,null) と同方針）。
       const { data: claimed } = await supabase
         .from('profiles')
         .update({ favorites_digest_sent_week: thisWeek })
         .eq('id', profile.id)
-        .neq('favorites_digest_sent_week', thisWeek)
+        .or(`favorites_digest_sent_week.is.null,favorites_digest_sent_week.neq.${thisWeek}`)
         .select('id');
 
       if (!claimed || claimed.length === 0) { skipped++; continue; } // Another invocation claimed it

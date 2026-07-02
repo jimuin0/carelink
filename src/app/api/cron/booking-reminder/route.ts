@@ -234,6 +234,24 @@ export async function GET(request: Request) {
         continue;
       }
 
+      // 送信が失敗した場合、claim（sent_reminders 行）を握ったままにすると、翌 run で
+      // upsert(ignoreDuplicates) は衝突→無エラーで通り、その後の SELECT で sent_at が
+      // 30 秒より古いため「別 invocation が取得済み」と誤判定され、当該リマインダーは
+      // 恒久 miss になる。送信失敗時は claim を解放（削除）して同種 run での再送を可能にする
+      // （favorites-digest / review-request 等の恒久 miss 防止と同方針）。
+      const releaseClaim = async () => {
+        const { error: releaseErr } = await supabase
+          .from('sent_reminders')
+          .delete()
+          .eq('booking_id', booking.id)
+          .eq('reminder_date', booking.booking_date)
+          .eq('kind', kind);
+        if (releaseErr) {
+          // 解放失敗はログのみ（本体は継続）。次回 run で再送されないリスクは残るが握り潰さず可視化。
+          console.error('[booking-reminder] claim release failed', { bookingId: booking.id, kind, err: releaseErr });
+        }
+      };
+
       try {
         if (kind === 'email_1d' || kind === 'email_3d' || kind === 'email_7d') {
           await sendEmailReminder({
@@ -259,11 +277,15 @@ export async function GET(request: Request) {
           if (ok) {
             sent++;
           } else {
+            // LINE 送信が送達不可（safeSend が false）→ claim 解放して翌 run で再送可能にする。
+            await releaseClaim();
             skipped++;
           }
         }
       } catch (e) {
         safeCaptureException(e, 'booking-reminder');
+        // メール送信例外時も claim を解放し恒久 miss を防ぐ。
+        await releaseClaim();
         skipped++;
       }
     }
