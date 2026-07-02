@@ -704,17 +704,77 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(json.sentCount).toBe(1);
     });
 
-    // Branch coverage: line 14 — makeUnsubToken throws when NEWSLETTER_UNSUBSCRIBE_SECRET missing
-    // chunk.map() は try/catch 外なのでエラーが伝播する（テストでは rejects で検証）
-    test('NEWSLETTER_UNSUBSCRIBE_SECRET 未設定 → unsubToken生成でthrow', async () => {
+    // B-7 根治: makeUnsubToken throws when NEWSLETTER_UNSUBSCRIBE_SECRET missing。
+    // claim 後の全処理が try/catch で包まれたため、この例外はもう PATCH 全体を reject
+    // させず catch され、campaign は 'sending' に固着せず 'draft' へロールバックされる
+    // （旧実装は例外が伝播し 'sending' 固着＝恒久デッドロックの実バグだった）。
+    test('NEWSLETTER_UNSUBSCRIBE_SECRET 未設定 → batch内でthrow → draftへロールバックし500', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
       delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
       mockAnonFrom.mockReturnValue(profileChain(true));
-      buildSendMocks({
-        subscribers: [{ email: 'a@example.com', user_id: 'u1' }],
+      let callNum = 0;
+      const mockRollback = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) });
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
+        // 6th call: catch ブロックによる draft へのロールバック
+        return { update: mockRollback };
       });
-      await expect(
-        PATCH(makeRequest({ action: 'send' }), makeProps())
-      ).rejects.toThrow('NEWSLETTER_UNSUBSCRIBE_SECRET is not set');
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(500);
+      expect(mockRollback).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
+    });
+
+    // B-8 根治: RESEND_API_KEY 未設定は事前ガードで明示的に 503 を返し draft へロールバック
+    // する（旧実装は new Resend(undefined) が batch.send() 内で例外を起こし、それを
+    // catch → 全件 bounced 計上 → それでも status='sent' に確定していた＝1通も届いて
+    // いないのに送信済み扱いになり再送不可の fail-open だった実バグ）。
+    test('RESEND_API_KEY 未設定 → 事前ガードで503を返しdraftへロールバック', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      delete process.env.RESEND_API_KEY;
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      const mockRollback = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ data: null, error: null })) });
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        // RESEND_API_KEY ガードは subscribers 取得より前に発火するため、3rd call は
+        // 即座に draft へのロールバック
+        return { update: mockRollback };
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(503);
+      const json = await res.json();
+      expect(json.error).toMatch(/RESEND_API_KEY/);
+      expect(mockRollback).toHaveBeenCalledWith(expect.objectContaining({ status: 'draft' }));
+      expect(callNum).toBe(3);
+    });
+
+    // Branch coverage: batch チャンク失敗時のログ出力（catch 内で console.error するよう
+    // 変更した箇所）。
+    test('batch.send チャンク失敗 → console.error でログを残し bouncedCount に計上', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      buildSendMocks({
+        subscribers: [{ email: 'fail@example.com', user_id: 'u1' }],
+      });
+      const { Resend } = require('resend');
+      Resend.mockImplementationOnce(() => ({
+        batch: { send: jest.fn().mockRejectedValue(new Error('boom')) },
+      }));
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.bouncedCount).toBe(1);
+      expect(console.error).toHaveBeenCalledWith(
+        '[newsletter/send] batch chunk failed',
+        expect.objectContaining({ campaignId: CAMPAIGN_UUID }),
+      );
     });
 
     // Branch coverage: line 129/133 — user_digest campaign emails built from subscribers only

@@ -12,6 +12,7 @@
 
 jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/cron-logger');
+jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 
 // Module-level supabase = createClient(...) — use wrappers for lazy delegation
 const mockRpcDelegate = jest.fn();
@@ -25,6 +26,7 @@ jest.mock('@supabase/supabase-js', () => ({
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
+import { alertWarning } from '@/lib/alert';
 import { GET } from '../route';
 
 let mockRpc: jest.Mock;
@@ -166,7 +168,8 @@ describe('GET /api/cron/flag-reviews', () => {
     expect(res.status).toBe(200);
   });
 
-  test('RPC error → logs and continues', async () => {
+  // C-3 根治: 検知1(同一IP大量投稿スパム)が無音で無効化される障害を Slack へ警報する
+  test('RPC error → logs and continues + alertWarning発火(検知1が無効化されたことを警報)', async () => {
     mockRpcDelegate.mockResolvedValue({
       data: null,
       error: { message: 'RPC failed' },
@@ -177,6 +180,8 @@ describe('GET /api/cron/flag-reviews', () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(200);
+    expect(alertWarning).toHaveBeenCalledTimes(1);
+    expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/検知1/);
     consoleSpy.mockRestore();
   });
 

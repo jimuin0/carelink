@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
+import { alertWarning } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -40,7 +41,14 @@ export async function GET(request: Request) {
       p_threshold: 3,
     });
     if (rpcError) {
+      // 検知1(同一IP大量投稿スパム)が丸ごと無音で no-op 化する障害。console.error のみだと
+      // Vercel ログに埋没し誰も気づけないため、恒久検知として Slack へ警報する
+      // （検知2は RPC に依存せず独立して動くため cron 全体は 'success' のまま継続する）。
       console.error('[flag-reviews] find_bulk_review_ips RPC failed:', rpcError);
+      alertWarning(
+        'flag-reviews: find_bulk_review_ips RPC 失敗（検知1: 同一IP大量投稿スパム検知が無効化）',
+        { route: '/api/cron/flag-reviews', extra: { errorMessage: rpcError.message } },
+      );
     }
 
     if (bulkSpam && Array.isArray(bulkSpam)) {
