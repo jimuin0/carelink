@@ -131,6 +131,69 @@ describe('searchFacilities', () => {
     }));
     expect(result.facilities).toHaveLength(2);
   });
+
+  // SEARCH-2: GPS 検索でも prefecture/city/rating_min/price_min/price_max を適用する
+  // （RPC が type_filter しか受けず、これらが黙って無視されていた）。null 値は非 GPS の
+  // .gte/.lte と同じく除外する。features/keyword は RPC が該当列を返さず JS 不可のため対象外。
+  const geo = { lat: 35.68, lng: 139.76 };
+
+  test('SEARCH-2: GPS + prefecture で都道府県フィルタが効く', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [
+      { id: 'a', prefecture: '東京都' },
+      { id: 'b', prefecture: '大阪府' },
+    ], error: null });
+    const result = await searchFacilities({ ...geo, prefecture: '東京都' });
+    expect(result.total).toBe(1);
+    expect(result.facilities[0].id).toBe('a');
+  });
+
+  test('SEARCH-2: GPS + city で市区町村フィルタが効く', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [
+      { id: 'a', city: '渋谷区' },
+      { id: 'b', city: '新宿区' },
+    ], error: null });
+    const result = await searchFacilities({ ...geo, city: '渋谷区' });
+    expect(result.total).toBe(1);
+    expect(result.facilities[0].id).toBe('a');
+  });
+
+  test('SEARCH-2: GPS + rating_min（null 評価は除外）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [
+      { id: 'a', rating_avg: 4.5 },
+      { id: 'b', rating_avg: 3.0 },
+      { id: 'c', rating_avg: null },
+    ], error: null });
+    const result = await searchFacilities({ ...geo, rating_min: 4 });
+    expect(result.total).toBe(1);
+    expect(result.facilities[0].id).toBe('a');
+  });
+
+  test('SEARCH-2: GPS + price_min（null 価格は除外）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [
+      { id: 'a', min_price: 1500 },
+      { id: 'b', min_price: 500 },
+      { id: 'c', min_price: null },
+    ], error: null });
+    const result = await searchFacilities({ ...geo, price_min: 1000 });
+    expect(result.total).toBe(1);
+    expect(result.facilities[0].id).toBe('a');
+  });
+
+  test('SEARCH-2: GPS + price_max（null 価格は除外）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [
+      { id: 'a', max_price: 3000 },
+      { id: 'b', max_price: 8000 },
+      { id: 'c', max_price: null },
+    ], error: null });
+    const result = await searchFacilities({ ...geo, price_max: 5000 });
+    expect(result.total).toBe(1);
+    expect(result.facilities[0].id).toBe('a');
+  });
 });
 
 describe('getPopularFacilities', () => {
@@ -272,11 +335,12 @@ describe('searchFacilities (additional branches)', () => {
     expect(chain.order).toHaveBeenCalledWith('rating_avg', { ascending: false });
   });
 
-  test('sort=popularで人気順ソート', async () => {
+  test('sort=popularで人気順ソート（rating_count・view_count列は存在しない）', async () => {
     const chain = fluent({ data: [], count: 0, error: null });
     mockFrom.mockReturnValue(chain);
     await searchFacilities({ sort: 'popular' });
-    expect(chain.order).toHaveBeenCalledWith('view_count', expect.objectContaining({ ascending: false }));
+    // facility_card_view に view_count は無いため rating_count で order する（旧 view_count は常に0件エラー）
+    expect(chain.order).toHaveBeenCalledWith('rating_count', expect.objectContaining({ ascending: false }));
   });
 
   test('デフォルトは作成日降順', async () => {

@@ -45,8 +45,9 @@ function setupDefaultMocks(
           id: '123e4567-e89b-12d3-a456-426614174000',
           user_id: 'user-123',
           facility_id: 'fac-123',
-          start_time: '2026-05-10T10:00:00Z',
-          end_time: '2026-05-10T11:00:00Z',
+          booking_date: '2026-05-10',
+          start_time: '10:00:00',
+          end_time: '11:00:00',
           menu: [{ name: 'Eyelash Extension' }],
           staff: [{ name: 'Alice' }],
           facility_profiles: [
@@ -203,14 +204,16 @@ describe('GET /api/booking/[id]/ical', () => {
     expect(text).toContain('LOCATION:東京都渋谷区');
   });
 
-  test('iCal includes start and end times in UTC format', async () => {
+  test('iCal includes start and end times with date (JST TZID)', async () => {
     const res = await GET(makeRequest() as any, {
       params: Promise.resolve({ id: BOOKING_UUID }),
     } as any);
 
     const text = await res.text();
-    expect(text).toContain('DTSTART:20260510T100000Z');
-    expect(text).toContain('DTEND:20260510T110000Z');
+    // booking_date(2026-05-10) + start_time(10:00:00) を結合した正しい日付つき日時。
+    // 旧実装は TIME だけを渡し "DTSTART:100000" 相当の日付欠落値になっていた。
+    expect(text).toContain('DTSTART;TZID=Asia/Tokyo:20260510T100000');
+    expect(text).toContain('DTEND;TZID=Asia/Tokyo:20260510T110000');
   });
 
   test('Content-Type header set to text/calendar', async () => {
@@ -251,8 +254,9 @@ describe('GET /api/booking/[id]/ical', () => {
         id: BOOKING_UUID,
         user_id: 'user-123',
         facility_id: 'fac-123',
-        start_time: '2026-05-10T10:00:00Z',
-        end_time: '2026-05-10T11:00:00Z',
+        booking_date: '2026-05-10',
+        start_time: '10:00:00',
+        end_time: '11:00:00',
         menu: { name: 'Eyelash' },
         staff: { name: 'Bob' },
         facility_profiles: null,
@@ -373,8 +377,9 @@ describe('GET /api/booking/[id]/ical', () => {
         id: BOOKING_UUID,
         user_id: 'user-123',
         facility_id: 'fac-123',
-        start_time: '2026-05-10T10:00:00Z',
-        end_time: '2026-05-10T11:00:00Z',
+        booking_date: '2026-05-10',
+        start_time: '10:00:00',
+        end_time: '11:00:00',
         menu: { name: 'M' },
         staff: { name: 'S' },
         facility_profiles: { name: 'Salon Obj', address: '住所Obj', phone: 'tel-obj' },
@@ -428,8 +433,9 @@ describe('GET /api/booking/[id]/ical', () => {
         id: BOOKING_UUID,
         user_id: 'user-123',
         facility_id: 'fac-123',
-        start_time: '2026-05-10T10:00:00Z',
-        end_time: '2026-05-10T11:00:00Z',
+        booking_date: '2026-05-10',
+        start_time: '10:00:00',
+        end_time: '11:00:00',
         menu_name: null,
         staff_name: null,
         notes: null,

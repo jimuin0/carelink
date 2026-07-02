@@ -11,13 +11,35 @@ import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
+import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
 
+// 予約変更の入力検証。作成(bookingSchema)と同等の厳密さに揃える：
+// 実在日・過去日/1年超の禁止・時刻の妥当性(00-23:00-59)・start<end。
+// 旧実装は形式のみ(99:99 や過去日、start>=end を素通し)で、不正時刻が Postgres TIME に渡り
+// 500 化したり過去日移動を許していた（作成 route.ts より弱い検証だった）。
+// 時刻は /api/slots(get_available_slots RPC) が TIME 型を "HH:MM:SS" で返すため秒を任意許容する
+// （作成側 timeString は HH:MM 固定。ここで HH:MM 固定にすると空き枠送信が全て 400 になり退行する）。
+const changeTime = z.string()
+  .regex(/^\d{2}:\d{2}(:\d{2})?$/, '正しい時間形式で入力してください')
+  .refine((t) => {
+    const [h, m, s] = t.split(':').map(Number);
+    return h < 24 && m < 60 && (s === undefined || s < 60);
+  }, '有効な時間を入力してください');
+
 const changeSchema = z.object({
-  booking_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((d) => !isNaN(Date.parse(d)), { message: 'Invalid date' }),
-  start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
-  end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+  booking_date: z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, '正しい日付形式で入力してください')
+    .refine((d) => isValidIsoDate(d), '有効な日付を入力してください')
+    .refine((d) => d >= getTodayString(), '過去の日付は指定できません')
+    .refine((d) => d <= getMaxDateString(), '1年以上先の日付は指定できません'),
+  start_time: changeTime,
+  end_time: changeTime,
+}).refine((v) => v.start_time < v.end_time, {
+  message: '終了時刻は開始時刻より後にしてください',
+  path: ['end_time'],
 });
 
 export async function POST(request: Request, props: { params: Promise<{ id: string }> }) {

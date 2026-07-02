@@ -64,15 +64,32 @@ export async function searchFacilities(params: SearchParams) {
       limit_count: 500,
     });
     const all = (data || []) as unknown as (FacilityCardData & { distance_km: number })[];
+    // GPS 検索は RPC が type_filter しか受けないため、非 GPS 検索で query に付与していた
+    // prefecture/city/rating_min/price_min/price_max が黙って無視されていた（フィルタ指定が効かない）。
+    // RPC の返却列に含まれる項目は取得後に同じ意味で絞り込む（非 GPS の .eq/.gte/.lte と一致：
+    // 非 GPS 側は null 値を gte/lte が除外するため、ここでも null は除外して挙動を揃える）。
+    // features / keyword は RPC が該当列（features・description・nearest_station）を返さないため
+    // JS では無損失に再現できず、RPC 拡張（DB 側フィルタ）で対応する（別途 migration）。
+    const filtered = all.filter((f) => {
+      if (params.prefecture && f.prefecture !== params.prefecture) return false;
+      if (params.city && f.city !== params.city) return false;
+      if (params.rating_min && !(f.rating_avg != null && Number(f.rating_avg) >= params.rating_min)) return false;
+      if (params.price_min && !(f.min_price != null && f.min_price >= params.price_min)) return false;
+      if (params.price_max && !(f.max_price != null && f.max_price <= params.price_max)) return false;
+      return true;
+    });
     const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
     const from = (page - 1) * PER_PAGE;
-    return { facilities: all.slice(from, from + PER_PAGE) as FacilityCardData[], total: all.length, perPage: PER_PAGE, error };
+    return { facilities: filtered.slice(from, from + PER_PAGE) as FacilityCardData[], total: filtered.length, perPage: PER_PAGE, error };
   }
 
   if (params.sort === 'rating') {
     query = query.order('rating_avg', { ascending: false });
   } else if (params.sort === 'popular') {
-    query = query.order('view_count', { ascending: false, nullsFirst: false });
+    // facility_card_view に view_count 列は存在しない（列は rating_count / google_review_count 等）。
+    // 旧実装は view_count で order しており PostgREST エラー → sort=popular が常に0件だった。
+    // 人気の代理指標として rating_count を使う（getPopularFacilities も同じ rating_count 順）。
+    query = query.order('rating_count', { ascending: false, nullsFirst: false });
   } else {
     query = query.order('created_at', { ascending: false });
   }

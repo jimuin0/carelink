@@ -47,27 +47,29 @@
 - [ ] アラート通知先: 自分のメール+SMS（無料枠）
 - [ ] テスト: 一度Monitor pauseで通知が来るか確認
 
-### A5. Sentry 動作確認
-- [ ] Vercel環境変数に `SENTRY_TEST_TOKEN=任意の長い文字列` 追加
-- [ ] Redeploy後、ブラウザで以下にアクセス:
+### A5. Slack アラート疎通確認（Sentry は Phase 8 で廃止済み）
+> 【重要】このプロジェクトは Sentry を廃止しました。エラー監視は `instrumentation.ts` の
+> onRequestError → `src/lib/alert.ts`（Slack chat.postMessage）で行います。旧 `/api/sentry-check` は存在しません。
+- [ ] Vercel環境変数に `ALERT_CHECK_TOKEN=任意の長いランダム文字列（20字以上）` を追加
+- [ ] Vercel環境変数 `SLACK_BOT_TOKEN` と `SLACK_DEFAULT_CHANNEL`（例：#alerts-prod のID）が設定済みであること
+- [ ] Redeploy後、ブラウザで以下にアクセス（TOKENを実値に置換）：
   ```
-  https://carelink-jp.com/api/sentry-check?fire=1&token=YOUR_TOKEN
+  https://carelink-jp.com/api/alert-check?fire=1&token=YOUR_TOKEN
   ```
-- [ ] レスポンスに `"fired":true` が出ること
-- [ ] Sentry Dashboard に1分以内にテストエラーが表示されること
-- [ ] **アラートルール設定**: Sentry → Alerts → Create Alert
-  - 条件: 新規エラー発生時
-  - 通知先: メール or Slack Webhook（既設の `SLACK_WEBHOOK_URL`）
+- [ ] レスポンスに `"fired":true` かつ `"slackConfigured":true` が出ること
+  - `"slackConfigured":false` なら SLACK_BOT_TOKEN / SLACK_DEFAULT_CHANNEL が未設定
+  - `{"ok":false,"message":"invalid token"}` なら ALERT_CHECK_TOKEN の値が不一致
+- [ ] Slack の該当チャンネルに1分以内に 🔴 ERROR [alert-check] のテスト通知が届くこと
 
 ### A6. Vercel 環境変数最終チェック
 - [ ] `NEXT_PUBLIC_BASE_URL=https://carelink-jp.com`（末尾改行・スペース・wwwなし）
 - [ ] `NEXT_PUBLIC_SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` 設定済み
 - [ ] `RESEND_API_KEY` 設定済み（メール送信）
 - [ ] `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `NEXT_PUBLIC_LINE_CHANNEL_ID` 設定済み
-- [ ] `NEXT_PUBLIC_SENTRY_DSN` 設定済み
 - [ ] `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` 設定済み（rate limit用）
-- [ ] `SLACK_WEBHOOK_URL` 設定済み（通知用）
-- [ ] `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` ← **A7で本番化**
+- [ ] `SLACK_BOT_TOKEN` / `SLACK_DEFAULT_CHANNEL` 設定済み（エラー通知・Phase 7a で Webhook から移行）
+- [ ] `ALERT_CHECK_TOKEN` 設定済み（A5 のアラート疎通テスト用）
+- [ ] `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` ← **Phase B で本番化**
 - [ ] `CRON_SECRET` 設定済み（末尾空白なし）
 
 ---
@@ -178,7 +180,7 @@
 ### E1. クローズドβ（1週間）
 - [ ] 知人施設1-2軒に試用依頼
 - [ ] 知人ユーザー5-10名にβテスト依頼
-- [ ] 1週間運用→Sentryエラー0件 / Uptime 99.9%以上を確認
+- [ ] 1週間運用→Slack #alerts-prod にエラー通知0件 / Uptime 99.9%以上を確認
 - [ ] フィードバック収集→緊急バグ修正
 
 ### E2. パブリックローンチ
