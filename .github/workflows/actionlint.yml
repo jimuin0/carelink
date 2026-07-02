@@ -2,7 +2,8 @@ name: Actionlint
 
 # GitHub Actions ワークフローの静的検証ゲート（発症前予防）。
 #
-# 背景（事実）: deploy-watch.yml / monthly-batch-watcher.yml が
+# 背景（事実）: deploy-watch.yml / monthly-batch-watcher.yml（後者は自動月次配信の
+#   廃止に伴い削除済み・2026年7月2日）が
 #   - run:| 内の複数行インライン python による YAML ブロックスカラー崩れ → startup_failure
 #   - folded scalar の if:（`if: >` + ${{ }}）→ 式が常に true に評価される
 #   という不具合を抱え、push のたびに失敗 run を生成し、デプロイ/月次の監視 workflow が

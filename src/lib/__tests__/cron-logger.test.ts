@@ -95,6 +95,32 @@ describe('logCronRun', () => {
     await expect(logCronRun('test-job', 'success', new Date())).resolves.toBeUndefined();
   });
 
+  // C-5 根治: insert() は例外を投げず戻り値の { error } にDBレベル失敗を格納する
+  // （RLS拒否・制約違反等）。この戻り値を無視すると catch{} に到達せず insert 失敗が
+  // 完全に不可視化される（実際に「配信は成功したのに cron_logs にログが無い」と
+  // 誤解される事案があった）。console.error で可視化されることを検証する。
+  test('DB insert が戻り値の error を返す(reject しない)場合も console.error で可視化する', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockInsert.mockResolvedValue({ error: { message: 'RLS violation' } });
+    await logCronRun('test-job', 'success', new Date());
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[cron-logger] cron_logs insert failed — this run will be invisible in monitoring',
+      expect.objectContaining({ jobName: 'test-job', status: 'success' }),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  test('例外(reject)時も console.error で可視化する', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockInsert.mockRejectedValue(new Error('network down'));
+    await logCronRun('test-job', 'success', new Date());
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[cron-logger] cron_logs insert threw',
+      expect.objectContaining({ jobName: 'test-job', status: 'success' }),
+    );
+    consoleSpy.mockRestore();
+  });
+
   test('includes meta when provided', async () => {
     const startedAt = new Date();
     await logCronRun('test-job', 'success', startedAt, { meta: { count: 10, source: 'api' } });

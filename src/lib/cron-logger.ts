@@ -27,7 +27,12 @@ export async function logCronRun(
     const supabase = createServiceRoleClient();
     const duration_ms = Date.now() - startedAt.getTime();
 
-    await supabase.from('cron_logs').insert({
+    // insert() の戻り値 { error } を必ず受け取る。Supabase クライアントは DB レベルの
+    // 失敗（RLS拒否・制約違反等）を reject でなく戻り値の error に格納するため、この
+    // 戻り値を無視すると catch{} は到達せず insert 失敗が完全に不可視化される
+    // （実際に「配信は成功したのに cron_logs にログが無い」と誤解される事案があった）。
+    // 本体処理は止めない方針は維持しつつ、失敗自体は console.error で可視化する。
+    const { error: insertErr } = await supabase.from('cron_logs').insert({
       job_name: jobName,
       status,
       started_at: startedAt.toISOString(),
@@ -37,8 +42,14 @@ export async function logCronRun(
       error_msg: result.error_msg ?? null,
       meta: result.meta ?? null,
     });
-  } catch {
-    // ログ記録の失敗で本体処理を止めない
+    if (insertErr) {
+      console.error('[cron-logger] cron_logs insert failed — this run will be invisible in monitoring', {
+        jobName, status, err: insertErr,
+      });
+    }
+  } catch (e) {
+    // ネットワーク例外等。ログ記録の失敗で本体処理は止めないが、可視化はする。
+    console.error('[cron-logger] cron_logs insert threw', { jobName, status, err: e });
   }
 
   // cron 失敗は Slack に通報する（L7-A: logger.error → 30秒以内通知 の cron 版）。
