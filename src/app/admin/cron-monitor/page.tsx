@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
+import { CRON_JOB_NAMES, CRON_JOB_LABELS } from '@/lib/cron-jobs';
 
 interface CronLog {
   id: string;
@@ -23,32 +24,14 @@ const STATUS_CONFIG = {
   skipped: { label: 'スキップ', className: 'bg-gray-100 text-gray-600' },
 };
 
-const JOB_LABELS: Record<string, string> = {
-  'booking-reminder':   '予約リマインド',
-  'review-request':     'レビュー依頼',
-  'daily-summary':      '日次集計',
-  'customer-segment':   '顧客セグメント',
-  'birthday-coupon':    '誕生日クーポン',
-  'favorites-digest':   'お気に入りダイジェスト',
-  'flag-reviews':       'レビューフラグ',
-  'onboarding-followup':'オンボーディングフォロー',
-  'sync-google-ratings':'Googleレーティング同期',
-  'weekly-report':      '週次レポート',
-  'waitlist-notify':    'キャンセル待ち通知',
-  'webhook-retry':      'Webhook再送',
-  'hpb-menu-scrape':    'HPBメニュー取得',
-  'schema-drift-check': 'スキーマドリフト監視',
-};
+// ジョブ名→表示名／基準リストは SSOT(src/lib/cron-jobs.ts)から導出する。
+// cron.yml との整合は cron-jobs-drift テストが CI で保証する（三重管理ドリフト検知）。
+const JOB_LABELS: Record<string, string> = CRON_JOB_LABELS;
 
 // cron.yml で定義されている定期ジョブ（`各ジョブの最新実行`の常時表示対象）。
 // 高頻度ジョブ（webhook-retry 等）がログを埋め尽くしても、ここに列挙した
 // 低頻度ジョブ（週次等）の最新1件を確実に個別取得して表示するための基準リスト。
-const EXPECTED_JOBS: string[] = [
-  'booking-reminder', 'daily-summary', 'customer-segment', 'review-request',
-  'sync-google-ratings', 'onboarding-followup', 'birthday-coupon', 'flag-reviews',
-  'favorites-digest', 'weekly-report', 'waitlist-notify', 'webhook-retry',
-  'hpb-menu-scrape', 'schema-drift-check',
-];
+const EXPECTED_JOBS: string[] = CRON_JOB_NAMES;
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 
