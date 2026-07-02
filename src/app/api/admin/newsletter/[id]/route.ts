@@ -109,9 +109,8 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     if (campaign.campaign_type === 'owner_monthly') {
       // profiles(email) を embed しない：facility_members.user_id は auth.users(id) 参照で
       // facility_members→profiles の FK が無く、PostgREST が関係を解決できず常時エラーになり
-      // owner_monthly のオーナー宛メールが全スキップされる実バグだった（newsletter-digest:176 で
-      // 既知・[id] 側は見落とし。user-packages と同根）。owner の user_id を取得し profiles を
-      // 別取得してメールを引く（best-effort・失敗はログのみで続行）。
+      // owner_monthly のオーナー宛メールが全スキップされる実バグになる（user-packages と同根）。
+      // owner の user_id を取得し profiles を別取得してメールを引く（best-effort・失敗はログのみで続行）。
       const { data: owners, error: ownersErr } = await admin
         .from('facility_members')
         .select('user_id')

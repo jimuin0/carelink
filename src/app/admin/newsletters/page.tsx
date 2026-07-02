@@ -316,8 +316,8 @@ export default function NewslettersPage() {
           解除リクエストは自動的に <code className="bg-gray-100 px-1 rounded text-xs">newsletter_subscriptions</code> テーブルに反映されます。
         </p>
         <div className="mt-4 p-4 bg-blue-50 rounded-lg text-sm text-blue-800">
-          <strong>オーナー向け月次レポート</strong>は毎月1日に自動生成・配信されます。
-          Cronジョブ: <code className="bg-white/50 px-1 rounded text-xs">/api/cron/newsletter-digest</code>
+          <strong>ニュースレターは手動配信のみ</strong>です（自動の月次配信は廃止しました）。
+          お知らせがある時に、この画面で件名・本文を作成して「今すぐ配信」してください。
         </div>
       </div>
 

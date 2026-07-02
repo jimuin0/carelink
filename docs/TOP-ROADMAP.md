@@ -198,7 +198,7 @@
 - [ ] **Instagram公式アカウント運用**
 - [ ] **X（Twitter）公式アカウント運用**
 - [ ] **プレスリリース**（PR TIMES等）
-- [x] **施設オーナー向けニュースレター**（月次 — newsletter_campaigns + cron/newsletter-digest + admin/newsletters UI）
+- [x] **施設オーナー向けニュースレター**（不定期・手動配信 — newsletter_campaigns + admin/newsletters UI。自動月次 digest は廃止 2026年7月2日）
 - [x] **ユーザー向けメルマガ**（おすすめ施設/新着クーポン — newsletter_subscriptions + user_digest キャンペーン対応）
 
 ### パートナー連携
