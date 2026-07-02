@@ -1,18 +1,14 @@
-name: Monthly Batch Watcher
+name: Monthly Batch Watcher (manual only)
 
-# 品質スタック L7-C: 月次バッチが所定時刻を過ぎても未発火なら Slack 通知。
-# CareLink の月次 cron は newsletter-digest（毎月 1日 16:00 UTC = JST 01:00 翌日）。
+# 品質スタック L7-C: 月次バッチ（newsletter-digest）の発火有無を Supabase cron_logs で検証し、
+# 未発火なら Slack 通知する watcher。
 #
-# 仕組み:
-#   - 毎月 2日 03:00 UTC（JST 12:00）に発火
-#   - Supabase cron_logs を service_role 経由で参照
-#   - 前日（1日）以降の newsletter-digest 成功記録が無ければ Slack 通知
+# 【定期監視は停止（神原さん確定 2026年7月2日）】: ニュースレターの月次自動配信を停止し
+# 「お知らせがある時のみ手動配信」に変更したため、監視対象の月次発火が存在しなくなった。
+# 定期 schedule を残すと毎月「未発火」の偽陽性 Slack 警報を出してしまうため schedule を撤去し、
+# 手動 dispatch 専用にする（自動配信を再開する場合は schedule を戻す）。
 
 on:
-  schedule:
-    # 毎月 8 日 03:00 UTC。newsletter-digest は専用 workflow が 1〜7 日に self-heal 再試行するため、
-    # その窓を過ぎた 8 日に判定する（窓内に判定すると self-heal 途中で偽陽性アラートになる）。
-    - cron: '0 3 8 * *'
   workflow_dispatch:
 
 permissions:
