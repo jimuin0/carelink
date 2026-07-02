@@ -300,12 +300,11 @@ export async function POST(request: Request) {
       parsed.data.staff_id
         ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
         : Promise.resolve({ data: null }),
-      // .limit(1) を挟んで PostgREST のレスポンス行数を1行に絞ってから .single() する
-      // （cancel 経路 booking/[id]/cancel/route.ts と同じパターン）。.limit(1) 無しだと
-      // 施設が複数オーナーを持つ場合（運営が手動で facility_members に複数付与した場合に
-      // 起こり得る）PGRST116（複数行エラー）で ownerResult.data が null になり、
-      // どのオーナーにも新規予約メール通知が届かない実バグだった。
-      supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner').limit(1).single(),
+      // 施設の全オーナーを取得（配列）。旧実装は .limit(1).single() で非決定的に1人だけ取得し、
+      // push.ts(sendPushToFacilityOwners) が owner 全員へ送るのと非対称で、複数オーナー運用時に
+      // 一部オーナーへ新規予約メールが届かなかった。配列 select なら複数行でも PGRST116 にならず、
+      // 全オーナーへ送れる（下でメール宛先を全オーナー化する）。
+      supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner'),
     ]);
 
     const emailData = {
@@ -323,11 +322,16 @@ export async function POST(request: Request) {
 
     sendBookingConfirmation(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
 
-    // Notify facility owner
-    if (ownerResult.data) {
-      const { data: ownerProfile } = await supabase.from('profiles').select('email').eq('id', ownerResult.data.user_id).single();
-      if (ownerProfile?.email) {
-        sendNewBookingNotification({ ...emailData, facilityEmail: ownerProfile.email }).catch((e) => safeCaptureException(e, 'booking-email-owner'));
+    // Notify ALL facility owners（メールを全オーナーへ）。push.ts の owner 全員通知と対称にする。
+    const ownerRows = (ownerResult.data as { user_id: string }[] | null) ?? [];
+    if (ownerRows.length > 0) {
+      const ownerUserIds = Array.from(new Set(ownerRows.map((o) => o.user_id).filter(Boolean)));
+      const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+      const ownerEmails = Array.from(new Set(
+        ((ownerProfiles as { email: string | null }[] | null) ?? []).map((p) => p.email).filter(Boolean) as string[]
+      ));
+      for (const facilityEmail of ownerEmails) {
+        sendNewBookingNotification({ ...emailData, facilityEmail }).catch((e) => safeCaptureException(e, 'booking-email-owner'));
       }
     }
   } catch (e) {
