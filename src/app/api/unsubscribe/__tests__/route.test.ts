@@ -127,6 +127,43 @@ describe('HMAC path (方式B)', () => {
     const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: makeHmac(TEST_EMAIL) }));
     expect(res.status).toBe(429);
   });
+
+  // B-6 根治: 購読レコードが無いアドレス（例: facility_members 経由のみで宛先化される
+  // owner_monthly オーナー）でも、以後の判定に使える停止レコードが insert で作られる。
+  test('購読レコードが無いアドレス → newsletter_subscriptions に停止行を insert して 200', async () => {
+    let callNum = 0;
+    const mockInsert = jest.fn(() => Promise.resolve({ error: null }));
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return fluentChain(null); // 購読レコード無し
+      if (callNum === 2) return { insert: mockInsert };
+      // profiles.update
+      return {
+        update: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })),
+        eq: jest.fn().mockReturnThis(),
+      };
+    });
+
+    const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: makeHmac(TEST_EMAIL) }));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.already).toBe(false);
+    expect(mockInsert).toHaveBeenCalledWith(
+      expect.objectContaining({ email: TEST_EMAIL.toLowerCase(), is_active: false, source: 'unsubscribe' }),
+    );
+  });
+
+  test('購読レコードが無いアドレス → insert失敗 → 500 (GDPR: 失敗を隠さない)', async () => {
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return fluentChain(null);
+      return { insert: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) };
+    });
+
+    const res = await POST(makeRequest({ email: TEST_EMAIL, hmac: makeHmac(TEST_EMAIL) }));
+    expect(res.status).toBe(500);
+  });
 });
 
 // ─── 方式C: 暗号化トークン（メールを URL に露出しない） ───────────────────────

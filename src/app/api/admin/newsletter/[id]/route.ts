@@ -134,6 +134,44 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       emails = (subscribers || []).map((s: { email: string | null }) => s.email).filter(Boolean) as string[];
     }
 
+    // 配信停止の一次ソースは profiles.email_unsubscribed（アカウント有無に依存しない唯一の
+    // 真実源。/api/unsubscribe の方式A(トークン)は newsletter_subscriptions を更新せず
+    // profiles のみ更新するため、newsletter_subscriptions.is_active フィルタだけでは
+    // 停止済みユーザーへの送信を防げない）。owner_monthly の ownerEmails は
+    // newsletter_subscriptions を一切経由しないため、これが唯一の除外手段でもある。
+    // 送信直前に両テーブルを必ず突合し、どちらかで停止済みなら除外する（fail-safe：
+    // 取得失敗時は空集合扱いにせず処理を中断し、停止済みへの誤送信を防ぐ）。
+    // メールは大小文字表記揺れを吸収するため小文字で突合する（例: unsubscribeByEmail 側も
+    // toLowerCase 済み・大小文字違いの二重登録による停止漏れを防ぐ）。
+    emails = Array.from(new Set(emails.map((e) => e.toLowerCase())));
+    if (emails.length > 0) {
+      const { data: unsubProfiles, error: unsubProfilesErr } = await admin
+        .from('profiles')
+        .select('email')
+        .not('email', 'is', null)
+        .eq('email_unsubscribed', true);
+      if (unsubProfilesErr) {
+        console.error('[newsletter/send] unsubscribed profiles fetch failed — aborting to avoid sending to opted-out users', { campaignId: params.id, err: unsubProfilesErr });
+        await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
+        return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+      }
+      const { data: inactiveSubs, error: inactiveSubsErr } = await admin
+        .from('newsletter_subscriptions')
+        .select('email')
+        .not('email', 'is', null)
+        .eq('is_active', false);
+      if (inactiveSubsErr) {
+        console.error('[newsletter/send] inactive subscriptions fetch failed — aborting to avoid sending to opted-out users', { campaignId: params.id, err: inactiveSubsErr });
+        await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
+        return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+      }
+      const unsubscribed = new Set<string>([
+        ...(unsubProfiles || []).map((p: { email: string | null }) => (p.email ?? '').toLowerCase()).filter(Boolean),
+        ...(inactiveSubs || []).map((s: { email: string | null }) => (s.email ?? '').toLowerCase()).filter(Boolean),
+      ]);
+      emails = emails.filter((e) => !unsubscribed.has(e));
+    }
+
     const resend = new Resend(process.env.RESEND_API_KEY);
     let sentCount = 0;
     let bouncedCount = 0;

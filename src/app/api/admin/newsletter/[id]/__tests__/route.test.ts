@@ -150,6 +150,42 @@ function ownerProfilesChain(profs: { email: string | null }[], error: unknown = 
 }
 
 /**
+ * Chain for profiles.select('email').not('email','is',null).eq('email_unsubscribed', true)
+ * → resolves with { data: [{email}, ...] }. Used for the unsubscribe-exclusion fetch.
+ */
+function unsubscribedProfilesChain(emails: string[], error: unknown = null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    not: jest.fn().mockReturnThis(),
+    eq: jest.fn(() => Promise.resolve({ data: error ? null : emails.map((email) => ({ email })), error })),
+  };
+}
+
+/**
+ * Chain for newsletter_subscriptions.select('email').not('email','is',null).eq('is_active', false)
+ * → resolves with { data: [{email}, ...] }. Used for the unsubscribe-exclusion fetch.
+ */
+function inactiveSubscriptionsChain(emails: string[], error: unknown = null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    not: jest.fn().mockReturnThis(),
+    eq: jest.fn(() => Promise.resolve({ data: error ? null : emails.map((email) => ({ email })), error })),
+  };
+}
+
+/**
+ * Chain for the rollback update (send action aborts due to unsubscribe-list fetch failure):
+ * update().eq() with no further chain (fire-and-forget-style await, but resolves a plain object).
+ */
+function rollbackToDraftChain() {
+  return {
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn(() => Promise.resolve({ data: null, error: null })),
+    }),
+  };
+}
+
+/**
  * Chain for final update of campaign to 'sent' status.
  * update().eq().select().single()
  */
@@ -399,6 +435,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       } = opts;
 
       const campaign = buildCampaign(campaignOverrides);
+      const hasEmails = subscribers.some((s) => s.email);
       let callNum = 0;
       mockAdminFrom.mockImplementation((table: string) => {
         callNum++;
@@ -408,7 +445,11 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 2) return atomicClaimChain(claimedRows);
         // 3rd call: newsletter_subscriptions
         if (callNum === 3) return subscribersChain(subscribers);
-        // 4th call: update campaign to 'sent'
+        // 4th/5th calls (only when the combined email list is non-empty):
+        // unsubscribed-profiles exclusion, then inactive-subscriptions exclusion.
+        if (hasEmails && callNum === 4) return unsubscribedProfilesChain([]);
+        if (hasEmails && callNum === 5) return inactiveSubscriptionsChain([]);
+        // final call: update campaign to 'sent'
         return updateSentChain(sentCampaign);
       });
     }
@@ -515,6 +556,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         // facility_members query（user_id のみ）→ profiles を別取得
         if (callNum === 4) return facilityMembersChain([{ user_id: 'owner-uid' }]);
         if (callNum === 5) return ownerProfilesChain([{ email: ownerEmail }]);
+        if (callNum === 6) return unsubscribedProfilesChain([]);
+        if (callNum === 7) return inactiveSubscriptionsChain([]);
         // final update to 'sent'
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
@@ -582,6 +625,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           select: jest.fn().mockReturnThis(),
           eq: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
         };
+        if (callNum === 5) return unsubscribedProfilesChain([]);
+        if (callNum === 6) return inactiveSubscriptionsChain([]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
       const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
@@ -599,6 +644,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         // 同一オーナーが複数施設の owner（user_id 重複）→ Set で重複排除される
         if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }, { user_id: 'o2' }, { user_id: 'o1' }]);
         if (callNum === 5) return ownerProfilesChain([{ email: 'o1@example.com' }, { email: 'o2@example.com' }]);
+        if (callNum === 6) return unsubscribedProfilesChain([]);
+        if (callNum === 7) return inactiveSubscriptionsChain([]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
       const { Resend } = require('resend');
@@ -621,6 +668,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 3) return subscribersChain([{ email: 'sub@example.com', user_id: 'u1' }]);
         if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }]);
         if (callNum === 5) return ownerProfilesChain(null as unknown as { email: string | null }[], { message: 'fail' });
+        if (callNum === 6) return unsubscribedProfilesChain([]);
+        if (callNum === 7) return inactiveSubscriptionsChain([]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
       const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
@@ -678,6 +727,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
         // newsletter_subscriptions
         if (callNum === 3) return subscribersChain([{ email: 'digest@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
         // final update
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
@@ -690,8 +741,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.sentCount).toBe(1);
-      // facility_members query should NOT have been called (callNum should be 4, not 5)
-      expect(callNum).toBe(4);
+      // facility_members query should NOT have been called (callNum should be 6, not 7)
+      expect(callNum).toBe(6);
     });
 
     // Branch coverage: line 129 — owner_monthly: subscribers is null → (subscribers || []) uses fallback []
@@ -710,6 +761,8 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         };
         if (callNum === 4) return facilityMembersChain([{ user_id: 'owner-uid' }]);
         if (callNum === 5) return ownerProfilesChain([{ email: 'owner@example.com' }]);
+        if (callNum === 6) return unsubscribedProfilesChain([]);
+        if (callNum === 7) return inactiveSubscriptionsChain([]);
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
       });
 
@@ -770,6 +823,196 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(secondBatch).toHaveLength(50);
       const json = await res.json();
       expect(json.sentCount).toBe(150);
+    });
+
+    // ─── B-1/B-2/B-6 根治: 配信停止済みは profiles.email_unsubscribed /
+    // newsletter_subscriptions.is_active のどちらで停止していても必ず除外される ───
+
+    test('email_unsubscribed=true の profiles は is_active=true の購読があっても除外される', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([
+          { email: 'active@example.com', user_id: 'u1' },
+          { email: 'stopped@example.com', user_id: 'u2' },
+        ]);
+        // stopped@example.com は profiles.email_unsubscribed=true（トークン方式で停止済み）
+        if (callNum === 4) return unsubscribedProfilesChain(['stopped@example.com']);
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+      const [messages] = mockBatchSend.mock.calls[0];
+      expect(messages.map((m: { to: string[] }) => m.to[0])).toEqual(['active@example.com']);
+    });
+
+    test('owner_monthly: newsletter_subscriptions.is_active=false のオーナーは無条件マージでも除外される', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([]);
+        if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }, { user_id: 'o2' }]);
+        if (callNum === 5) return ownerProfilesChain([{ email: 'o1@example.com' }, { email: 'o2@example.com' }]);
+        if (callNum === 6) return unsubscribedProfilesChain([]);
+        // o2 は newsletter_subscriptions で明示的に is_active=false（配信停止操作済み）
+        if (callNum === 7) return inactiveSubscriptionsChain(['o2@example.com']);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+      const [messages] = mockBatchSend.mock.calls[0];
+      expect(messages.map((m: { to: string[] }) => m.to[0])).toEqual(['o1@example.com']);
+    });
+
+    test('宛先メールの大小文字表記揺れは正規化され二重送信されない', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([
+          { email: 'Foo@Example.com', user_id: 'u1' },
+          { email: 'foo@example.com', user_id: 'u2' },
+        ]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+    });
+
+    test('停止済みプロフィール取得に失敗 → 送信を中止し campaign を draft に戻す (fail-safe)', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([], { message: 'DB error' });
+        return rollbackToDraftChain();
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toMatch(/配信停止者リスト/);
+    });
+
+    test('unsubProfiles が null（data無しだがerrorも無し）→ [] にフォールバックして続行', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return {
+          select: jest.fn().mockReturnThis(),
+          not: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        };
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+    });
+
+    test('inactiveSubs が null（data無しだがerrorも無し）→ [] にフォールバックして続行', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return {
+          select: jest.fn().mockReturnThis(),
+          not: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: null, error: null })),
+        };
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+    });
+
+    test('unsubProfiles/inactiveSubs に email=null の行が混じっても防御的にフィルタされる', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return {
+          select: jest.fn().mockReturnThis(),
+          not: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: [{ email: null }], error: null })),
+        };
+        if (callNum === 5) return {
+          select: jest.fn().mockReturnThis(),
+          not: jest.fn().mockReturnThis(),
+          eq: jest.fn(() => Promise.resolve({ data: [{ email: null }], error: null })),
+        };
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+    });
+
+    test('非アクティブ購読取得に失敗 → 送信を中止し campaign を draft に戻す (fail-safe)', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return inactiveSubscriptionsChain([], { message: 'DB error' });
+        return rollbackToDraftChain();
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toMatch(/配信停止者リスト/);
     });
   });
 });
