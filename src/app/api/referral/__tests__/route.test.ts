@@ -427,7 +427,11 @@ describe('POST /api/referral', () => {
         };
       }
       if (table === 'referral_uses') {
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        return {
+          insert: jest.fn().mockResolvedValue({ error: null }),
+          // REF-4: ポイント付与成功後の points_awarded=true 更新
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        };
       }
       if (table === 'user_points') {
         return { insert: jest.fn().mockResolvedValue({ error: null }) };
@@ -446,6 +450,33 @@ describe('POST /api/referral', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(json.message).toContain('300ポイント');
+  });
+
+  test('REF-4: points_awarded 更新失敗でも 200（ポイントは付与済み・ログのみ）', async () => {
+    let n = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      n++;
+      if (table === 'referral_codes' && n === 1) {
+        return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'referrer-1', used_count: 0 } }) }) }) };
+      }
+      if (table === 'referral_uses' && n === 2) {
+        return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
+      }
+      if (table === 'referral_uses') {
+        // insert は成功、points_awarded の update は失敗させる（分岐 awardFlagErr）
+        return {
+          insert: jest.fn().mockResolvedValue({ error: null }),
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'flag fail' } }) }),
+        };
+      }
+      if (table === 'user_points') {
+        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      }
+      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
+    });
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/referral', { method: 'POST', body: JSON.stringify({ code: 'VALID123' }) }) as any);
+    expect(res.status).toBe(200);
   });
 });
 
@@ -558,7 +589,11 @@ describe('cookie callbacks and body parse catch', () => {
         };
       }
       if (table === 'referral_uses') {
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        return {
+          insert: jest.fn().mockResolvedValue({ error: null }),
+          // REF-4: ポイント付与成功後の points_awarded=true 更新
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        };
       }
       if (table === 'user_points') {
         // First call (referrer) succeeds, second (self) fails
@@ -600,7 +635,11 @@ describe('cookie callbacks and body parse catch', () => {
         };
       }
       if (table === 'referral_uses') {
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        return {
+          insert: jest.fn().mockResolvedValue({ error: null }),
+          // REF-4: ポイント付与成功後の points_awarded=true 更新
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        };
       }
       if (table === 'user_points') {
         return { insert: jest.fn().mockResolvedValue({ error: null }) };
@@ -638,7 +677,11 @@ describe('cookie callbacks and body parse catch', () => {
         };
       }
       if (table === 'referral_uses') {
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        return {
+          insert: jest.fn().mockResolvedValue({ error: null }),
+          // REF-4: ポイント付与成功後の points_awarded=true 更新
+          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
+        };
       }
       if (table === 'user_points') {
         return { insert: jest.fn().mockResolvedValue({ error: null }) };

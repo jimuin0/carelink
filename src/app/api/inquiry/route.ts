@@ -48,13 +48,18 @@ export const POST = withRoute(async (request) => {
   const supabase = createServiceRoleClient();
 
   // 施設の存在・公開確認（facility_name はサーバ権威で確定し、なりすましを拒否）
-  const { data: facility } = await supabase
+  const { data: facility, error: facilityErr } = await supabase
     .from('facility_profiles')
     .select('id, name')
     .eq('id', d.facility_id)
     .eq('status', 'published')
     .maybeSingle();
 
+  // error を握り潰すと DB 障害を「施設が見つかりません(404)」に偽装してしまう（INQ-1）。
+  // error は 500、データ無しのみ 404 に分ける（admin/report と同じ扱い）。
+  if (facilityErr) {
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  }
   if (!facility) {
     return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
   }

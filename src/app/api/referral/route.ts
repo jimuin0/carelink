@@ -40,6 +40,15 @@ export async function GET(request: NextRequest) {
 
   const adminSupabase = createServiceRoleClient();
 
+  // 自分が既に他人の紹介コードを使用済みか（適用済みフラグの永続化 = REF-2）。
+  // これを返さないと、フロントの「適用済み」表示が再読込で消える。error は best-effort(未適用扱い)。
+  const { data: usedRow, error: usedErr } = await adminSupabase
+    .from('referral_uses')
+    .select('id')
+    .eq('referred_user_id', user.id)
+    .maybeSingle();
+  const already_referred = !usedErr && !!usedRow;
+
   // 既存コード取得
   const { data: existing } = await adminSupabase
     .from('referral_codes')
@@ -47,7 +56,7 @@ export async function GET(request: NextRequest) {
     .eq('user_id', user.id)
     .maybeSingle();
 
-  if (existing) return NextResponse.json(existing);
+  if (existing) return NextResponse.json({ ...existing, already_referred });
 
   // 新規生成
   const code = generateCode();
@@ -56,7 +65,7 @@ export async function GET(request: NextRequest) {
     console.error('[referral] code generation failed', { userId: user.id, err: insertErr });
     return NextResponse.json({ error: '紹介コードの生成に失敗しました' }, { status: 500 });
   }
-  return NextResponse.json({ code, used_count: 0 });
+  return NextResponse.json({ code, used_count: 0, already_referred });
 }
 
 export const POST = withRoute(async (request) => {
@@ -121,6 +130,17 @@ export const POST = withRoute(async (request) => {
     const err = refResult.error ?? selfResult.error;
     console.error('[referral] ポイント付与失敗 (referral_uses行は挿入済み):', err);
     return NextResponse.json({ error: 'ポイントの付与に失敗しました。サポートにお問い合わせください。' }, { status: 500 });
+  }
+
+  // 両者へのポイント付与が成功したので points_awarded=true を立てる（REF-4）。
+  // これで付与失敗行(points_awarded=false のまま)を後続の復旧バッチ/照会で識別でき、
+  // 「片側だけ加点・被紹介者が恒久ロックアウト」を運用で拾えるようにする。
+  const { error: awardFlagErr } = await adminSupabase
+    .from('referral_uses')
+    .update({ points_awarded: true })
+    .eq('referred_user_id', user.id);
+  if (awardFlagErr) {
+    console.error('[referral] points_awarded フラグ更新失敗 (ポイントは付与済み)', { userId: user.id, err: awardFlagErr });
   }
 
   // 使用回数をDB側でアトミックにインクリメント（read-then-writeのrace conditionを排除）

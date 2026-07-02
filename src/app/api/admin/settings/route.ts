@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { checkPublishReadiness } from '@/lib/facility-publish-gate';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -103,20 +104,15 @@ export async function PATCH(request: NextRequest) {
     // 空の施設が検索結果に出て予約ページで行き止まりになる事故を防ぐ
     // （UI が「メニューと写真を登録すると公開できます」と案内する前提条件の実装）。
     if (parsed.data.status === 'published') {
-      const [menuCount, photoCount, staffCount] = await Promise.all([
-        admin.from('facility_menus').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId),
-        admin.from('facility_photos').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId),
-        admin.from('staff_profiles').select('id', { count: 'exact', head: true }).eq('facility_id', auth.facilityId).eq('is_active', true),
-      ]);
-      if (menuCount.error || photoCount.error || staffCount.error) {
+      // 単一公開の必須項目ゲート。チェーン一括公開(bulk-publish)と共通ヘルパで検証を共有する。
+      // メニュー件数は公開側の可視条件(is_published null/true)と揃える（HPB 下書きのみで
+      // 公開して公開メニュー0件の行き止まりになるのを防ぐ = BP-2）。
+      const { readiness, error: gateErr } = await checkPublishReadiness(admin, auth.facilityId);
+      if (gateErr) {
         return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
       }
-      const missing: string[] = [];
-      if ((menuCount.count ?? 0) < 1) missing.push('メニューを1つ以上登録してください');
-      if ((photoCount.count ?? 0) < 1) missing.push('写真を1枚以上登録してください');
-      if ((staffCount.count ?? 0) < 1) missing.push('スタッフを1人以上登録してください');
-      if (missing.length > 0) {
-        return NextResponse.json({ error: '公開するには次の項目が必要です', missing }, { status: 400 });
+      if (!readiness.ready) {
+        return NextResponse.json({ error: '公開するには次の項目が必要です', missing: readiness.missing }, { status: 400 });
       }
     }
 

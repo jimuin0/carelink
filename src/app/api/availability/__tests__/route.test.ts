@@ -446,3 +446,22 @@ describe('GET /api/availability', () => {
     expect(res.status).toBe(200);
   });
 });
+
+// AV-2: staff_profiles 取得エラーを握り潰さず 500 で顕在化する（空きカレンダー偽装の防止）
+test('AV-2: staff_profiles 取得エラー → 500', async () => {
+  const { createServerSupabaseClient } = require('@/lib/supabase-server');
+  createServerSupabaseClient.mockReturnValue({
+    from: jest.fn().mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
+          }),
+        }),
+      }),
+    }),
+    rpc: mockRpc,
+  });
+  const res = await GET(makeRequest()); // staffId 未指定 → staff_profiles クエリが走る
+  expect(res.status).toBe(500);
+});

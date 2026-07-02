@@ -70,6 +70,8 @@ function countChain(count: number | null, error: unknown = null) {
   const obj: Record<string, unknown> = {};
   obj.select = jest.fn(() => obj);
   obj.eq = jest.fn(() => obj);
+  // メニュー可視条件（is_published null/true）の .or も自身を返し thenable のまま解決する。
+  obj.or = jest.fn(() => obj);
   obj.then = (resolve: (v: { count: number | null; error: unknown }) => unknown) => resolve({ count, error });
   return obj;
 }

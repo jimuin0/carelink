@@ -49,9 +49,15 @@ function profileChain(data: unknown) {
   };
 }
 
-// update().eq('id') のみ（facility_id 絞りは廃止）
-function updateChain(error: unknown = null) {
-  return { update: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error })) }) };
+// update().eq('id').select('id') — 更新行を取得し 0 行なら 404（ADM-INQ-1）。
+function updateChain(error: unknown = null, rows: unknown[] = [{ id: 'contact-1' }]) {
+  return {
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.resolve({ data: error ? null : rows, error })),
+      }),
+    }),
+  };
 }
 
 beforeEach(() => {
@@ -105,13 +111,20 @@ test('PATCH: 不正なpriority → 400', async () => {
 
 test('PATCH: UPDATEのWHEREが id のみ（facility_id 絞りは廃止）', async () => {
   mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true }));
-  const eqMock = jest.fn(() => Promise.resolve({ error: null }));
+  const eqMock = jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'contact-1' }], error: null })) });
   const updateMock = jest.fn().mockReturnValue({ eq: eqMock });
   mockAdminFrom.mockReturnValue({ update: updateMock });
 
   await PATCH(makeRequest({ ticket_status: 'resolved' }), makeProps());
   expect(eqMock).toHaveBeenCalledWith('id', INQUIRY_UUID);
   expect(eqMock).toHaveBeenCalledTimes(1);
+});
+
+test('PATCH: 存在しないチケットID(0行更新) → 404（ADM-INQ-1）', async () => {
+  mockAnonFrom.mockReturnValue(profileChain({ is_platform_admin: true }));
+  mockAdminFrom.mockReturnValue(updateChain(null, [])); // 0 行
+  const res = await PATCH(makeRequest({ ticket_status: 'in_progress' }), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: DB更新失敗 → 500', async () => {

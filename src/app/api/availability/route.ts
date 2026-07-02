@@ -39,12 +39,18 @@ export async function GET(request: Request) {
     if (staffId) {
       staffIds = [staffId];
     } else {
-      const { data: staffList } = await supabase
+      const { data: staffList, error: staffErr } = await supabase
         .from('staff_profiles')
         .select('id')
         .eq('facility_id', facilityId)
         .eq('is_active', true)
         .limit(10);
+      // error を握り潰すと staffIds=[] → {dates:{}} を静かに返し「空きカレンダー」を偽装する
+      // （DB障害を『予約不可』に化けさせる）。slots ルートと同じく 500 で顕在化させる。
+      if (staffErr) {
+        safeCaptureException(staffErr, 'availability:staff_profiles');
+        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      }
       staffIds = (staffList || []).map((s: { id: string }) => s.id);
     }
 
