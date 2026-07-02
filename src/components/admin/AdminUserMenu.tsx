@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 
@@ -16,7 +16,6 @@ export default function AdminUserMenu() {
   const [email, setEmail] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -53,7 +52,7 @@ export default function AdminUserMenu() {
   };
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative">
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import LoadError from '@/components/admin/LoadError';
 import { SbTable, SbThead, SbTh, SbTbody, SbTd, SbPageHeader, SbStatCard } from '@/components/admin/SbUi';
@@ -50,6 +50,8 @@ const EXPECTED_JOBS: string[] = [
   'hpb-menu-scrape', 'schema-drift-check',
 ];
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
 function formatDuration(ms: number | null): string {
   if (!ms) return '-';
   if (ms < 1000) return `${ms}ms`;
@@ -64,18 +66,32 @@ function formatDate(iso: string): string {
   });
 }
 
+interface Summary {
+  total: number;
+  errors: number;
+  successes: number;
+}
+
 export default function CronMonitorPage() {
   const [logs, setLogs] = useState<CronLog[]>([]);
   const [jobsLatest, setJobsLatest] = useState<CronLog[]>([]);
+  const [summary, setSummary] = useState<Summary>({ total: 0, errors: 0, successes: 0 });
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selectedJob, setSelectedJob] = useState<string>('');
 
-  const load = useCallback(async () => {
+  // 各非同期フェッチに世代番号を持たせ、古いレスポンスが後から解決しても state を
+  // 上書きしないようにする（フィルタ変更や「更新」連打による並行 load のレース対策）。
+  const logsGenRef = useRef(0);
+  const sideGenRef = useRef(0);
+
+  // 実行ログ一覧（selectedJob で絞り込み・最新200件）。フィルタ変更のたびに
+  // これだけを再取得する（per-job フェッチやサマリーは selectedJob と無関係なので
+  // 再実行しない＝無駄な N+1 を出さない）。
+  const loadLogs = useCallback(async () => {
+    const gen = ++logsGenRef.current;
     const supabase = createBrowserSupabaseClient();
     setLoadError(false);
-
-    // 1) 実行ログ一覧（選択ジョブで絞り込み・最新200件）
     let query = supabase
       .from('cron_logs')
       .select('*')
@@ -83,15 +99,37 @@ export default function CronMonitorPage() {
       .limit(200);
     if (selectedJob) query = query.eq('job_name', selectedJob);
     const { data, error } = await query;
+    if (gen !== logsGenRef.current) return; // 古いレスポンスは無視
     if (error) { setLoadError(true); setLoading(false); return; }
     setLogs(data ?? []);
+    setLoading(false);
+  }, [selectedJob]);
 
-    // 2) 各ジョブの最新実行を「ジョブごとに1件」確実に取得する。
-    //    最新200件からの寄せ集めだと、高頻度ジョブ（webhook-retry 等）が
-    //    200件を占有し、週次など低頻度ジョブが画面から消える（DBには記録が
-    //    あるのに表示されない）。頻度に依存しないよう、対象ジョブ名を
-    //    「cron.yml 定義（EXPECTED_JOBS）＋ 直近ログに現れたジョブ」の和集合で
-    //    求め、各ジョブの最新1件を idx_cron_logs_job_started 経由で個別取得する。
+  // サマリーカード（総実行数・成功率・エラー数）とジョブ別最新実行は selectedJob に
+  // 依存しない「全体」の状態。フィルタ変更では再実行せず、マウント時と「更新」ボタン
+  // でのみ取得する。
+  const loadSideData = useCallback(async () => {
+    const gen = ++sideGenRef.current;
+    const supabase = createBrowserSupabaseClient();
+    const since = new Date(Date.now() - THIRTY_DAYS_MS).toISOString();
+
+    // サマリーは実データの「直近30日」件数を count(exact, head) で正確に取得する
+    // （旧実装は最新200件の長さを「総実行数（30日）」と称していたが、高頻度ジョブが
+    // 200件を占有するため実際は直近1〜2日分に過ぎず、ラベルが事実と乖離していた）。
+    const [totalRes, errorRes, successRes] = await Promise.all([
+      supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since),
+      supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'error'),
+      supabase.from('cron_logs').select('id', { count: 'exact', head: true }).gte('started_at', since).eq('status', 'success'),
+    ]);
+    if (gen === sideGenRef.current && !totalRes.error && !errorRes.error && !successRes.error) {
+      setSummary({ total: totalRes.count ?? 0, errors: errorRes.count ?? 0, successes: successRes.count ?? 0 });
+    }
+
+    // 各ジョブの最新実行を「ジョブごとに1件」確実に取得する。最新200件の寄せ集めだと、
+    // 高頻度ジョブ（webhook-retry 等）がその200件を占有し、週次など低頻度ジョブが
+    // 画面から消える（DBには記録があるのに表示されない）。頻度に依存しないよう、
+    // 対象ジョブ名を「cron.yml 定義（EXPECTED_JOBS）＋ 直近ログに現れたジョブ」の
+    // 和集合で求め、各ジョブの最新1件を idx_cron_logs_job_started 経由で個別取得する。
     const { data: recentNames, error: namesErr } = await supabase
       .from('cron_logs')
       .select('job_name')
@@ -110,26 +148,35 @@ export default function CronMonitorPage() {
           .order('started_at', { ascending: false })
           .limit(1);
         // 個別ジョブの取得失敗はそのジョブを除外（他ジョブの表示は継続）。
-        // 全体の失敗は上の一覧取得（setLoadError）で既に検知・明示している。
         if (rErr) return null;
         return (r && r.length ? (r[0] as CronLog) : null);
       })
     );
+    if (gen !== sideGenRef.current) return; // 古いレスポンスは無視
     const latest = (latestResults.filter(Boolean) as CronLog[])
-      .sort((a, b) => b.started_at.localeCompare(a.started_at));
+      .sort((a, b) => (a.started_at === b.started_at ? 0 : b.started_at.localeCompare(a.started_at)));
     setJobsLatest(latest);
-    setLoading(false);
-  }, [selectedJob]);
+  }, []);
 
-  useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
+  useEffect(() => {
+    setLoading(true);
+    loadLogs().catch(() => { setLoadError(true); setLoading(false); });
+  }, [loadLogs]);
 
-  // 各ジョブの最新実行（頻度に依存せずジョブごとに最新1件）
+  useEffect(() => {
+    loadSideData().catch(() => { /* サマリー/ジョブ一覧の失敗は実行ログ一覧の表示を妨げない */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleRefresh = useCallback(() => {
+    setLoading(true);
+    loadLogs().catch(() => { setLoadError(true); setLoading(false); });
+    loadSideData().catch(() => {});
+  }, [loadLogs, loadSideData]);
+
   const latestByJob: [string, CronLog][] = jobsLatest.map((log) => [log.job_name, log]);
 
-  const errorCount = logs.filter(l => l.status === 'error').length;
-  const successRate = logs.length > 0
-    ? Math.round((logs.filter(l => l.status === 'success').length / logs.length) * 100)
-    : 0;
+  const successRate = summary.total > 0 ? Math.round((summary.successes / summary.total) * 100) : 0;
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
@@ -138,7 +185,7 @@ export default function CronMonitorPage() {
         actions={
           <button
             type="button"
-            onClick={load}
+            onClick={handleRefresh}
             className="text-sm px-3 py-1.5 bg-sky-100 text-sky-700 rounded-lg hover:bg-sky-200 transition-colors"
           >
             更新
@@ -146,11 +193,11 @@ export default function CronMonitorPage() {
         }
       />
 
-      {/* サマリーカード */}
+      {/* サマリーカード（常に全体・selectedJob の絞り込みに関わらず一定） */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-        <SbStatCard label="総実行数（30日）" value={logs.length} />
-        <SbStatCard label="成功率" value={`${successRate}%`} accent={successRate >= 95 ? 'emerald' : successRate >= 80 ? 'amber' : 'rose'} />
-        <SbStatCard label="エラー数" value={errorCount} accent={errorCount > 0 ? 'rose' : 'gray'} />
+        <SbStatCard label="総実行数（30日）" value={summary.total} />
+        <SbStatCard label="成功率（30日）" value={`${successRate}%`} accent={successRate >= 95 ? 'emerald' : successRate >= 80 ? 'amber' : 'rose'} />
+        <SbStatCard label="エラー数（30日）" value={summary.errors} accent={summary.errors > 0 ? 'rose' : 'gray'} />
         <SbStatCard label="ジョブ種類" value={latestByJob.length} />
       </div>
 
@@ -202,7 +249,7 @@ export default function CronMonitorPage() {
             <div className="w-6 h-6 border-2 border-sky-500 border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
         ) : loadError ? (
-          <div className="p-4"><LoadError onRetry={load} message="実行ログの読み込みに失敗しました" /></div>
+          <div className="p-4"><LoadError onRetry={handleRefresh} message="実行ログの読み込みに失敗しました" /></div>
         ) : logs.length === 0 ? (
           <div className="py-12 text-center text-gray-400 text-sm">
             実行ログがありません

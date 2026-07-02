@@ -16,10 +16,12 @@ jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/gbp');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-logger');
+jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchPlaceDetails } from '@/lib/gbp';
 import { logCronRun } from '@/lib/cron-logger';
+import { alertWarning } from '@/lib/alert';
 import { GET } from '../route';
 
 let mockSelect: jest.Mock;
@@ -389,5 +391,40 @@ describe('GET /api/cron/sync-google-ratings', () => {
     const res = await GET(makeRequest() as any);
     const json = await res.json();
     expect(json.skipped).toBeGreaterThan(0);
+  });
+
+  // C-3 根治: 全件失敗（API 障害の疑い）は無音にせず Slack へ警報する
+  test('全件失敗(errors===対象件数) → alertWarning が発火する', async () => {
+    setupDefaultMocks(2);
+    (fetchPlaceDetails as jest.Mock).mockRejectedValue(new Error('API error'));
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(json.errors).toBe(2);
+    expect(json.processed).toBe(0);
+    expect(alertWarning).toHaveBeenCalledTimes(1);
+    expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/全件失敗/);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'sync-google-ratings',
+      'success',
+      expect.any(Date),
+      expect.objectContaining({ meta: expect.objectContaining({ allFailed: true }) }),
+    );
+  });
+
+  // 部分失敗（1件でも成功/スキップがある）は許容し警報しない
+  test('部分失敗（一部成功） → alertWarning は発火しない', async () => {
+    setupDefaultMocks(2);
+    (fetchPlaceDetails as jest.Mock).mockRejectedValue(new Error('API error'));
+    setupDefaultMocks(2, true, true);
+    let callCount = 0;
+    (fetchPlaceDetails as jest.Mock).mockImplementation(() => {
+      callCount++;
+      return callCount === 1 ? Promise.reject(new Error('API error')) : Promise.resolve({ rating: 4.5, user_ratings_total: 10 });
+    });
+
+    await GET(makeRequest() as any);
+    expect(alertWarning).not.toHaveBeenCalled();
   });
 });
