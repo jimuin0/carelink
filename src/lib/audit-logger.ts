@@ -59,8 +59,15 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
       ip_address:  entry.ipAddress ?? null,
       user_agent:  entry.userAgent ?? null,
     });
-  } catch {
-    // 監査ログの失敗で本体処理を止めない
+  } catch (err) {
+    // 監査ログの失敗で本体処理は止めない（fire-and-forget）が、握り潰すと監査証跡の欠落が
+    // 完全に不可視になる（誰の・どの操作が記録漏れしたか追えない）。error で可視化する。
+    console.error('[audit-logger] writeAuditLog failed — audit trail entry lost', {
+      action: entry.action,
+      tableName: entry.tableName,
+      recordId: entry.recordId ?? null,
+      err,
+    });
   }
 }
 

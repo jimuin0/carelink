@@ -1,4 +1,5 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { SITE_URL } from '@/lib/constants';
 
 /**
  * ニュースレター配信停止リンク用の「不透明・ステートレス」トークン。
@@ -41,6 +42,14 @@ export function encryptUnsubEmail(email: string): string {
 
 /** トークンを復号してメールアドレスを返す。不正/改ざん/形式不一致は null。 */
 export function decryptUnsubEmail(token: string): string | null {
+  // 設定不備（鍵未設定）は unsubKey() が throw → catch で null になり、改ざんトークンと
+  // 区別できずに「配信停止成功（列挙攻撃防止のダミー成功）」へ落ちて全解除が無音で失敗し続ける。
+  // 原因が全く異なるため、鍵未設定は先に error で可視化してから null を返す（挙動＝安全側は不変・
+  // 呼出側の列挙攻撃防止は維持しつつ、運用者が設定不備を検知できるようにする）。
+  if (!process.env.NEWSLETTER_UNSUBSCRIBE_SECRET) {
+    console.error('[newsletter-unsub] NEWSLETTER_UNSUBSCRIBE_SECRET is not set — unsubscribe tokens cannot be decrypted (all unsubscribes silently fail)');
+    return null;
+  }
   try {
     const raw = b64urlDecode(token);
     // iv(12) + tag(16) + 暗号文(>=1) 未満は不正。
@@ -59,5 +68,7 @@ export function decryptUnsubEmail(token: string): string | null {
 
 /** 配信停止リンク（メールを URL に露出しない不透明トークン版）。手動送信/ダイジェスト cron 共通。 */
 export function newsletterUnsubUrl(email: string): string {
-  return `https://carelink-jp.com/unsubscribe?n=${encryptUnsubEmail(email)}`;
+  // ハードコードのドメイン直書きを廃し、他の全リンクと同じ SITE_URL(constants.ts)を単一ソースに
+  // する。既定値は同一(https://carelink-jp.com)のため挙動不変・ドメイン変更時のみ env で追従する。
+  return `${SITE_URL}/unsubscribe?n=${encryptUnsubEmail(email)}`;
 }

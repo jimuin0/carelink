@@ -201,6 +201,19 @@ function updateSentChain(updated: unknown) {
   };
 }
 
+/** finalize(status=sent) の update().eq().select().single() が任意の {data,error} を返すチェーン。 */
+function updateSentChainResult(data: unknown, error: unknown) {
+  return {
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data, error })),
+        }),
+      }),
+    }),
+  };
+}
+
 // ─── beforeEach ───────────────────────────────────────────────────────────────
 
 beforeEach(() => {
@@ -541,6 +554,56 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       const json = await res.json();
       expect(json.bouncedCount).toBe(2);
       expect(json.sentCount).toBe(0);
+    });
+
+    test('finalize(status=sent) が一度失敗しても再試行で成功 → 200（送信済みを draft に戻さない・D-1）', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      const campaign = buildCampaign({});
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(campaign);
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
+        if (callNum === 6) return updateSentChainResult(null, { message: 'finalize boom' }); // 1回目失敗
+        return updateSentChainResult({ id: CAMPAIGN_UUID, status: 'sent' }, null);          // 再試行成功
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.sentCount).toBe(1);
+      errSpy.mockRestore();
+    });
+
+    test('finalize が再試行も失敗 → 500・draft へ戻さず二重送信を防ぐ（D-1）', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      const campaign = buildCampaign({});
+      const rollbackUpdate = jest.fn();
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(campaign);
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'a@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return unsubscribedProfilesChain([]);
+        if (callNum === 5) return inactiveSubscriptionsChain([]);
+        // finalize(6) と再試行(7) の両方が失敗。それ以降に 'draft' ロールバック update が
+        // 走らないこと（＝再送＝二重送信が起きないこと）を rollbackUpdate で検知する。
+        if (callNum >= 8) return { update: rollbackUpdate };
+        return updateSentChainResult(null, { message: 'finalize boom' });
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toContain('送信状態の記録に失敗');
+      expect(json.sentCount).toBe(1);
+      // draft ロールバックは呼ばれない（送信済みを再送可能にしない）
+      expect(rollbackUpdate).not.toHaveBeenCalled();
+      errSpy.mockRestore();
     });
 
     test('owner_monthly type also fetches owner emails', async () => {

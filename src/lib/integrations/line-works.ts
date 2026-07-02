@@ -33,7 +33,7 @@ export function __resetLineWorksTokenCacheForTest(): void {
 /**
  * LINE Works アクセストークンを取得（JWT Bearer Flow）。有効期限内はキャッシュを再利用する。
  */
-export async function getLineWorksToken(): Promise<string | null> {
+export async function getLineWorksToken(forceRefresh = false): Promise<string | null> {
   const clientId = process.env.LINE_WORKS_CLIENT_ID;
   const clientSecret = process.env.LINE_WORKS_CLIENT_SECRET;
   const serviceAccount = process.env.LINE_WORKS_SERVICE_ACCOUNT;
@@ -43,7 +43,9 @@ export async function getLineWorksToken(): Promise<string | null> {
   }
 
   // 有効なキャッシュがあれば JWT 署名・トークン取得を省略して再利用する。
-  if (cachedToken && cachedToken.expiresAt - TOKEN_CACHE_SAFETY_MS > Date.now()) {
+  // forceRefresh 時は（サーバ側で失効した等でキャッシュが有効期限内でも無効な場合）キャッシュを
+  // 無視して必ず再取得する。
+  if (!forceRefresh && cachedToken && cachedToken.expiresAt - TOKEN_CACHE_SAFETY_MS > Date.now()) {
     return cachedToken.value;
   }
 
@@ -143,19 +145,34 @@ export async function sendLineWorksMessage(
   const token = await getLineWorksToken();
   if (!token) return false;
 
+  const doSend = (bearer: string) => fetch(
+    `${LINE_WORKS_API_BASE}/bots/${botId}/channels/${encodeURIComponent(channelId)}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${bearer}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(message),
+    }
+  );
+
   try {
-    const res = await fetch(
-      `${LINE_WORKS_API_BASE}/bots/${botId}/channels/${encodeURIComponent(channelId)}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(message),
-      }
-    );
-    return res.ok;
+    const res = await doSend(token);
+    if (res.ok) return true;
+
+    // 401/403 = トークンが（有効期限内でも）サーバ側で失効/無効化された可能性。
+    // キャッシュを握ったままだと最大24時間（有効期限まで）全通知が無音で失敗し続けるため、
+    // キャッシュを破棄して1度だけ強制再取得し再送する（発症前予防・恒久 miss の回避）。
+    if (res.status === 401 || res.status === 403) {
+      console.error('[line-works] send rejected (auth) — refreshing token and retrying', { status: res.status });
+      cachedToken = null;
+      const fresh = await getLineWorksToken(true);
+      if (!fresh) return false;
+      const retry = await doSend(fresh);
+      return retry.ok;
+    }
+    return false;
   } catch {
     return false;
   }

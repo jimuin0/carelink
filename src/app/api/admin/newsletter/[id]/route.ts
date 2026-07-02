@@ -220,7 +220,14 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         }
       }
 
-      const { data: updated } = await admin
+      // 送信は既に完了している。ここで status='sent' への確定が失敗すると:
+      //  - 旧実装は error を握り潰し 200 + campaign:null を返し、status は 'sending' に固着 →
+      //    cancel/schedule/send のどの action からも復旧できない恒久デッドロック(実バグ)。
+      //  - かといって catch の 'draft' ロールバックに落とすと、送信済みなのに再送可能になり
+      //    二重送信を招く（絶対に避ける）。
+      // よって error を検証し、'draft' へは戻さず sent 確定をもう一度だけ試みる。それも失敗したら
+      // LOUD にログし 500 を返す（status='sending' のまま人手対応・二重送信は起こさない）。
+      const finalizeSent = () => admin
         .from('newsletter_campaigns')
         .update({
           status: 'sent',
@@ -233,6 +240,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         .eq('id', params.id)
         .select()
         .single();
+
+      let { data: updated, error: finalizeErr } = await finalizeSent();
+      if (finalizeErr) {
+        console.error('[newsletter/send] CRITICAL: emails sent but status finalize failed — retrying (NOT rolling back to avoid double-send)', { campaignId: params.id, sentCount, bouncedCount, err: finalizeErr });
+        ({ data: updated, error: finalizeErr } = await finalizeSent());
+        if (finalizeErr) {
+          console.error('[newsletter/send] CRITICAL: status finalize retry also failed — campaign stuck in sending, manual fix required', { campaignId: params.id, sentCount, bouncedCount, err: finalizeErr });
+          return NextResponse.json(
+            { error: 'メールは送信されましたが、送信状態の記録に失敗しました。管理者にご連絡ください。', sentCount, bouncedCount },
+            { status: 500 },
+          );
+        }
+      }
 
       const { ua } = getRequestContext(req);
       void writeAuditLog({

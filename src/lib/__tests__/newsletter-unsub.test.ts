@@ -55,6 +55,23 @@ describe('newsletter-unsub 暗号化トークン（メールを URL に露出し
     }
   });
 
+  it('NEWSLETTER_UNSUBSCRIBE_SECRET 未設定時の復号は null かつ設定不備を error ログで可視化（D-5・改ざんと区別）', () => {
+    const saved = process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+    try {
+      // 復号は安全側（列挙攻撃防止の null）を維持しつつ、鍵未設定は改ざんと違い error で可視化する。
+      expect(decryptUnsubEmail('any-token-value')).toBeNull();
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('NEWSLETTER_UNSUBSCRIBE_SECRET is not set'),
+      );
+    } finally {
+      if (saved === undefined) delete process.env.NEWSLETTER_UNSUBSCRIBE_SECRET;
+      else process.env.NEWSLETTER_UNSUBSCRIBE_SECRET = saved;
+      errSpy.mockRestore();
+    }
+  });
+
   it('配信停止 URL は不透明トークンのみで、メール/「email=」を一切含まない（PII 非露出の回帰）', () => {
     const url = newsletterUnsubUrl('Secret.User@example.com');
     expect(url).toContain('/unsubscribe?n=');
