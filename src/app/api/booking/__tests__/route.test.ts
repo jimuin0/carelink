@@ -124,6 +124,7 @@ function fluent(resolvedValue: unknown) {
   self.gte = handler;
   self.lte = handler;
   self.in = handler;
+  self.limit = handler;
   self.maybeSingle = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
