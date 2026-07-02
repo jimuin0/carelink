@@ -33,7 +33,22 @@ const JOB_LABELS: Record<string, string> = {
   'flag-reviews':       'レビューフラグ',
   'onboarding-followup':'オンボーディングフォロー',
   'sync-google-ratings':'Googleレーティング同期',
+  'weekly-report':      '週次レポート',
+  'waitlist-notify':    'キャンセル待ち通知',
+  'webhook-retry':      'Webhook再送',
+  'hpb-menu-scrape':    'HPBメニュー取得',
+  'schema-drift-check': 'スキーマドリフト監視',
 };
+
+// cron.yml で定義されている定期ジョブ（`各ジョブの最新実行`の常時表示対象）。
+// 高頻度ジョブ（webhook-retry 等）がログを埋め尽くしても、ここに列挙した
+// 低頻度ジョブ（週次等）の最新1件を確実に個別取得して表示するための基準リスト。
+const EXPECTED_JOBS: string[] = [
+  'booking-reminder', 'daily-summary', 'customer-segment', 'review-request',
+  'sync-google-ratings', 'onboarding-followup', 'birthday-coupon', 'flag-reviews',
+  'favorites-digest', 'weekly-report', 'waitlist-notify', 'webhook-retry',
+  'hpb-menu-scrape', 'schema-drift-check',
+];
 
 function formatDuration(ms: number | null): string {
   if (!ms) return '-';
@@ -51,6 +66,7 @@ function formatDate(iso: string): string {
 
 export default function CronMonitorPage() {
   const [logs, setLogs] = useState<CronLog[]>([]);
+  const [jobsLatest, setJobsLatest] = useState<CronLog[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [selectedJob, setSelectedJob] = useState<string>('');
@@ -58,6 +74,8 @@ export default function CronMonitorPage() {
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
     setLoadError(false);
+
+    // 1) 実行ログ一覧（選択ジョブで絞り込み・最新200件）
     let query = supabase
       .from('cron_logs')
       .select('*')
@@ -67,18 +85,46 @@ export default function CronMonitorPage() {
     const { data, error } = await query;
     if (error) { setLoadError(true); setLoading(false); return; }
     setLogs(data ?? []);
+
+    // 2) 各ジョブの最新実行を「ジョブごとに1件」確実に取得する。
+    //    最新200件からの寄せ集めだと、高頻度ジョブ（webhook-retry 等）が
+    //    200件を占有し、週次など低頻度ジョブが画面から消える（DBには記録が
+    //    あるのに表示されない）。頻度に依存しないよう、対象ジョブ名を
+    //    「cron.yml 定義（EXPECTED_JOBS）＋ 直近ログに現れたジョブ」の和集合で
+    //    求め、各ジョブの最新1件を idx_cron_logs_job_started 経由で個別取得する。
+    const { data: recentNames, error: namesErr } = await supabase
+      .from('cron_logs')
+      .select('job_name')
+      .order('started_at', { ascending: false })
+      .limit(500);
+    // 直近ログの取得に失敗しても、cron.yml 定義（EXPECTED_JOBS）は必ず表示対象にする
+    // （取得失敗を空状態に偽装せず、既知ジョブは確実に表示し続ける）。
+    const seen = namesErr ? [] : (recentNames ?? []).map((r: { job_name: string }) => r.job_name);
+    const jobNames = Array.from(new Set<string>([...EXPECTED_JOBS, ...seen]));
+    const latestResults = await Promise.all(
+      jobNames.map(async (job) => {
+        const { data: r, error: rErr } = await supabase
+          .from('cron_logs')
+          .select('*')
+          .eq('job_name', job)
+          .order('started_at', { ascending: false })
+          .limit(1);
+        // 個別ジョブの取得失敗はそのジョブを除外（他ジョブの表示は継続）。
+        // 全体の失敗は上の一覧取得（setLoadError）で既に検知・明示している。
+        if (rErr) return null;
+        return (r && r.length ? (r[0] as CronLog) : null);
+      })
+    );
+    const latest = (latestResults.filter(Boolean) as CronLog[])
+      .sort((a, b) => b.started_at.localeCompare(a.started_at));
+    setJobsLatest(latest);
     setLoading(false);
   }, [selectedJob]);
 
   useEffect(() => { load().catch(() => { setLoadError(true); setLoading(false); }); }, [load]);
 
-  // 直近の各ジョブのステータスサマリー
-  const latestByJob = Object.entries(
-    logs.reduce<Record<string, CronLog>>((acc, log) => {
-      if (!acc[log.job_name]) acc[log.job_name] = log;
-      return acc;
-    }, {})
-  );
+  // 各ジョブの最新実行（頻度に依存せずジョブごとに最新1件）
+  const latestByJob: [string, CronLog][] = jobsLatest.map((log) => [log.job_name, log]);
 
   const errorCount = logs.filter(l => l.status === 'error').length;
   const successRate = logs.length > 0
@@ -145,8 +191,8 @@ export default function CronMonitorPage() {
             className="text-sm border border-gray-200 rounded-lg px-2 py-1"
           >
             <option value="">すべてのジョブ</option>
-            {Object.entries(JOB_LABELS).map(([key, label]) => (
-              <option key={key} value={key}>{label}</option>
+            {jobsLatest.map(({ job_name }) => (
+              <option key={job_name} value={job_name}>{JOB_LABELS[job_name] || job_name}</option>
             ))}
           </select>
         </div>
