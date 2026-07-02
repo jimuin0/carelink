@@ -66,6 +66,7 @@ type Cfg = {
 };
 
 let mockUpsert: jest.Mock;
+let mockDelete: jest.Mock;
 let mockEmailReminder: jest.Mock;
 let mockLineReminder: jest.Mock;
 let bookingsInMock: jest.Mock;
@@ -89,6 +90,14 @@ function setup(cfg: Cfg = {}) {
   });
 
   mockUpsert = jest.fn().mockImplementation(() => Promise.resolve({ error: cfg.upsertError ?? null }));
+  // F-9 根治: 送信失敗時の claim 解放 .delete().eq().eq().eq() → { error }。
+  mockDelete = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockResolvedValue({ error: cfg.deleteError ?? null }),
+      }),
+    }),
+  });
   const claimedAt = cfg.claimedAt ?? (() => new Date(Date.now() - 5_000).toISOString());
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
@@ -139,6 +148,7 @@ function setup(cfg: Cfg = {}) {
       if (table === 'sent_reminders') {
         return {
           upsert: mockUpsert,
+          delete: mockDelete,
           select: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
               eq: jest.fn().mockReturnValue({
@@ -314,6 +324,28 @@ describe('GET /api/cron/booking-reminder', () => {
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.skipped).toBe(1);
     expect(json.processed).toBe(0);
+    // F-9 根治: 送信失敗時に claim(sent_reminders)を delete で解放する。
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  // F-9 根治: claim 解放(delete)自体が失敗した場合も握り潰さず console.error で可視化する。
+  test('LINE: 送信 false かつ claim 解放失敗 → 可視化（本体は継続）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      deleteError: { message: 'delete failed' },
+    });
+    mockLineReminder.mockResolvedValue(false);
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[booking-reminder] claim release failed',
+      expect.objectContaining({ err: { message: 'delete failed' } }),
+    );
+    consoleSpy.mockRestore();
   });
 
   test('LINE: user_id なし予約は購入済みでも対象外', async () => {

@@ -368,6 +368,61 @@ describe('GET /api/cron/waitlist-notify', () => {
     expect(mockSendEmail).not.toHaveBeenCalled();
   });
 
+  // F-6 根治: waiters 取得の error を無音で握らず可視化し、当該スロットを skip する
+  // （2h オーバーラップ窓により次 run で自己修復。恒久 miss を作らない）。
+  test('waiters query error → 可視化して slot を skip（無音 miss にしない）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSelectWaiters = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              order: jest.fn().mockReturnValue({
+                limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'waiters db down' } }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[waitlist-notify] waiters query failed',
+      expect.objectContaining({ err: 'waiters db down' }),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  // F-6 根治: facility 取得の error も可視化して slot を skip する。
+  test('facility query error → 可視化して slot を skip', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSelectFacility = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'facility db down' } }),
+      }),
+    });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'bookings') return { select: mockSelectCancels };
+        if (table === 'booking_waitlist') return { select: mockSelectWaiters, update: mockUpdateWaitlist };
+        if (table === 'facility_profiles') return { select: mockSelectFacility };
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(mockSendEmail).not.toHaveBeenCalled();
+    expect(consoleSpy).toHaveBeenCalledWith(
+      '[waitlist-notify] facility query failed',
+      expect.objectContaining({ err: 'facility db down' }),
+    );
+    consoleSpy.mockRestore();
+  });
+
   test('RESEND_API_KEY missing → resend null, skip email but still mark notified', async () => {
     delete process.env.RESEND_API_KEY;
 

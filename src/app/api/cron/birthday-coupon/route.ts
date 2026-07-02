@@ -18,6 +18,16 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
+// 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
+// 既定の低い値を上書きし、下の SEND_BUDGET_MS による予算ガードが確実に発火する既知の上限を与える。
+// 旧実装はこの予算ガードが無く、同日誕生日が多いと送信ループがハード timeout で強制終了し、
+// 「本日が誕生日」条件のため中断分は翌 run では対象外になり、その年の特典・通知が恒久欠落していた。
+export const maxDuration = 60;
+// 送信ループの実時間予算。maxDuration(60s) 未満に設定し、超えたら graceful に打ち切って
+// deferred 件数を LOUD にログする。ポイント付与(reason=birthday_YYYY の unique index)と
+// birthday_notifications はいずれも年内冪等のため、deferred が出た日は workflow_dispatch で
+// 同日中に再実行すれば既処理ユーザーは 23505 / notifiedSet で skip され、残りだけ処理される。
+const SEND_BUDGET_MS = 50 * 1000;
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
 const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
@@ -101,9 +111,20 @@ export async function GET(request: Request) {
 
     let sent = 0;
     let skipped = 0;
+    let deferred = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-    for (const profile of profiles) {
+    const loopStart = Date.now();
+    for (let pi = 0; pi < profiles.length; pi++) {
+      const profile = profiles[pi];
+      // 実時間予算ガード: 超過したら残りを graceful に打ち切る（ハード timeout での強制終了を避ける）。
+      // deferred を LOUD にログして可視化する。ポイント/通知は年内冪等のため、同日中に
+      // workflow_dispatch で再実行すれば残りだけが処理され二重付与・二重通知は起きない。
+      if (Date.now() - loopStart > SEND_BUDGET_MS) {
+        deferred = profiles.length - pi;
+        console.warn('[birthday-coupon] time budget exceeded, deferring rest (re-run same day via workflow_dispatch to catch up)', { deferred, processed: sent, skipped });
+        break;
+      }
       const name = profile.display_name || 'お客様';
 
       // 誕生日ポイント付与（unique index が 23505 を返せばスキップ — TOCTOU対策）
@@ -209,8 +230,8 @@ export async function GET(request: Request) {
       }
     }
 
-    await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped });
-    return NextResponse.json({ processed: sent, skipped, total: profiles.length });
+    await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
+    return NextResponse.json({ processed: sent, skipped, deferred, total: profiles.length });
   } catch (e) {
     console.error('[birthday-coupon] Error:', e);
     await logCronRun('birthday-coupon', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

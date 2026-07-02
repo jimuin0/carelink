@@ -122,7 +122,7 @@ function setupDefaultMocks(
     eq: jest
       .fn()
       .mockReturnValue({
-        neq: jest.fn().mockResolvedValue({
+        or: jest.fn().mockResolvedValue({
           select: jest.fn().mockResolvedValue({
             data: alreadySentThisWeek ? [] : [{ id: 'user-1' }],
           }),
@@ -206,11 +206,12 @@ function setupDefaultMocks(
     in: jest.fn().mockReturnValue({ range: paged(profilesData) }),
   });
   // eq の戻りは2用途を兼ねる:
-  //   claim:   .update().eq('id').neq(...).select('id') → { data: claimedData }
+  //   claim:   .update().eq('id').or('...is.null,...neq.W').select('id') → { data: claimedData }
+  //     （F-1 根治: NULL 行を三値論理で除外しないよう .neq 単独から .or(is.null,neq) へ変更）
   //   release: await .update().eq('id')（直接 await）→ オブジェクトを return → { error } 分解
   mockProfilesUpdate = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      neq: jest.fn().mockReturnValue({
+      or: jest.fn().mockReturnValue({
         select: jest.fn().mockResolvedValue({ data: claimedData }),
       }),
       error: releaseError ?? undefined,
@@ -371,7 +372,7 @@ describe('GET /api/cron/favorites-digest', () => {
   test('skips if another invocation already claimed week', async () => {
     mockProfilesUpdate.mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        neq: jest.fn().mockReturnValue({
+        or: jest.fn().mockReturnValue({
           select: jest.fn().mockResolvedValue({ data: [] }),
         }),
       }),

@@ -42,13 +42,20 @@ export async function GET(request: Request) {
     }
 
     // 2. キャンセルが発生したスロットのウェイトリストを検索
-    // キャンセルされた予約（過去1時間以内にキャンセル）に対応するウェイトリストを探す
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000).toISOString();
+    // キャンセルされた予約に対応するウェイトリストを探す。
+    // 検出窓は cron 間隔(1h)より広い 2h にして 1h のオーバーラップを持たせる。
+    // 旧実装は 1h 固定窓だったため、ある run で waiters/施設取得が一過性失敗すると、
+    // 翌 run では当該キャンセルの updated_at が 1h を超えて窓外になり恒久 miss になっていた。
+    // 2h 窓なら同じキャンセルが 2 回の run で拾われ、一過性失敗は次 run で自己修復する。
+    // 二重通知は booking_waitlist の CAS(.eq('status','waiting')) が防ぐ（既通知は 'notified' で
+    // 除外され、送信失敗で 'waiting' に戻したもののみ再送対象になる）。
+    const LOOKBACK_MS = 2 * 60 * 60 * 1000;
+    const lookbackFrom = new Date(now.getTime() - LOOKBACK_MS).toISOString();
     const { data: recentCancels, error: cancelsError } = await supabase
       .from('bookings')
       .select('facility_id, booking_date, start_time, end_time, updated_at')
       .eq('status', 'cancelled')
-      .gte('updated_at', oneHourAgo)
+      .gte('updated_at', lookbackFrom)
       .gte('booking_date', todayJst()); // 過去日は無視（JST 暦日基準。UTC だと JST 早朝に前日が混入）
 
     // 核データの取得失敗を握り潰すと「通知0件＝success」に化け無音スキップになる→error ログ＋500。
@@ -63,8 +70,10 @@ export async function GET(request: Request) {
       const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
       for (const cancel of recentCancels) {
-        // 同じ施設・日時のウェイトリスト（waiting 状態のもの）を取得
-        const { data: waiters } = await supabase
+        // 同じ施設・日時のウェイトリスト（waiting 状態のもの）を取得。
+        // error を無音で握ると「待ち客なし」と区別できず恒久 miss になるため可視化する
+        // （2h オーバーラップ窓により、一過性失敗は次 run で自己修復される）。
+        const { data: waiters, error: waitersError } = await supabase
           .from('booking_waitlist')
           .select('id, customer_name, email, line_user_id, date, start_time')
           .eq('facility_id', cancel.facility_id)
@@ -74,15 +83,27 @@ export async function GET(request: Request) {
           .order('created_at', { ascending: true })
           .limit(3); // 最大3人に通知（先着順）
 
+        if (waitersError) {
+          console.error('[waitlist-notify] waiters query failed', {
+            facilityId: cancel.facility_id, date: cancel.booking_date, err: errorMessage(waitersError),
+          });
+          continue; // 次 run(2h 窓内)で再試行される
+        }
         if (!waiters || waiters.length === 0) continue;
 
-        // 施設名取得
-        const { data: facility } = await supabase
+        // 施設名取得。error は待ち客ありのケースで通知不能を招くため可視化する。
+        const { data: facility, error: facilityError } = await supabase
           .from('facility_profiles')
           .select('name, slug')
           .eq('id', cancel.facility_id)
           .maybeSingle();
 
+        if (facilityError) {
+          console.error('[waitlist-notify] facility query failed', {
+            facilityId: cancel.facility_id, err: errorMessage(facilityError),
+          });
+          continue; // 次 run(2h 窓内)で再試行される
+        }
         if (!facility) continue;
 
         for (const waiter of waiters) {

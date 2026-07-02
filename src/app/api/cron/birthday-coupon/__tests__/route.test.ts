@@ -198,6 +198,27 @@ describe('GET /api/cron/birthday-coupon', () => {
     expect(json.total).toBe(2);
   });
 
+  // F-2 根治: 送信ループの実時間予算(SEND_BUDGET_MS)を超えたら graceful に打ち切り、
+  // 残りを deferred として集計・返却する（ハード timeout での強制終了を避ける）。
+  test('時間予算超過 → 残りを deferred して graceful に打ち切る', async () => {
+    setupDefaultMocks(2);
+    const base = 1_800_000_000_000; // 2027 頃・valid な月日を得るための固定値
+    let n = 0;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => {
+      n++;
+      // 呼び1(jstNow)・呼び2(loopStart)=base、呼び3以降(ループ内チェック等)=base+60s で予算超過。
+      return n <= 2 ? base : base + 60_000;
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.deferred).toBe(2);
+    expect(json.processed).toBe(0);
+    nowSpy.mockRestore();
+  });
+
   test('searches profiles by birth_date (MM-DD today)', async () => {
     setupDefaultMocks(2);
 
