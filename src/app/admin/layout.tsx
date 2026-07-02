@@ -6,6 +6,7 @@ import { headers } from 'next/headers';
 import Link from 'next/link';
 import AdminMobileNav from '@/components/admin/AdminMobileNav';
 import AdminTopNav, { type NavGroup } from '@/components/admin/AdminTopNav';
+import AdminUserMenu from '@/components/admin/AdminUserMenu';
 import { RealtimeBookingListener, AiSupportWidget } from '@/components/admin/DynamicAdminWidgets';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
@@ -213,7 +214,10 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
       {/* Mobile header */}
       <div className="lg:hidden bg-white border-b px-4 py-3 flex items-center justify-between">
         <Link href="/admin" className="text-lg font-bold text-primary">管理画面</Link>
-        <Link href="/search" className="text-sm text-gray-500">サイトへ</Link>
+        <div className="flex items-center gap-4 text-sm">
+          <Link href="/search" className="text-gray-500">サイトへ</Link>
+          <AdminUserMenu />
+        </div>
       </div>
 
       {/* ブランドバー（HPB サロンボード型・desktop） */}
@@ -234,6 +238,7 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
         <div className="flex items-center gap-4 text-sm">
           <Link href="/admin/help" className="text-gray-500 hover:text-sky-600">ヘルプ</Link>
           <Link href="/search" className="text-gray-500 hover:text-sky-600">サイトへ</Link>
+          <AdminUserMenu />
         </div>
       </div>
 
