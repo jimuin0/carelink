@@ -60,6 +60,11 @@ function buildFrom(opts: any = {}) {
     member = { user_id: 'owner-user-123' },
     profile = { email: 'owner@example.com' },
     orderSpy = null as any,
+    menuError = null,
+    staffError = null,
+    photoError = null,
+    memberError = null,
+    scheduleError = null,
   } = opts;
 
   facUpdateMock = facilitiesUpdate(claimed, releaseError);
@@ -82,14 +87,14 @@ function buildFrom(opts: any = {}) {
         update: facUpdateMock,
       };
     }
-    if (table === 'facility_menus') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: menuCount }) }) };
-    if (table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: staffData }) }) };
-    if (table === 'facility_photos') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: photoCount }) }) };
-    if (table === 'staff_schedules') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ count: scheduleCount }) }) };
+    if (table === 'facility_menus') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: menuCount, error: menuError }) }) };
+    if (table === 'staff_profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: staffData, error: staffError }) }) };
+    if (table === 'facility_photos') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ count: photoCount, error: photoError }) }) };
+    if (table === 'staff_schedules') return { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ count: scheduleCount, error: scheduleError }) }) };
     if (table === 'facility_members') return {
       select: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: member }) }),
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: member, error: memberError }) }),
         }),
       }),
     };
@@ -428,6 +433,50 @@ describe('GET /api/cron/onboarding-followup', () => {
     expect(mockFromDelegate).toHaveBeenCalledWith('staff_profiles');
     expect(mockFromDelegate).toHaveBeenCalledWith('facility_photos');
     expect(mockFromDelegate).toHaveBeenCalledWith('facility_members');
+  });
+
+  test('未完了ステップ判定クエリが error → 誤内容メールを送らず claim 解放（翌 run 再送）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // menu count クエリが error → stepQueryErr → throw → catch で delivered=false のまま claim 解放。
+    mockFromDelegate.mockImplementation(buildFrom({
+      facilities: [{ id: 'fac-e1', name: 'E1', status: 'draft' }],
+      claimed: [{ id: 'fac-e1' }],
+      menuError: { message: 'menu count boom' },
+      staffData: [{ id: 's1' }], photoCount: 1, scheduleCount: 1,
+      member: { user_id: 'owner' }, profile: { email: 'o@example.com' },
+    }));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    // 誤内容メールは送らない
+    expect(sendOnboardingFollowEmail).not.toHaveBeenCalled();
+    // claim を解放（onboarding_email_sent_at: null）して翌 run 再送
+    const nullReleases = facUpdateMock.mock.calls.filter((c: any[]) => c[0].onboarding_email_sent_at === null);
+    expect(nullReleases.length).toBe(1);
+    expect(errSpy).toHaveBeenCalledWith(
+      '[onboarding-followup] facility processing error',
+      expect.objectContaining({ facilityId: 'fac-e1' })
+    );
+    errSpy.mockRestore();
+  });
+
+  test('staff_schedules カウントが error → 「未設定」誤判定を避け throw → claim 解放', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // staffData 非空 → schedule クエリが走る。そのクエリが error → throw → claim 解放。
+    mockFromDelegate.mockImplementation(buildFrom({
+      facilities: [{ id: 'fac-e2', name: 'E2', status: 'draft' }],
+      claimed: [{ id: 'fac-e2' }],
+      menuCount: 1, staffData: [{ id: 's1' }], photoCount: 1,
+      scheduleError: { message: 'schedule count boom' },
+      member: { user_id: 'owner' }, profile: { email: 'o@example.com' },
+    }));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(200);
+    expect(sendOnboardingFollowEmail).not.toHaveBeenCalled();
+    const nullReleases = facUpdateMock.mock.calls.filter((c: any[]) => c[0].onboarding_email_sent_at === null);
+    expect(nullReleases.length).toBe(1);
+    errSpy.mockRestore();
   });
 
   test('menuCount=null, photoCount=null → both fallback to 0 → missing steps added', async () => {

@@ -109,9 +109,21 @@ export async function GET(request: Request) {
       const firstFetch = await fetchBookings('email_canonical');
       let bookings = firstFetch.rows;
       let usingCanonicalColumn = true;
-      if (isMissingColumnError(firstFetch.error as DbError | null)) {
-        bookings = (await fetchBookings('email')).rows;
+      let bookingsError = firstFetch.error as DbError | null;
+      if (isMissingColumnError(bookingsError)) {
+        const fallback = await fetchBookings('email');
+        bookings = fallback.rows;
         usingCanonicalColumn = false;
+        bookingsError = fallback.error as DbError | null;
+      }
+
+      // 列欠落以外の DB エラーは fetchAllPaged が rows=[] を返すため「予約 0 件＝skip」に化けて
+      // 無音スキップになり、当該施設の RFM が更新されない。error を可視化して次施設へ進む
+      // （1 施設の失敗で他施設を止めない best-effort・skip として計上）。
+      if (bookingsError) {
+        console.error('[customer-segment] bookings fetch failed', { facilityId: facility.id, err: bookingsError });
+        skipped++;
+        continue;
       }
 
       if (bookings.length === 0) { skipped++; continue; }
@@ -250,6 +262,28 @@ export async function GET(request: Request) {
                 // クーポン作成済み・メール未送信 → 既存コードを再利用（重複クーポン防止）
                 couponCode = pendingCoupons.get(email)!;
               } else {
+                // TOCTOU 二重発行対策: 既存クーポンのバッチ取得は loop の前（205 行目付近）で一度だけ行うため、
+                // その取得時点と個々の insert の間に別 invocation（手動 workflow_dispatch と cron の重なり等）が
+                // 同一 (facility_id, email, reason='at_risk') のクーポンを作ると二重発行＆二重メールになる。
+                // insert 直前に 30 日窓の最新状態を再確認し、既に発行済みならこの email をスキップして
+                // 実到達可能な race を塞ぐ（発症前予防・schema 非変更・deploy 順序非依存）。
+                const recheck = await supabase
+                  .from('user_coupon_codes')
+                  .select('code')
+                  .eq('facility_id', facility.id)
+                  .eq('email', email)
+                  .eq('reason', 'at_risk')
+                  .gte('created_at', cutoff30d)
+                  .limit(1);
+                if (recheck.error) {
+                  console.error('[customer-segment] coupon recheck failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: recheck.error });
+                  continue;
+                }
+                if (recheck.data && recheck.data.length > 0) {
+                  // 別 invocation が既に 30 日以内の at_risk クーポンを発行済み → 二重発行を回避してスキップ。
+                  continue;
+                }
+
                 // 初回: クーポンを新規作成
                 couponCode = `BACK${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
                 const { error: couponErr } = await supabase.from('user_coupon_codes').insert({
