@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { fetchPlaceDetails } from '@/lib/gbp';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertWarning } from '@/lib/alert';
 
 // Vercel Cron: runs every Sunday at 3:00 JST (18:00 UTC Saturday)
 export const dynamic = 'force-dynamic';
@@ -96,10 +97,22 @@ export async function GET(request: Request) {
     await new Promise((r) => setTimeout(r, RATE_LIMIT_MS));
   }
 
+  // 処理対象が有り、かつ1件も更新できず全件エラー（＝Places API キー失効・課金停止等の
+  // 深刻な障害の疑い）の場合は無音にせず Slack へ警報する。旧実装は errors 件数に関わらず
+  // 常に 'success' 記録で、cron_logs だけを見ても API 障害に気づけない盲点だった
+  // （1件だけの失敗はノイズになるため許容し、全滅時のみ昇格する設計）。
+  const allFailed = list.length > 0 && results.updated === 0 && results.errors === list.length;
+  if (allFailed) {
+    alertWarning(
+      `sync-google-ratings: 対象${list.length}件が全件失敗（Google Places API 障害の疑い）`,
+      { route: '/api/cron/sync-google-ratings', extra: { errors: results.errors, skipped: results.skipped } },
+    );
+  }
+
   await logCronRun('sync-google-ratings', 'success', startedAt, {
     processed: results.updated,
     skipped: results.skipped,
-    meta: { errors: results.errors, deferred: results.deferred },
+    meta: { errors: results.errors, deferred: results.deferred, allFailed },
   });
   return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, deferred: results.deferred });
 }

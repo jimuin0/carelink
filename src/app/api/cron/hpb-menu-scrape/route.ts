@@ -3,6 +3,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { scrapeAndSaveFacility } from '@/lib/hpb-menu';
+import { alertWarning } from '@/lib/alert';
 
 // Vercel Cron: 夜間に全施設の HPB メニューを取得して hpb_menu_durations を更新する。
 export const dynamic = 'force-dynamic';
@@ -92,10 +93,29 @@ export async function GET(request: Request) {
     }
   }
 
+  // 処理対象が有り、かつ全件失敗（failed 全滅）または全件0件取得（zeroFetch 全滅）は
+  // HPB 側の HTML 構造変化・アクセス遮断等の深刻な障害の疑いのため無音にせず警報する。
+  // 旧実装は failed/zeroFetch 件数に関わらず常に 'success' 記録で、個別施設の
+  // console.warn/console.error だけでは Vercel ログに埋没し誰も気づけなかった
+  // （1〜数件の失敗はサイト側の一時的な事情もあるため許容し、全滅時のみ昇格する設計）。
+  // 分母は results.facilities（try 内の成功パスのみ加算）ではなく実際に試行した件数
+  // （list.length - deferred）を使う：scrapeAndSaveFacility が例外を投げる経路では
+  // facilities が加算されないため、facilities を分母にすると「全件が例外で失敗」した
+  // 最悪ケースほど分母が 0 になり allFailed が絶対に true にならない盲点があった。
+  const attempted = list.length - results.deferred;
+  const allFailed = attempted > 0 && results.saved === 0 && results.failed >= attempted;
+  const allZeroFetch = attempted > 0 && results.zeroFetch >= attempted;
+  if (allFailed || allZeroFetch) {
+    alertWarning(
+      `hpb-menu-scrape: 対象${attempted}件が${allFailed ? '全件失敗' : '全件0件取得'}（HPB構造変化/アクセス遮断の疑い）`,
+      { route: '/api/cron/hpb-menu-scrape', extra: { failed: results.failed, zeroFetch: results.zeroFetch, saved: results.saved } },
+    );
+  }
+
   await logCronRun('hpb-menu-scrape', 'success', startedAt, {
     processed: results.saved,
     skipped: results.skipped,
-    meta: { facilities: results.facilities, failed: results.failed, deferred: results.deferred, zeroFetch: results.zeroFetch },
+    meta: { facilities: results.facilities, failed: results.failed, deferred: results.deferred, zeroFetch: results.zeroFetch, allFailed, allZeroFetch },
   });
   return NextResponse.json(results);
 }

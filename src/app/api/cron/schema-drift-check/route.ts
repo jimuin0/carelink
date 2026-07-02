@@ -43,7 +43,15 @@ export async function GET(request: Request) {
   let constraintCheckSkipped = false;
   const { data: cData, error: cError } = await admin.rpc('get_public_constraints');
   if (cError) {
+    // 制約(PK/UNIQUE)ドリフト監視そのものが機能停止する障害。従来は meta フラグに
+    // 残すのみで無音だったため、RPC が恒久的に壊れても誰も気づけず監視が永久に
+    // 無効化されたまま cron_logs は 'success' で緑を保ち続けていた。恒久検知として
+    // Slack へ警報する（列レベルのドリフト監視 computeDrift は RPC 非依存で継続する）。
     constraintCheckSkipped = true;
+    alertWarning(
+      'schema-drift-check: get_public_constraints RPC 失敗（制約ドリフト監視が無効化）',
+      { route: '/api/cron/schema-drift-check', extra: { errorMessage: cError.message } },
+    );
   } else {
     const cRows = (Array.isArray(cData) ? cData : []) as ConstraintRow[];
     const cd = computeConstraintDrift(constraintsSnapshot as ConstraintRow[], cRows);

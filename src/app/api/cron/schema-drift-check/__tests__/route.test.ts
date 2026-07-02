@@ -88,13 +88,16 @@ test('ドリフト無(列data=null / 制約data=null) → 無通知 + ok', async
   expect(alertWarning as jest.Mock).not.toHaveBeenCalled();
 });
 
-test('制約RPC エラー → graceful skip（constraintCheckSkipped=true・cron は壊れない）', async () => {
+test('制約RPC エラー → graceful skip（constraintCheckSkipped=true・cron は壊れない）+ 監視無効化を警報', async () => {
+  // C-8 根治: 制約RPC失敗は監視そのものが無効化される障害のため、従来の「無音skip」
+  // ではなく alertWarning で恒久検知する（列レベルの drift 監視は継続・cron は 'success'）。
   setRpc({ data: [], error: null }, { data: null, error: { message: 'function does not exist' } });
   const res = await GET(req());
   const json = await res.json();
   expect(json.driftCount).toBe(0);
   expect(json.constraintCheckSkipped).toBe(true);
-  expect(alertWarning as jest.Mock).not.toHaveBeenCalled();
+  expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/制約ドリフト監視が無効化/);
 });
 
 test('制約ドリフト有(extra/missing) → driftCount に算入 + alert', async () => {
