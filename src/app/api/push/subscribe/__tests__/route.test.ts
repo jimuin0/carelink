@@ -218,7 +218,7 @@ describe('POST /api/push/subscribe', () => {
   test('upserts subscription with user_id', async () => {
     await POST(
       makeRequest({
-        endpoint: 'https://example.com/subscription',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/subscription',
         keys: { p256dh: 'key1', auth: 'key2' },
       }) as any
     );
@@ -234,7 +234,7 @@ describe('POST /api/push/subscribe', () => {
   test('upsert uses onConflict=user_id', async () => {
     await POST(
       makeRequest({
-        endpoint: 'https://example.com/subscription',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/subscription',
         keys: { p256dh: 'key1', auth: 'key2' },
       }) as any
     );
@@ -248,7 +248,7 @@ describe('POST /api/push/subscribe', () => {
 
     const res = await POST(
       makeRequest({
-        endpoint: 'https://example.com',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
         keys: { p256dh: 'abc', auth: 'def' },
       }) as any
     );
@@ -259,13 +259,51 @@ describe('POST /api/push/subscribe', () => {
   test('includes updated_at timestamp', async () => {
     await POST(
       makeRequest({
-        endpoint: 'https://example.com',
+        endpoint: 'https://fcm.googleapis.com/fcm/send/abc',
         keys: { p256dh: 'abc', auth: 'def' },
       }) as any
     );
 
     const call = mockUpsert.mock.calls[0];
     expect(call[0].updated_at).toBeDefined();
+  });
+
+  // ─── E-5: SSRF 防止のプッシュサービス allowlist ───────────────────────────────
+  describe('endpoint host allowlist (SSRF 防止・E-5)', () => {
+    test.each([
+      ['https://fcm.googleapis.com/fcm/send/abc', 'FCM'],
+      ['https://web.push.apple.com/xxx', 'Apple(web)'],
+      ['https://sub.push.apple.com/xxx', 'Apple(subdomain)'],
+      ['https://updates.push.services.mozilla.com/wpush/v2/xxx', 'Mozilla'],
+      ['https://xyz.notify.windows.com/w/?token=abc', 'WNS'],
+    ])('許可ホスト %s (%s) → 200', async (endpoint) => {
+      const res = await POST(makeRequest({ endpoint, keys: { p256dh: 'abc', auth: 'def' } }) as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('未知ホスト (SSRF 候補) → 400・upsert しない', async () => {
+      const res = await POST(
+        makeRequest({ endpoint: 'https://evil.attacker.example/steal', keys: { p256dh: 'abc', auth: 'def' } }) as any
+      );
+      expect(res.status).toBe(400);
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
+
+    test('偽装サブドメイン (fcm.googleapis.com.evil.com) → 400', async () => {
+      const res = await POST(
+        makeRequest({ endpoint: 'https://fcm.googleapis.com.evil.com/x', keys: { p256dh: 'abc', auth: 'def' } }) as any
+      );
+      expect(res.status).toBe(400);
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
+
+    test('パース不能な URL (https:// 始まりだが不正) → 400', async () => {
+      const res = await POST(
+        makeRequest({ endpoint: 'https://a b.com/x', keys: { p256dh: 'abc', auth: 'def' } }) as any
+      );
+      expect(res.status).toBe(400);
+      expect(mockUpsert).not.toHaveBeenCalled();
+    });
   });
 
   test('rate limit params (10 req/min per IP)', async () => {

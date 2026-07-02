@@ -1119,11 +1119,17 @@ describe('POST /api/booking', () => {
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
     // facility_profiles (auto-confirm) - null
-    // facility_members (owner) - returns owner data
-    // profiles (owner email) - returns email
+    // facility_members (owner) - 全オーナー配列を返す（D-2: .eq('role','owner') を直接 await）
+    // profiles (owner email) - .in('id', ...) で email 配列を返す
     const nullChain = fluent({ data: null });
-    const ownerChain = fluent({ data: { user_id: 'owner-id-1' } });
-    const ownerEmailChain = fluent({ data: { email: 'owner@example.com' } });
+    // facility_members: .select('user_id').eq().eq() を await → { data: [オーナー配列] }
+    const ownersResult = { data: [{ user_id: 'owner-id-1' }, { user_id: 'owner-id-2' }] };
+    const ownerChain = fluent(null);
+    ownerChain.then = Promise.resolve(ownersResult).then.bind(Promise.resolve(ownersResult));
+    // profiles: .select('email').in('id', ...) を await → { data: [email 配列] }
+    const ownerProfilesResult = { data: [{ email: 'owner1@example.com' }, { email: 'owner2@example.com' }] };
+    const ownerProfilesChain = fluent(null);
+    ownerProfilesChain.then = Promise.resolve(ownerProfilesResult).then.bind(Promise.resolve(ownerProfilesResult));
 
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
@@ -1132,7 +1138,7 @@ describe('POST /api/booking', () => {
       if (callNum === 2) return nullChain; // facility_profiles (auto-confirm)
       // email lookups: facility_profiles, facility_menus, staff_profiles, facility_members
       if (table === 'facility_members') return ownerChain;
-      if (table === 'profiles') return ownerEmailChain;
+      if (table === 'profiles') return ownerProfilesChain;
       return nullChain;
     });
 
@@ -1141,7 +1147,41 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest(validBooking));
     const json = await res.json();
     expect(json.success).toBe(true);
-    expect(sendNewBookingNotification).toHaveBeenCalled();
+    // 全オーナー(2人)へ new booking 通知メールが送られる（push の owner 全員通知と対称）。
+    expect(sendNewBookingNotification).toHaveBeenCalledTimes(2);
+  });
+
+  test('オーナーは居るが profiles 取得が null → メール送信ゼロ（?? [] フォールバック）', async () => {
+    const { sendNewBookingNotification } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    const ownersResult = { data: [{ user_id: 'owner-id-1' }] };
+    const ownerChain = fluent(null);
+    ownerChain.then = Promise.resolve(ownersResult).then.bind(Promise.resolve(ownersResult));
+    // profiles が null を返す → ownerProfiles ?? [] の右辺（空配列フォールバック）
+    const ownerProfilesNull = { data: null };
+    const ownerProfilesChain = fluent(null);
+    ownerProfilesChain.then = Promise.resolve(ownerProfilesNull).then.bind(Promise.resolve(ownerProfilesNull));
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return nullChain;
+      if (table === 'facility_members') return ownerChain;
+      if (table === 'profiles') return ownerProfilesChain;
+      return nullChain;
+    });
+
+    mockRpc.mockResolvedValue({ data: 'booking-owner-null', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendNewBookingNotification).not.toHaveBeenCalled();
   });
 
   test('LINE通知パス（user + LINE_CHANNEL_ACCESS_TOKEN_CARELINK + lineLink）', async () => {

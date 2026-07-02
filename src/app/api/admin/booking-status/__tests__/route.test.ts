@@ -15,6 +15,7 @@ jest.mock('@/lib/email', () => ({
   sendBookingStatusUpdate: jest.fn(),
 }));
 jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn() }));
+jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn() }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
@@ -39,6 +40,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendPushToUser } from '@/lib/push';
+import { sendBookingCancellation } from '@/lib/line';
 
 const validBookingId = '123e4567-e89b-12d3-a456-426614174000';
 const facilityId = 'fac00000-0000-0000-0000-000000000001';
@@ -472,6 +474,111 @@ describe('POST /api/admin/booking-status - notifications', () => {
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
     // Email failure must not surface as HTTP error
     expect(res.status).toBe(200);
+  });
+
+  // ─── E-7: cancelled 時の顧客 LINE キャンセル通知（顧客側 cancel と対称） ───────────
+  describe('cancelled → 顧客 LINE キャンセル通知（E-7）', () => {
+    const ORIG_TOKEN = process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+    beforeEach(() => { process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token'; });
+    afterEach(() => {
+      if (ORIG_TOKEN === undefined) delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+      else process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = ORIG_TOKEN;
+    });
+
+    /** confirmed→cancelled 成功パス。line_user_links は maybeSingle で lineLink を返す。 */
+    function setupCancelledLineMock(lineLinkData: unknown, opts: { linkThrows?: boolean } = {}) {
+      mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+      let callCount = 0;
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          callCount++;
+          if (callCount === 1) return fluent({ data: { ...bookingBase, status: 'confirmed' } });
+          return updateChain({ data: [{ id: validBookingId }], error: null });
+        }
+        if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+        if (table === 'line_user_links') {
+          if (opts.linkThrows) {
+            return { select: jest.fn(() => ({ eq: jest.fn(() => ({ maybeSingle: jest.fn(() => { throw new Error('link query boom'); }) })) })) };
+          }
+          return { select: jest.fn(() => ({ eq: jest.fn(() => ({ maybeSingle: jest.fn(() => Promise.resolve({ data: lineLinkData })) })) })) };
+        }
+        return singleChain({ name: 'テスト施設' });
+      });
+    }
+
+    test('LINE 連携済み顧客に sendBookingCancellation を送る（送達成功）', async () => {
+      (sendBookingCancellation as jest.Mock).mockResolvedValue(true);
+      setupCancelledLineMock({ line_user_id: 'U-customer-1' });
+      const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+      expect(res.status).toBe(200);
+      expect(sendBookingCancellation).toHaveBeenCalledWith(
+        'U-customer-1',
+        expect.objectContaining({
+          facilityName: 'テスト施設',
+          date: bookingBase.booking_date,
+          time: bookingBase.start_time,
+        }),
+      );
+    });
+
+    test('LINE 送達が false → 未送達を error ログに残す（可観測性）', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      (sendBookingCancellation as jest.Mock).mockResolvedValue(false);
+      setupCancelledLineMock({ line_user_id: 'U-customer-1' });
+      const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('LINE cancellation notification not delivered'),
+        expect.anything(),
+      );
+      errSpy.mockRestore();
+    });
+
+    test('LINE 未連携（link なし）→ sendBookingCancellation を呼ばない', async () => {
+      setupCancelledLineMock(null);
+      const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+      expect(res.status).toBe(200);
+      expect(sendBookingCancellation).not.toHaveBeenCalled();
+    });
+
+    test('facility 名が空・menu 名ありでも既定値で LINE 通知（|| フォールバック分岐）', async () => {
+      (sendBookingCancellation as jest.Mock).mockResolvedValue(true);
+      mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+      let callCount = 0;
+      mockFrom.mockImplementation((table: string) => {
+        if (table === 'bookings') {
+          callCount++;
+          if (callCount === 1) return fluent({ data: { ...bookingBase, status: 'confirmed', menu_id: 'menu-1' } });
+          return updateChain({ data: [{ id: validBookingId }], error: null });
+        }
+        if (table === 'facility_members') return membershipChain({ facility_id: facilityId, role: 'owner' });
+        if (table === 'facility_profiles') return singleChain({ name: null });   // facility?.name falsy → '' フォールバック
+        if (table === 'facility_menus') return singleChain({ name: 'カット' });    // menuName truthy → 左辺
+        if (table === 'line_user_links') {
+          return { select: jest.fn(() => ({ eq: jest.fn(() => ({ maybeSingle: jest.fn(() => Promise.resolve({ data: { line_user_id: 'U-x' } })) })) })) };
+        }
+        return singleChain(null);
+      });
+      const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+      expect(res.status).toBe(200);
+      expect(sendBookingCancellation).toHaveBeenCalledWith(
+        'U-x',
+        expect.objectContaining({ facilityName: '', menuName: 'カット' }),
+      );
+    });
+
+    test('line_user_links クエリが例外 → catch で error ログ・200 は維持（非ブロッキング）', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      setupCancelledLineMock(null, { linkThrows: true });
+      const res = await POST(makeRequest({ bookingId: validBookingId, status: 'cancelled' }));
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledWith(
+        expect.stringContaining('LINE cancellation notification failed'),
+        expect.anything(),
+      );
+      expect(sendBookingCancellation).not.toHaveBeenCalled();
+      errSpy.mockRestore();
+    });
   });
 
   test('menu_id があるとき facility_menus から名前を取得して email に含める', async () => {

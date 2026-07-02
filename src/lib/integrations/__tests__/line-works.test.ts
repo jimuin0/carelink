@@ -237,6 +237,42 @@ describe('success paths with mocked crypto.subtle', () => {
     expect(await sendLineWorksMessage('ch-1', { content: { type: 'text', text: 'hello' } })).toBe(false);
   });
 
+  test('sendLineWorksMessage → 401 でキャッシュ破棄・トークン再取得して再送成功（E-6）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(mockFetchToken())            // 初回トークン取得
+      .mockResolvedValueOnce({ ok: false, status: 401 })  // メッセージ送信が 401
+      .mockResolvedValueOnce(mockFetchToken())            // forceRefresh で再取得
+      .mockResolvedValueOnce({ ok: true });               // 再送成功
+    expect(await sendLineWorksMessage('ch-1', { content: { type: 'text', text: 'hello' } })).toBe(true);
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('send rejected (auth)'),
+      expect.objectContaining({ status: 401 }),
+    );
+    errSpy.mockRestore();
+  });
+
+  test('sendLineWorksMessage → 403 で再取得後の再送も失敗なら false（E-6）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(mockFetchToken())
+      .mockResolvedValueOnce({ ok: false, status: 403 })  // 403
+      .mockResolvedValueOnce(mockFetchToken())            // 再取得成功
+      .mockResolvedValueOnce({ ok: false });              // 再送も失敗
+    expect(await sendLineWorksMessage('ch-1', { content: { type: 'text', text: 'hello' } })).toBe(false);
+    errSpy.mockRestore();
+  });
+
+  test('sendLineWorksMessage → 401 でトークン再取得も失敗（null）なら false（E-6）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch = jest.fn()
+      .mockResolvedValueOnce(mockFetchToken())
+      .mockResolvedValueOnce({ ok: false, status: 401 })  // 401
+      .mockResolvedValueOnce({ ok: false, status: 401 }); // 再取得 fetch も non-ok → token=null
+    expect(await sendLineWorksMessage('ch-1', { content: { type: 'text', text: 'hello' } })).toBe(false);
+    errSpy.mockRestore();
+  });
+
   test('notifyNewBookingLineWorks → returns true on success (with staffName)', async () => {
     global.fetch = jest.fn()
       .mockResolvedValueOnce(mockFetchToken())
