@@ -35,6 +35,16 @@ describe('createBrowserSupabaseClient', () => {
     });
   });
 
+  it('returns the same singleton instance on repeated calls (no duplicate GoTrueClient)', () => {
+    jest.isolateModules(() => {
+      const { createBrowserSupabaseClient } = require('../supabase-browser');
+      const first = createBrowserSupabaseClient();
+      const second = createBrowserSupabaseClient();
+      expect(second).toBe(first);
+      expect(mockCreateBrowserClient).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it('throws when NEXT_PUBLIC_SUPABASE_URL is missing', () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
     jest.isolateModules(() => {
