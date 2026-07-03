@@ -11,6 +11,7 @@ import { scheduleRetry } from '@/lib/webhook-queue';
 import { sendLineText } from '@/lib/line';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
@@ -127,6 +128,9 @@ export async function GET(request: Request) {
       }
     }
 
+    // failed は再送キューのジョブが今 run でも配信失敗した件数（catch 経路は send のみが throw）。
+    // 送達失敗の無音を防ぐため run 単位で集約通知する。
+    alertDeliveryFailures('webhook-retry', failed, { success });
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
       skipped: failed,

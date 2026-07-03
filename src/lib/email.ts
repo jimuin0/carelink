@@ -127,13 +127,16 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
  * 予約リマインド通知（前日/3日前/7日前）
  * daysBefore: 1=明日（既定・従来挙動）/ 3=3日後 / 7=7日後 の文言で送る。
  */
-export async function sendBookingReminder(data: BookingEmailData, daysBefore: number = 1) {
+export async function sendBookingReminder(data: BookingEmailData, daysBefore: number = 1): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  // API キー未設定は送達不可＝false（cron 側で未送信扱い＝claim 解放して翌 run で再送）。
+  // 従来は undefined を返しており、cron 側が戻り値を見ず sent++ していたため、送信失敗が
+  // 無音化し claim 保持で恒久 miss になっていた（LINE 側は ok 判定済み＝非対称の穴）。
+  if (!resend) return false;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
   const when = daysBefore === 1 ? '明日' : `${daysBefore}日後`;
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${when}のご予約リマインド - ${data.facilityName}`),

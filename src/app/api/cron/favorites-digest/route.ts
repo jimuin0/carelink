@@ -1,5 +1,6 @@
 import { logCronRun } from '@/lib/cron-logger';
 import { errorMessage } from '@/lib/err';
+import { alertDeliveryFailures } from '@/lib/alert';
 /**
  * お気に入り施設ダイジェスト Cron（v8.25）
  * GET /api/cron/favorites-digest
@@ -178,6 +179,7 @@ export async function GET(request: Request) {
     }
 
     let deferred = 0;
+    let deliveryFailures = 0;
     const loopStart = Date.now();
     for (const profile of profiles) {
       // 時間予算超過で残りを翌 run へ繰延（ハード timeout で全停止するより graceful。
@@ -262,6 +264,7 @@ export async function GET(request: Request) {
       if (ok) {
         sent++;
       } else {
+        deliveryFailures++;
         console.error('[favorites-digest] email send failed', { userId: profile.id });
         // 送信が一過性失敗した場合、claim（sent_week=thisWeek）を握ったままにすると
         // 当該ユーザーはその週ずっと skip され恒久 miss になる。claim を直前の値へ戻し、
@@ -274,6 +277,7 @@ export async function GET(request: Request) {
       }
     }
 
+    alertDeliveryFailures('favorites-digest', deliveryFailures, { sent, skipped });
     await logCronRun('favorites-digest', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {

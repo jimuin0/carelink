@@ -130,3 +130,34 @@ export function alertCaughtError(tag: string, error: unknown, route?: string | n
     extra: { stack },
   });
 }
+
+/**
+ * cron run 単位で集約した「送達失敗」を Slack に1本だけ通知する。
+ *
+ * 背景（観測性の恒久対策）: メール/Push/LINE の送達失敗は各 send ラッパーで
+ * console.error 止まりで、集計もアラートも無く「無音」だった。かといって
+ * per-send で alertWarning を叩くと、alert.ts の thread-grouping は投稿を
+ * スレッド集約するだけで chat.postMessage 自体は毎回叩くため、大量失敗時に
+ * Slack API を洪水のように連打する。よって run 終了時に失敗総数を【1メッセージ】に
+ * 集約して通知するのが唯一の副作用ゼロ設計。
+ *
+ * failures <= 0 の場合は何もしない（呼び出し側は無条件に呼んでよい＝route 側の分岐を増やさない）。
+ * fire-and-forget で本体応答を一切妨げない（alertWarning は throw しない）。
+ *
+ * @param route  cron 名（例: 'onboarding-followup'）。route フィールドは `/api/cron/${route}` になる。
+ * @param failures  この run での送達失敗総数。
+ * @param extra  補足情報（sent / skipped 等）。route + level + commit で thread 集約される。
+ */
+export function alertDeliveryFailures(
+  route: string,
+  failures: number,
+  extra: Record<string, unknown> = {},
+): void {
+  if (failures <= 0) return;
+  alertWarning(`[${route}] 送達失敗 ${failures}件（run集約・翌runで再送）`, {
+    route: `/api/cron/${route}`,
+    commit_sha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
+    env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
+    extra: { deliveryFailures: failures, ...extra },
+  });
+}

@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 import { getEntitlementsByFacility, type EntitlementsClient } from '@/lib/entitlements';
 
@@ -194,6 +195,7 @@ export async function GET(request: Request) {
     let sent = 0;
     let skipped = 0;
     let deferred = 0;
+    let deliveryFailures = 0;
     const loopStart = Date.now();
     for (let pi = 0; pi < plan.length; pi++) {
       const { booking, kind, days } = plan[pi];
@@ -254,7 +256,7 @@ export async function GET(request: Request) {
 
       try {
         if (kind === 'email_1d' || kind === 'email_3d' || kind === 'email_7d') {
-          await sendEmailReminder({
+          const ok = await sendEmailReminder({
             customerName: booking.customer_name as string,
             customerEmail: booking.email as string,
             facilityName: facilityMap.get(booking.facility_id) || '',
@@ -264,7 +266,15 @@ export async function GET(request: Request) {
             totalPrice: booking.total_price ?? undefined,
             bookingId: booking.id,
           }, days);
-          sent++;
+          if (ok) {
+            sent++;
+          } else {
+            // メール送信が送達不可（safeSend が false）→ claim 解放して翌 run で再送可能にする。
+            // 従来は戻り値を無視し無条件 sent++ していたため、送信失敗が無音＋claim 保持で恒久 miss だった。
+            await releaseClaim();
+            deliveryFailures++;
+            skipped++;
+          }
         } else {
           const lineId = lineMap.get(booking.user_id as string) as string;
           const ok = await sendLineReminder(lineId, {
@@ -279,6 +289,7 @@ export async function GET(request: Request) {
           } else {
             // LINE 送信が送達不可（safeSend が false）→ claim 解放して翌 run で再送可能にする。
             await releaseClaim();
+            deliveryFailures++;
             skipped++;
           }
         }
@@ -290,6 +301,7 @@ export async function GET(request: Request) {
       }
     }
 
+    alertDeliveryFailures('booking-reminder', deliveryFailures, { sent, skipped });
     await logCronRun('booking-reminder', 'success', startedAt, {
       processed: sent,
       skipped,

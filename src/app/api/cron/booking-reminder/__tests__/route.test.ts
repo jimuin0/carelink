@@ -168,7 +168,8 @@ function setup(cfg: Cfg = {}) {
   });
 
   const emailModule = require('@/lib/email');
-  mockEmailReminder = jest.fn().mockResolvedValue(undefined);
+  // sendBookingReminder(email) は送達可否を boolean で返す（safeSend 仕様）。既定は送達成功=true。
+  mockEmailReminder = jest.fn().mockResolvedValue(true);
   emailModule.sendBookingReminder = mockEmailReminder;
 
   const lineModule = require('@/lib/line');
@@ -325,6 +326,21 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(json.skipped).toBe(1);
     expect(json.processed).toBe(0);
     // F-9 根治: 送信失敗時に claim(sent_reminders)を delete で解放する。
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
+  // 観測性 穴1 根治: email 送達失敗（safeSend が false）→ 従来は戻り値を無視し sent++ で無音＋claim 保持だった。
+  // 戻り値で送達可否を判定し、失敗時は claim 解放＋skipped＋run 集約アラート対象にする。
+  test('email: 送信 false → skipped・claim 解放（従来の無音恒久 miss を根治）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D1, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_1d_email: true, remind_3d_email: false, remind_7d_email: false, remind_1d_line: false }] },
+    });
+    mockEmailReminder.mockResolvedValue(false);
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(0);
+    // 送信失敗時に claim(sent_reminders)を delete で解放する（LINE 側と対称）。
     expect(mockDelete).toHaveBeenCalled();
   });
 

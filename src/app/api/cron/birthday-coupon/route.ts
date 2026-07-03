@@ -15,6 +15,7 @@ import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
@@ -112,6 +113,7 @@ export async function GET(request: Request) {
     let sent = 0;
     let skipped = 0;
     let deferred = 0;
+    let deliveryFailures = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
     const loopStart = Date.now();
@@ -182,6 +184,7 @@ export async function GET(request: Request) {
           }
           notifiedSet.add(`${profile.id}:email`);
         } catch (err) {
+          deliveryFailures++;
           console.error('[birthday-coupon] email send failed', { userId: profile.id, err });
         }
       }
@@ -214,9 +217,11 @@ export async function GET(request: Request) {
               notifiedSet.add(`${profile.id}:line`);
             } else {
               // 送達失敗は記録せず notifiedSet にも入れない＝翌 run で再送される。
+              deliveryFailures++;
               console.error('[birthday-coupon] LINE send failed (retries exhausted)', { userId: profile.id });
             }
           } catch (err) {
+            deliveryFailures++;
             console.error('[birthday-coupon] LINE send failed', { userId: profile.id, err });
           }
         }
@@ -230,6 +235,7 @@ export async function GET(request: Request) {
       }
     }
 
+    alertDeliveryFailures('birthday-coupon', deliveryFailures, { sent, skipped });
     await logCronRun('birthday-coupon', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred, total: profiles.length });
   } catch (e) {

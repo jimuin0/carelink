@@ -16,7 +16,7 @@ jest.mock('@/lib/supabase-server', () => ({
   })),
 }));
 
-import { postAlert, alertError, alertWarning, alertCaughtError } from '../alert';
+import { postAlert, alertError, alertWarning, alertCaughtError, alertDeliveryFailures } from '../alert';
 
 describe('alert', () => {
   let originalFetch: typeof fetch;
@@ -286,6 +286,46 @@ describe('alert', () => {
       expect(mockFetch).toHaveBeenCalled();
       const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
       expect(body.text).toContain('[tag2] no-stack');
+      expect(body.text).not.toContain('*env:*');
+    });
+  });
+
+  describe('alertDeliveryFailures', () => {
+    test('failures = 0 → 何も投稿しない（no-op）', async () => {
+      alertDeliveryFailures('booking-reminder', 0, { sent: 5 });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test('failures < 0 → 何も投稿しない（no-op）', async () => {
+      alertDeliveryFailures('booking-reminder', -1);
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).not.toHaveBeenCalled();
+    });
+
+    test('failures > 0 → run 集約の warning を1本投稿（route/件数/extra を含む）', async () => {
+      process.env.VERCEL_GIT_COMMIT_SHA = 'abcdef1234567';
+      alertDeliveryFailures('onboarding-followup', 3, { sent: 7, skipped: 2 });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('WARNING');
+      expect(body.text).toContain('[onboarding-followup] 送達失敗 3件');
+      expect(body.text).toContain('/api/cron/onboarding-followup');
+      expect(body.text).toContain('deliveryFailures');
+      expect(body.text).toContain('abcdef1'); // commit 7桁
+    });
+
+    test('failures > 0・commit/env 全未設定 → commit・env は null（フォールバック分岐）', async () => {
+      delete process.env.VERCEL_GIT_COMMIT_SHA;
+      delete process.env.VERCEL_ENV;
+      delete process.env.NODE_ENV;
+      alertDeliveryFailures('webhook-retry', 2, { success: 4 });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[webhook-retry] 送達失敗 2件');
+      expect(body.text).not.toContain('*commit:*');
       expect(body.text).not.toContain('*env:*');
     });
   });
