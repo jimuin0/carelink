@@ -7,9 +7,9 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
 jest.mock('@/lib/email', () => ({
-  sendBookingConfirmation: jest.fn(() => Promise.resolve()),
-  sendBookingConfirmed: jest.fn(() => Promise.resolve()),
-  sendNewBookingNotification: jest.fn(() => Promise.resolve()),
+  sendBookingConfirmation: jest.fn(() => Promise.resolve(true)),
+  sendBookingConfirmed: jest.fn(() => Promise.resolve(true)),
+  sendNewBookingNotification: jest.fn(() => Promise.resolve(true)),
 }));
 jest.mock('@/lib/push', () => ({
   sendPushToFacilityOwners: jest.fn(() => Promise.resolve()),
@@ -1173,6 +1173,44 @@ describe('POST /api/booking', () => {
     expect(sendNewBookingNotification).toHaveBeenCalledTimes(2);
   });
 
+  test('確認メール・オーナー通知メールが送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
+    const { sendBookingConfirmation, sendNewBookingNotification } = require('@/lib/email');
+    const { alertCaughtError } = require('@/lib/alert');
+    (sendBookingConfirmation as jest.Mock).mockResolvedValueOnce(false);
+    (sendNewBookingNotification as jest.Mock).mockResolvedValueOnce(false);
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    const ownersResult = { data: [{ user_id: 'owner-id-1' }] };
+    const ownerChain = fluent(null);
+    ownerChain.then = Promise.resolve(ownersResult).then.bind(Promise.resolve(ownersResult));
+    const ownerProfilesResult = { data: [{ email: 'owner1@example.com' }] };
+    const ownerProfilesChain = fluent(null);
+    ownerProfilesChain.then = Promise.resolve(ownerProfilesResult).then.bind(Promise.resolve(ownerProfilesResult));
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return nullChain;
+      if (table === 'facility_members') return ownerChain;
+      if (table === 'profiles') return ownerProfilesChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: 'booking-email-fail-test', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    // fire-and-forget の .then() 内で実行されるため、マイクロタスクの解決を待つ。
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(alertCaughtError).toHaveBeenCalledWith('booking-email', expect.any(Error), '/api/booking');
+    expect(alertCaughtError).toHaveBeenCalledWith('booking-email-owner', expect.any(Error), '/api/booking');
+  });
+
   test('オーナーは居るが profiles 取得が null → メール送信ゼロ（?? [] フォールバック）', async () => {
     const { sendNewBookingNotification } = require('@/lib/email');
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -1239,6 +1277,36 @@ describe('POST /api/booking', () => {
     const json = await res.json();
     expect(json.success).toBe(true);
     expect(sendLineConfirm).toHaveBeenCalled();
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  test('LINE通知が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    const { alertCaughtError } = require('@/lib/alert');
+    sendLineConfirm.mockResolvedValueOnce(false);
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-fail-test' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    const lineLinkChain = fluent({ data: { line_user_id: 'line-user-fail' } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return lineLinkChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(alertCaughtError).toHaveBeenCalledWith('booking-line', expect.any(Error), '/api/booking');
 
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
   });

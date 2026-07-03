@@ -17,7 +17,7 @@ jest.mock('@/lib/rate-limit', () => ({
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 // A-4 顧客/オーナー通知。実送信を避けつつ呼び出しを検証する。
-jest.mock('@/lib/email', () => ({ sendBookingRescheduled: jest.fn(() => Promise.resolve()) }));
+jest.mock('@/lib/email', () => ({ sendBookingRescheduled: jest.fn(() => Promise.resolve(true)) }));
 jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn(() => Promise.resolve()), sendPushToFacilityOwners: jest.fn(() => Promise.resolve()) }));
 jest.mock('@/lib/notification-settings', () => ({ getFacilityNotificationSettings: jest.fn(() => Promise.resolve({ pushOnNewBooking: true })) }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
@@ -551,6 +551,44 @@ test('A-4: 変更通知 (email あり・menu_id なし・total_price なし・pu
   // 顧客 Push は常に送る。pushOnNewBooking=false のためオーナー Push は送らない。
   expect(push.sendPushToUser).toHaveBeenCalled();
   expect(push.sendPushToFacilityOwners).not.toHaveBeenCalled();
+});
+
+test('A-4: sendBookingRescheduled が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
+  const email = jest.requireMock('@/lib/email') as { sendBookingRescheduled: jest.Mock };
+  email.sendBookingRescheduled.mockResolvedValueOnce(false);
+  mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        maybeSingle: jest.fn(() => Promise.resolve({ data: { customer_name: 'テスト', email: 'c@example.com', menu_id: null, total_price: 5000 } })),
+      };
+    }
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { name: 'Salon' } })),
+    };
+  });
+  let callNum = 0;
+  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(CONFIRMED_BOOKING);
+    if (callNum === 2) return {
+      select: jest.fn().mockReturnThis(), eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(), neq: jest.fn().mockReturnThis(),
+      lt: jest.fn().mockReturnThis(), gt: jest.fn().mockReturnThis(),
+      limit: jest.fn(() => Promise.resolve({ data: [], error: null })),
+    };
+    return { update: jest.fn().mockReturnValue({ eq: outerEq }) };
+  });
+  const res = await POST(makeRequest(), makeProps());
+  expect(res.status).toBe(200);
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(email.sendBookingRescheduled).toHaveBeenCalled();
 });
 
 test('A-4: 変更後の booking 取得が null(email 取得不可) → 顧客メール送信なし・200', async () => {

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest, props: { params: Promise<{ id: s
     return NextResponse.json({ job: result.job });
   } catch (e) {
     safeCaptureException(e, 'admin-jobs-get');
+    alertCaughtError('admin-jobs-get', e, '/api/admin/jobs/[id]');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }
@@ -105,6 +107,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
 
     if (error) {
       safeCaptureException(error, 'admin-jobs-update');
+      alertCaughtError('admin-jobs-update', error, '/api/admin/jobs/[id]');
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
     }
 
@@ -121,6 +124,7 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     return NextResponse.json({ job: data });
   } catch (e) {
     safeCaptureException(e, 'admin-jobs-update');
+    alertCaughtError('admin-jobs-update', e, '/api/admin/jobs/[id]');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }
@@ -151,6 +155,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
 
     if (error) {
       safeCaptureException(error, 'admin-jobs-delete');
+      alertCaughtError('admin-jobs-delete', error, '/api/admin/jobs/[id]');
       return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
     }
 
@@ -166,6 +171,7 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     return NextResponse.json({ success: true });
   } catch (e) {
     safeCaptureException(e, 'admin-jobs-delete');
+    alertCaughtError('admin-jobs-delete', e, '/api/admin/jobs/[id]');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }

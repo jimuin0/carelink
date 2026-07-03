@@ -66,6 +66,7 @@ export default function PackagesPage() {
       .from('facility_members')
       .select('facility_id')
       .eq('user_id', user.id)
+      .in('role', ['owner', 'admin'])
       .limit(1).single();
     // facility 解決失敗を握り潰すと facilityId 未設定のまま loadPackages が走らず無限スピナーになる。
     // DB エラーは LoadError で明示、no-row（施設未所属）はスピナーを止めて空状態に委ねる。

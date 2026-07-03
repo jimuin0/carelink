@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -93,7 +94,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'この予約にはメールアドレスがありません' }, { status: 400 });
       }
       const { sendTimeAdjustRequest } = await import('@/lib/email');
-      await sendTimeAdjustRequest({
+      const sent = await sendTimeAdjustRequest({
         customerName: booking.customer_name,
         customerEmail: booking.email,
         facilityName,
@@ -102,6 +103,11 @@ export async function POST(request: Request) {
         endTime: booking.end_time,
         bookingId: booking.id,
       });
+      // LINE経路（下）は送信失敗を502で呼び出し元に伝えているのに、メール経路だけ戻り値を
+      // 確認せず常に成功表示していた（無音成功）。同じ失敗可視性に揃える。
+      if (!sent) {
+        return NextResponse.json({ error: 'メールの送信に失敗しました。時間をおいて再度お試しください。' }, { status: 502 });
+      }
     } else {
       // LINE 送信は有料オプション time_adjust_line が必要。
       // supabase（完全型付き SupabaseClient）を構造的型 EntitlementsClient へ明示キャストし、
@@ -150,6 +156,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     safeCaptureException(e, 'booking-adjust-request');
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('booking-adjust-request', e, '/api/admin/booking-adjust-request');
     return NextResponse.json({ error: '送信に失敗しました' }, { status: 500 });
   }
 }

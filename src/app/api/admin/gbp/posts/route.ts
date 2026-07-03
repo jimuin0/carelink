@@ -4,6 +4,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
@@ -69,6 +70,17 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: membership.facility_id,
+    action: 'create',
+    tableName: 'gbp_posts',
+    recordId: data.id,
+    newValues: { post_type: data.post_type, status: data.status },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ post: data });
 }
 
@@ -114,6 +126,17 @@ export async function PATCH(req: NextRequest) {
     .eq('facility_id', membership.facility_id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: membership.facility_id,
+    action: 'update',
+    tableName: 'gbp_posts',
+    recordId: id,
+    newValues: allowed,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }
 
@@ -143,5 +166,15 @@ export async function DELETE(req: NextRequest) {
     .eq('facility_id', membership.facility_id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: user.id,
+    facilityId: membership.facility_id,
+    action: 'delete',
+    tableName: 'gbp_posts',
+    recordId: id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }

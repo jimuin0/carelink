@@ -5,6 +5,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { getClientIp } from './client-ip';
+import { alertCaughtError } from './alert';
 
 export type AuditAction =
   | 'create'
@@ -69,6 +70,13 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
         recordId: entry.recordId ?? null,
         err: insertErr,
       });
+      // console.error だけでは運用者が気づけない（下の catch と同じ理由）。DB 拒否も
+      // throw と同様に監査証跡が失われるため、同じ経路で通知する。
+      alertCaughtError(
+        'audit-logger:writeAuditLog',
+        insertErr,
+        `audit_logs:${entry.tableName}:${entry.action}`
+      );
     }
   } catch (err) {
     // 監査ログの失敗で本体処理は止めない（fire-and-forget）が、握り潰すと監査証跡の欠落が
@@ -79,6 +87,14 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
       recordId: entry.recordId ?? null,
       err,
     });
+    // console.error だけでは運用者が気づけない（このファイル自体は route の catch を経由しない
+    // fire-and-forget 経路のため、withRoute/route catch の alertCaughtError も発火しない）。
+    // 監査証跡の欠落は事後に「誰が何をしたか追えない」という不可逆の観測性喪失のため通知する。
+    alertCaughtError(
+      'audit-logger:writeAuditLog',
+      err,
+      `audit_logs:${entry.tableName}:${entry.action}`
+    );
   }
 }
 

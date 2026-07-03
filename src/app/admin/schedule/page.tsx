@@ -55,6 +55,7 @@ export default async function AdminSchedulePage(props: Props) {
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
+      .in('role', ['owner', 'admin'])
     .limit(1)
     .single();
   if (!membership) notFound();

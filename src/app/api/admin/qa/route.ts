@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const answerSchema = z.object({
   qa_id: z.string().uuid(),
@@ -68,6 +69,17 @@ export async function POST(request: NextRequest) {
       .eq('facility_id', result.facilityId);
 
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+    void writeAuditLog({
+      userId: result.userId,
+      facilityId: result.facilityId,
+      action: 'update',
+      tableName: 'facility_qa',
+      recordId: parsed.data.qa_id,
+      newValues: { is_public: parsed.data.is_public },
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ ok: true });
   }
 
@@ -83,6 +95,16 @@ export async function POST(request: NextRequest) {
       .eq('facility_id', result.facilityId);
 
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+    void writeAuditLog({
+      userId: result.userId,
+      facilityId: result.facilityId,
+      action: 'delete',
+      tableName: 'facility_qa',
+      recordId: parsed.data.qa_id,
+      ipAddress: ip,
+    });
+
     return NextResponse.json({ ok: true });
   }
 
@@ -103,5 +125,16 @@ export async function POST(request: NextRequest) {
     .eq('facility_id', result.facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: result.userId,
+    facilityId: result.facilityId,
+    action: 'update',
+    tableName: 'facility_qa',
+    recordId: parsed.data.qa_id,
+    newValues: { answer: parsed.data.answer, status: 'answered' },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }

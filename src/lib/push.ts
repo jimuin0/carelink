@@ -1,4 +1,6 @@
 import { createServiceRoleClient } from './supabase-server';
+import { safeCaptureException } from './safe';
+import { alertCaughtError } from './alert';
 
 const VAPID_SUBJECT = 'mailto:support@carelink-jp.com';
 let vapidConfigured = false;
@@ -56,13 +58,19 @@ export async function sendPushToUser(userId: string, payload: PushPayload): Prom
     return true;
   } catch (err: unknown) {
     const statusCode = (err as { statusCode?: number })?.statusCode;
-    // 410 Gone or 404 = subscription expired, clean up
+    // 410 Gone or 404 = subscription expired, clean up（想定内の失効・アラート不要）
     if (statusCode === 410 || statusCode === 404) {
       await supabase
         .from('push_subscriptions')
         .delete()
         .eq('user_id', userId);
+      return false;
     }
+    // 410/404 以外（VAPID鍵不整合・ネットワーク障害・push サービス側 5xx 等）は想定外の失敗のため
+    // 可視化する。従来は catch 内で false を返すのみで console.error すら出ず、呼び出し元の
+    // `.catch()` も（例外を再送出しないため）発火せず完全無音だった。
+    safeCaptureException(err, 'push-send');
+    alertCaughtError('push-send', err, `push:user:${userId}`);
     return false;
   }
 }

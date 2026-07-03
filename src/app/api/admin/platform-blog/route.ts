@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const platformBlogSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます'),
@@ -63,5 +64,15 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId,
+    action: 'create',
+    tableName: 'platform_blog_posts',
+    recordId: data.id,
+    newValues: { slug: data.slug, title: data.title, is_published: data.is_published },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ post: data }, { status: 201 });
 }

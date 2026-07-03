@@ -329,11 +329,21 @@ export async function POST(request: Request) {
     // 「確認待ち＋確定メールを後送」を案内する sendBookingConfirmation ではなく、確定メール
     // sendBookingConfirmed を送る。従来は常に確認待ちメールを送り、自動確定施設の顧客は
     // 来ることのない確定メールを待ち続けた（確定メールは admin 経路からしか送られない）。
-    if (bookingStatus === 'confirmed') {
-      sendBookingConfirmed(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
-    } else {
-      sendBookingConfirmation(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
-    }
+    // いずれの送信関数も失敗時 throw せず false を返す契約のため、.catch() だけでは失敗が
+    // 無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
+    const confirmationEmailSend = bookingStatus === 'confirmed'
+      ? sendBookingConfirmed(emailData)
+      : sendBookingConfirmation(emailData);
+    confirmationEmailSend.then((ok) => {
+      if (!ok) {
+        const err = new Error('booking confirmation email send failed');
+        safeCaptureException(err, 'booking-email');
+        alertCaughtError('booking-email', err, '/api/booking');
+      }
+    }).catch((e) => {
+      safeCaptureException(e, 'booking-email');
+      alertCaughtError('booking-email', e, '/api/booking');
+    });
 
     // Notify ALL facility owners（メールを全オーナーへ）。push.ts の owner 全員通知と対称にする。
     const ownerRows = (ownerResult.data as { user_id: string }[] | null) ?? [];
@@ -344,7 +354,16 @@ export async function POST(request: Request) {
         ((ownerProfiles as { email: string | null }[] | null) ?? []).map((p) => p.email).filter(Boolean) as string[]
       ));
       for (const facilityEmail of ownerEmails) {
-        sendNewBookingNotification({ ...emailData, facilityEmail }).catch((e) => safeCaptureException(e, 'booking-email-owner'));
+        sendNewBookingNotification({ ...emailData, facilityEmail }).then((ok) => {
+          if (!ok) {
+            const err = new Error('new booking notification email send failed');
+            safeCaptureException(err, 'booking-email-owner');
+            alertCaughtError('booking-email-owner', err, '/api/booking');
+          }
+        }).catch((e) => {
+          safeCaptureException(e, 'booking-email-owner');
+          alertCaughtError('booking-email-owner', e, '/api/booking');
+        });
       }
     }
   } catch (e) {
@@ -400,18 +419,25 @@ export async function POST(request: Request) {
           lineMenuName = menuForLine?.name || '';
         }
 
-        // sendLineBookingConfirm は失敗時 throw せず false を返す契約のため、戻り値を捨てると
-        // 送達失敗が完全に無音化する（キャンセル系 route は戻り値を検証済みで非対称だった）。
-        // 非ブロッキングは維持しつつ then で false を検知しログ化して可観測性を確保する。
+        // sendLineBookingConfirm は sendLinePush 経由で送信失敗時も throw せず false を返す
+        // 契約のため、.catch() だけでは失敗が無音化する。戻り値を確認して可視化する。
         // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
         sendLineBookingConfirm(lineLink.line_user_id, {
           facilityName: facilityForLine?.name || '',
           menuName: lineMenuName,
           date: parsed.data.booking_date,
           time: parsed.data.start_time,
-        })
-          .then((ok) => { if (!ok) console.error('[booking] LINE booking confirmation not delivered', { userId: user.id, bookingId: newBookingId }); })
-          .catch((e) => safeCaptureException(e, 'booking-line'));
+        }).then((ok) => {
+          if (!ok) {
+            const err = new Error('LINE booking confirmation send failed');
+            console.error('[booking] LINE booking confirmation not delivered', { userId: user.id, bookingId: newBookingId });
+            safeCaptureException(err, 'booking-line');
+            alertCaughtError('booking-line', err, '/api/booking');
+          }
+        }).catch((e) => {
+          safeCaptureException(e, 'booking-line');
+          alertCaughtError('booking-line', e, '/api/booking');
+        });
       }
     }
   } catch (e) {

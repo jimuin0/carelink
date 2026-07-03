@@ -4,6 +4,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { todayJst } from '@/lib/admin-date';
 
 export const dynamic = 'force-dynamic';
@@ -49,6 +50,7 @@ export async function GET(request: Request) {
       // （DB障害を『予約不可』に化けさせる）。slots ルートと同じく 500 で顕在化させる。
       if (staffErr) {
         safeCaptureException(staffErr, 'availability:staff_profiles');
+        alertCaughtError('availability:staff_profiles', staffErr, '/api/availability');
         return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
       }
       staffIds = (staffList || []).map((s: { id: string }) => s.id);
@@ -103,8 +105,9 @@ export async function GET(request: Request) {
     // 集約RPCが失敗した場合（未デプロイ / PostgREST schema cache 未反映 / ランタイムエラーの
     // いずれでも）500 にせず従来の日次ループにフォールバックする。フォールバックは実データを
     // 再計算するため「空状態偽装」にはならず、公開導線（施設ページのバッジ）を止めない。
-    // 原因可視化のため Sentry に記録する（cache 反映＆関数正常後は到達しないため恒常ノイズにならない）。
+    // 原因可視化のため記録する（cache 反映＆関数正常後は到達しないため恒常ノイズにならない）。
     safeCaptureException(monthErr, 'availability:get_month_availability_fallback');
+    alertCaughtError('availability:get_month_availability_fallback', monthErr, '/api/availability');
 
     // ---- フォールバック（集約RPCが使えない間の互換経路。cache 反映＆関数正常後は到達しない）----
     const futureDates: string[] = [];
@@ -139,6 +142,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ dates });
   } catch (e) {
     safeCaptureException(e, 'availability');
+    alertCaughtError('availability', e, '/api/availability');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

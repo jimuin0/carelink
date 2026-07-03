@@ -75,12 +75,25 @@ export async function POST(request: NextRequest) {
     if (booking.user_id !== user.id) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
     amount = booking.total_price ?? 0;
   } else {
-    // No booking_id: use facility's deposit amount
+    // No booking_id: 施設が設定した一般デポジット（特定の予約に紐付かない事前決済）。
+    // deposit_type='percent' の deposit_amount は「予約金額に対する割合(1〜100)」であり
+    // 円額ではないが、この分岐には算出の基準となる予約が無いため percent は計算不能。
+    // 以前は deposit_type を一切見ず deposit_amount を無条件に円額として扱っていた
+    // （percent 設定時は本来より大幅に過小/過大な請求額になる／'none' 設定時も
+    // 残存 deposit_amount があれば誤って課金してしまう）ため、type ごとに正しく判定する。
     const { data: facilityDetail } = await admin
       .from('facility_profiles')
-      .select('deposit_amount')
+      .select('deposit_type, deposit_amount')
       .eq('id', facility_id)
       .single();
+    const depositType = facilityDetail?.deposit_type ?? 'none';
+    if (depositType === 'none') {
+      return NextResponse.json({ error: 'この施設はデポジットを設定していません' }, { status: 400 });
+    }
+    if (depositType === 'percent') {
+      return NextResponse.json({ error: 'デポジット（割合指定）には予約の指定が必要です' }, { status: 400 });
+    }
+    // deposit_type='fixed': deposit_amount は既に円額
     amount = facilityDetail?.deposit_amount ?? 0;
   }
   if (!amount || amount < 50) {
