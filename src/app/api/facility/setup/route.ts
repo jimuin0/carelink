@@ -69,24 +69,25 @@ export async function POST(request: NextRequest) {
       address,
     } = body;
 
-    // salonsテーブルから登録済みデータを自動取得（registerフォームで入力済みの場合）
-    if (!facility_name || facility_name === '未設定の施設') {
-      const { data: salonData } = await adminSupabase
-        .from('salons')
-        .select('*')
-        .eq('email', user.email)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    // register フォームで入力済みなら salons の全項目を facility に引き継ぐ（B: セルフサーブ・二度手間の解消）。
+    // onboarding は facility_name 付きで来るため条件を付けず、常に email 一致の最新 salon を取得する
+    // （旧実装は facility_name 未指定時のみ取得＝実運用では常にスキップされ、営業時間・写真・特徴・PR 等が
+    //  一切引き継がれず管理画面で全て入力し直しになっていた）。email 未設定時は取得しない。
+    const { data: salonData } = user.email
+      ? await adminSupabase
+          .from('salons')
+          .select('*')
+          .eq('email', user.email)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      : { data: null };
 
-      if (salonData) {
-        facility_name = facility_name || salonData.facility_name;
-        business_type = business_type || salonData.business_type;
-        phone = phone || salonData.phone;
-        prefecture = prefecture || null;
-        city = city || null;
-        address = address || salonData.address;
-      }
+    if (salonData) {
+      facility_name = facility_name || salonData.facility_name;
+      business_type = business_type || salonData.business_type;
+      phone = phone || salonData.phone;
+      address = address || salonData.address;
     }
 
     if (!facility_name || !business_type) {
@@ -119,6 +120,21 @@ export async function POST(request: NextRequest) {
         prefecture: prefecture || null,
         city: city || null,
         address: address || null,
+        // register フォームの入力を引き継ぐ（salonData があれば）。営業時間は salons が自由文
+        // （"10:00〜20:00"）で facility_profiles.business_hours は予約枠用の JSONB のため型が異なる。
+        // 自由文は business_hours_text へ入れ、予約枠を制御する構造化 business_hours は owner が設定画面で設定する。
+        postal_code: salonData?.postal_code || null,
+        building: salonData?.building_name || null,
+        nearest_station: salonData?.nearest_station || null,
+        business_hours_text: salonData?.business_hours || null,
+        regular_holiday: salonData?.regular_holiday || null,
+        seat_count: typeof salonData?.seat_count === 'number' ? salonData.seat_count : null,
+        staff_count: typeof salonData?.staff_count === 'number' ? salonData.staff_count : null,
+        parking: salonData?.has_parking ?? false,
+        features: Array.isArray(salonData?.features) ? salonData.features : [],
+        website_url: salonData?.website || null,
+        description: salonData?.pr_text || null,
+        main_photo_url: salonData?.photo_url || null,
         status: 'draft', // 公開前はdraft
       })
       .select('id')
@@ -144,6 +160,24 @@ export async function POST(request: NextRequest) {
       const { error: rollbackErr } = await adminSupabase.from('facility_profiles').delete().eq('id', facility.id);
       if (rollbackErr) console.error('[facility/setup] rollback failed — orphaned facility_profile', { facilityId: facility.id, err: rollbackErr });
       return NextResponse.json({ error: 'オーナー登録に失敗しました' }, { status: 500 });
+    }
+
+    // register でアップした写真を facility_photos に引き継ぐ（既存ストレージの公開 URL を再利用）。
+    // 先頭は外観（register で必須）＝ 'exterior'、以降は種別が配列から復元できないため 'other'
+    // （photo_type は NOT NULL + CHECK 制約のため必ず有効値を入れる）。sort_order で並びを保持。
+    // 失敗しても施設作成は成立させ owner は写真管理から追加できるため best-effort（ログのみ）。
+    const salonPhotoUrls: string[] = Array.isArray(salonData?.photo_urls)
+      ? (salonData.photo_urls as unknown[]).filter((u): u is string => typeof u === 'string' && u.length > 0)
+      : [];
+    if (salonPhotoUrls.length > 0) {
+      const photoRows = salonPhotoUrls.map((url, i) => ({
+        facility_id: facility.id,
+        photo_url: url,
+        photo_type: i === 0 ? 'exterior' : 'other',
+        sort_order: i,
+      }));
+      const { error: photoErr } = await adminSupabase.from('facility_photos').insert(photoRows);
+      if (photoErr) console.error('[facility/setup] photo transfer failed', { facilityId: facility.id, err: photoErr.message });
     }
 
     // ウェルカムメール（fire-and-forget）

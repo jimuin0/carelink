@@ -375,7 +375,7 @@ export default function RegisterPage() {
       <ConfirmDialog
         open={showConfirm}
         title="登録内容を送信しますか？"
-        message="送信後、担当者より3営業日以内にご連絡いたします。"
+        message="送信後、続けてアカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）がそのまま管理画面に反映され、すぐに掲載を開始できます。"
         confirmLabel="送信する"
         cancelLabel="戻る"
         onConfirm={() => { setShowConfirm(false); handleSubmit(onSubmit)(); }}
