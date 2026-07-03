@@ -12,6 +12,12 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
+  // 既定の expect timeout(5s)は遅延ハイドレーション要素や再読込反映のポーリングに不足し flaky の
+  // 一因になり得る。10s へ延長する（成功パスの挙動は不変・待ち時間を延ばすだけ。個別 { timeout: N }
+  // 指定がより長ければそちらが優先されるため上書き関係は破綻しない）。
+  // 補足: 成功トースト依存の flake 自体は #378 が waitForResponse+永続DOM で恒久根治済み。本設定は
+  // その他の assertion 全般に効く横断的な耐ジッタ強化（#378 が触れていなかった残りの改善）。
+  expect: { timeout: 10000 },
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',
