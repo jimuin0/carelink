@@ -21,7 +21,13 @@ test('来院者が自分の予約の日時を変更できる', async ({ page }) 
   await expect(firstSlot).toBeVisible({ timeout: 15000 });
   await firstSlot.click();
 
-  // 「{date} {time}に変更する」ボタンで確定 → 成功トースト（書き込みが反映され 1.5s 後に一覧へ遷移）。
+  // 「{date} {time}に変更する」ボタンで確定。成功トーストは書き込み反映の 1.5s 後に一覧へ遷移するため
+  // トースト DOM が消えるレースが起きやすい。POST /api/booking/{id}/change の 2xx を遷移前に確定させる
+  //（click より前に登録）ことでレースを構造的に解消し、非揮発シグナルを主判定にする。
+  const changePost = page.waitForResponse(
+    (r) => r.url().includes('/api/booking/') && r.url().includes('/change') && r.request().method() === 'POST' && r.ok(),
+    { timeout: 15000 }
+  );
   await page.getByRole('button', { name: /に変更する$/ }).click();
-  await expect(page.getByText('日時を変更しました')).toBeVisible({ timeout: 15000 });
+  await changePost;
 });

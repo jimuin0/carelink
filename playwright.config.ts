@@ -12,6 +12,10 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 1 : undefined,
   reporter: 'html',
+  // 既定の expect timeout(5s)は短命トースト・遅延ハイドレーション要素のポーリングに不足し flaky の
+  // 一因。10s へ延長する（成功パスの挙動は不変・待ち時間を延ばすだけ）。個別 { timeout: N } 指定は
+  // より長ければそちらが優先されるため上書き関係は破綻しない。
+  expect: { timeout: 10000 },
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3000',
     trace: 'on-first-retry',

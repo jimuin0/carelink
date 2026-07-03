@@ -10,8 +10,12 @@ test('オーナーがパッケージを公開トグル→削除できる（PATCH
   // まず編集/削除の対象を1件作成（名前のみ必須・他はフォーム既定値）。
   await page.getByRole('button', { name: '+ 新規作成' }).click();
   await page.getByPlaceholder('5回券（お得パック）').fill(name);
+  const pkgCreate = page.waitForResponse(
+    (r) => r.url().includes('/api/admin/packages') && r.request().method() === 'POST' && r.ok(),
+    { timeout: 15000 }
+  );
   await page.getByRole('button', { name: '作成', exact: true }).click();
-  await expect(page.getByText('パッケージを作成しました')).toBeVisible({ timeout: 15000 });
+  await pkgCreate; // POST 2xx を成功シグナルに（揮発トースト依存を外す。下の row 可視で永続確認）。
 
   // 作成した行に限定（並行 spec が同一施設に作る他パッケージと混ざらないよう一意名でスコープ）。
   const row = page.locator('div.flex.items-start').filter({ hasText: name });
@@ -30,8 +34,12 @@ test('オーナーがパッケージを公開トグル→削除できる（PATCH
   await del.press('Enter');
   const confirm = page.getByRole('button', { name: '削除する' });
   await confirm.scrollIntoViewIfNeeded();
+  const pkgDelete = page.waitForResponse(
+    (r) => /\/api\/admin\/packages\/[^/?]+/.test(r.url()) && r.request().method() === 'DELETE' && r.ok(),
+    { timeout: 15000 }
+  );
   await confirm.press('Enter');
-  await expect(page.getByText('削除しました')).toBeVisible({ timeout: 15000 });
+  await pkgDelete; // DELETE 2xx を成功シグナルに（下の toHaveCount(0) で永続確認）。
   // 一覧から消滅（削除永続化＋再読込反映）。
   await expect(page.getByText(name)).toHaveCount(0, { timeout: 15000 });
 });

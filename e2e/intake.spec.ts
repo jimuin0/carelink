@@ -10,8 +10,14 @@ test('ゲストが問診票を送信できる', async ({ page }) => {
 
   // 質問ゼロのテンプレートなので必須は氏名のみ。氏名を入力して送信。
   await page.fill('#intake-customer-name', INTAKE_SEED.customerName);
+  // POST /api/intake の 2xx を成功シグナルに（click より前に登録）。完了表示は永続パネルだが、API 2xx を
+  // 併せて待つことで送信→再描画のレースを解消する。
+  const intakePost = page.waitForResponse(
+    (r) => r.url().includes('/api/intake') && r.request().method() === 'POST' && r.ok(),
+    { timeout: 15000 }
+  );
   await page.getByRole('button', { name: '問診票を送信する' }).click();
-
-  // 成功＝同ページ上で完了表示（書き込みが intake_form_responses に1行 INSERT される）。
+  await intakePost;
+  // 成功＝同ページ上で完了表示（書き込みが intake_form_responses に1行 INSERT される・永続 DOM）。
   await expect(page.getByText('問診票を送信しました')).toBeVisible({ timeout: 15000 });
 });

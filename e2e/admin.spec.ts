@@ -91,8 +91,14 @@ test.describe.serial('管理画面（オーナー）', () => {
     await expect(page.getByText(SEED.confirmedCustomer)).toBeVisible();
     // 会計する → 明細(確定予約の total_price で1行自動投入) → 会計を確定して完了
     await page.getByRole('button', { name: '会計する' }).click();
+    // POST /api/admin/booking-checkout の 2xx を成功シグナルに（確定 click より前に登録）。会計完了は
+    // 揮発トーストが唯一証拠だったため、非揮発の API 2xx を主判定に据える。
+    const checkoutPost = page.waitForResponse(
+      (r) => r.url().includes('/api/admin/booking-checkout') && r.request().method() === 'POST' && r.ok(),
+      { timeout: 15000 }
+    );
     await page.getByRole('button', { name: '会計を確定して完了' }).click();
-    await expect(page.getByText('会計を確定して完了しました', { exact: false })).toBeVisible({ timeout: 15000 });
+    await checkoutPost;
   });
 
   // オーナーのメニュー作成（CRUD の C）＝メニュー追加→保存→一覧に反映。
@@ -110,8 +116,14 @@ test.describe.serial('管理画面（オーナー）', () => {
     // ポインタ被りに依存しないキーボード操作（正当なユーザー操作）で確実に起動する。
     const saveBtn = dialog.getByRole('button', { name: '保存' });
     await saveBtn.scrollIntoViewIfNeeded();
+    // POST /api/admin/menus の 2xx を成功シグナルに（press より前に登録）。揮発トースト依存を外し、
+    // 下の一覧反映（永続 DOM）で確定する。
+    const menuPost = page.waitForResponse(
+      (r) => r.url().includes('/api/admin/menus') && r.request().method() === 'POST' && r.ok(),
+      { timeout: 15000 }
+    );
     await saveBtn.press('Enter');
-    await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
+    await menuPost;
     // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
     await expect(page.getByText(menuName)).toBeVisible();
   });

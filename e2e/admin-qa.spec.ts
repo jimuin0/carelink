@@ -45,16 +45,28 @@ test('オーナーがQ&Aに回答→公開トグル→削除できる', async ({
   await page.fill('#qa-answer', 'E2Eテスト回答です。');
   const submit = page.getByRole('button', { name: '回答を送信' });
   await submit.scrollIntoViewIfNeeded();
+  // 回答 POST /api/admin/qa（action クエリ無し。toggle-public/delete の POST と URL で区別）の 2xx を
+  // 成功シグナルに（press より前に登録）。揮発トースト依存を外し、下の「公開にする」ボタン出現
+  //（answered 化の永続 UI）で確定する。
+  const qaAnswer = page.waitForResponse(
+    (r) => r.url().includes('/api/admin/qa') && !r.url().includes('action=') && r.request().method() === 'POST' && r.ok(),
+    { timeout: 15000 }
+  );
   await submit.press('Enter');
-  await expect(page.getByText('回答を送信しました')).toBeVisible({ timeout: 15000 });
+  await qaAnswer;
 
   // 公開トグル（非公開→公開）＝POST /api/admin/qa?action=toggle-public。focus→Enter。
   const toPublic = card.getByRole('button', { name: '公開にする' });
   await expect(toPublic).toBeVisible({ timeout: 15000 });
   await toPublic.scrollIntoViewIfNeeded();
+  // 公開トグル POST /api/admin/qa?action=toggle-public の 2xx を成功シグナルに（press より前に登録）。
+  const qaPublic = page.waitForResponse(
+    (r) => r.url().includes('action=toggle-public') && r.request().method() === 'POST' && r.ok(),
+    { timeout: 15000 }
+  );
   await toPublic.press('Enter');
-  await expect(page.getByText('公開にしました')).toBeVisible({ timeout: 15000 });
-  // is_public=true 反映＝アイコンの aria-label が「非公開にする」に変わる。
+  await qaPublic;
+  // is_public=true 反映＝アイコンの aria-label が「非公開にする」に変わる（永続 DOM で確定）。
   await expect(card.getByRole('button', { name: '非公開にする' })).toBeVisible({ timeout: 15000 });
 
   // 削除＝POST /api/admin/qa?action=delete。ConfirmDialog で確定。
@@ -63,8 +75,13 @@ test('オーナーがQ&Aに回答→公開トグル→削除できる', async ({
   await del.press('Enter');
   const confirm = page.getByRole('button', { name: '削除する' });
   await confirm.scrollIntoViewIfNeeded();
+  // 削除 POST /api/admin/qa?action=delete の 2xx を成功シグナルに（press より前に登録）。
+  const qaDelete = page.waitForResponse(
+    (r) => r.url().includes('action=delete') && r.request().method() === 'POST' && r.ok(),
+    { timeout: 15000 }
+  );
   await confirm.press('Enter');
-  await expect(page.getByText('削除しました')).toBeVisible({ timeout: 15000 });
+  await qaDelete;
   // 一覧から消滅（削除永続化＋再読込反映）。
   await expect(page.getByText(question)).toHaveCount(0, { timeout: 15000 });
 });
