@@ -34,6 +34,31 @@ let mockFacilityInsert: jest.Mock;
 let mockMemberInsert: jest.Mock;
 let mockSalonSelect: jest.Mock;
 let mockFacilityDelete: jest.Mock;
+let mockPhotoInsert: jest.Mock;
+
+// salonFound 時のリッチデータ（register 全項目の引き継ぎ・写真転送を検証するため）。
+const SALON_FULL = {
+  facility_name: 'Salon from DB',
+  business_type: 'nail',
+  phone: '03-1234-5678',
+  address: '東京都渋谷区',
+  postal_code: '150-0001',
+  building_name: 'ABCビル 3F',
+  nearest_station: '渋谷駅 徒歩5分',
+  business_hours: '10:00〜20:00',
+  regular_holiday: '毎週月曜日',
+  seat_count: 4,
+  staff_count: 3,
+  has_parking: true,
+  features: ['駐車場あり', '個室あり'],
+  website: 'https://salon.example.com',
+  pr_text: '開業20年の実績があります。',
+  photo_url: 'https://s.example.com/salons/uuid/exterior.jpg',
+  photo_urls: [
+    'https://s.example.com/salons/uuid/exterior.jpg',
+    'https://s.example.com/salons/uuid/interior_1.jpg',
+  ],
+};
 
 function setupDefaultMocks(
   userExists: boolean = true,
@@ -41,7 +66,8 @@ function setupDefaultMocks(
   salonFound: boolean = false,
   facilityInsertFails: boolean = false,
   memberInsertFails: boolean = false,
-  rollbackFails: boolean = false
+  rollbackFails: boolean = false,
+  opts: { salonData?: unknown; photoInsertFails?: boolean; userEmail?: string | null } = {}
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
@@ -49,23 +75,19 @@ function setupDefaultMocks(
   // 上書きして送達失敗時のアラート分岐を検証する。
   (sendWelcomeEmail as jest.Mock).mockResolvedValue(true);
 
+  const salonData = 'salonData' in opts ? opts.salonData : (salonFound ? SALON_FULL : null);
   mockSalonSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
       order: jest.fn().mockReturnValue({
         limit: jest.fn().mockReturnValue({
-          maybeSingle: jest.fn().mockResolvedValue({
-            data: salonFound
-              ? {
-                  facility_name: 'Salon from DB',
-                  business_type: 'nail',
-                  phone: '03-1234-5678',
-                  address: '東京都渋谷区',
-                }
-              : null,
-          }),
+          maybeSingle: jest.fn().mockResolvedValue({ data: salonData }),
         }),
       }),
     }),
+  });
+
+  mockPhotoInsert = jest.fn().mockResolvedValue({
+    error: opts.photoInsertFails ? new Error('photo insert error') : null,
   });
 
   mockFacilityInsert = jest.fn().mockReturnValue({
@@ -97,7 +119,7 @@ function setupDefaultMocks(
       getUser: jest.fn().mockResolvedValue({
         data: {
           user: userExists
-            ? { id: 'user-123', email: 'owner@example.com' }
+            ? { id: 'user-123', email: 'userEmail' in opts ? opts.userEmail : 'owner@example.com' }
             : null,
         },
       }),
@@ -128,6 +150,10 @@ function setupDefaultMocks(
       } else if (table === 'salons') {
         return {
           select: mockSalonSelect,
+        };
+      } else if (table === 'facility_photos') {
+        return {
+          insert: mockPhotoInsert,
         };
       }
       return {};
@@ -639,5 +665,78 @@ describe('POST /api/facility/setup', () => {
     const call = mockFacilityInsert.mock.calls[0];
     // facility_name should come from salonData ('Salon from DB')
     expect(call[0].name).toBe('Salon from DB');
+  });
+
+  // ─── B: register 全項目の引き継ぎ・写真転送 ───────────────────────────────
+
+  test('salon あり → register 入力を facility に完全移送する（営業時間自由文/特徴/PR/席数/駐車場/写真URL）', async () => {
+    setupDefaultMocks(true, false, true); // SALON_FULL
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.postal_code).toBe('150-0001');
+    expect(f.building).toBe('ABCビル 3F');
+    expect(f.nearest_station).toBe('渋谷駅 徒歩5分');
+    expect(f.business_hours_text).toBe('10:00〜20:00'); // 自由文は business_hours_text（JSONBの business_hours ではない）
+    expect(f.regular_holiday).toBe('毎週月曜日');
+    expect(f.seat_count).toBe(4);
+    expect(f.staff_count).toBe(3);
+    expect(f.parking).toBe(true);
+    expect(f.features).toEqual(['駐車場あり', '個室あり']);
+    expect(f.website_url).toBe('https://salon.example.com');
+    expect(f.description).toBe('開業20年の実績があります。');
+    expect(f.main_photo_url).toBe('https://s.example.com/salons/uuid/exterior.jpg');
+    // 写真は facility_photos へ転送（先頭 exterior・以降 other・sort_order 保持）
+    const photoRows = mockPhotoInsert.mock.calls[0][0];
+    expect(photoRows).toHaveLength(2);
+    expect(photoRows[0]).toMatchObject({ facility_id: 'fac-123', photo_url: 'https://s.example.com/salons/uuid/exterior.jpg', photo_type: 'exterior', sort_order: 0 });
+    expect(photoRows[1]).toMatchObject({ photo_type: 'other', sort_order: 1 });
+  });
+
+  test('写真転送が失敗しても施設作成は成立（best-effort・200）', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, { photoInsertFails: true });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockPhotoInsert).toHaveBeenCalled();
+  });
+
+  test('salon はあるが photo_urls が空/未配列 → 写真転送はスキップ', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, { salonData: { ...SALON_FULL, photo_urls: null } });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockPhotoInsert).not.toHaveBeenCalled();
+  });
+
+  test('photo_urls の非文字列/空文字は除外して転送（filter 分岐）', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonData: { ...SALON_FULL, photo_urls: ['https://ok.example/a.jpg', '', 123, null] },
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    const photoRows = mockPhotoInsert.mock.calls[0][0];
+    expect(photoRows).toHaveLength(1);
+    expect(photoRows[0].photo_url).toBe('https://ok.example/a.jpg');
+  });
+
+  test('salon の seat_count/features が非数値・非配列 → null/[] に安全化', async () => {
+    setupDefaultMocks(true, false, true, false, false, false, {
+      salonData: { facility_name: 'S', business_type: 'nail', seat_count: 'x', features: 'y', has_parking: null, photo_urls: [] },
+    });
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.seat_count).toBeNull();
+    expect(f.staff_count).toBeNull();
+    expect(f.features).toEqual([]);
+    expect(f.parking).toBe(false);
+  });
+
+  test('user に email が無い → salon 取得せず body 値で作成（user.email 分岐）', async () => {
+    setupDefaultMocks(true, false, false, false, false, false, { userEmail: null });
+    const res = await POST(makeRequest({ facility_name: 'ノーメール施設', business_type: 'nail' }) as any);
+    expect(res.status).toBe(200);
+    expect(mockSalonSelect).not.toHaveBeenCalled();
+    const f = mockFacilityInsert.mock.calls[0][0];
+    expect(f.name).toBe('ノーメール施設');
   });
 });
