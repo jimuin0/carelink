@@ -139,6 +139,20 @@ test('instagram_url が空文字 → 許可 (optional)', async () => {
   expect(res.status).toBe(200);
 });
 
+test('is_active=false（休止）指定 → 200 かつ更新に is_active が含まれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  let updateArgs: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((fields: Record<string, unknown>) => {
+      updateArgs = fields;
+      return { eq: () => ({ eq: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: STAFF_UUID, name: 'test', is_active: false }, error: null }) }) }) }) };
+    }),
+  });
+  const res = await PATCH(makeRequest({ name: 'test', is_active: false }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateArgs?.is_active).toBe(false);
+});
+
 test('specialties が21件 → 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const res = await PATCH(makeRequest({ name: 'test', specialties: Array(21).fill('spec') }), makeProps());

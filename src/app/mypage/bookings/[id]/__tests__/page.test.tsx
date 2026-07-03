@@ -20,6 +20,9 @@ jest.mock('@/lib/supabase-browser', () => ({ createBrowserSupabaseClient: jest.f
 
 const BOOKING = {
   id: 'b1',
+  facility_id: 'f1',
+  menu_id: null,
+  staff_id: null,
   status: 'confirmed',
   booking_date: '2026-06-20',
   start_time: '10:00:00',
@@ -29,11 +32,26 @@ const BOOKING = {
   note: null,
 };
 
+// テーブルごとに data を返す柔軟なチェーン（select/eq を任意回チェーンでき、single で解決）。
+// 予約(.eq×2)・施設(.eq×1)・メニュー/スタッフ など複数のクエリ形状に一様に対応する。
 function mockSupabase() {
-  const single = () => Promise.resolve({ data: BOOKING, error: null });
+  const dataFor: Record<string, unknown> = {
+    bookings: BOOKING,
+    facility_profiles: { slug: 'test-salon', name: 'テスト施設' },
+    facility_menus: null,
+    staff_profiles: null,
+  };
+  const chain = (data: unknown): Record<string, unknown> => {
+    const obj: Record<string, unknown> = {
+      select: () => obj,
+      eq: () => obj,
+      single: () => Promise.resolve({ data, error: null }),
+    };
+    return obj;
+  };
   (createBrowserSupabaseClient as jest.Mock).mockReturnValue({
     auth: { getUser: () => Promise.resolve({ data: { user: { id: 'u1' } } }) },
-    from: () => ({ select: () => ({ eq: () => ({ eq: () => ({ single }) }) }) }),
+    from: (t: string) => chain(dataFor[t] ?? null),
   });
 }
 

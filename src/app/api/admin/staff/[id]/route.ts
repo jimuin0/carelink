@@ -17,6 +17,9 @@ const staffUpdateSchema = z.object({
   instagram_url: z.string().url().max(200).optional().nullable().or(z.literal('')),
   line_works_channel_id: z.string().max(50).optional().nullable(),
   line_works_notify_all: z.boolean().optional(),
+  // 在籍/休止（false=休止）。退職者を物理削除せず休止にして公開ページ・予約枠・指名から外す。
+  // 予約履歴の参照は保持したいので DELETE でなく is_active フラグで運用する。
+  is_active: z.boolean().optional(),
 });
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
@@ -58,19 +61,23 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
+  // is_active は指定された時のみ更新する。未指定の通常編集で在籍状態を勝手に戻さない
+  // （休止中スタッフの名前だけ直す等で意図せず再在籍化するのを防ぐ）。
+  const updateFields: Record<string, unknown> = {
+    name: parsed.data.name,
+    position: parsed.data.position ?? null,
+    bio: parsed.data.bio ?? null,
+    specialties: parsed.data.specialties ?? [],
+    years_experience: parsed.data.years_experience ?? null,
+    instagram_url: parsed.data.instagram_url || null,
+    line_works_channel_id: parsed.data.line_works_channel_id ?? null,
+    line_works_notify_all: parsed.data.line_works_notify_all ?? false,
+    updated_at: new Date().toISOString(),
+  };
+  if (parsed.data.is_active !== undefined) updateFields.is_active = parsed.data.is_active;
   const { data, error } = await admin
     .from('staff_profiles')
-    .update({
-      name: parsed.data.name,
-      position: parsed.data.position ?? null,
-      bio: parsed.data.bio ?? null,
-      specialties: parsed.data.specialties ?? [],
-      years_experience: parsed.data.years_experience ?? null,
-      instagram_url: parsed.data.instagram_url || null,
-      line_works_channel_id: parsed.data.line_works_channel_id ?? null,
-      line_works_notify_all: parsed.data.line_works_notify_all ?? false,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updateFields)
     .eq('id', params.id)
     .eq('facility_id', auth.facilityId)
     .select()

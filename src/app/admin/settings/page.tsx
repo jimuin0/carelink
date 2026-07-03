@@ -250,7 +250,15 @@ export default function AdminSettingsPage() {
                     setFacilityStatus(newStatus);
                     setToast({ type: 'success', message: '施設を公開しました！' });
                   } else {
-                    setToast({ type: 'error', message: '公開に失敗しました' });
+                    // サーバは不足項目を missing 配列で返す（例：スタッフを1人以上登録してください）。
+                    // これを捨てて「失敗しました」だけ出すと、何を揃えれば公開できるか分からず設定画面を
+                    // 行き来する。不足項目をそのまま列挙して「今何が足りないか」を一目で示す。
+                    const body = await res.json().catch(() => null);
+                    const missing = Array.isArray(body?.missing) ? body.missing as string[] : [];
+                    const message = missing.length > 0
+                      ? `公開できません。${missing.join(' / ')}`
+                      : (body?.error || '公開に失敗しました');
+                    setToast({ type: 'error', message });
                   }
                 } catch {
                   setToast({ type: 'error', message: '通信エラーが発生しました' });

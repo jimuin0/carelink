@@ -325,13 +325,18 @@ export default async function AdminDashboard() {
 
 async function RecentBookings({ facilityId }: { facilityId: string }) {
   const supabase = await createServerSupabaseAuthClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('bookings')
     .select('id, customer_name, booking_date, start_time, status')
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false })
     .limit(5);
 
+  // 取得失敗を「まだ予約がありません」に偽装しない（通信/権限エラーを予約ゼロと誤認させる）。
+  // 副次カードのためページ全体は落とさず、空とは区別してカード内でエラーを明示する。
+  if (error) {
+    return <p role="alert" className="text-sm text-red-500">予約の取得に失敗しました。ページを再読み込みしてください。</p>;
+  }
   if (!data || data.length === 0) {
     return <p className="text-sm text-gray-400">まだ予約がありません</p>;
   }

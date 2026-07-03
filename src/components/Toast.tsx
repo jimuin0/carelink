@@ -16,12 +16,16 @@ export default function Toast({ message, type, onClose }: ToastProps) {
   onCloseRef.current = onClose;
 
   useEffect(() => {
+    // エラーは自動消滅させない。成功/情報と同じ4秒で消すと、管理者が別欄を見ている隙に
+    // 「保存に失敗しました」等が消え、失敗に気づかず「保存できた」と誤認する事故になる。
+    // エラーはユーザーが×で閉じるまで残す（成功/情報は従来どおり4秒で自動消滅）。
+    if (type === 'error') return;
     const timer = setTimeout(() => {
       setVisible(false);
       setTimeout(() => onCloseRef.current(), 300);
     }, 4000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [type]);
 
   const bgColor = {
     success: 'bg-green-500',
@@ -31,8 +35,8 @@ export default function Toast({ message, type, onClose }: ToastProps) {
 
   return (
     <div
-      role="alert"
-      aria-live="assertive"
+      role={type === 'error' ? 'alert' : 'status'}
+      aria-live={type === 'error' ? 'assertive' : 'polite'}
       className={`fixed top-20 right-4 z-[100] max-w-sm px-6 py-4 rounded-lg text-white shadow-lg transition-all duration-300 ${bgColor} ${
         visible ? 'opacity-100 translate-x-0' : 'opacity-0 translate-x-full'
       }`}
