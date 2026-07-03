@@ -1,4 +1,5 @@
 import { logCronRun } from '@/lib/cron-logger';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
 /**
  * 顧客セグメント分析 Cron（v8.2）
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
     let count = 0;
     let skipped = 0;
     let deferred = 0;
+    let deliveryFailures = 0; // at_risk クーポンメールの送達失敗（run 単位で集約 Slack 通報）
 
     const loopStart = Date.now();
     for (const facility of facilities) {
@@ -301,12 +303,16 @@ export async function GET(request: Request) {
                 }
               }
 
-              // メール送信: 成功時のみ notified_at を更新（失敗時は未更新 → 翌 run で再送される）
-              await resend.emails.send({
-                from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
-                to: email,
-                subject: escSubject(`【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`),
-                html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
+              // メール送信と、送信成功後の notified_at 更新を分離する。
+              // 送達失敗（deliveryFailures）は send そのものの失敗だけを数える。notified_at 更新の失敗は
+              // 「送達済みだが記録できなかった」＝送達失敗ではないので別 try で握る（誤計上・重複送信防止）。
+              let sendOk = false;
+              try {
+                await resend.emails.send({
+                  from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+                  to: email,
+                  subject: escSubject(`【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`),
+                  html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
                   <p>${data.name || 'お客'}様</p>
                   <p>前回のご来店から${daysSince}日が経ちました。お体の調子はいかがですか？</p>
                   <p>${facilityInfo.name}からお帰りいただきたく、<strong>特別割引クーポン</strong>をご用意いたしました。</p>
@@ -320,11 +326,16 @@ export async function GET(request: Request) {
                   </p>
                   <p style="font-size:12px;color:#94a3b8;margin-top:24px;">このメールは CareLink から自動送信されています。</p>
                 </div>`,
-              }).then(async () => {
-                // 送信成功: notified_at を記録（失敗時はスキップ → 翌 run で再送）。
-                // 列未適用時は update できないため skip（旧来は送信記録を持たない＝重複は旧 dedup が防ぐ）。
-                if (!notifiedColumnReady) return;
-                await supabase
+                });
+                sendOk = true;
+              } catch (err) {
+                deliveryFailures++;
+                console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err });
+              }
+
+              // 送信成功時のみ notified_at を記録（列未適用時は skip・記録失敗は送達失敗に数えない）。
+              if (sendOk && notifiedColumnReady) {
+                const { error: notifiedErr } = await supabase
                   .from('user_coupon_codes')
                   .update({ notified_at: now.toISOString() })
                   .eq('facility_id', facility.id)
@@ -332,7 +343,8 @@ export async function GET(request: Request) {
                   .eq('reason', 'at_risk')
                   .gte('created_at', cutoff30d)
                   .is('notified_at', null);
-              }).catch((err) => console.error('[customer-segment] email send failed', { email: String(email).replace(/(.).*@/, '$1***@'), err }));
+                if (notifiedErr) console.error('[customer-segment] notified_at update failed (mail already sent)', { email: String(email).replace(/(.).*@/, '$1***@'), err: notifiedErr });
+              }
             }
           }
         }
@@ -342,6 +354,8 @@ export async function GET(request: Request) {
     }
 
     await logCronRun('customer-segment', 'success', startedAt, { processed: count, skipped, meta: { deferred } });
+    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
+    alertDeliveryFailures('customer-segment', deliveryFailures, { processed: count, skipped });
     return NextResponse.json({ processed: count, skipped, deferred });
   } catch (e) {
     console.error('[customer-segment] Error:', e);

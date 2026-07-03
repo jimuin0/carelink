@@ -9,6 +9,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun } from '@/lib/cron-logger';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { todayJst, addDays } from '@/lib/admin-date';
 import { sendWeeklyReportEmail } from '@/lib/email';
@@ -39,7 +40,7 @@ async function sendWeeklyReports(
   rows: Array<Record<string, number | string | null>>,
   start: string,
   end: string,
-): Promise<number> {
+): Promise<{ sent: number; failed: number }> {
   const byFacility = new Map<string, Sums>();
   for (const r of rows) {
     const id = r.facility_id as string;
@@ -67,6 +68,7 @@ async function sendWeeklyReports(
   const optedOutSet = new Set((optedOut as { facility_id: string }[] | null ?? []).map((r) => r.facility_id));
 
   let sent = 0;
+  let failed = 0;
   for (const [facilityId, sums] of byFacility) {
     if (optedOutSet.has(facilityId)) continue;
     const { data: owner } = await supabase
@@ -92,8 +94,9 @@ async function sendWeeklyReports(
       repeatCustomerCount: sums.repeat_customer_count,
     });
     if (ok) sent++;
+    else failed++;
   }
-  return sent;
+  return { sent, failed };
 }
 
 export async function GET(request: Request) {
@@ -120,11 +123,16 @@ export async function GET(request: Request) {
     }
 
     let emailsSent = 0;
+    let deliveryFailures = 0;
     if (rows && rows.length > 0) {
-      emailsSent = await sendWeeklyReports(supabase, rows as Array<Record<string, number | string | null>>, start, end);
+      const r = await sendWeeklyReports(supabase, rows as Array<Record<string, number | string | null>>, start, end);
+      emailsSent = r.sent;
+      deliveryFailures = r.failed;
     }
 
     await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: 0, meta: { start, end } });
+    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
+    alertDeliveryFailures('weekly-report', deliveryFailures, { emailsSent });
     return NextResponse.json({ emailsSent, start, end });
   } catch (e) {
     console.error('[weekly-report] Error:', e);

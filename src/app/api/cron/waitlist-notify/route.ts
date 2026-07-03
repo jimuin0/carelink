@@ -8,6 +8,7 @@
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { NextResponse } from 'next/server';
 import { logCronRun } from '@/lib/cron-logger';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
 import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
@@ -65,6 +66,7 @@ export async function GET(request: Request) {
     }
 
     let notified = 0;
+    let deliveryFailures = 0; // メール送達失敗（run 単位で集約 Slack 通報）
 
     if (recentCancels && recentCancels.length > 0) {
       const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -146,6 +148,7 @@ export async function GET(request: Request) {
 <p><a href="${bookingUrl}" style="display:inline-block;padding:12px 24px;background:#0284C7;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;">今すぐ予約する</a></p>`,
               });
             } catch (err) {
+              deliveryFailures++;
               console.error('[waitlist-notify] email send failed', { waiterId: waiter.id, err });
               // 送信が一過性失敗した場合、claim（status='notified'）を握ったままだと当該待ち客は
               // 通知が届かないのに 48h 後に次の人へ順番が移り恒久 miss になる。status を 'waiting' に
@@ -168,6 +171,8 @@ export async function GET(request: Request) {
       processed: notified,
       meta: { expired: expiredCount ?? 0 },
     });
+    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
+    alertDeliveryFailures('waitlist-notify', deliveryFailures, { notified });
 
     return NextResponse.json({ processed: notified, skipped: 0, expired: expiredCount ?? 0 });
   } catch (e) {
