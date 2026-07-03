@@ -11,6 +11,7 @@ import { sendLineText } from '@/lib/line';
 import { escSubject, esc } from '@/lib/email';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertDeliveryFailures } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -76,6 +77,7 @@ export async function GET(request: Request) {
     let sent = 0;
     let skipped = 0;
     let deferred = 0;
+    let deliveryFailures = 0;
 
     for (let i = 0; i < bookings.length; i++) {
       const booking = bookings[i];
@@ -162,6 +164,7 @@ export async function GET(request: Request) {
       // 試行した全チャネルが失敗 → claim を解放して翌 run で再送（恒久 miss を防ぐ）。
       // 連絡先が無い（attempted=false）場合は再送しても無意味なので claim 維持（done 扱い）。
       if (attempted && !delivered) {
+        deliveryFailures++;
         const { error: releaseErr } = await supabase
           .from('bookings')
           .update({ review_request_sent_at: null })
@@ -177,6 +180,7 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    alertDeliveryFailures('review-request', deliveryFailures, { sent, skipped });
     await logCronRun('review-request', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {

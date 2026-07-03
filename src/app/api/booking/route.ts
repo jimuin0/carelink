@@ -383,7 +383,7 @@ export async function POST(request: Request) {
 
         let lineMenuName = '';
         if (parsed.data.menu_id) {
-          const { data: menuForLine } = await supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).maybeSingle();
+          const { data: menuForLine } = await supabase.from('facility_menus').select('name').eq('id', parsed.data.menu_id).eq('facility_id', parsed.data.facility_id).maybeSingle();
           lineMenuName = menuForLine?.name || '';
         }
 

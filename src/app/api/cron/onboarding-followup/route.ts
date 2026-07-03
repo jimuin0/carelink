@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendOnboardingFollowEmail } from '@/lib/email';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertDeliveryFailures } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -69,6 +70,7 @@ export async function GET(request: Request) {
     let sent = 0;
     let skipped = 0;
     let deferred = 0;
+    let deliveryFailures = 0;
 
     for (let i = 0; i < facilities.length; i++) {
       const facility = facilities[i];
@@ -155,6 +157,7 @@ export async function GET(request: Request) {
               facilityName: facility.name,
               missingSteps,
             });
+            if (!delivered) deliveryFailures++;
           }
         }
       } catch (facilityErr) {
@@ -179,6 +182,7 @@ export async function GET(request: Request) {
       sent++;
     }
 
+    alertDeliveryFailures('onboarding-followup', deliveryFailures, { sent, skipped });
     await logCronRun('onboarding-followup', 'success', startedAt, { processed: sent, skipped, meta: { deferred } });
     return NextResponse.json({ processed: sent, skipped, deferred });
   } catch (e) {
