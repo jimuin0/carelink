@@ -276,6 +276,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         message="この予約をキャンセルしますか？キャンセルポリシーによりキャンセル料が発生する場合があります。"
         confirmLabel="キャンセルする"
         cancelLabel="戻る"
+        variant="danger"
         onConfirm={() => { setShowCancelConfirm(false); handleCancel(); }}
         onCancel={() => setShowCancelConfirm(false)}
       />
