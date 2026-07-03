@@ -7,6 +7,8 @@ import BookingFlow from '@/components/booking/BookingFlow';
 
 interface Props {
   params: Promise<{ slug: string }>;
+  // 再予約リンク（前回と同じ内容で予約）から渡るメニュー/スタッフの事前選択（A-6）。
+  searchParams: Promise<{ menu_id?: string; staff_id?: string }>;
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
@@ -25,6 +27,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
 export default async function BookingPage(props: Props) {
   const params = await props.params;
+  const searchParams = await props.searchParams;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
@@ -45,6 +48,8 @@ export default async function BookingPage(props: Props) {
           staff={staff}
           menus={menus}
           coupons={coupons}
+          initialMenuId={searchParams.menu_id}
+          initialStaffId={searchParams.staff_id}
         />
       </div>
     </div>

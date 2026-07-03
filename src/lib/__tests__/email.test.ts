@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -103,6 +103,14 @@ describe('sendBookingConfirmed', () => {
     await sendBookingConfirmed(baseData);
     const html = mockSend.mock.calls[0][0].html;
     expect(html).toContain('確定');
+  });
+});
+
+describe('sendBookingRescheduled', () => {
+  test('変更確認メールにHTMLで「変更」が含まれる', async () => {
+    await sendBookingRescheduled(baseData);
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).toContain('変更');
   });
 });
 
@@ -218,8 +226,10 @@ describe('RESEND_API_KEY未設定時', () => {
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { sendBookingConfirmation: freshSend, sendDailySummaryEmail: freshSummary, sendWeeklyReportEmail: freshWeekly } = require('../email');
+    const { sendBookingConfirmation: freshSend, sendBookingRescheduled: freshReschedule, sendDailySummaryEmail: freshSummary, sendWeeklyReportEmail: freshWeekly } = require('../email');
     await freshSend(baseData);
+    await freshReschedule(baseData); // resend 未生成で早期 return（送信されない）
+
     // Resend 未生成のため送信されない。サマリー/週次メールは false を返す（!resend 分岐）。
     const ok = await freshSummary({
       facilityEmail: 'o@example.com', facilityName: 'X', date: '2026-04-01',

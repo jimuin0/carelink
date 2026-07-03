@@ -13,13 +13,22 @@ interface Props {
   staff: StaffProfile[];
   menus: FacilityMenu[];
   coupons: Coupon[];
+  /** 再予約リンク(?menu_id=&staff_id=)からの事前選択。前回と同じメニュー/スタッフを初期選択する。 */
+  initialMenuId?: string;
+  initialStaffId?: string;
 }
 
-export default function BookingFlow({ facility, staff, menus, coupons }: Props) {
+export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
-  const [selectedMenus, setSelectedMenus] = useState<FacilityMenu[]>([]);
-  const [selectedStaff, setSelectedStaff] = useState<StaffProfile | null>(null);
+  // 再予約リンクで渡された ID を menus/staff から解決して初期選択する（該当なしは無選択にフォールバック）。
+  // これをしないと「同じ内容で再予約」のクエリが無視され、毎回ゼロから選び直しになる（A-6）。
+  const [selectedMenus, setSelectedMenus] = useState<FacilityMenu[]>(
+    initialMenuId ? menus.filter((m) => m.id === initialMenuId) : []
+  );
+  const [selectedStaff, setSelectedStaff] = useState<StaffProfile | null>(
+    initialStaffId ? (staff.find((s) => s.id === initialStaffId) ?? null) : null
+  );
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
