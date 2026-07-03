@@ -15,6 +15,9 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+// 紹介ボーナス付与(applyCompletionSideEffects 経由)は referral.test / booking-completion.test で
+// 検証済み。ここでは no-op にして referral_uses クエリのモックを不要にする（責務分離）。
+jest.mock('@/lib/referral', () => ({ awardReferralPointsOnCompletion: jest.fn(() => Promise.resolve()) }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 

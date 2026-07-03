@@ -28,6 +28,16 @@ function insertTable(result: Result, capture: { insert?: jest.Mock } = {}) {
   return { insert };
 }
 
+/** referral_uses の .update().eq().eq().select() チェーン（awardReferralPointsOnCompletion 用）。 */
+function referralUsesChain(result: Result, capture: { update?: jest.Mock } = {}) {
+  const select = jest.fn(() => Promise.resolve(result));
+  const eq2 = jest.fn(() => ({ select }));
+  const eq1 = jest.fn(() => ({ eq: eq2 }));
+  const update = jest.fn(() => ({ eq: eq1 }));
+  capture.update = update;
+  return { update };
+}
+
 function makeAdmin(opts: {
   menu?: unknown;
   staff?: unknown;
@@ -38,12 +48,16 @@ function makeAdmin(opts: {
   fromCap?: { from?: jest.Mock };
   menuEqCap?: { eq?: jest.Mock };
   staffEqCap?: { eq?: jest.Mock };
+  referralClaim?: Result;
+  referralCap?: { update?: jest.Mock };
 }) {
   const from = jest.fn((table: string) => {
     if (table === 'facility_menus') return nameLookup(opts.menu ?? null, opts.menuEqCap ?? {});
     if (table === 'staff_profiles') return nameLookup(opts.staff ?? null, opts.staffEqCap ?? {});
     if (table === 'customer_visits') return insertTable(opts.visitResult ?? { error: null }, opts.visitCap);
     if (table === 'user_points') return insertTable(opts.pointResult ?? { error: null }, opts.pointCap);
+    // referral_uses: デフォルトは未紹介(0行)で awardReferralPointsOnCompletion を no-op にする。
+    if (table === 'referral_uses') return referralUsesChain(opts.referralClaim ?? { data: [], error: null }, opts.referralCap);
     throw new Error(`unexpected table ${table}`);
   });
   if (opts.fromCap) opts.fromCap.from = from;

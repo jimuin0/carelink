@@ -22,6 +22,30 @@ jest.mock('@/lib/supabase-server');
 import { checkRateLimit } from '@/lib/rate-limit';
 import { GET } from '../route';
 
+// user_points は 2 回クエリされる:
+//   (1) 履歴表示用: select('id, points, reason, created_at').eq().order().limit(50)
+//   (2) 残高(total)用: select('points').eq()  ← 全件（.order/.limit なし・直接 await）
+// mock は select の引数で 2 経路を分岐させる。allData を渡すと (2) はそれを、無ければ logsData を返す
+// （＝残高は全履歴合計で算出されるという F9 の仕様を検証可能にする）。
+function userPointsMock(logsData: unknown[], allData?: unknown[]) {
+  return {
+    select: jest.fn((cols: string) => {
+      if (cols === 'points') {
+        // 残高用（全件）
+        return { eq: jest.fn().mockResolvedValue({ data: allData ?? logsData }) };
+      }
+      // 履歴用（直近50件）
+      return {
+        eq: jest.fn().mockReturnValue({
+          order: jest.fn().mockReturnValue({
+            limit: jest.fn().mockResolvedValue({ data: logsData }),
+          }),
+        }),
+      };
+    }),
+  };
+}
+
 function setupDefaultMocks(
   lineTokenValid: boolean = true,
   profileFound: boolean = true,
@@ -69,17 +93,7 @@ function setupDefaultMocks(
           }),
         };
       } else if (table === 'user_points') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              order: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({
-                  data: logsData,
-                }),
-              }),
-            }),
-          }),
-        };
+        return userPointsMock(logsData);
       }
     }),
   });
@@ -297,15 +311,8 @@ describe('GET /api/liff/points', () => {
             }),
           };
         }
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              order: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({ data: null }),
-              }),
-            }),
-          }),
-        };
+        // logs も total も data:null（?? [] フォールバック）
+        return userPointsMock(null as unknown as unknown[], null as unknown as unknown[]);
       }),
     });
     const res = await GET(makeRequest('valid-token') as any);
@@ -331,25 +338,45 @@ describe('GET /api/liff/points', () => {
             }),
           };
         }
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              order: jest.fn().mockReturnValue({
-                limit: jest.fn().mockResolvedValue({
-                  data: [
-                    { id: 'log-x', points: null, reason: 'x', created_at: '2026-01-01' },
-                    { id: 'log-y', points: 100, reason: 'y', created_at: '2026-01-02' },
-                  ],
-                }),
-              }),
-            }),
-          }),
-        };
+        return userPointsMock([
+          { id: 'log-x', points: null, reason: 'x', created_at: '2026-01-01' },
+          { id: 'log-y', points: 100, reason: 'y', created_at: '2026-01-02' },
+        ]);
       }),
     });
     const res = await GET(makeRequest('valid-token') as any);
     const json = await res.json();
     expect(json.total).toBe(100);
+  });
+
+  // F9 根治検証: 残高(total)は履歴50件の合計ではなく【全件合計】で算出する。
+  // 履歴(logs)には50件までしか出さないが、全件クエリには51件目以降も含まれ total に反映される。
+  test('total は履歴表示(50件)ではなく全件の合計（F9）', async () => {
+    global.fetch = jest.fn(() =>
+      Promise.resolve(new Response(JSON.stringify({ userId: 'line-user-456' }), { status: 200 }))
+    ) as jest.Mock;
+    // 表示用 logs は50件（各+10=500pt分）だが、全件には更に +9500pt の51件目相当を含める。
+    const logs50 = Array.from({ length: 50 }, (_, i) => ({ id: `l${i}`, points: 10, reason: 'r', created_at: '2026-01-01' }));
+    const allRows = [...logs50, { id: 'l50', points: 9500, reason: 'old', created_at: '2025-01-01' }];
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }),
+              }),
+            }),
+          };
+        }
+        return userPointsMock(logs50, allRows);
+      }),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    const json = await res.json();
+    expect(json.logs.length).toBe(50); // 表示は50件のまま
+    expect(json.total).toBe(10000);    // 残高は全件合計 = 500 + 9500
   });
 
   // R2 audience検証: 他チャネル発行トークン（client_id不一致）→ 401（!tokenCheck.ok 分岐）

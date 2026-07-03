@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
   if (typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
     return NextResponse.json({ error: 'name must be 1-100 characters' }, { status: 400 });
   }
-  const VALID_DISCOUNT_TYPES = ['percent', 'fixed', 'special'];
+  // 【正準値】単体発行(admin/coupons)・予約時の割引適用(booking/route.ts)・DB CHECK 制約
+  // (coupons.discount_type IN ('fixed','percentage','special_price')) と完全一致させる。
+  // 旧値 'percent'/'special' は DB CHECK 違反で INSERT が必ず 500 になり一括発行が不能だった
+  // （かつ仮に通っても予約時の分岐にマッチせず無割引になる）。
+  const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'];
   if (!VALID_DISCOUNT_TYPES.includes(discount_type)) {
     return NextResponse.json({ error: 'Invalid discount_type' }, { status: 400 });
   }
@@ -45,6 +49,19 @@ export async function POST(req: NextRequest) {
   }
   if (special_price !== undefined && special_price !== null && (typeof special_price !== 'number' || special_price < 0)) {
     return NextResponse.json({ error: 'special_price must be a non-negative number' }, { status: 400 });
+  }
+  // 上限バリデーション（単体発行 admin/coupons と同一）。欠落していると percentage>100 で
+  // マイナス価格方向の割引や過大な special_price を一括で作れてしまう。
+  // discount_value/special_price は上の非負チェック通過時点で数値か null/undefined のみ
+  // （null/undefined > n は false）なので typeof ガードは不要。
+  if (discount_type === 'percentage' && discount_value > 100) {
+    return NextResponse.json({ error: 'percentage discount_value must be 0-100' }, { status: 400 });
+  }
+  if (discount_value > 100000) {
+    return NextResponse.json({ error: 'discount_value must be at most 100000' }, { status: 400 });
+  }
+  if (special_price > 9999999) {
+    return NextResponse.json({ error: 'special_price must be at most 9999999' }, { status: 400 });
   }
 
   // 権限確認: 全施設に対してowner/adminであること
@@ -64,7 +81,10 @@ export async function POST(req: NextRequest) {
   const rows = facility_ids.map((fid: string) => ({
     facility_id: fid,
     name: name.trim(),
-    coupon_type: ['all', 'first_visit', 'birthday'].includes(coupon_type) ? coupon_type : 'all',
+    // 正準値（DB CHECK: coupon_type IN ('new_customer','repeat','limited_time','all')）に合わせる。
+    // 旧値 'first_visit'/'birthday' は CHECK 違反、逆に有効値 'new_customer' 等は旧 includes に
+    // 無く黙って 'all' に落ちていた。非該当は 'all' フォールバック（従来同様）。
+    coupon_type: ['all', 'new_customer', 'repeat', 'limited_time'].includes(coupon_type) ? coupon_type : 'all',
     discount_type,
     discount_value: discount_value ?? null,
     special_price: special_price ?? null,

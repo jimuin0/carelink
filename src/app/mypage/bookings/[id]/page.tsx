@@ -191,12 +191,21 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           </div>
         </div>
       )}
+      {canCancel && booking && (
+        <button
+          type="button"
+          onClick={() => router.push(`/mypage/bookings/${booking.id}/change`)}
+          className="w-full mt-4 py-3 rounded-xl border border-sky-300 text-sky-600 font-bold hover:bg-sky-50 transition-colors"
+        >
+          日時を変更する
+        </button>
+      )}
       {canCancel && (
         <button
           type="button"
           onClick={() => setShowCancelConfirm(true)}
           disabled={cancelling}
-          className="w-full mt-4 py-3 rounded-xl border border-red-300 text-red-600 font-bold hover:bg-red-50 transition-colors"
+          className="w-full mt-3 py-3 rounded-xl border border-red-300 text-red-600 font-bold hover:bg-red-50 transition-colors"
         >
           {cancelling ? 'キャンセル中...' : 'この予約をキャンセル'}
         </button>

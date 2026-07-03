@@ -7,6 +7,20 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import type { AvailableSlot } from '@/types';
 
+// 予約の実所要時間（分）を start_time/end_time（"HH:MM[:SS]"）の差から求める。
+// 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
+// 先頭メニュー分（例60分）に縮んでしまう。その duration で /api/slots を引くと本来120分ぶんの空きが
+// 必要な枠を60分基準で提示し、確定すると120分予約が60分に縮む／後半がダブルブッキングされ得る。
+// 予約行の start/end（確定済みの実枠）が唯一の真実なので、そこから所要時間を導出する。
+function durationMinutes(start: string, end: string): number {
+  const toMin = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const diff = toMin(end) - toMin(start);
+  return diff > 0 ? diff : 60;
+}
+
 export default function BookingChangePage() {
   const router = useRouter();
   const params = useParams();
@@ -46,7 +60,7 @@ export default function BookingChangePage() {
       // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', b.facility_id).single();
       const { data: menu } = b.menu_id
-        ? await supabase.from('facility_menus').select('name, duration_minutes').eq('id', b.menu_id).single()
+        ? await supabase.from('facility_menus').select('name').eq('id', b.menu_id).single()
         : { data: null };
       const { data: staff } = b.staff_id
         ? await supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single()
@@ -57,7 +71,7 @@ export default function BookingChangePage() {
         facility_name: facility?.name || '',
         menu_name: menu?.name || '',
         staff_name: staff?.name || '',
-        duration: menu?.duration_minutes || 60,
+        duration: durationMinutes(b.start_time, b.end_time),
       });
       setLoading(false);
   }, [bookingId, router]);
@@ -75,14 +89,47 @@ export default function BookingChangePage() {
     setSlots([]);
     setSelectedSlot(null);
     try {
-      const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id || ''}&date=${date}&duration=${booking.duration}`, {
-        signal: controller.signal,
-      });
-      // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
-      // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (!controller.signal.aborted) setSlots(data.slots ?? []);
+      let merged: AvailableSlot[];
+      if (booking.staff_id) {
+        // 指名予約: 当該スタッフの空き枠のみ（従来挙動）。
+        const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id}&date=${date}&duration=${booking.duration}`, {
+          signal: controller.signal,
+        });
+        // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
+        // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        merged = data.slots ?? [];
+      } else {
+        // おまかせ予約(staff_id=NULL): 施設の全予約可能スタッフ分をマージする（作成側 BookingFlow と同一挙動）。
+        // slots API は staffId 必須で空文字だと必ず空配列を返すため、これをしないと全日「空き枠なし」に
+        // なり、おまかせ予約の顧客は日時変更が一切できなくなる（A-1 の根治）。
+        const supabase = createBrowserSupabaseClient();
+        const { data: staffList, error: staffErr } = await supabase
+          .from('staff_profiles')
+          .select('id')
+          .eq('facility_id', booking.facility_id)
+          .eq('is_active', true)
+          .order('sort_order');
+        // スタッフ取得失敗を空リスト＝「空き枠なし」に偽装すると障害と区別できないため、
+        // 失敗は下の catch のエラートーストへ流す（取得失敗の空状態偽装の予防）。
+        if (staffErr) throw new Error();
+        const ids = ((staffList ?? []) as { id: string }[]).map((s) => s.id);
+        const results = await Promise.all(ids.map((sid) =>
+          fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${sid}&date=${date}&duration=${booking.duration}`, { signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : { slots: [] }))
+            .catch(() => ({ slots: [] }))
+        ));
+        const map = new Map<string, AvailableSlot>();
+        results.forEach((data, i) => {
+          for (const slot of ((data.slots ?? []) as AvailableSlot[])) {
+            // 同一開始時刻は最初に見つかったスタッフの枠を採用（作成側と同じ）。
+            if (!map.has(slot.slot_start)) map.set(slot.slot_start, { ...slot, staff_id: ids[i] });
+          }
+        });
+        merged = Array.from(map.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start));
+      }
+      if (!controller.signal.aborted) setSlots(merged);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return;
       setToast({ type: 'error', message: '空き枠の取得に失敗しました' });

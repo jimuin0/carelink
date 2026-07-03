@@ -49,7 +49,7 @@ export interface AuditLogEntry {
 export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
   try {
     const supabase = createServiceRoleClient();
-    await supabase.from('audit_logs').insert({
+    const { error: insertErr } = await supabase.from('audit_logs').insert({
       user_id:     entry.userId ?? null,
       facility_id: entry.facilityId ?? null,
       action:      entry.action,
@@ -60,6 +60,24 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
       ip_address:  entry.ipAddress ?? null,
       user_agent:  entry.userAgent ?? null,
     });
+    // supabase-js は DB レベルの失敗（RLS 拒否・CHECK/enum 制約違反・FK 欠落等）を throw せず戻り値の
+    // error に格納するため、戻り値を検査しないと DB 拒否時の証跡欠落が完全に無音になる（下の catch は
+    // ネットワーク断等の throw のみ捕捉）。cron-logger と同型に error を明示可視化する。
+    if (insertErr) {
+      console.error('[audit-logger] writeAuditLog failed (DB rejected) — audit trail entry lost', {
+        action: entry.action,
+        tableName: entry.tableName,
+        recordId: entry.recordId ?? null,
+        err: insertErr,
+      });
+      // console.error だけでは運用者が気づけない（下の catch と同じ理由）。DB 拒否も
+      // throw と同様に監査証跡が失われるため、同じ経路で通知する。
+      alertCaughtError(
+        'audit-logger:writeAuditLog',
+        insertErr,
+        `audit_logs:${entry.tableName}:${entry.action}`
+      );
+    }
   } catch (err) {
     // 監査ログの失敗で本体処理は止めない（fire-and-forget）が、握り潰すと監査証跡の欠落が
     // 完全に不可視になる（誰の・どの操作が記録漏れしたか追えない）。error で可視化する。

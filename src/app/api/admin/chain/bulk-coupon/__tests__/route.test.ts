@@ -44,7 +44,7 @@ function makeRequest(body: object) {
 function validBody(overrides: object = {}) {
   return {
     name: 'テストクーポン',
-    discount_type: 'percent',
+    discount_type: 'percentage',
     discount_value: 10,
     facility_ids: [FACILITY_A, FACILITY_B],
     ...overrides,
@@ -171,10 +171,41 @@ test('POST: discount_type が fixed → 201', async () => {
   expect(res.status).toBe(201);
 });
 
-test('POST: discount_type が special → 201', async () => {
+test('POST: discount_type が special_price → 201', async () => {
   setupSuccess();
-  const res = await POST(makeRequest(validBody({ discount_type: 'special', special_price: 3000 })));
+  const res = await POST(makeRequest(validBody({ discount_type: 'special_price', special_price: 3000, discount_value: null })));
   expect(res.status).toBe(201);
+});
+
+test('POST: 旧値 percent は正準値でないため 400（DB CHECK 違反の発症前防止）', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'percent' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 旧値 special は正準値でないため 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'special' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: percentage で discount_value > 100 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'percentage', discount_value: 101 })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: percentage で discount_value = 100 → 201（境界）', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody({ discount_type: 'percentage', discount_value: 100 })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: fixed で discount_value > 100000 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'fixed', discount_value: 100001 })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: special_price > 9999999 → 400', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'special_price', discount_value: null, special_price: 10000000 })));
+  expect(res.status).toBe(400);
 });
 
 test('POST: CSRF エラー → 403', async () => {
@@ -244,7 +275,7 @@ test('POST: discount_value が文字列 → 400 (typeof check)', async () => {
 });
 
 test('POST: special_price が文字列 → 400 (typeof check)', async () => {
-  const res = await POST(makeRequest(validBody({ discount_type: 'special', special_price: 'invalid' })));
+  const res = await POST(makeRequest(validBody({ discount_type: 'special_price', special_price: 'invalid' })));
   expect(res.status).toBe(400);
 });
 
@@ -267,6 +298,12 @@ test('POST: coupon_type=first_visit 指定 → 201', async () => {
 test('POST: coupon_type=invalid → 201 (default "all" にフォールバック)', async () => {
   setupSuccess();
   const res = await POST(makeRequest(validBody({ coupon_type: 'invalid_type' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: coupon_type=new_customer（正準値）→ 201（includes true 分岐）', async () => {
+  setupSuccess();
+  const res = await POST(makeRequest(validBody({ coupon_type: 'new_customer' })));
   expect(res.status).toBe(201);
 });
 
@@ -304,7 +341,7 @@ test('POST: insert結果が null → 201 (created=0)', async () => {
 test('POST: discount_value 未指定 (undefined) → null に変換されて 201', async () => {
   setupSuccess();
   const res = await POST(makeRequest(validBody({
-    discount_type: 'special',
+    discount_type: 'special_price',
     special_price: 3000,
     discount_value: undefined,
   })));

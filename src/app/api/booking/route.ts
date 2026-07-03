@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { bookingSchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
-import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
+import { sendBookingConfirmation, sendBookingConfirmed, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
@@ -228,6 +228,11 @@ export async function POST(request: Request) {
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
+    // 指名スタッフが当該施設に属さない（create_booking_atomic が G1 ガードで RAISE）。
+    // 他施設スタッフの割り当て＝マルチテナント違反を fail-closed で拒否する。
+    if (error.message?.includes('STAFF_NOT_IN_FACILITY')) {
+      return NextResponse.json({ error: '指定されたスタッフはこの施設で予約できません' }, { status: 400 });
+    }
     // クーポン使用制限（create_booking_atomic が RAISE する。トランザクションごとロールバック済み）
     if (error.message?.includes('COUPON_LIMIT')) {
       return NextResponse.json({ error: 'このクーポンは利用上限に達しています' }, { status: 409 });
@@ -320,10 +325,16 @@ export async function POST(request: Request) {
       bookingId: newBookingId,
     };
 
-    // sendBookingConfirmation/sendNewBookingNotification は送信失敗時も throw せず false を
-    // 返す契約のため、.catch() だけでは失敗が無音化する（想定外の例外のみ catch が発火する）。
-    // 戻り値を確認して両方の失敗経路を可視化する。
-    sendBookingConfirmation(emailData).then((ok) => {
+    // 即時確定（booking_auto_confirm=true）施設では status='confirmed' になるため、
+    // 「確認待ち＋確定メールを後送」を案内する sendBookingConfirmation ではなく、確定メール
+    // sendBookingConfirmed を送る。従来は常に確認待ちメールを送り、自動確定施設の顧客は
+    // 来ることのない確定メールを待ち続けた（確定メールは admin 経路からしか送られない）。
+    // いずれの送信関数も失敗時 throw せず false を返す契約のため、.catch() だけでは失敗が
+    // 無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
+    const confirmationEmailSend = bookingStatus === 'confirmed'
+      ? sendBookingConfirmed(emailData)
+      : sendBookingConfirmation(emailData);
+    confirmationEmailSend.then((ok) => {
       if (!ok) {
         const err = new Error('booking confirmation email send failed');
         safeCaptureException(err, 'booking-email');
@@ -410,6 +421,7 @@ export async function POST(request: Request) {
 
         // sendLineBookingConfirm は sendLinePush 経由で送信失敗時も throw せず false を返す
         // 契約のため、.catch() だけでは失敗が無音化する。戻り値を確認して可視化する。
+        // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
         sendLineBookingConfirm(lineLink.line_user_id, {
           facilityName: facilityForLine?.name || '',
           menuName: lineMenuName,
@@ -418,6 +430,7 @@ export async function POST(request: Request) {
         }).then((ok) => {
           if (!ok) {
             const err = new Error('LINE booking confirmation send failed');
+            console.error('[booking] LINE booking confirmation not delivered', { userId: user.id, bookingId: newBookingId });
             safeCaptureException(err, 'booking-line');
             alertCaughtError('booking-line', err, '/api/booking');
           }
@@ -465,9 +478,11 @@ export async function POST(request: Request) {
           if (!staff.line_works_channel_id) continue;
           const isAssigned = staff.id === parsed.data.staff_id;
           if (isAssigned || staff.line_works_notify_all) {
-            notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo).catch((e) =>
-              safeCaptureException(e, 'booking-lineworks')
-            );
+            // notifyNewBookingLineWorks も失敗時 throw せず false を返す契約。line_works_channel_id
+            // 設定済みスタッフのみが対象なので false は真の未送達＝ログ化して可観測にする（非ブロッキング維持）。
+            notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo)
+              .then((ok) => { if (!ok) console.error('[booking] LINE Works new-booking notification not delivered', { bookingId: newBookingId, staffId: staff.id }); })
+              .catch((e) => safeCaptureException(e, 'booking-lineworks'));
           }
         }
         void facilityRow;

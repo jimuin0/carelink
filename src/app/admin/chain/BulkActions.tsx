@@ -17,7 +17,9 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
 
   // Coupon form
   const [couponName, setCouponName] = useState('');
-  const [discountType, setDiscountType] = useState<'percent' | 'fixed' | 'special'>('percent');
+  // 割引タイプは DB CHECK / 単体発行 / 予約時適用と同じ正準値を使う（旧 'percent'/'special' は
+  // CHECK 違反で一括発行が 500 になっていた）。
+  const [discountType, setDiscountType] = useState<'percentage' | 'fixed' | 'special_price'>('percentage');
   const [discountValue, setDiscountValue] = useState('');
   const [validUntil, setValidUntil] = useState('');
   const [submittingCoupon, setSubmittingCoupon] = useState(false);
@@ -38,8 +40,8 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
           name: couponName,
           coupon_type: 'all',
           discount_type: discountType,
-          discount_value: discountType !== 'special' ? Number(discountValue) : null,
-          special_price: discountType === 'special' ? Number(discountValue) : null,
+          discount_value: discountType !== 'special_price' ? Number(discountValue) : null,
+          special_price: discountType === 'special_price' ? Number(discountValue) : null,
           valid_until: validUntil || null,
           facility_ids: facilityIds,
         }),
@@ -122,7 +124,7 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
             <div>
               <label className="block text-xs font-medium text-gray-700 mb-1">割引タイプ</label>
               <div className="flex gap-3">
-                {([['percent', '割引率(%)'], ['fixed', '固定額(円)'], ['special', '特別価格(円)']] as const).map(([v, l]) => (
+                {([['percentage', '割引率(%)'], ['fixed', '固定額(円)'], ['special_price', '特別価格(円)']] as const).map(([v, l]) => (
                   <label key={v} className="flex items-center gap-1.5 text-sm cursor-pointer">
                     <input type="radio" value={v} checked={discountType === v} onChange={() => setDiscountType(v)} />
                     {l}
@@ -132,7 +134,7 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
             </div>
             <div>
               <label htmlFor="chain-discount-value" className="block text-xs font-medium text-gray-700 mb-1">
-                {discountType === 'percent' ? '割引率(%)' : discountType === 'fixed' ? '割引額(円)' : '特別価格(円)'} <span className="text-red-500">*</span>
+                {discountType === 'percentage' ? '割引率(%)' : discountType === 'fixed' ? '割引額(円)' : '特別価格(円)'} <span className="text-red-500">*</span>
               </label>
               <input
                 id="chain-discount-value"
@@ -140,7 +142,7 @@ export default function ChainBulkActions({ facilityIds, facilityNames }: Props) 
                 value={discountValue}
                 onChange={(e) => setDiscountValue(e.target.value)}
                 min={1}
-                max={discountType === 'percent' ? 100 : undefined}
+                max={discountType === 'percentage' ? 100 : undefined}
                 className="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm"
               />
             </div>

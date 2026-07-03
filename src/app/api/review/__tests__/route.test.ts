@@ -681,7 +681,8 @@ describe('POST /api/review', () => {
       const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
       const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
 
-      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      // 来店確認済み(completed 予約あり) = is_verified_visit=true。付与ロジック内の分岐を検証するため。
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [{ id: 'booking-1' }] });
       const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
       const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
       const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
@@ -730,7 +731,8 @@ describe('POST /api/review', () => {
       const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
       const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
 
-      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      // 来店確認済み(completed 予約あり) = is_verified_visit=true。付与ロジック内の分岐を検証するため。
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [{ id: 'booking-1' }] });
       const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
       const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
       const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
@@ -778,7 +780,8 @@ describe('POST /api/review', () => {
       const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
       const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
 
-      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      // 来店確認済み(completed 予約あり) = is_verified_visit=true。ポイント付与は来店者限定のため。
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [{ id: 'booking-1' }] });
       const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
       const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
       const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
@@ -815,6 +818,53 @@ describe('POST /api/review', () => {
       // insertErr があっても fire-and-forget なのでメインは200
       expect(res.status).toBe(200);
       expect(mockPointsInsert).toHaveBeenCalled();
+    });
+
+    // A-8 根治の回帰防止: 未来店(completed 予約なし)ユーザーはポイント付与されない
+    // （来店検証なしで 50pt×施設数 を稼ぐポイントファーミングを防ぐ）。
+    test('未来店ユーザー(completed予約なし) → ポイント付与されない', async () => {
+      const mockGetUserFn = jest.fn().mockResolvedValue({
+        data: { user: { id: 'user-123', email: 'test@example.com' } },
+      });
+
+      const mockDupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockDupGte = jest.fn().mockReturnValue({ limit: mockDupLimit });
+      const mockDupEq2 = jest.fn().mockReturnValue({ gte: mockDupGte });
+      const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
+      const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
+
+      // 未来店 = completed 予約なし → is_verified_visit=false
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
+      const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
+      const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
+      const mockBookingSelect = jest.fn().mockReturnValue({ eq: mockBookingEq1 });
+
+      const mockSingle = jest.fn().mockResolvedValue({ data: { id: 'review-nofarm' }, error: null });
+      const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
+      const mockInsertFn = jest.fn().mockReturnValue({ select: mockSelectInsert });
+
+      const mockPointsSelect = jest.fn();
+      const mockPointsInsert = jest.fn();
+
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
+        if (table === 'bookings') return { select: mockBookingSelect };
+        if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+      });
+
+      const { createServerClient } = require('@supabase/ssr');
+      createServerClient.mockReturnValue({ auth: { getUser: mockGetUserFn }, from: fromRouter });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      const { cookies } = require('next/headers');
+      cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      // is_verified_visit=false のため付与ロジックに入らない（dedup select も insert も呼ばれない）。
+      expect(mockPointsSelect).not.toHaveBeenCalled();
+      expect(mockPointsInsert).not.toHaveBeenCalled();
     });
   });
 });

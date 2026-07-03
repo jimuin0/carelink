@@ -17,6 +17,9 @@ jest.mock('@/lib/email', () => ({
 jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn() }));
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn() }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+// 紹介ボーナス付与(applyCompletionSideEffects 経由)は referral.test / booking-completion.test で
+// 検証済み。ここでは no-op にして referral_uses クエリのモックを不要にする（責務分離）。
+jest.mock('@/lib/referral', () => ({ awardReferralPointsOnCompletion: jest.fn(() => Promise.resolve()) }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 const mockGetUser = jest.fn();
