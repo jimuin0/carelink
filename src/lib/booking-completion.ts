@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { safeCaptureException } from './safe';
+import { awardReferralPointsOnCompletion } from './referral';
 
 /**
  * 予約が completed に「進入」した際に付与する副作用。reverseCompletionSideEffects の対称形。
@@ -75,5 +76,13 @@ export async function applyCompletionSideEffects(
       }
     }
   }
+
+  // 紹介ボーナス: 被紹介者の初回予約完了時に紹介者500pt・被紹介者300ptを付与する（A-7 根治）。
+  // 適用時の即時付与は捨てアカウント量産で悪用できたため、実来店(予約完了)を付与ゲートにする。
+  // points_awarded の CAS で複数完了経路・複数回完了でも二重付与しない。失敗は本体を妨げない。
+  if (booking.user_id) {
+    await awardReferralPointsOnCompletion(admin, booking.user_id);
+  }
+
   return pointsEarned;
 }

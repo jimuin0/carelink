@@ -60,7 +60,7 @@ export default function ReferralPage() {
       });
       const body = await res.json();
       if (res.ok) {
-        setToast({ type: 'success', message: `紹介コードを適用しました！${body.message || '300ポイント獲得'}` });
+        setToast({ type: 'success', message: body.message || '紹介コードを適用しました。初回のご予約完了で300ポイントが付与されます。' });
         setAlreadyReferred(true);
         setInputCode('');
       } else {
@@ -100,7 +100,7 @@ export default function ReferralPage() {
       <div className="bg-gradient-to-br from-sky-500 to-sky-600 text-white rounded-2xl p-6">
         <p className="text-sm opacity-90 mb-2">友達を招待すると</p>
         <p className="text-3xl font-bold">双方に 300pt</p>
-        <p className="text-sm opacity-80 mt-1">招待した方・された方、両方にポイントをプレゼント</p>
+        <p className="text-sm opacity-80 mt-1">初回のご予約完了で、招待した方・された方の両方にポイントをプレゼント</p>
       </div>
 
       {/* 自分の紹介コード */}
@@ -145,7 +145,7 @@ export default function ReferralPage() {
       {!alreadyReferred ? (
         <div className="bg-white rounded-2xl shadow-sm p-6">
           <h2 className="text-base font-bold text-gray-800 mb-2">紹介コードを入力する</h2>
-          <p className="text-xs text-gray-500 mb-4">友達から紹介コードをもらったら入力してください。300ポイントをプレゼントします。</p>
+          <p className="text-xs text-gray-500 mb-4">友達から紹介コードをもらったら入力してください。初回のご予約完了で300ポイントをプレゼントします。</p>
           <div className="flex gap-3">
             <input
               type="text"
