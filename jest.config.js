@@ -12,6 +12,9 @@ const config = {
   testMatch: [
     '<rootDir>/src/**/__tests__/**/*.{ts,tsx}',
     '<rootDir>/src/**/*.{test,spec}.{ts,tsx}',
+    // eslint-plugin-carelink-safety のルール自体の回帰テスト（M-8）。src/ 外だが coverage
+    // ゲート対象（collectCoverageFrom は src/** 限定）には含まれないため branches 100% に影響しない。
+    '<rootDir>/eslint-plugin-carelink-safety/__tests__/**/*.test.js',
   ],
   collectCoverageFrom: [
     'src/lib/**/*.ts',

@@ -133,16 +133,9 @@ module.exports = {
         },
       },
       create(context) {
-        const sourceCode = context.getSourceCode();
-        const body = sourceCode.ast.body;
-        const first = body && body[0];
-        const isClient =
-          first &&
-          first.type === 'ExpressionStatement' &&
-          first.expression &&
-          first.expression.type === 'Literal' &&
-          first.expression.value === 'use client';
-        if (!isClient) return {};
+        // 従来は 'use client' ファイルのみを検査していたが、無音 miss が最も危険なのは
+        // 誰も見ていないバックグラウンド（cron/webhook/service_role API route）であり、
+        // そこが構造的に検査対象外だった（M-8）。クライアント/サーバを問わず全ファイルを検査する。
         return {
           VariableDeclarator(node) {
             if (!node.id || node.id.type !== 'ObjectPattern') return;
