@@ -58,7 +58,10 @@ export async function fetchPlaceDetails(placeId: string): Promise<PlaceDetails |
   const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${encodeURIComponent(placeId)}&fields=${fields}&language=ja&key=${apiKey}`;
 
   try {
-    const res = await fetch(url, { next: { revalidate: 3600 } }); // 1時間キャッシュ
+    // 他の外部 fetch（line.ts 等）と同様に timeout を付ける（M-6）。これが無いと 1 件のハングが
+    // sync-google-ratings の maxDuration(60s) までブロックし、Vercel の強制 kill でその run の残り
+    // 施設が未同期になる（時間予算ガードは iteration 間でしか効かず 1 件のハングを救えない）。
+    const res = await fetch(url, { next: { revalidate: 3600 }, signal: AbortSignal.timeout(10000) }); // 1時間キャッシュ
     if (!res.ok) return null;
     const json = await res.json();
     if (json.status !== 'OK') return null;

@@ -21,13 +21,23 @@ interface LineEvent {
 }
 
 export async function POST(request: Request) {
+  const body = await request.text();
+  const signature = request.headers.get('x-line-signature');
+  // 署名検証。secret 未設定は verifyLineSignature が throw する＝設定ミス。これを本体 catch で握って
+  // 200 ok を返すと LINE は再送せず全イベントが無音ドロップするため、設定ミスは 500 で可視化し LINE の
+  // 再送機会を残す（M-7）。署名不正(false)は正常な拒否として 401。
+  let signatureValid: boolean;
   try {
-    const body = await request.text();
-    const signature = request.headers.get('x-line-signature');
-    if (!signature || !verifyLineSignature(body, signature)) {
-      return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-    }
+    signatureValid = !!signature && verifyLineSignature(body, signature);
+  } catch (e) {
+    console.error('[LINE Webhook] signature verification failed (misconfiguration?)', e);
+    return NextResponse.json({ error: 'Webhook configuration error' }, { status: 500 });
+  }
+  if (!signatureValid) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
+  }
 
+  try {
     const parsed = JSON.parse(body);
     const events: LineEvent[] = parsed.events || [];
 

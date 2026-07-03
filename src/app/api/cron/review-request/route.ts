@@ -52,7 +52,7 @@ export async function GET(request: Request) {
     const staleAfter = new Date(now.getTime() - STALE_LOOKBACK_MS).toISOString();
     const minAgeBefore = new Date(now.getTime() - MIN_AGE_MS).toISOString();
 
-    const { data: bookings } = await supabase
+    const { data: bookings, error: bookingsErr } = await supabase
       .from('bookings')
       .select('id, email, customer_name, user_id, facility_id, updated_at')
       .eq('status', 'completed')
@@ -61,6 +61,15 @@ export async function GET(request: Request) {
       .is('review_request_sent_at', null)
       .order('updated_at', { ascending: true })
       .limit(CONSIDER_LIMIT);
+
+    // 主クエリの一過性障害を「0件=skipped(成功)」に偽装しない（他 cron と対称）。error は 500+error ログで
+    // 可視化し、cron-logger の error 経路経由で alert を発火させる。これをしないと DB 障害でレビュー依頼が
+    // 全停止しても status='skipped'(正常)で記録され完全無音になる（H-2）。
+    if (bookingsErr) {
+      console.error('[review-request] bookings query failed', { err: bookingsErr });
+      await logCronRun('review-request', 'error', startedAt, { error_msg: bookingsErr.message });
+      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    }
 
     if (!bookings || bookings.length === 0) {
       await logCronRun('review-request', 'skipped', startedAt, { processed: 0, skipped: 0 });
@@ -102,13 +111,20 @@ export async function GET(request: Request) {
       if (!claimed || claimed.length === 0) { skipped++; continue; } // Another invocation already claimed this booking
 
       // 施設名取得
-      const { data: facility } = await supabase
+      const { data: facility, error: facErr } = await supabase
         .from('facility_profiles')
         .select('name, slug')
         .eq('id', booking.facility_id)
         .maybeSingle();
 
-      if (!facility) { skipped++; continue; }
+      // claim 済みなので、facility 取得が一過性 error のときは claim を解放して翌 run で再処理する
+      // （解放しないと sent_at が立ったまま二度と対象に乗らず恒久 miss になる・H-3）。
+      if (facErr) {
+        await supabase.from('bookings').update({ review_request_sent_at: null }).eq('id', booking.id);
+        skipped++;
+        continue;
+      }
+      if (!facility) { skipped++; continue; } // 施設が実在しない(削除済み)＝再送不要・claim 維持
 
       const reviewUrl = `https://carelink-jp.com/facility/${facility.slug}#review`;
 
