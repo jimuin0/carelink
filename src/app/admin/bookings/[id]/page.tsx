@@ -447,6 +447,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
         }
         confirmLabel={pendingStatus === 'no_show' ? '無断キャンセルにする' : 'キャンセルする'}
         cancelLabel="やめる"
+        variant="danger"
         onConfirm={() => { const s = pendingStatus; setPendingStatus(null); if (s) handleStatusChange(s); }}
         onCancel={() => setPendingStatus(null)}
       />

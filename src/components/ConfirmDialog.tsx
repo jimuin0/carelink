@@ -10,6 +10,8 @@ interface ConfirmDialogProps {
   cancelLabel?: string;
   /** 確定ボタンを無効化する（処理中の二重発火防止など）。true の間は確定不可。 */
   confirmDisabled?: boolean;
+  /** 破壊的操作（キャンセル/削除など取り消せない操作）は 'danger' で確定ボタンを赤くし、誤操作を抑止する。 */
+  variant?: 'default' | 'danger';
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -21,6 +23,7 @@ export default function ConfirmDialog({
   confirmLabel = '送信する',
   cancelLabel = 'キャンセル',
   confirmDisabled = false,
+  variant = 'default',
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
@@ -97,7 +100,11 @@ export default function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={confirmDisabled}
-            className="btn-primary flex-1 !py-3 !px-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            className={`flex-1 !py-3 !px-4 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${
+              variant === 'danger'
+                ? 'font-bold rounded-lg text-white bg-red-600 hover:bg-red-700 transition-colors'
+                : 'btn-primary'
+            }`}
           >
             {confirmLabel}
           </button>
