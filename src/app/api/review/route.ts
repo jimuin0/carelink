@@ -133,9 +133,12 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '投稿に失敗しました' }, { status: 500 });
   }
 
-  // ポイント付与（fire-and-forget）
+  // ポイント付与（fire-and-forget）— 来店確認済み(completed 予約あり)のユーザーに限る。
+  // is_verified_visit が false の口コミにもポイントを付けると、来店実績ゼロのまま複数施設へ
+  // 投稿して 50pt×施設数 を稼ぐポイントファーミング（換金可能）が成立する。付与を来店者限定に
+  // することで、算出済みの来店確認フラグを実際のゲートとして機能させ、悪用を根本から断つ。
   // Keyed on review ID so one award per review submission.
-  if (user && review) {
+  if (user && review && isVerifiedVisit) {
     const reviewReason = `口コミポイント (${review.id.slice(0, 8)})`;
     supabase.from('user_points')
       .select('id')

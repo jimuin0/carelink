@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { bookingSchema } from '@/lib/validations-booking';
 import { checkCsrf } from '@/lib/csrf';
-import { sendBookingConfirmation, sendNewBookingNotification } from '@/lib/email';
+import { sendBookingConfirmation, sendBookingConfirmed, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendPushToFacilityOwners, sendPushToUser } from '@/lib/push';
@@ -325,7 +325,15 @@ export async function POST(request: Request) {
       bookingId: newBookingId,
     };
 
-    sendBookingConfirmation(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
+    // 即時確定（booking_auto_confirm=true）施設では status='confirmed' になるため、
+    // 「確認待ち＋確定メールを後送」を案内する sendBookingConfirmation ではなく、確定メール
+    // sendBookingConfirmed を送る。従来は常に確認待ちメールを送り、自動確定施設の顧客は
+    // 来ることのない確定メールを待ち続けた（確定メールは admin 経路からしか送られない）。
+    if (bookingStatus === 'confirmed') {
+      sendBookingConfirmed(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
+    } else {
+      sendBookingConfirmation(emailData).catch((e) => safeCaptureException(e, 'booking-email'));
+    }
 
     // Notify ALL facility owners（メールを全オーナーへ）。push.ts の owner 全員通知と対称にする。
     const ownerRows = (ownerResult.data as { user_id: string }[] | null) ?? [];

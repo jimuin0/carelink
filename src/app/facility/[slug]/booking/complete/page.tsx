@@ -27,6 +27,20 @@ async function facilityHasActiveIntake(slug: string): Promise<boolean> {
   }
 }
 
+// 予約の status を取得して complete 画面の文言を「確定」「確認待ち」で出し分ける。
+// 即時確定(booking_auto_confirm=true)施設は status='confirmed' で確定済みなのに、
+// 従来は一律「施設からの確認をお待ちください」と案内していた（メール A-3 と同型の齟齬）。
+async function getBookingStatus(bookingId?: string): Promise<string | null> {
+  if (!bookingId) return null;
+  try {
+    const admin = createServiceRoleClient();
+    const { data } = await admin.from('bookings').select('status').eq('id', bookingId).maybeSingle();
+    return (data as { status: string } | null)?.status ?? null;
+  } catch {
+    return null;
+  }
+}
+
 interface Props {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ id?: string; date?: string; time?: string; end_time?: string; facility?: string; has_intake?: string }>;
@@ -103,6 +117,8 @@ export default async function BookingCompletePage(props: Props) {
   const searchParams = await props.searchParams;
   const params = await props.params;
   const bookingId = searchParams.id;
+  const bookingStatus = await getBookingStatus(bookingId);
+  const isConfirmed = bookingStatus === 'confirmed';
   // has_intake=1 の明示指定、または施設に有効な問診テンプレが実在すればバナーを出す（INTAKE-1）。
   const hasIntakeForm = searchParams.has_intake === '1' || (await facilityHasActiveIntake(params.slug));
   const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
@@ -122,8 +138,8 @@ export default async function BookingCompletePage(props: Props) {
             <p className="text-xs text-gray-400 mb-1 font-mono">予約番号: {bookingId.slice(0, 8).toUpperCase()}</p>
           )}
           <p className="text-sm text-gray-500 mb-6">
-            ご登録のメールアドレスに確認メールをお送りしました。
-            施設からの確認をお待ちください。
+            ご登録のメールアドレスに{isConfirmed ? '確定' : '確認'}メールをお送りしました。
+            {isConfirmed ? 'ご予約が確定しました。ご来店をお待ちしております。' : '施設からの確認をお待ちください。'}
           </p>
           <div className="space-y-3">
             {/* 問診票バナー */}
