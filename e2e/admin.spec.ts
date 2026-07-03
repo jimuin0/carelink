@@ -89,10 +89,16 @@ test.describe.serial('管理画面（オーナー）', () => {
     const { id } = JSON.parse(fs.readFileSync(CONFIRMED_BOOKING_FILE, 'utf8')) as { id: string };
     await page.goto(`/admin/bookings/${id}`);
     await expect(page.getByText(SEED.confirmedCustomer)).toBeVisible();
-    // 会計する → 明細(確定予約の total_price で1行自動投入) → 会計を確定して完了
+    // 会計する → 明細(確定予約の total_price で1行自動投入) → 会計を確定して完了。
+    // 成功判定は、4秒で自動消滅し CI では消滅後にポーリングして flake する成功トーストではなく
+    // API 応答＋status='completed'反映で「退店・お会計」セクション自体が消えることで行う
+    // （唯一の副作用ゼロな決定的判定）。
     await page.getByRole('button', { name: '会計する' }).click();
-    await page.getByRole('button', { name: '会計を確定して完了' }).click();
-    await expect(page.getByText('会計を確定して完了しました', { exact: false })).toBeVisible({ timeout: 15000 });
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/admin/booking-checkout') && r.request().method() === 'POST' && r.ok()),
+      page.getByRole('button', { name: '会計を確定して完了' }).click(),
+    ]);
+    await expect(page.getByRole('button', { name: '会計する' })).toHaveCount(0, { timeout: 15000 });
   });
 
   // オーナーのメニュー作成（CRUD の C）＝メニュー追加→保存→一覧に反映。
@@ -110,9 +116,13 @@ test.describe.serial('管理画面（オーナー）', () => {
     // ポインタ被りに依存しないキーボード操作（正当なユーザー操作）で確実に起動する。
     const saveBtn = dialog.getByRole('button', { name: '保存' });
     await saveBtn.scrollIntoViewIfNeeded();
-    await saveBtn.press('Enter');
-    await expect(page.getByText('追加しました')).toBeVisible({ timeout: 15000 });
-    // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映）
+    // POST /api/admin/menus の成功を、4秒で自動消滅し CI では消滅後にポーリングして flake する
+    // 成功トーストではなく API 応答そのもので判定する（唯一の副作用ゼロな決定的判定）。
+    await Promise.all([
+      page.waitForResponse((r) => r.url().includes('/api/admin/menus') && r.request().method() === 'POST' && r.ok()),
+      saveBtn.press('Enter'),
+    ]);
+    // 一覧に追加したメニューが出る（書き込みが永続化され再読込で反映＝永続 DOM 証拠）
     await expect(page.getByText(menuName)).toBeVisible();
   });
 

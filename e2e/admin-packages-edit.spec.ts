@@ -10,10 +10,14 @@ test('オーナーがパッケージを公開トグル→削除できる（PATCH
   // まず編集/削除の対象を1件作成（名前のみ必須・他はフォーム既定値）。
   await page.getByRole('button', { name: '+ 新規作成' }).click();
   await page.getByPlaceholder('5回券（お得パック）').fill(name);
-  await page.getByRole('button', { name: '作成', exact: true }).click();
-  await expect(page.getByText('パッケージを作成しました')).toBeVisible({ timeout: 15000 });
+  // POST /api/admin/packages の成功を、4秒で自動消滅し CI では消滅後にポーリングして flake する
+  // 成功トーストではなく API 応答そのもので判定する（唯一の副作用ゼロな決定的判定）。
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/admin/packages') && r.request().method() === 'POST' && r.ok()),
+    page.getByRole('button', { name: '作成', exact: true }).click(),
+  ]);
 
-  // 作成した行に限定（並行 spec が同一施設に作る他パッケージと混ざらないよう一意名でスコープ）。
+  // 作成した行に限定（並行 spec が同一施設に作る他パッケージと混ざらないよう一意名でスコープ＝永続 DOM 証拠）。
   const row = page.locator('div.flex.items-start').filter({ hasText: name });
   await expect(row).toBeVisible({ timeout: 15000 });
 
@@ -30,8 +34,12 @@ test('オーナーがパッケージを公開トグル→削除できる（PATCH
   await del.press('Enter');
   const confirm = page.getByRole('button', { name: '削除する' });
   await confirm.scrollIntoViewIfNeeded();
-  await confirm.press('Enter');
-  await expect(page.getByText('削除しました')).toBeVisible({ timeout: 15000 });
-  // 一覧から消滅（削除永続化＋再読込反映）。
+
+  // DELETE /api/admin/packages/{id} の成功を API 応答そのもので判定する（トースト消滅 flake 回避）。
+  await Promise.all([
+    page.waitForResponse((r) => /\/api\/admin\/packages\/[^/]+$/.test(r.url()) && r.request().method() === 'DELETE' && r.ok()),
+    confirm.press('Enter'),
+  ]);
+  // 一覧から消滅（削除永続化＋再読込反映＝永続 DOM 証拠）。
   await expect(page.getByText(name)).toHaveCount(0, { timeout: 15000 });
 });
