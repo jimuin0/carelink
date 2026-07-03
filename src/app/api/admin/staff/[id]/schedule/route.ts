@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -98,7 +99,7 @@ const deleteOverrideSchema = z.object({
 async function getAdminFacilityIdAndVerifyStaff(
   request: NextRequest,
   staffId: string
-): Promise<string | null> {
+): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -126,7 +127,7 @@ async function getAdminFacilityIdAndVerifyStaff(
     .eq('facility_id', facilityId)
     .single();
 
-  return staff ? facilityId : null;
+  return staff ? { userId: user.id, facilityId } : null;
 }
 
 // PUT: Replace all weekly schedules for a staff member
@@ -141,8 +142,8 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityIdAndVerifyStaff(request, params.id);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityIdAndVerifyStaff(request, params.id);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = scheduleSchema.safeParse(body);
@@ -187,6 +188,17 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 
+  // 予約可用性に直結する重要操作のため監査ログに残す（fire-and-forget）。
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'staff_schedules',
+    recordId: params.id,
+    newValues: { schedules: parsed.data.schedules },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }
 
@@ -202,8 +214,8 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityIdAndVerifyStaff(request, params.id);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityIdAndVerifyStaff(request, params.id);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = overrideSchema.safeParse(body);
@@ -244,6 +256,17 @@ export async function POST(request: NextRequest, props: { params: Promise<{ id: 
 
   const { error } = await admin.from('schedule_overrides').upsert(row, { onConflict: 'staff_id,date' });
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'schedule_overrides',
+    recordId: params.id,
+    newValues: row,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true }, { status: 201 });
 }
 
@@ -259,8 +282,8 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityIdAndVerifyStaff(request, params.id);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityIdAndVerifyStaff(request, params.id);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = deleteOverrideSchema.safeParse(body);
@@ -275,5 +298,15 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('staff_id', params.id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'delete',
+    tableName: 'schedule_overrides',
+    recordId: parsed.data.override_id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }

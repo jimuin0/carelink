@@ -19,6 +19,7 @@
 import { NextResponse } from 'next/server';
 import { verifySlackRequest } from '@/lib/slack-verify';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +92,7 @@ export async function POST(request: Request) {
             await handler(payload, action);
           } catch (e) {
             safeCaptureException(e, `slack-action:${action.action_id}`);
+            alertCaughtError(`slack-action:${action.action_id}`, e, '/api/slack/interactions');
           }
         })();
       }
@@ -100,6 +102,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     safeCaptureException(e, 'slack-interactions');
+    alertCaughtError('slack-interactions', e, '/api/slack/interactions');
     return NextResponse.json({ error: 'internal' }, { status: 500 });
   }
 }

@@ -3,6 +3,20 @@ import { z } from 'zod';
 // Phone format helper (Japanese phone: 090-1234-5678, 03-1234-5678, etc.)
 const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
 
+// 顧客マスターの入力スキーマ。name のみ必須、他は任意。
+// email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
+// route.ts から export すると Next.js の Route Handler 制約（GET/POST 等以外の export 禁止）に
+// 違反するため、共有スキーマは lib 側に置く（admin/customers/route.ts と [id]/route.ts の両方が使う）。
+export const customerSchema = z.object({
+  name: z.string().min(1).max(50),
+  name_kana: z.string().max(50).optional().nullable(),
+  email: z.string().email().max(254).optional().nullable().or(z.literal('')),
+  phone: z.string().max(20).optional().nullable(),
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal('')),
+  gender: z.enum(['male', 'female', 'other']).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+});
+
 // Salon form schemas (per step)
 export const salonStep1Schema = z.object({
   facility_name: z.string().min(1, '施設名を入力してください').max(200, '200文字以内で入力してください'),

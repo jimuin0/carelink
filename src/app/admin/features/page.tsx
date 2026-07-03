@@ -62,7 +62,8 @@ export default function AdminFeaturesPage() {
       const supabase = createBrowserSupabaseClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
-      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single();
+      const { data: membership, error: memErr } = await supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+      .in('role', ['owner', 'admin']).limit(1).single();
       if (memErr && memErr.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       if (!membership) { setLoading(false); return; }
       await loadFeatures();

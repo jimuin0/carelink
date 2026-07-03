@@ -129,7 +129,8 @@ function setup() {
   });
 
   const emailModule = require('@/lib/email');
-  mockSendEmail = jest.fn().mockResolvedValue(undefined);
+  // sendTimeAdjustRequest は送信成否を boolean で返す契約（route 側はこれを見て 502 を判定する）。
+  mockSendEmail = jest.fn().mockResolvedValue(true);
   emailModule.sendTimeAdjustRequest = mockSendEmail;
 
   const lineModule = require('@/lib/line');
@@ -236,6 +237,12 @@ test('email: 施設名が引けない場合は空文字', async () => {
   const res = await POST(makeRequest());
   expect(res.status).toBe(200);
   expect(mockSendEmail).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
+});
+
+test('email: 送信失敗（sendTimeAdjustRequest が false を返す）→ 502', async () => {
+  mockSendEmail.mockResolvedValue(false);
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(502);
 });
 
 test('line: オプション未購入 → 403（有料ゲート）', async () => {

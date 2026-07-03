@@ -45,7 +45,9 @@ function setupDefaultMocks(
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
-  (sendWelcomeEmail as jest.Mock).mockResolvedValue(undefined);
+  // sendWelcomeEmail は boolean を返す契約（デフォルトは成功）。個別テストで false を
+  // 上書きして送達失敗時のアラート分岐を検証する。
+  (sendWelcomeEmail as jest.Mock).mockResolvedValue(true);
 
   mockSalonSelect = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -563,6 +565,16 @@ describe('POST /api/facility/setup', () => {
       makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
     );
     expect(res.status).toBe(200);
+  });
+
+  test('sendWelcomeEmail が false を返す（送達失敗）→ 無音化せず可視化するのみ（200のまま）', async () => {
+    (sendWelcomeEmail as jest.Mock).mockResolvedValueOnce(false);
+    const res = await POST(
+      makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
+    );
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sendWelcomeEmail).toHaveBeenCalled();
   });
 
   test('salonData found but body has facility_name set → keeps body value (||)', async () => {

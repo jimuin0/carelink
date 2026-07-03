@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { cookies } from 'next/headers';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
     return NextResponse.redirect(lineAuthUrl.toString());
   } catch (e) {
     safeCaptureException(e, 'line-auth-redirect');
+    alertCaughtError('line-auth-redirect', e, '/api/auth/line');
     return NextResponse.redirect(new URL('/auth/login?error=line_unexpected', request.url));
   }
 }

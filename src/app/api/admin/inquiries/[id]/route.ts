@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting', 'resolved', 'closed'] as const;
 const VALID_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -76,5 +77,15 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!updated || updated.length === 0) {
     return NextResponse.json({ error: 'チケットが見つかりません' }, { status: 404 });
   }
+
+  void writeAuditLog({
+    userId: adminUserId,
+    action: 'update',
+    tableName: 'contacts',
+    recordId: params.id,
+    newValues: payload,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }

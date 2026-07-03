@@ -5,6 +5,7 @@ import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { isValidIsoDate } from '@/lib/date-utils';
 import { todayJst } from '@/lib/admin-date';
 
@@ -46,6 +47,7 @@ export async function GET(request: Request) {
   // Sentry に記録し 500 を返して失敗を顕在化させる。
   if (error) {
     safeCaptureException(error, 'slots:get_available_slots');
+    alertCaughtError('slots:get_available_slots', error, '/api/slots');
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
   }
 
@@ -61,6 +63,7 @@ export async function GET(request: Request) {
   return NextResponse.json({ slots });
   } catch (e) {
     safeCaptureException(e, 'slots');
+    alertCaughtError('slots', e, '/api/slots');
     return NextResponse.json({ error: 'サーバーエラーが発生しました', slots: [] }, { status: 500 });
   }
 }

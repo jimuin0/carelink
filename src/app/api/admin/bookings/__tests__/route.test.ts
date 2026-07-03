@@ -12,7 +12,7 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false), mutationRateLimit: {} }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
-jest.mock('@/lib/email', () => ({ sendBookingConfirmed: jest.fn() }));
+jest.mock('@/lib/email', () => ({ sendBookingConfirmed: jest.fn().mockResolvedValue(true) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
 const FACILITY_UUID = '22222222-2222-4222-8222-222222222222';
@@ -278,4 +278,12 @@ test('email あり・facility_profiles が null → 201（facilityName 空）', 
   const res = await POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
   expect(res.status).toBe(201);
   expect(sendBookingConfirmed).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
+});
+
+test('確認メール送信失敗（sendBookingConfirmed が false）→ 201のまま（fire-and-forget・可視化のみ）', async () => {
+  (sendBookingConfirmed as jest.Mock).mockResolvedValueOnce(false);
+  const res = await POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
+  expect(res.status).toBe(201);
+  await Promise.resolve();
+  expect(sendBookingConfirmed).toHaveBeenCalled();
 });

@@ -1,24 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-
-// 顧客マスターの入力スキーマ。name のみ必須、他は任意。
-// email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
-export const customerSchema = z.object({
-  name: z.string().min(1).max(50),
-  name_kana: z.string().max(50).optional().nullable(),
-  email: z.string().email().max(254).optional().nullable().or(z.literal('')),
-  phone: z.string().max(20).optional().nullable(),
-  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal('')),
-  gender: z.enum(['male', 'female', 'other']).optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
-});
+import { customerSchema } from '@/lib/validations';
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();

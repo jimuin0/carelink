@@ -53,6 +53,11 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  // メール送信関数は boolean を返す契約（デフォルトは成功）。個別テストで false を上書きして
+  // 送達失敗時のアラート分岐を検証する。
+  (sendBookingConfirmed as jest.Mock).mockResolvedValue(true);
+  (sendBookingCancelled as jest.Mock).mockResolvedValue(true);
+  (sendBookingStatusUpdate as jest.Mock).mockResolvedValue(true);
 });
 
 function makeRequest(body: object) {
@@ -357,6 +362,14 @@ describe('POST /api/admin/booking-status - notifications', () => {
     expect(sendBookingConfirmed).toHaveBeenCalledTimes(1);
     expect(sendBookingCancelled).not.toHaveBeenCalled();
     expect(sendBookingStatusUpdate).not.toHaveBeenCalled();
+  });
+
+  test('confirmed → メール送信失敗(false)でも200のまま（無音失敗を可視化するのみ）', async () => {
+    setupSuccessMock('pending');
+    (sendBookingConfirmed as jest.Mock).mockResolvedValue(false);
+    const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    expect(res.status).toBe(200);
+    expect(sendBookingConfirmed).toHaveBeenCalledTimes(1);
   });
 
   test('cancelled → sendBookingCancelled が呼ばれる', async () => {

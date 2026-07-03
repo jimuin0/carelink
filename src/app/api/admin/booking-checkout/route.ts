@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -171,6 +172,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, total_price: total, change });
   } catch (e) {
     safeCaptureException(e, 'admin-booking-checkout');
+    alertCaughtError('admin-booking-checkout', e, '/api/admin/booking-checkout');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

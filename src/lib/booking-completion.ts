@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { safeCaptureException } from './safe';
+import { alertCaughtError } from './alert';
 import { awardReferralPointsOnCompletion } from './referral';
 
 /**
@@ -54,6 +55,7 @@ export async function applyCompletionSideEffects(
   });
   if (visitError) {
     safeCaptureException(visitError, 'booking-completion');
+    alertCaughtError('booking-completion:visit', visitError, `booking:${booking.id}`);
   }
 
   // 来店ポイント（1ポイント=100円）。user_points は authenticated に INSERT ポリシーが無いため
@@ -73,6 +75,7 @@ export async function applyCompletionSideEffects(
       });
       if (pointError) {
         safeCaptureException(pointError, 'booking-completion');
+        alertCaughtError('booking-completion:points', pointError, `booking:${booking.id}`);
       }
     }
   }

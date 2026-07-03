@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const platformBlogUpdateSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます').optional(),
@@ -67,6 +68,16 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+
+  void writeAuditLog({
+    userId,
+    action: 'update',
+    tableName: 'platform_blog_posts',
+    recordId: params.id,
+    newValues: updatePayload,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ post: data });
 }
 
@@ -92,5 +103,14 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('id', params.id);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId,
+    action: 'delete',
+    tableName: 'platform_blog_posts',
+    recordId: params.id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }

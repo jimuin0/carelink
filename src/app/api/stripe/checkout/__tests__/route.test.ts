@@ -203,7 +203,7 @@ test('booking_idなし（デポジットフロー）→ 200', async () => {
   mockFrom.mockImplementation((table: string) => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
-    if (callNum === 2) return singleChain({ deposit_amount: 3000 }); // facility deposit
+    if (callNum === 2) return singleChain({ deposit_type: 'fixed', deposit_amount: 3000 }); // facility deposit
     if (table === 'stripe_sessions') return insertChain(null);
     return singleChain(null);
   });
@@ -217,12 +217,48 @@ test('booking_idなし（デポジットフロー）→ 200', async () => {
   expect(json.url).toBe(STRIPE_SESSION.url);
 });
 
-test('デポジット金額なし（deposit_amount=null）→ 400', async () => {
+test('デポジット金額なし（deposit_amount=null, deposit_type=fixed）→ 400', async () => {
   let callNum = 0;
   mockFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
-    return singleChain({ deposit_amount: null }); // no deposit amount
+    return singleChain({ deposit_type: 'fixed', deposit_amount: null }); // no deposit amount
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: null } } });
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
+  expect(res.status).toBe(400);
+});
+
+test('booking_idなし + deposit_type=none → 400（未設定デポジットを誤課金しない）', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
+    return singleChain({ deposit_type: 'none', deposit_amount: 3000 }); // 残存 deposit_amount があっても none なら課金しない
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: null } } });
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
+  expect(res.status).toBe(400);
+});
+
+test('booking_idなし + deposit_type未設定（レガシー・列未移行）→ none 扱いで 400', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
+    return singleChain({ deposit_amount: 3000 }); // deposit_type が無い（undefined）
+  });
+  mockGetUserById.mockResolvedValue({ data: { user: { email: null } } });
+  const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
+  expect(res.status).toBe(400);
+});
+
+test('booking_idなし + deposit_type=percent → 400（割合の基準となる予約が無く算出不能）', async () => {
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
+    return singleChain({ deposit_type: 'percent', deposit_amount: 20 });
   });
   mockGetUserById.mockResolvedValue({ data: { user: { email: null } } });
   const res = await POST(makeRequest({ facility_id: FACILITY_UUID }));
@@ -279,7 +315,7 @@ test('payment_type=deposit → セッション名にデポジット', async () =
   mockFrom.mockImplementation((table: string) => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test', stripe_enabled: true, stripe_account_id: null });
-    if (callNum === 2) return singleChain({ deposit_amount: 5000 });
+    if (callNum === 2) return singleChain({ deposit_type: 'fixed', deposit_amount: 5000 });
     if (table === 'stripe_sessions') return insertChain(null);
     return singleChain(null);
   });
@@ -299,7 +335,7 @@ test('x-forwarded-for なし → unknown IP', async () => {
   mockFrom.mockImplementation((table: string) => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
-    if (callNum === 2) return singleChain({ deposit_amount: 3000 });
+    if (callNum === 2) return singleChain({ deposit_type: 'fixed', deposit_amount: 3000 });
     if (table === 'stripe_sessions') return insertChain(null);
     return singleChain(null);
   });
@@ -321,7 +357,7 @@ test('booking_idなし → product description undefined, success_url が /mypag
   mockFrom.mockImplementation((table: string) => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト施設', slug: 'test-slug', stripe_enabled: true, stripe_account_id: null });
-    if (callNum === 2) return singleChain({ deposit_amount: 5000 });
+    if (callNum === 2) return singleChain({ deposit_type: 'fixed', deposit_amount: 5000 });
     if (table === 'stripe_sessions') return insertChain(null);
     return singleChain(null);
   });
@@ -380,7 +416,7 @@ test('payment_type 省略時はデフォルト deposit', async () => {
   mockFrom.mockImplementation((table: string) => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
-    if (callNum === 2) return singleChain({ deposit_amount: 3000 });
+    if (callNum === 2) return singleChain({ deposit_type: 'fixed', deposit_amount: 3000 });
     if (table === 'stripe_sessions') return insertChain(null);
     return singleChain(null);
   });
@@ -397,7 +433,7 @@ test('user.email が undefined → customer_email も undefined', async () => {
   mockFrom.mockImplementation((table: string) => {
     callNum++;
     if (callNum === 1) return singleChain({ id: FACILITY_UUID, name: 'テスト', slug: 'test', stripe_enabled: true, stripe_account_id: null });
-    if (callNum === 2) return singleChain({ deposit_amount: 3000 });
+    if (callNum === 2) return singleChain({ deposit_type: 'fixed', deposit_amount: 3000 });
     if (table === 'stripe_sessions') return insertChain(null);
     return singleChain(null);
   });

@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { jobFormSchema } from '@/lib/jobs';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +50,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ jobs: data ?? [] });
   } catch (e) {
     safeCaptureException(e, 'admin-jobs-list');
+    alertCaughtError('admin-jobs-list', e, '/api/admin/jobs');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }
@@ -113,12 +116,24 @@ export async function POST(request: Request) {
 
     if (error) {
       safeCaptureException(error, 'admin-jobs-create');
+      alertCaughtError('admin-jobs-create', error, '/api/admin/jobs');
       return NextResponse.json({ error: '作成に失敗しました' }, { status: 500 });
     }
+
+    void writeAuditLog({
+      userId: user.id,
+      facilityId: targetFacilityId,
+      action: 'create',
+      tableName: 'facility_jobs',
+      recordId: data.id,
+      newValues: { title: v.title, job_type: v.job_type, employment_type: v.employment_type },
+      ipAddress: ip,
+    });
 
     return NextResponse.json({ job: data }, { status: 201 });
   } catch (e) {
     safeCaptureException(e, 'admin-jobs-create');
+    alertCaughtError('admin-jobs-create', e, '/api/admin/jobs');
     return NextResponse.json({ error: 'サーバーエラー' }, { status: 500 });
   }
 }

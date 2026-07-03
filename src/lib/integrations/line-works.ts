@@ -10,6 +10,9 @@
  * - LINE_WORKS_BOT_ID: Bot ID
  */
 
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
+
 const LINE_WORKS_API_BASE = 'https://www.worksapis.com/v1.0';
 const LINE_WORKS_AUTH_URL = 'https://auth.worksmobile.com/oauth2/v2.0/token';
 
@@ -168,12 +171,31 @@ export async function sendLineWorksMessage(
       console.error('[line-works] send rejected (auth) — refreshing token and retrying', { status: res.status });
       cachedToken = null;
       const fresh = await getLineWorksToken(true);
-      if (!fresh) return false;
+      if (!fresh) {
+        const err = new Error(`LINE Works send failed: token refresh unavailable after ${res.status}`);
+        safeCaptureException(err, 'line-works-send');
+        alertCaughtError('line-works-send', err, `line-works:channel:${channelId}`);
+        return false;
+      }
       const retry = await doSend(fresh);
+      if (!retry.ok) {
+        const err = new Error(`LINE Works send failed after token refresh: ${retry.status}`);
+        safeCaptureException(err, 'line-works-send');
+        alertCaughtError('line-works-send', err, `line-works:channel:${channelId}`);
+      }
       return retry.ok;
     }
+
+    // 呼び出し元は Promise<boolean> しか見ておらず throw しないため、ここで可視化しないと
+    // チャンネル不正/Bot未参加/API障害等の失敗が完全無音になる（既知の未検出インシデントの原因）。
+    const errorText = await res.text().catch(() => '');
+    const err = new Error(`LINE Works send failed: ${res.status} ${errorText}`);
+    safeCaptureException(err, 'line-works-send');
+    alertCaughtError('line-works-send', err, `line-works:channel:${channelId}`);
     return false;
-  } catch {
+  } catch (e) {
+    safeCaptureException(e, 'line-works-send');
+    alertCaughtError('line-works-send', e, `line-works:channel:${channelId}`);
     return false;
   }
 }

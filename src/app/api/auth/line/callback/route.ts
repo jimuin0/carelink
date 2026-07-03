@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { timingSafeEqual } from 'crypto';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -223,6 +224,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}${safeRedirect}`);
   } catch (e) {
     safeCaptureException(e, 'line-auth');
+    alertCaughtError('line-auth', e, '/api/auth/line/callback');
     return NextResponse.redirect(`${origin}/auth/login?error=line_unexpected`);
   }
 }

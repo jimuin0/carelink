@@ -156,6 +156,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           : Promise.resolve({ data: null }),
       ]);
       if (full?.email) {
+        // sendBookingRescheduled は送信失敗時も throw せず false を返す契約のため、.catch() だけでは
+        // 失敗が無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
         sendBookingRescheduled({
           customerName: full.customer_name ?? '',
           customerEmail: full.email,
@@ -166,7 +168,16 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           menuName: menuRes.data?.name ?? undefined,
           totalPrice: full.total_price ?? undefined,
           bookingId: params.id,
-        }).catch((e) => safeCaptureException(e, 'change-email'));
+        }).then((ok) => {
+          if (!ok) {
+            const err = new Error('booking rescheduled email send failed');
+            safeCaptureException(err, 'change-email');
+            alertCaughtError('change-email', err, '/api/booking/[id]/change');
+          }
+        }).catch((e) => {
+          safeCaptureException(e, 'change-email');
+          alertCaughtError('change-email', e, '/api/booking/[id]/change');
+        });
       }
       sendPushToUser(user.id, {
         title: 'ご予約日時を変更しました',

@@ -8,6 +8,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
@@ -146,11 +147,23 @@ export async function POST(request: NextRequest) {
     }
 
     // ウェルカムメール（fire-and-forget）
+    // sendWelcomeEmail は送信失敗時も throw せず false を返す契約のため、.catch() だけでは
+    // 失敗が無音化する（実際に例外を投げるのは Resend 呼び出し前の想定外エラーのみ）。
+    // 戻り値を確認して両方の失敗経路を可視化する。
     if (user.email) {
       sendWelcomeEmail({
         ownerEmail: user.email,
         facilityName: facility_name,
-      }).catch((e) => safeCaptureException(e, 'welcome-email'));
+      }).then((ok) => {
+        if (!ok) {
+          const err = new Error('welcome email send failed');
+          safeCaptureException(err, 'welcome-email');
+          alertCaughtError('welcome-email', err, '/api/facility/setup');
+        }
+      }).catch((e) => {
+        safeCaptureException(e, 'welcome-email');
+        alertCaughtError('welcome-email', e, '/api/facility/setup');
+      });
     }
 
     return NextResponse.json({
@@ -161,6 +174,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (e) {
     safeCaptureException(e, 'api/facility/setup');
+    alertCaughtError('api/facility/setup', e, '/api/facility/setup');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }
