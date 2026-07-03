@@ -228,6 +228,11 @@ export async function POST(request: Request) {
     if (error.message?.includes('BOOKING_CONFLICT') || error.code === '23505') {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
+    // 指名スタッフが当該施設に属さない（create_booking_atomic が G1 ガードで RAISE）。
+    // 他施設スタッフの割り当て＝マルチテナント違反を fail-closed で拒否する。
+    if (error.message?.includes('STAFF_NOT_IN_FACILITY')) {
+      return NextResponse.json({ error: '指定されたスタッフはこの施設で予約できません' }, { status: 400 });
+    }
     // クーポン使用制限（create_booking_atomic が RAISE する。トランザクションごとロールバック済み）
     if (error.message?.includes('COUPON_LIMIT')) {
       return NextResponse.json({ error: 'このクーポンは利用上限に達しています' }, { status: 409 });
@@ -395,12 +400,18 @@ export async function POST(request: Request) {
           lineMenuName = menuForLine?.name || '';
         }
 
+        // sendLineBookingConfirm は失敗時 throw せず false を返す契約のため、戻り値を捨てると
+        // 送達失敗が完全に無音化する（キャンセル系 route は戻り値を検証済みで非対称だった）。
+        // 非ブロッキングは維持しつつ then で false を検知しログ化して可観測性を確保する。
+        // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
         sendLineBookingConfirm(lineLink.line_user_id, {
           facilityName: facilityForLine?.name || '',
           menuName: lineMenuName,
           date: parsed.data.booking_date,
           time: parsed.data.start_time,
-        }).catch((e) => safeCaptureException(e, 'booking-line'));
+        })
+          .then((ok) => { if (!ok) console.error('[booking] LINE booking confirmation not delivered', { userId: user.id, bookingId: newBookingId }); })
+          .catch((e) => safeCaptureException(e, 'booking-line'));
       }
     }
   } catch (e) {
@@ -441,9 +452,11 @@ export async function POST(request: Request) {
           if (!staff.line_works_channel_id) continue;
           const isAssigned = staff.id === parsed.data.staff_id;
           if (isAssigned || staff.line_works_notify_all) {
-            notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo).catch((e) =>
-              safeCaptureException(e, 'booking-lineworks')
-            );
+            // notifyNewBookingLineWorks も失敗時 throw せず false を返す契約。line_works_channel_id
+            // 設定済みスタッフのみが対象なので false は真の未送達＝ログ化して可観測にする（非ブロッキング維持）。
+            notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo)
+              .then((ok) => { if (!ok) console.error('[booking] LINE Works new-booking notification not delivered', { bookingId: newBookingId, staffId: staff.id }); })
+              .catch((e) => safeCaptureException(e, 'booking-lineworks'));
           }
         }
         void facilityRow;
