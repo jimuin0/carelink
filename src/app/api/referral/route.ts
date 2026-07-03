@@ -117,31 +117,10 @@ export const POST = withRoute(async (request) => {
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 
-  // 双方にポイント付与（紹介者500pt、被紹介者300pt）
-  // Both inserts must succeed; if either fails the referral_use row already exists
-  // so the user cannot retry — log the error prominently so ops can manually correct.
-  const [refResult, selfResult] = await Promise.all([
-    adminSupabase.from('user_points').insert({ user_id: referralCode.user_id, points: 500, reason: '紹介ボーナス' }),
-    adminSupabase.from('user_points').insert({ user_id: user.id, points: 300, reason: '紹介コード利用ボーナス' }),
-  ]);
-  if (refResult.error || selfResult.error) {
-    // referral_uses row is committed; points could not be awarded.
-    // Surface as 500 so the client knows and ops can investigate via Vercel logs / Slack alert.
-    const err = refResult.error ?? selfResult.error;
-    console.error('[referral] ポイント付与失敗 (referral_uses行は挿入済み):', err);
-    return NextResponse.json({ error: 'ポイントの付与に失敗しました。サポートにお問い合わせください。' }, { status: 500 });
-  }
-
-  // 両者へのポイント付与が成功したので points_awarded=true を立てる（REF-4）。
-  // これで付与失敗行(points_awarded=false のまま)を後続の復旧バッチ/照会で識別でき、
-  // 「片側だけ加点・被紹介者が恒久ロックアウト」を運用で拾えるようにする。
-  const { error: awardFlagErr } = await adminSupabase
-    .from('referral_uses')
-    .update({ points_awarded: true })
-    .eq('referred_user_id', user.id);
-  if (awardFlagErr) {
-    console.error('[referral] points_awarded フラグ更新失敗 (ポイントは付与済み)', { userId: user.id, err: awardFlagErr });
-  }
+  // ポイント付与は「被紹介者の初回予約完了時」に applyCompletionSideEffects 経由で行う（A-7 根治）。
+  // 適用時に即時付与すると、実来店を伴わず捨てアカウントを量産してコード適用するだけで紹介者に
+  // 500pt/件 を無限発行できた（1pt=1円換金可）。ここでは referral_uses を points_awarded=false
+  // （DB default）で記録するのみ。実際の付与は awardReferralPointsOnCompletion が予約完了時に行う。
 
   // 使用回数をDB側でアトミックにインクリメント（read-then-writeのrace conditionを排除）
   // used_count + 1 はDBが計算することでCAS（Compare-And-Swap）的な安全性を確保
@@ -154,7 +133,7 @@ export const POST = withRoute(async (request) => {
     console.error('[referral] used_count increment failed — referral_uses row committed but count not updated', { code: code.toUpperCase(), err: countErr });
   }
 
-  return NextResponse.json({ success: true, message: '紹介コードが適用されました！300ポイントを獲得しました。' });
+  return NextResponse.json({ success: true, message: '紹介コードを適用しました。初回のご予約完了で300ポイントが付与されます。' });
 }, {
   csrf: true,
   rateLimit: { limiter: mutationRateLimit, limit: 5, windowMs: 60_000, prefix: 'referral' },

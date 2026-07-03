@@ -251,9 +251,7 @@ describe('POST /api/referral', () => {
   });
 
   test('既に紹介コードを使用済み → 400', async () => {
-    let callNum = 0;
     mockAdminFrom.mockImplementation((table: string) => {
-      callNum++;
       if (table === 'referral_codes') {
         return {
           select: jest.fn().mockReturnValue({
@@ -362,46 +360,6 @@ describe('POST /api/referral', () => {
     expect(res.status).toBe(500);
   });
 
-  test('ポイント付与失敗 → 500', async () => {
-    let tableCallNum = 0;
-    mockAdminFrom.mockImplementation((table: string) => {
-      tableCallNum++;
-      if (table === 'referral_codes' && tableCallNum === 1) {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({
-                data: { user_id: 'referrer-1', used_count: 0 },
-              }),
-            }),
-          }),
-        };
-      }
-      if (table === 'referral_uses' && tableCallNum === 2) {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-            }),
-          }),
-        };
-      }
-      if (table === 'referral_uses' && tableCallNum === 3) {
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
-      }
-      // user_points insert → fail
-      return { insert: jest.fn().mockResolvedValue({ error: { message: 'points failed' } }) };
-    });
-
-    const { POST } = await import('../route');
-    const res = await POST(new Request('http://localhost/api/referral', {
-      method: 'POST',
-      body: JSON.stringify({ code: 'VALID123' }),
-    }) as any);
-
-    expect(res.status).toBe(500);
-  });
-
   test('コード使用成功 → 200', async () => {
     let tableCallNum = 0;
     mockAdminFrom.mockImplementation((table: string) => {
@@ -452,32 +410,6 @@ describe('POST /api/referral', () => {
     expect(json.message).toContain('300ポイント');
   });
 
-  test('REF-4: points_awarded 更新失敗でも 200（ポイントは付与済み・ログのみ）', async () => {
-    let n = 0;
-    mockAdminFrom.mockImplementation((table: string) => {
-      n++;
-      if (table === 'referral_codes' && n === 1) {
-        return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'referrer-1', used_count: 0 } }) }) }) };
-      }
-      if (table === 'referral_uses' && n === 2) {
-        return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
-      }
-      if (table === 'referral_uses') {
-        // insert は成功、points_awarded の update は失敗させる（分岐 awardFlagErr）
-        return {
-          insert: jest.fn().mockResolvedValue({ error: null }),
-          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'flag fail' } }) }),
-        };
-      }
-      if (table === 'user_points') {
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
-      }
-      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
-    });
-    const { POST } = await import('../route');
-    const res = await POST(new Request('http://localhost/api/referral', { method: 'POST', body: JSON.stringify({ code: 'VALID123' }) }) as any);
-    expect(res.status).toBe(200);
-  });
 });
 
 describe('cookie callbacks and body parse catch', () => {
@@ -566,51 +498,6 @@ describe('cookie callbacks and body parse catch', () => {
     expect(res.status).toBe(400);
   });
 
-  test('POST: selfResult.error path → 500', async () => {
-    let tableCallNum = 0;
-    mockAdminFrom.mockImplementation((table: string) => {
-      tableCallNum++;
-      if (table === 'referral_codes' && tableCallNum === 1) {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'r1', used_count: 0 } }),
-            }),
-          }),
-        };
-      }
-      if (table === 'referral_uses' && tableCallNum === 2) {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-            }),
-          }),
-        };
-      }
-      if (table === 'referral_uses') {
-        return {
-          insert: jest.fn().mockResolvedValue({ error: null }),
-          // REF-4: ポイント付与成功後の points_awarded=true 更新
-          update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
-        };
-      }
-      if (table === 'user_points') {
-        // First call (referrer) succeeds, second (self) fails
-        if (tableCallNum === 4) {
-          return { insert: jest.fn().mockResolvedValue({ error: { message: 'self fail' } }) };
-        }
-        return { insert: jest.fn().mockResolvedValue({ error: null }) };
-      }
-      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
-    });
-    const { POST } = await import('../route');
-    const res = await POST(new Request('http://localhost/api/referral', {
-      method: 'POST',
-      body: JSON.stringify({ code: 'VALID123' }),
-    }) as any);
-    expect(res.status).toBe(500);
-  });
 
   test('POST: used_count null (?? 0) → increment works', async () => {
     let tableCallNum = 0;
@@ -712,43 +599,4 @@ describe('cookie callbacks and body parse catch', () => {
   });
 
   // Branch coverage: line 118 — refResult.error が null のとき ?? selfResult.error を使用（false 分岐）
-  test('POST: refResult.error=null・selfResult.error=truthy → ?? 右辺を使用して 500（line 118 false 分岐）', async () => {
-    let insertCallNum = 0;
-    mockAdminFrom.mockImplementation((table: string) => {
-      if (table === 'referral_codes') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({ data: { user_id: 'r1', used_count: 0 } }),
-            }),
-          }),
-        };
-      }
-      if (table === 'referral_uses') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-            }),
-          }),
-          insert: jest.fn().mockResolvedValue({ error: null }),
-        };
-      }
-      if (table === 'user_points') {
-        insertCallNum++;
-        // First insert (refResult) succeeds, second insert (selfResult) fails
-        if (insertCallNum === 1) return { insert: jest.fn().mockResolvedValue({ error: null }) };
-        return { insert: jest.fn().mockResolvedValue({ error: { message: 'self fail' } }) };
-      }
-      return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) }) };
-    });
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-    const { POST } = await import('../route');
-    const res = await POST(new Request('http://localhost/api/referral', {
-      method: 'POST',
-      body: JSON.stringify({ code: 'VALID123' }),
-    }) as any);
-    expect(res.status).toBe(500);
-    consoleSpy.mockRestore();
-  });
 });
