@@ -44,6 +44,9 @@ export default function StaffSchedulePage() {
   const [saving, setSaving] = useState(false);
   const [addingOverride, setAddingOverride] = useState(false);
   const [confirmDeleteOverrideId, setConfirmDeleteOverrideId] = useState<string | null>(null);
+  // 既存予約への影響（API が 409+件数を返した時）を確認ダイアログで提示し、承認時のみ force で強行する。
+  const [scheduleAffected, setScheduleAffected] = useState<number | null>(null);
+  const [overrideAffected, setOverrideAffected] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -106,7 +109,7 @@ export default function StaffSchedulePage() {
 
   useEffect(() => { loadData().catch(() => { setLoadError(true); setLoading(false); }); }, [loadData]);
 
-  const handleSaveSchedules = async () => {
+  const handleSaveSchedules = async (force = false) => {
     if (!facilityId) return;
     setSaving(true);
     try {
@@ -117,8 +120,15 @@ export default function StaffSchedulePage() {
       const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ schedules: rows }),
+        body: JSON.stringify({ schedules: rows, ...(force ? { force: true } : {}) }),
       });
+      // 既存予約に影響がある場合は 409+件数。無警告で上書きせず確認ダイアログを出す。
+      if (res.status === 409) {
+        const e = await res.json().catch(() => ({}));
+        if (e.code === 'BOOKINGS_AFFECTED') { setScheduleAffected(e.affectedBookings ?? 0); return; }
+        setToast({ type: 'error', message: e.error || '保存に失敗しました' });
+        return;
+      }
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '保存に失敗しました' });
@@ -133,7 +143,7 @@ export default function StaffSchedulePage() {
     }
   };
 
-  const handleAddOverride = async () => {
+  const handleAddOverride = async (force = false) => {
     if (!newOverrideDate || !facilityId || addingOverride) return;
     setAddingOverride(true);
     try {
@@ -145,11 +155,19 @@ export default function StaffSchedulePage() {
         body.start_time = newOverrideStart;
         body.end_time = newOverrideEnd;
       }
+      if (force) body.force = true;
       const res = await fetch(`/api/admin/staff/${staffId}/schedule?facility_id=${facilityId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
+      // 既存予約に影響がある場合は 409+件数。無警告で確定せず確認ダイアログを出す。
+      if (res.status === 409) {
+        const e = await res.json().catch(() => ({}));
+        if (e.code === 'BOOKINGS_AFFECTED') { setOverrideAffected(e.affectedBookings ?? 0); return; }
+        setToast({ type: 'error', message: e.error || '追加に失敗しました' });
+        return;
+      }
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '追加に失敗しました' });
@@ -249,7 +267,7 @@ export default function StaffSchedulePage() {
             </div>
           ))}
         </div>
-        <button type="button" onClick={handleSaveSchedules} disabled={saving} className="btn-primary mt-4 !py-2">
+        <button type="button" onClick={() => handleSaveSchedules()} disabled={saving} className="btn-primary mt-4 !py-2">
           {saving ? '保存中...' : 'スケジュールを保存'}
         </button>
       </div>
@@ -291,7 +309,7 @@ export default function StaffSchedulePage() {
               </div>
             </>
           )}
-          <button type="button" onClick={handleAddOverride} className="btn-primary text-sm !py-2 !px-4">追加</button>
+          <button type="button" onClick={() => handleAddOverride()} className="btn-primary text-sm !py-2 !px-4">追加</button>
         </div>
 
         {overrides.length === 0 ? (
@@ -328,6 +346,24 @@ export default function StaffSchedulePage() {
           if (id) handleDeleteOverride(id);
         }}
         onCancel={() => setConfirmDeleteOverrideId(null)}
+      />
+      <ConfirmDialog
+        open={scheduleAffected !== null}
+        title="既存予約への影響"
+        message={`この変更で担当者が不在になる予約が${scheduleAffected ?? 0}件あります。それでもスケジュールを変更しますか？（変更後は該当予約の担当者を手動で調整してください）`}
+        confirmLabel="変更する"
+        cancelLabel="キャンセル"
+        onConfirm={() => { setScheduleAffected(null); handleSaveSchedules(true); }}
+        onCancel={() => setScheduleAffected(null)}
+      />
+      <ConfirmDialog
+        open={overrideAffected !== null}
+        title="既存予約への影響"
+        message={`この特別日設定で担当者が不在になる予約が${overrideAffected ?? 0}件あります。それでも設定しますか？（設定後は該当予約の担当者を手動で調整してください）`}
+        confirmLabel="設定する"
+        cancelLabel="キャンセル"
+        onConfirm={() => { setOverrideAffected(null); handleAddOverride(true); }}
+        onCancel={() => setOverrideAffected(null)}
       />
     </div>
   );
