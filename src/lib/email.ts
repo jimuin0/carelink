@@ -123,6 +123,25 @@ export async function sendBookingConfirmation(data: BookingEmailData) {
   }, 'booking_confirmation');
 }
 
+/** 予約日時の変更確認（顧客向け・A-4）。作成/キャンセルと対称に、変更後の新しい日時を顧客へ通知する。 */
+export async function sendBookingRescheduled(data: BookingEmailData) {
+  const resend = getResend();
+  if (!resend) return;
+  const name = esc(data.customerName);
+  const facility = esc(data.facilityName);
+  await safeSend(resend, {
+    from: FROM,
+    to: data.customerEmail,
+    subject: escSubject(`【CareLink】${data.facilityName}のご予約日時を変更しました`),
+    html: wrapHtml(`
+      <p>${name} 様</p>
+      <p>${facility}のご予約日時を下記のとおり変更しました。</p>
+      ${bookingDetailHtml(data)}
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/mypage" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">予約を確認する</a></p>
+    `),
+  }, 'booking_rescheduled');
+}
+
 /**
  * 予約リマインド通知（前日/3日前/7日前）
  * daysBefore: 1=明日（既定・従来挙動）/ 3=3日後 / 7=7日後 の文言で送る。

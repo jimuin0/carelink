@@ -11,6 +11,9 @@ import { z } from 'zod';
 import { sendLineWorksMessage, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { sendBookingRescheduled } from '@/lib/email';
+import { sendPushToUser, sendPushToFacilityOwners } from '@/lib/push';
+import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { getTodayString, getMaxDateString } from '@/lib/validations-booking';
 import { isValidIsoDate } from '@/lib/date-utils';
 
@@ -136,6 +139,53 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       newValues: { booking_date: parsed.data.booking_date, start_time: parsed.data.start_time, end_time: parsed.data.end_time },
       ipAddress: ip,
     });
+
+    // 顧客・オーナーへの変更通知（作成/キャンセルと対称・A-4）。従来はスタッフ向け LINE Works のみで、
+    // 顧客への確認(メール/Push)もオーナー Push も欠落していた。変更後の新日時を通知する。非ブロッキング。
+    try {
+      const notifyDb = createServiceRoleClient();
+      const { data: full } = await notifyDb
+        .from('bookings')
+        .select('customer_name, email, menu_id, total_price')
+        .eq('id', params.id)
+        .maybeSingle();
+      const [{ data: facility }, menuRes] = await Promise.all([
+        notifyDb.from('facility_profiles').select('name').eq('id', booking.facility_id).maybeSingle(),
+        full?.menu_id
+          ? notifyDb.from('facility_menus').select('name').eq('id', full.menu_id).maybeSingle()
+          : Promise.resolve({ data: null }),
+      ]);
+      if (full?.email) {
+        sendBookingRescheduled({
+          customerName: full.customer_name ?? '',
+          customerEmail: full.email,
+          facilityName: facility?.name ?? '',
+          bookingDate: parsed.data.booking_date,
+          startTime: parsed.data.start_time,
+          endTime: parsed.data.end_time,
+          menuName: menuRes.data?.name ?? undefined,
+          totalPrice: full.total_price ?? undefined,
+          bookingId: params.id,
+        }).catch((e) => safeCaptureException(e, 'change-email'));
+      }
+      sendPushToUser(user.id, {
+        title: 'ご予約日時を変更しました',
+        body: `${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
+        url: `/mypage/bookings/${params.id}`,
+        tag: `booking-change-${params.id}`,
+      }).catch((e) => safeCaptureException(e, 'change-push-user'));
+      const notif = await getFacilityNotificationSettings(booking.facility_id);
+      if (notif.pushOnNewBooking) {
+        sendPushToFacilityOwners(booking.facility_id, {
+          title: '予約日時変更',
+          body: `${full?.customer_name ?? 'お客様'}が${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
+          url: '/admin/bookings',
+          tag: `booking-change-owner-${params.id}`,
+        }).catch((e) => safeCaptureException(e, 'change-push-owner'));
+      }
+    } catch (e) {
+      safeCaptureException(e, 'change-notify-setup');
+    }
 
     // LINE Works change notification (non-blocking)
     if (isLineWorksConfigured()) {

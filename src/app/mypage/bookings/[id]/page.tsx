@@ -24,7 +24,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   // 施設(slug/名前)・メニュー名・スタッフ名は補助表示＋再予約の遷移先に使う。
   // bookings.select('*') には facility_slug が無く、旧実装は存在しない facility_slug に
-  // キャストして facility_id(UUID) にフォールバック→常に UUID を slug として 404 になっていた。
+  // キャストして facility_id(UUID) にフォールバック→常に UUID を slug として 404 になっていた（A-5）。
   const [facility, setFacility] = useState<{ slug: string; name: string } | null>(null);
   const [menuName, setMenuName] = useState('');
   const [staffName, setStaffName] = useState('');
@@ -45,7 +45,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       // 通信/権限エラーは「見つかりません」に偽装せず失敗として明示する。
       if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       setBooking(data as Booking | null);
-      // 施設 slug/名前・メニュー名・スタッフ名を併取（表示＋再予約の遷移先 slug に使う）。
+      // 施設 slug/名前・メニュー名・スタッフ名を併取（表示＋再予約の遷移先 slug に使う・A-5）。
       // 名前類は補助表示のため best-effort（失敗しても本体は継続）。
       if (data) {
         const b = data as Booking;
@@ -245,14 +245,15 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           {cancelling ? 'キャンセル中...' : 'この予約をキャンセル'}
         </button>
       )}
-      {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。 */}
+      {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。
+          param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。 */}
       {booking && ['completed', 'cancelled'].includes(booking.status) && facility?.slug && (
         <button
           type="button"
           onClick={() => {
             const q = new URLSearchParams();
-            if (booking.menu_id) q.set('menu', booking.menu_id);
-            if (booking.staff_id) q.set('staff', booking.staff_id);
+            if (booking.menu_id) q.set('menu_id', booking.menu_id);
+            if (booking.staff_id) q.set('staff_id', booking.staff_id);
             const qs = q.toString();
             router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
