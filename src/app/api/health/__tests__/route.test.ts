@@ -34,6 +34,7 @@ function setupDefaultMocks(opts: {
   stripeOk?: boolean;
   resendOk?: boolean;
   supabaseThrows?: boolean;
+  cron?: 'fresh' | 'stale' | 'error' | 'nodata';
 } = {}) {
   const {
     supabaseOk = true,
@@ -41,6 +42,7 @@ function setupDefaultMocks(opts: {
     stripeOk = true,
     resendOk = true,
     supabaseThrows = false,
+    cron = 'fresh',
   } = opts;
 
   // Supabase mock（DB read 用 + RPC 用の両方）
@@ -63,8 +65,25 @@ function setupDefaultMocks(opts: {
       from: jest.fn().mockReturnValue({ select: mockSelect }),
     });
   }
+  // cron 鮮度 probe 用: createServiceRoleClient().from('cron_logs').select().order().limit().maybeSingle()
+  const cronResult =
+    cron === 'error'
+      ? { data: null, error: { message: 'cron query boom' } }
+      : cron === 'nodata'
+        ? { data: null, error: null }
+        : cron === 'stale'
+          ? { data: { started_at: new Date(Date.now() - 120 * 60_000).toISOString() }, error: null }
+          : { data: { started_at: new Date(Date.now() - 1 * 60_000).toISOString() }, error: null };
+  const cronChain: Record<string, unknown> = {
+    select: () => cronChain,
+    eq: () => cronChain,
+    order: () => cronChain,
+    limit: () => cronChain,
+    maybeSingle: () => Promise.resolve(cronResult),
+  };
   createServiceRoleClient.mockReturnValue({
     rpc: mockRpc,
+    from: jest.fn().mockReturnValue(cronChain),
   });
 
   // Fetch mock for Stripe + Resend
@@ -106,6 +125,42 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(json.deps.rate_limit.ok).toBe(true);
     expect(json.deps.stripe.ok).toBe(true);
     expect(json.deps.resend.ok).toBe(true);
+    expect(json.deps.cron.ok).toBe(true);
+  });
+
+  test('cron が stale（60分超どの cron も未実行）→ 200 degraded・deps.cron NG', async () => {
+    setupDefaultMocks({ cron: 'stale' });
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('degraded');
+    expect(json.deps.cron.ok).toBe(false);
+    expect(json.deps.cron.error).toMatch(/stale/);
+  });
+
+  test('cron_logs 取得エラー → 200 degraded・deps.cron NG', async () => {
+    setupDefaultMocks({ cron: 'error' });
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('degraded');
+    expect(json.deps.cron.ok).toBe(false);
+  });
+
+  test('cron-heartbeat 実行履歴なし → 200 degraded・deps.cron NG', async () => {
+    setupDefaultMocks({ cron: 'nodata' });
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.status).toBe('degraded');
+    expect(json.deps.cron.ok).toBe(false);
+    expect(json.deps.cron.error).toMatch(/never run/);
+  });
+
+  test('cron stale でも critical OK なら 503 にはしない（サイト停止扱いにしない）', async () => {
+    setupDefaultMocks({ cron: 'stale' });
+    const res = await GET(makeReq());
+    expect(res.status).toBe(200);
   });
 
   test('Supabase NG → 503 unhealthy', async () => {
@@ -209,7 +264,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
   test('each dep includes ok and elapsed_ms', async () => {
     const res = await GET(makeReq());
     const json = await res.json();
-    for (const k of ['supabase', 'rate_limit', 'stripe', 'resend']) {
+    for (const k of ['supabase', 'rate_limit', 'stripe', 'resend', 'cron']) {
       expect(typeof json.deps[k].ok).toBe('boolean');
       expect(typeof json.deps[k].elapsed_ms).toBe('number');
     }

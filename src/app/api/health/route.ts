@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { CRON_HEARTBEAT_STALE_THRESHOLD_MINUTES } from '@/lib/cron-jobs';
 
 export const dynamic = 'force-dynamic';
 export const revalidate = 0;
@@ -120,6 +121,34 @@ async function probeResend(): Promise<DepResult> {
   });
 }
 
+// 監視系（cron-heartbeat）そのものの生存を外形監視で拾えるようにする。
+// heartbeat（30分毎）は他ジョブの停止を Slack 通報するが、heartbeat 自身の停止や
+// GitHub Actions スケジューラの全停止は heartbeat では検知できない（自分を判定対象外にするため）。
+// ここで heartbeat の最終実行が閾値（30分×2+30=90分）を超えて古ければ「監視系ダウン/全停止」と判断する。
+// 「any cron」でなく「heartbeat 固有」を見ることで、他の高頻度 cron が動いていても heartbeat だけの
+// 停止を隠蔽しない（webhook-retry 等でマスクされる問題を回避）。
+// これは「サイト停止」ではないため 503 にはせず degraded（200）で deps 報告に留めるが、
+// health-monitor.yml は degraded も「production unhealthy」として Issue+Slack で通報する挙動のため、
+// 監視系が盲目になった状態は結果的に page される（＝監視不能は page 相当という意図的な扱い）。
+async function probeCronFreshness(): Promise<DepResult> {
+  return probe('cron', async () => {
+    const supabase = createServiceRoleClient();
+    const { data, error } = await supabase
+      .from('cron_logs')
+      .select('started_at')
+      .eq('job_name', 'cron-heartbeat')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new Error('cron-heartbeat has never run');
+    const ageMin = (Date.now() - new Date((data as { started_at: string }).started_at).getTime()) / 60000;
+    if (ageMin > CRON_HEARTBEAT_STALE_THRESHOLD_MINUTES) {
+      throw new Error(`cron-heartbeat stale: last run ${Math.round(ageMin)}min ago (threshold ${CRON_HEARTBEAT_STALE_THRESHOLD_MINUTES}min)`);
+    }
+  });
+}
+
 export async function GET(request: Request) {
   // 無認証エンドポイントだが、1 リクエストで Stripe/Resend/Supabase(DB+RPC) を代理起動するため、
   // 連打されると外部 API への増幅 DoS・コスト増を招く。IP 単位でレート制限する。
@@ -132,19 +161,21 @@ export async function GET(request: Request) {
 
   const start = Date.now();
 
-  const [supabase, rate_limit, stripe, resend] = await Promise.all([
+  const [supabase, rate_limit, stripe, resend, cron] = await Promise.all([
     probeSupabase(),
     probeRateLimit(),
     probeStripe(),
     probeResend(),
+    probeCronFreshness(),
   ]);
 
-  const deps = { supabase, rate_limit, stripe, resend };
+  const deps = { supabase, rate_limit, stripe, resend, cron };
 
   // Critical: Supabase DB と rate_limit RPC が落ちたら 503
   const criticalOk = supabase.ok && rate_limit.ok;
-  // Degraded: Stripe/Resend は warn のみ
-  const degraded = !stripe.ok || !resend.ok;
+  // Degraded: Stripe/Resend/cron鮮度。サイト停止ではないので 503 にはしないが、health-monitor.yml は
+  // degraded も「production unhealthy」として Issue+Slack 通報するため、cron（監視系）ダウンは page される。
+  const degraded = !stripe.ok || !resend.ok || !cron.ok;
 
   const status = criticalOk ? (degraded ? 'degraded' : 'healthy') : 'unhealthy';
   const httpStatus = criticalOk ? 200 : 503;
