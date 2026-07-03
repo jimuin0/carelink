@@ -22,8 +22,12 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [gcalError, setGcalError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  // 再予約リンク用の施設 slug。bookings に slug 列は無いため facility_id から別途解決する（A-5）。
-  const [facilitySlug, setFacilitySlug] = useState<string | null>(null);
+  // 施設(slug/名前)・メニュー名・スタッフ名は補助表示＋再予約の遷移先に使う。
+  // bookings.select('*') には facility_slug が無く、旧実装は存在しない facility_slug に
+  // キャストして facility_id(UUID) にフォールバック→常に UUID を slug として 404 になっていた（A-5）。
+  const [facility, setFacility] = useState<{ slug: string; name: string } | null>(null);
+  const [menuName, setMenuName] = useState('');
+  const [staffName, setStaffName] = useState('');
 
   const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
@@ -41,12 +45,18 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       // 通信/権限エラーは「見つかりません」に偽装せず失敗として明示する。
       if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       setBooking(data as Booking | null);
-      // 再予約リンク用に施設 slug を解決する。bookings に slug 列は無く、facility_id(UUID)を
-      // URL に使うと /facility/{UUID}/booking が 404 になる（A-5）。取得できた時のみボタンを出す。
-      if (data?.facility_id) {
-        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-        const { data: fac } = await supabase.from('facility_profiles').select('slug').eq('id', data.facility_id).single();
-        setFacilitySlug(fac?.slug ?? null);
+      // 施設 slug/名前・メニュー名・スタッフ名を併取（表示＋再予約の遷移先 slug に使う・A-5）。
+      // 名前類は補助表示のため best-effort（失敗しても本体は継続）。
+      if (data) {
+        const b = data as Booking;
+        const [facRes, menuRes, staffRes] = await Promise.all([
+          supabase.from('facility_profiles').select('slug, name').eq('id', b.facility_id).single(),
+          b.menu_id ? supabase.from('facility_menus').select('name').eq('id', b.menu_id).single() : Promise.resolve({ data: null }),
+          b.staff_id ? supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single() : Promise.resolve({ data: null }),
+        ]);
+        if (facRes.data) setFacility(facRes.data as { slug: string; name: string });
+        setMenuName((menuRes.data as { name?: string } | null)?.name ?? '');
+        setStaffName((staffRes.data as { name?: string } | null)?.name ?? '');
       }
       setLoading(false);
       // Check Google Calendar connection
@@ -114,6 +124,22 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           <span className={`text-xs px-2 py-0.5 rounded-full font-bold ${statusChipClass(booking.status)}`}>
             {bookingStatusLabel(booking.status)}
           </span>
+        </div>
+        {facility?.name && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">店舗</span>
+            <span className="font-medium">{facility.name}</span>
+          </div>
+        )}
+        {menuName && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-500">メニュー</span>
+            <span className="font-medium">{menuName}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-500">担当</span>
+          <span className="font-medium">{staffName || '指名なし'}</span>
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-gray-500">日付</span>
@@ -219,19 +245,21 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           {cancelling ? 'キャンセル中...' : 'この予約をキャンセル'}
         </button>
       )}
-      {/* リピート予約（v8.6） */}
-      {booking && ['completed', 'cancelled'].includes(booking.status) && facilitySlug && (
+      {/* リピート予約（v8.6）。正しい施設 slug が取れている時のみ表示（UUID を slug にして 404 を防ぐ）。
+          param 名は一覧・BookingFlow と揃えて menu_id/staff_id（#389 A-4/A-5 と統一）。 */}
+      {booking && ['completed', 'cancelled'].includes(booking.status) && facility?.slug && (
         <button
           type="button"
           onClick={() => {
-            const params = new URLSearchParams();
-            if (booking.menu_id) params.set('menu_id', booking.menu_id);
-            if (booking.staff_id) params.set('staff_id', booking.staff_id);
-            router.push(`/facility/${facilitySlug}/booking?${params.toString()}`);
+            const q = new URLSearchParams();
+            if (booking.menu_id) q.set('menu_id', booking.menu_id);
+            if (booking.staff_id) q.set('staff_id', booking.staff_id);
+            const qs = q.toString();
+            router.push(`/facility/${facility.slug}/booking${qs ? `?${qs}` : ''}`);
           }}
           className="w-full mt-3 py-3 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-700 transition-colors"
         >
-          同じ内容で再予約する
+          この店舗をもう一度予約する
         </button>
       )}
       <button

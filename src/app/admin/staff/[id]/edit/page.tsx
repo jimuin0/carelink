@@ -20,6 +20,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   const [instagramUrl, setInstagramUrl] = useState('');
   const [lineWorksChannelId, setLineWorksChannelId] = useState('');
   const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
+  const [isActive, setIsActive] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -48,6 +49,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         setInstagramUrl(data.instagram_url || '');
         setLineWorksChannelId(data.line_works_channel_id || '');
         setLineWorksNotifyAll(data.line_works_notify_all || false);
+        setIsActive(data.is_active ?? true);
       }
       setLoading(false);
   }, [params.id]);
@@ -73,6 +75,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
           instagram_url: instagramUrl || null,
           line_works_channel_id: lineWorksChannelId || null,
           line_works_notify_all: lineWorksNotifyAll,
+          is_active: isActive,
         }),
       });
 
@@ -157,6 +160,23 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
               <span className="text-sm text-gray-700">担当外の予約（全件）も通知を受け取る</span>
             </label>
           </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <h3 className="font-semibold text-sm text-gray-700 mb-1">在籍状況</h3>
+          <p className="text-xs text-gray-400 mb-3">休止にすると、公開ページ・予約枠・指名候補から外れます（予約履歴は残ります）。退職・産休等で使います。</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!isActive}
+              onChange={(e) => { setIsActive(!e.target.checked); setDirty(true); }}
+              className="rounded border-gray-300"
+            />
+            <span className="text-sm text-gray-700">このスタッフを休止する（非表示にする）</span>
+          </label>
+          {!isActive && (
+            <p role="alert" className="text-xs text-amber-600 mt-2">現在「休止中」です。保存すると公開ページ・予約から外れます。</p>
+          )}
         </div>
 
         <div className="flex gap-3 pt-4">

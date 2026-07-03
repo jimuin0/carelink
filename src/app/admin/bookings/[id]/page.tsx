@@ -4,6 +4,7 @@ import { useEffect, useState, use, useCallback } from 'react';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import AdjustRequestButtons from '@/components/admin/AdjustRequestButtons';
 import type { Booking } from '@/types';
@@ -16,6 +17,10 @@ type Charge = { type: ChargeType; name: string; amount: number };
 const CHARGE_TYPE_LABEL: Record<ChargeType, string> = { menu: 'メニュー', retail: '物販', discount: '割引' };
 // 会計できるのは確定/受付の予約のみ（API 側の前提と一致）
 const CHECKOUTABLE = ['confirmed', 'arrived'];
+// 顧客へ「キャンセル/無断キャンセル」の否定的な通知メールが即送信される破壊的遷移。
+// 毎日触る画面でミスタップ1回が実顧客への誤送信＋取消不能になるため、実行前に確認を挟む
+// （承認・来店などの非破壊/肯定的遷移は従来どおり即時実行）。
+const CONFIRM_STATUSES = ['cancelled', 'no_show'];
 
 function formatDate(dateStr: string): string {
   const d = new Date(dateStr + 'T00:00:00+09:00');
@@ -32,6 +37,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
   const [loadError, setLoadError] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [pendingStatus, setPendingStatus] = useState<string | null>(null);
   // 退店レジ会計
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutItems, setCheckoutItems] = useState<Charge[]>([]);
@@ -113,6 +119,12 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
     } finally {
       setUpdating(false);
     }
+  };
+
+  // 破壊的遷移(cancelled/no_show)は確認ダイアログを挟み、それ以外は即時実行する。
+  const requestStatusChange = (newStatus: string) => {
+    if (CONFIRM_STATUSES.includes(newStatus)) { setPendingStatus(newStatus); return; }
+    handleStatusChange(newStatus);
   };
 
   // ── 退店レジ会計 ──
@@ -222,7 +234,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
             </button>
             <button
               type="button"
-              onClick={() => handleStatusChange('cancelled')}
+              onClick={() => requestStatusChange('cancelled')}
               disabled={updating}
               className="flex-1 py-3 bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
             >
@@ -408,7 +420,7 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
                 <button
                   type="button"
                   key={value}
-                  onClick={() => handleStatusChange(value)}
+                  onClick={() => requestStatusChange(value)}
                   disabled={updating}
                   className="text-xs px-4 py-2 rounded-full font-bold transition-colors bg-gray-100 text-gray-600 hover:bg-gray-200 disabled:opacity-50"
                 >
@@ -425,6 +437,19 @@ export default function AdminBookingDetailPage(props: { params: Promise<{ id: st
       <AdjustRequestButtons bookingId={booking.id} status={booking.status} />
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
+      <ConfirmDialog
+        open={pendingStatus !== null}
+        title={pendingStatus === 'no_show' ? '無断キャンセルにする' : '予約をキャンセルする'}
+        message={
+          pendingStatus === 'no_show'
+            ? `${booking.customer_name}様を「無断キャンセル」にし、お客様へ通知メールを送信します。この操作は取り消せません。よろしいですか？`
+            : `${booking.customer_name}様の予約をキャンセルし、お客様へキャンセル通知メールを送信します。この操作は取り消せません。よろしいですか？`
+        }
+        confirmLabel={pendingStatus === 'no_show' ? '無断キャンセルにする' : 'キャンセルする'}
+        cancelLabel="やめる"
+        onConfirm={() => { const s = pendingStatus; setPendingStatus(null); if (s) handleStatusChange(s); }}
+        onCancel={() => setPendingStatus(null)}
+      />
     </div>
   );
 }
