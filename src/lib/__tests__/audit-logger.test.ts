@@ -128,6 +128,29 @@ describe('writeAuditLog', () => {
     mockInsert.mockRejectedValue(new Error('DB error'));
     await expect(writeAuditLog({ action: 'delete', tableName: 'users' })).resolves.toBeUndefined();
   });
+
+  test('insert が error を返す(DB拒否・throw しない) → console.error で証跡欠落を可視化', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    // supabase-js は RLS 拒否・CHECK 制約違反等を throw せず戻り値の error に格納する。
+    mockInsert.mockResolvedValue({ error: { message: 'new row violates row-level security' } });
+    await writeAuditLog({ action: 'update', tableName: 'bookings', recordId: 'rec-x' });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.stringContaining('DB rejected'),
+      expect.objectContaining({ recordId: 'rec-x' }),
+    );
+    consoleSpy.mockRestore();
+  });
+
+  test('insert error 時に recordId 未指定 → ログの recordId は null', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockInsert.mockResolvedValue({ error: { message: 'check constraint violation' } });
+    await writeAuditLog({ action: 'create', tableName: 'facilities' });
+    expect(consoleSpy).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ recordId: null }),
+    );
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('diffValues', () => {

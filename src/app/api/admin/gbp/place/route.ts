@@ -40,7 +40,10 @@ export async function GET(req: NextRequest) {
 
     if (!facility) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-    const placeId = req.nextUrl.searchParams.get('placeId') || facility.gbp_place_id;
+    // google_rating を永続上書きするため、参照する place_id は「自店に保存済みの gbp_place_id」に
+    // 限定する。クエリの任意 placeId を受理すると、他店の高評価 place_id を渡すだけで自店の公開評価を
+    // 捏造できた（#2）。正規の管理 UI は placeId クエリを渡さないため機能は不変・攻撃面のみを断つ。
+    const placeId = facility.gbp_place_id;
 
     const placeData = placeId ? await fetchPlaceDetails(placeId) : null;
     const audit = calculateGbpScore(placeData, facility);
