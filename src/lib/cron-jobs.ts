@@ -15,6 +15,8 @@
  * cron.yml の schedule と厳密一致していることを同テストが保証する。
  */
 
+import cronJobsData from './cron-jobs.data.json';
+
 export interface CronJob {
   /** cron.yml のエンドポイント末尾（= cron_logs.job_name）。例: 'daily-summary' */
   name: string;
@@ -26,26 +28,15 @@ export interface CronJob {
   intervalMinutes: number;
 }
 
-// 並びは cron.yml の schedule 定義順に合わせる（レビュー時の目視突合を容易にするため）。
+// SSOT データは cron-jobs.data.json に切り出している。理由：Render の cron dispatcher
+// （scripts/cron-dispatcher.mjs・Node 素の ESM で TypeScript を import できない）が同じ
+// スケジュール定義を読む必要があり、TS と .mjs の双方から参照できる単一ソースを JSON に置く。
+// これにより「TS 側 / cron.yml / dispatcher」の三重管理ドリフトを JSON 一点に集約する
+// （cron.yml との一致は cron-jobs-drift.test.ts、dispatcher との一致は同 JSON 参照で担保）。
+// 並びは cron.yml の schedule 定義順（レビュー時の目視突合を容易にするため）。
 // intervalMinutes: hourly=60 / daily=1440 / weekly=10080 / 15分=15 / 30分=30。
-export const CRON_JOBS: CronJob[] = [
-  { name: 'booking-reminder',    label: '予約リマインド',            schedule: '0 15 * * *',   intervalMinutes: 1440 },
-  { name: 'daily-summary',       label: '日次集計',                  schedule: '0 6 * * *',    intervalMinutes: 1440 },
-  { name: 'customer-segment',    label: '顧客セグメント',            schedule: '0 7 * * 0',    intervalMinutes: 10080 },
-  { name: 'review-request',      label: 'レビュー依頼',              schedule: '0 18 * * *',   intervalMinutes: 1440 },
-  { name: 'sync-google-ratings', label: 'Googleレーティング同期',    schedule: '0 9 * * 0',    intervalMinutes: 10080 },
-  { name: 'onboarding-followup', label: 'オンボーディングフォロー',  schedule: '0 16 * * *',   intervalMinutes: 1440 },
-  { name: 'birthday-coupon',     label: '誕生日クーポン',            schedule: '0 14 * * *',   intervalMinutes: 1440 },
-  { name: 'flag-reviews',        label: 'レビューフラグ',            schedule: '0 * * * *',    intervalMinutes: 60 },
-  { name: 'favorites-digest',    label: 'お気に入りダイジェスト',    schedule: '0 15 * * 1',   intervalMinutes: 10080 },
-  { name: 'weekly-report',       label: '週次レポート',              schedule: '10 22 * * 0',  intervalMinutes: 10080 },
-  { name: 'waitlist-notify',     label: 'キャンセル待ち通知',        schedule: '30 * * * *',   intervalMinutes: 60 },
-  { name: 'webhook-retry',       label: 'Webhook再送',               schedule: '*/15 * * * *', intervalMinutes: 15 },
-  { name: 'hpb-menu-scrape',     label: 'HPBメニュー取得',           schedule: '20 17 * * *',  intervalMinutes: 1440 },
-  { name: 'schema-drift-check',  label: 'スキーマドリフト監視',      schedule: '40 17 * * *',  intervalMinutes: 1440 },
-  // cron 停止 heartbeat 自身。他ジョブの staleness を検知して Slack 通報する（30分毎）。
-  { name: 'cron-heartbeat',      label: 'cron死活監視',              schedule: '7,37 * * * *', intervalMinutes: 30 },
-];
+// 末尾の cron-heartbeat は cron 停止 heartbeat 自身（他ジョブの staleness を検知・30分毎）。
+export const CRON_JOBS: CronJob[] = cronJobsData;
 
 /** ジョブ名の配列（cron-monitor の EXPECTED_JOBS 基準リスト）。 */
 export const CRON_JOB_NAMES: string[] = CRON_JOBS.map((j) => j.name);

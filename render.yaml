@@ -1,0 +1,35 @@
+# Render Blueprint: CareLink cron dispatcher（常駐 Background Worker）
+#
+# 目的: GitHub Actions の scheduled workflow は public repo では GitHub 側で大幅に間引かれ
+# （実測で名目 5 分毎が最大 283 分空く）、cron の定刻実行が保証されない。Render の常駐
+# プロセスで内蔵スケジューラを回し、間引きの無い確実な定刻実行にする。
+# scripts/cron-dispatcher.mjs が cron ディスパッチと /api/health 外形監視の両方を担う。
+#
+# 【神原のデプロイ手順】
+#   1. Render Dashboard → New → Blueprint → この GitHub repo を選択
+#   2. carelink-cron worker が作成される
+#   3. Environment に以下を設定（sync:false のため git には保存されない）:
+#      - CARELINK_BASE_URL     = https://carelink-jp.com
+#      - CRON_SECRET           = Vercel の CRON_SECRET と同値
+#      - SLACK_BOT_TOKEN       = Vercel と同じ xoxb- トークン
+#      - SLACK_DEFAULT_CHANNEL = Vercel と同じ C0... チャンネル
+#   4. Deploy → ログに "[cron-dispatcher] ... started" が出れば稼働
+#
+# Node 標準モジュール（fetch/fs/url）のみで動くため依存インストール不要（build をスキップ）。
+services:
+  - type: worker
+    name: carelink-cron
+    runtime: node
+    plan: starter
+    buildCommand: echo "cron dispatcher: Node 標準のみ・build 不要"
+    startCommand: node scripts/cron-dispatcher.mjs
+    autoDeploy: true
+    envVars:
+      - key: CARELINK_BASE_URL
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: SLACK_BOT_TOKEN
+        sync: false
+      - key: SLACK_DEFAULT_CHANNEL
+        sync: false

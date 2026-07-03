@@ -20,6 +20,8 @@ const config = {
     // .ts 限定 glob だと測定漏れ（盲点）になり、未テストでも branches 100% が
     // 偽って維持される事象を物理的に防ぐ（発症前予防）。
     'src/app/api/**/*.{ts,tsx}',
+    // Render cron dispatcher が使う純粋ロジック（.mjs）も branches 100% ゲート対象に含める。
+    'src/lib/**/*.mjs',
     '!src/**/*.d.ts',
   ],
   coverageThreshold: {
