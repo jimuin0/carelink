@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { safeCaptureException } from './safe';
+import { alertCaughtError } from './alert';
 
 /**
  * 予約が completed に「進入」した際に付与する副作用。reverseCompletionSideEffects の対称形。
@@ -53,6 +54,7 @@ export async function applyCompletionSideEffects(
   });
   if (visitError) {
     safeCaptureException(visitError, 'booking-completion');
+    alertCaughtError('booking-completion:visit', visitError, `booking:${booking.id}`);
   }
 
   // 来店ポイント（1ポイント=100円）。user_points は authenticated に INSERT ポリシーが無いため
@@ -72,6 +74,7 @@ export async function applyCompletionSideEffects(
       });
       if (pointError) {
         safeCaptureException(pointError, 'booking-completion');
+        alertCaughtError('booking-completion:points', pointError, `booking:${booking.id}`);
       }
     }
   }

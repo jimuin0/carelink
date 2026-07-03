@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const featureArticleSchema = z.object({
   title: z.string().min(1).max(200),
@@ -67,5 +68,15 @@ export async function POST(request: NextRequest) {
   }).select().single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId,
+    action: 'create',
+    tableName: 'feature_articles',
+    recordId: data.id,
+    newValues: { title: data.title, is_active: data.is_active },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ feature: data }, { status: 201 });
 }

@@ -58,8 +58,11 @@ function SignupContent() {
     });
 
     if (error) {
+      // アカウント列挙対策: 既存登録メールかどうかをレスポンスで判別させない
+      // （forgot-password と同じ方針。医療・美容ドメインでは「登録済みか」自体が
+      // 個人情報に近く、単なる一般的なアカウント列挙よりリスクが高い）。
       if (error.message.includes('already registered')) {
-        setToast({ type: 'error', message: 'このメールアドレスは既に登録されています' });
+        setToast({ type: 'success', message: '確認メールを送信しました。メールのリンクをクリックして登録を完了してください。' });
       } else {
         setToast({ type: 'error', message: '登録に失敗しました。もう一度お試しください。' });
       }

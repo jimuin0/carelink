@@ -6,7 +6,10 @@ jest.mock('@/lib/rate-limit', () => ({
   mutationRateLimit: null,
   checkRateLimit: jest.fn(() => Promise.resolve(false)),
 }));
-jest.mock('@/lib/email', () => ({ sendBookingCancelled: jest.fn(), sendBookingCancellationToFacility: jest.fn() }));
+jest.mock('@/lib/email', () => ({
+  sendBookingCancelled: jest.fn().mockResolvedValue(true),
+  sendBookingCancellationToFacility: jest.fn().mockResolvedValue(true),
+}));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn().mockResolvedValue(undefined) }));
@@ -732,6 +735,42 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(
       expect.objectContaining({ facilityEmail: 'owner@example.com', customerEmail: 'c@example.com' })
     );
+  });
+
+  test('sendBookingCancelled/sendBookingCancellationToFacility が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
+    const { sendBookingCancelled, sendBookingCancellationToFacility } = require('@/lib/email');
+    (sendBookingCancelled as jest.Mock).mockResolvedValueOnce(false);
+    (sendBookingCancellationToFacility as jest.Mock).mockResolvedValueOnce(false);
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
+      if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
+      if (table === 'profiles') return fluent({ data: { email: 'owner@example.com' } });
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sendBookingCancelled).toHaveBeenCalledTimes(1);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
   });
 
 // ─── 深掘り: LINE Works キャンセル通知 ──────────────────────────────────────

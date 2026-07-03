@@ -15,6 +15,8 @@ import { verifyRecaptcha } from '@/lib/recaptcha';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { sendPushToFacilityOwners } from '@/lib/push';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -169,10 +171,16 @@ export async function POST(request: Request) {
         body: `${parsed.data.reviewer_name}様より★${avg}の口コミが届きました`,
         url: '/admin/reviews',
         tag: `review-${review.id}`,
-      }).catch((e) => console.error('[review] push failed', e));
+      }).catch((e) => {
+        console.error('[review] push failed', e);
+        safeCaptureException(e, 'review-push');
+        alertCaughtError('review-push', e, '/api/review');
+      });
     }
   } catch (e) {
     console.error('[review] push setup failed', e);
+    safeCaptureException(e, 'review-push-setup');
+    alertCaughtError('review-push-setup', e, '/api/review');
   }
 
   return NextResponse.json({ success: true, id: review.id });

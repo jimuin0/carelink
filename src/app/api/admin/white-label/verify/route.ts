@@ -5,6 +5,7 @@ import { promises as dns } from 'dns';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 async function getFacilityId(userId: string) {
   const admin = createServiceRoleClient();
@@ -56,6 +57,14 @@ export async function POST(req: NextRequest) {
         console.error('[white-label/verify] domain verify update failed', { facilityId, err: verifyUpdateErr });
         return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
       }
+      void writeAuditLog({
+        userId: user.id,
+        facilityId,
+        action: 'verify',
+        tableName: 'white_label_domains',
+        newValues: { domain: config.domain, is_verified: true },
+        ipAddress: ip,
+      });
     }
 
     return NextResponse.json({ verified });

@@ -173,7 +173,15 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       bookingId: booking.id,
       cancelFee,
     };
-    void sendBookingCancelled(emailData);
+    // sendBookingCancelled/sendBookingCancellationToFacility は送信失敗時も throw せず false を
+    // 返す契約のため、void で捨てると失敗が無音化する。戻り値を確認して可視化する。
+    sendBookingCancelled(emailData).then((ok) => {
+      if (!ok) {
+        const err = new Error('booking cancellation email send failed');
+        safeCaptureException(err, 'cancel-email');
+        alertCaughtError('cancel-email', err, '/api/booking/[id]/cancel');
+      }
+    });
 
     // サロンオーナーにキャンセル通知
     const { data: owner } = await db
@@ -188,11 +196,19 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       if (ownerProfile?.email) {
         // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
         // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
-        void sendBookingCancellationToFacility({ ...emailData, facilityEmail: ownerProfile.email });
+        sendBookingCancellationToFacility({ ...emailData, facilityEmail: ownerProfile.email }).then((ok) => {
+          if (!ok) {
+            const err = new Error('booking cancellation facility email send failed');
+            safeCaptureException(err, 'cancel-email-owner');
+            alertCaughtError('cancel-email-owner', err, '/api/booking/[id]/cancel');
+          }
+        });
       }
     }
   } catch (err) {
     console.error('[cancel] email notification failed:', err);
+    safeCaptureException(err, 'cancel-email-setup');
+    alertCaughtError('cancel-email-setup', err, '/api/booking/[id]/cancel');
   }
 
   // LINE cancellation notification (non-blocking)
@@ -227,12 +243,17 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
           time: booking.start_time,
         });
         if (!lineOk) {
+          const err = new Error('LINE cancellation notification not delivered');
           console.error('[cancel] LINE cancellation notification not delivered', { userId, bookingId: booking.id });
+          safeCaptureException(err, 'cancel-line');
+          alertCaughtError('cancel-line', err, '/api/booking/[id]/cancel');
         }
       }
     }
   } catch (err) {
     console.error('[cancel] LINE notification failed:', err);
+    safeCaptureException(err, 'cancel-line-setup');
+    alertCaughtError('cancel-line-setup', err, '/api/booking/[id]/cancel');
   }
 
   // LINE Works cancellation notification (non-blocking)

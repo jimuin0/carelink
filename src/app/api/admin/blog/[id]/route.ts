@@ -6,6 +6,7 @@ import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 const blogUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -13,7 +14,7 @@ const blogUpdateSchema = z.object({
   is_published: z.boolean().optional(),
 });
 
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+async function getAdminFacilityId(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -29,7 +30,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data?.facility_id ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -44,8 +45,8 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityId(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = blogUpdateSchema.safeParse(body);
@@ -61,12 +62,23 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .from('blog_posts')
     .update(updatePayload)
     .eq('id', params.id)
-    .eq('facility_id', facilityId)
+    .eq('facility_id', auth.facilityId)
     .select()
     .single();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'blog_posts',
+    recordId: params.id,
+    newValues: updatePayload,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ post: data });
 }
 
@@ -82,16 +94,26 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityId(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
   const { error } = await admin
     .from('blog_posts')
     .delete()
     .eq('id', params.id)
-    .eq('facility_id', facilityId);
+    .eq('facility_id', auth.facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'delete',
+    tableName: 'blog_posts',
+    recordId: params.id,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }

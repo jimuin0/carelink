@@ -3,6 +3,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -66,6 +67,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (e) {
     safeCaptureException(e, 'facility-suggest');
+    alertCaughtError('facility-suggest', e, '/api/facilities/suggest');
     return NextResponse.json({ facilities: [], areas: [] }, { status: 500 });
   }
 }

@@ -21,7 +21,8 @@ export default function AccountingPage() {
     const supabase = createBrowserSupabaseClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
-      supabase.from('facility_members').select('facility_id').eq('user_id', user.id).limit(1).single()
+      supabase.from('facility_members').select('facility_id').eq('user_id', user.id)
+      .in('role', ['owner', 'admin']).limit(1).single()
         .then(({ data }) => { if (data) setFacilityId(data.facility_id); });
     });
   }, []);

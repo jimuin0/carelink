@@ -5,6 +5,7 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { withRoute } from '@/lib/with-route';
 
 export const dynamic = 'force-dynamic';
@@ -178,6 +179,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(data || []);
   } catch (e) {
     safeCaptureException(e, 'salons');
+    alertCaughtError('salons', e, '/api/salons');
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
 }

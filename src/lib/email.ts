@@ -105,12 +105,12 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
 }
 
 /** 予約受付確認（顧客向け） */
-export async function sendBookingConfirmation(data: BookingEmailData) {
+export async function sendBookingConfirmation(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約を受け付けました`),
@@ -154,12 +154,12 @@ export async function sendBookingReminder(data: BookingEmailData, daysBefore: nu
  * 予約時間調整のお願い（施設→顧客）
  * SB の予約詳細から送信する。メール送信は無料（LINE 送信は有料オプション）。
  */
-export async function sendTimeAdjustRequest(data: BookingEmailData) {
+export async function sendTimeAdjustRequest(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】ご予約時間調整のお願い - ${data.facilityName}`),
@@ -174,12 +174,12 @@ export async function sendTimeAdjustRequest(data: BookingEmailData) {
 }
 
 /** 予約確定通知（顧客向け） */
-export async function sendBookingConfirmed(data: BookingEmailData) {
+export async function sendBookingConfirmed(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約が確定しました`),
@@ -194,12 +194,12 @@ export async function sendBookingConfirmed(data: BookingEmailData) {
 }
 
 /** 予約キャンセル通知（顧客向け） */
-export async function sendBookingCancelled(data: BookingEmailData) {
+export async function sendBookingCancelled(data: BookingEmailData): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}のご予約がキャンセルされました`),
@@ -215,12 +215,12 @@ export async function sendBookingCancelled(data: BookingEmailData) {
 }
 
 /** 新規予約通知（施設向け） */
-export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }) {
+export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.facilityEmail,
     subject: escSubject(`【CareLink】新しい予約が入りました - ${data.customerName}様`),
@@ -237,12 +237,12 @@ export async function sendNewBookingNotification(data: BookingEmailData & { faci
 }
 
 /** 予約キャンセル通知（施設向け） */
-export async function sendBookingCancellationToFacility(data: BookingEmailData & { facilityEmail: string }) {
+export async function sendBookingCancellationToFacility(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.customerName);
   const email = esc(data.customerEmail);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.facilityEmail,
     subject: escSubject(`【CareLink】予約がキャンセルされました - ${data.customerName}様`),
@@ -336,12 +336,12 @@ export async function sendWeeklyReportEmail(data: {
 }
 
 /** 施設オーナー向けウェルカムメール（登録直後） */
-export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }) {
+export async function sendWelcomeEmail(data: { ownerEmail: string; ownerName?: string; facilityName: string }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
   const name = esc(data.ownerName || 'オーナー');
   const facility = esc(data.facilityName);
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.ownerEmail,
     subject: escSubject(`【CareLink】${data.facilityName}の登録ありがとうございます`),
@@ -383,15 +383,15 @@ export async function sendOnboardingFollowEmail(data: {
   }, 'onboarding_follow');
 }
 
-export async function sendBookingStatusUpdate(data: BookingEmailData & { newStatus: string; reason?: string }) {
+export async function sendBookingStatusUpdate(data: BookingEmailData & { newStatus: string; reason?: string }): Promise<boolean> {
   const resend = getResend();
-  if (!resend) return;
+  if (!resend) return false;
 
   const statusLabel = bookingStatusLabel(data.newStatus);
   const name = esc(data.customerName);
   const facility = esc(data.facilityName);
 
-  await safeSend(resend, {
+  return safeSend(resend, {
     from: FROM,
     to: data.customerEmail,
     subject: escSubject(`【CareLink】予約ステータスが「${statusLabel}」に変更されました`),

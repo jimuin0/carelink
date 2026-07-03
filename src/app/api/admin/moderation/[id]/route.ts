@@ -15,6 +15,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -107,6 +108,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
       .eq('id', item.content_id);
     if (hideErr) {
       safeCaptureException(hideErr, 'moderation-review-hide');
+      alertCaughtError('moderation-review-hide', hideErr, '/api/admin/moderation/[id]');
       console.error('[moderation] review hide failed — review remains visible', { reviewId: item.content_id, err: hideErr });
     }
   }

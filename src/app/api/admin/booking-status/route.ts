@@ -197,15 +197,21 @@ export async function POST(request: Request) {
     // Send appropriate email
     if (status !== 'arrived') {
       try {
-        if (status === 'confirmed') {
-          await sendBookingConfirmed(emailData);
-        } else if (status === 'cancelled') {
-          await sendBookingCancelled(emailData);
-        } else {
-          await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
+        // 各 send 関数は送信失敗時も throw せず false を返す契約のため、戻り値を確認しないと
+        // 失敗が無音化する（catch は想定外の例外のみ捕捉する）。
+        const sent = status === 'confirmed'
+          ? await sendBookingConfirmed(emailData)
+          : status === 'cancelled'
+            ? await sendBookingCancelled(emailData)
+            : await sendBookingStatusUpdate({ ...emailData, newStatus: status, reason });
+        if (!sent) {
+          const err = new Error(`booking status update email send failed (status=${status})`);
+          safeCaptureException(err, 'booking-email');
+          alertCaughtError('booking-email', err, '/api/admin/booking-status');
         }
       } catch (e) {
         safeCaptureException(e, 'booking-email');
+        alertCaughtError('booking-email', e, '/api/admin/booking-status');
       }
     }
 
@@ -228,11 +234,16 @@ export async function POST(request: Request) {
             time: booking.start_time,
           });
           if (!lineOk) {
+            const err = new Error('LINE cancellation notification not delivered');
             console.error('[admin-booking-status] LINE cancellation notification not delivered', { userId: booking.user_id, bookingId: booking.id });
+            safeCaptureException(err, 'admin-booking-status-line');
+            alertCaughtError('admin-booking-status-line', err, '/api/admin/booking-status');
           }
         }
       } catch (e) {
         console.error('[admin-booking-status] LINE cancellation notification failed', { bookingId: booking.id, err: e });
+        safeCaptureException(e, 'admin-booking-status-line');
+        alertCaughtError('admin-booking-status-line', e, '/api/admin/booking-status');
       }
     }
 

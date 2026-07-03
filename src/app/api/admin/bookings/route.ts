@@ -7,6 +7,8 @@ import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { sendBookingConfirmed } from '@/lib/email';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
@@ -138,9 +140,11 @@ export async function POST(request: NextRequest) {
   });
 
   // メールがある場合のみ確認メール送信（fire-and-forget）
+  // sendBookingConfirmed は送信失敗時も throw せず false を返す契約のため、void で捨てると
+  // 失敗が無音化する。戻り値を確認して可視化する。
   if (d.email) {
     const { data: facility } = await admin.from('facility_profiles').select('name').eq('id', d.facility_id).single();
-    void sendBookingConfirmed({
+    sendBookingConfirmed({
       bookingId: newId,
       customerName: d.customer_name,
       customerEmail: d.email,
@@ -151,6 +155,12 @@ export async function POST(request: NextRequest) {
       menuName: menuList.map((r) => r.name).filter(Boolean).join('、'),
       staffName,
       totalPrice,
+    }).then((ok) => {
+      if (!ok) {
+        const err = new Error('admin booking confirmation email send failed');
+        safeCaptureException(err, 'admin-bookings-email');
+        alertCaughtError('admin-bookings-email', err, '/api/admin/bookings');
+      }
     });
   }
 

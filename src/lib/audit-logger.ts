@@ -5,6 +5,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { getClientIp } from './client-ip';
+import { alertCaughtError } from './alert';
 
 export type AuditAction =
   | 'create'
@@ -68,6 +69,14 @@ export async function writeAuditLog(entry: AuditLogEntry): Promise<void> {
       recordId: entry.recordId ?? null,
       err,
     });
+    // console.error だけでは運用者が気づけない（このファイル自体は route の catch を経由しない
+    // fire-and-forget 経路のため、withRoute/route catch の alertCaughtError も発火しない）。
+    // 監査証跡の欠落は事後に「誰が何をしたか追えない」という不可逆の観測性喪失のため通知する。
+    alertCaughtError(
+      'audit-logger:writeAuditLog',
+      err,
+      `audit_logs:${entry.tableName}:${entry.action}`
+    );
   }
 }
 
