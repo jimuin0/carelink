@@ -1,0 +1,17 @@
+[
+  { "name": "booking-reminder",    "label": "予約リマインド",           "schedule": "0 15 * * *",   "intervalMinutes": 1440 },
+  { "name": "daily-summary",       "label": "日次集計",                 "schedule": "0 6 * * *",    "intervalMinutes": 1440 },
+  { "name": "customer-segment",    "label": "顧客セグメント",           "schedule": "0 7 * * 0",    "intervalMinutes": 10080 },
+  { "name": "review-request",      "label": "レビュー依頼",             "schedule": "0 18 * * *",   "intervalMinutes": 1440 },
+  { "name": "sync-google-ratings", "label": "Googleレーティング同期",   "schedule": "0 9 * * 0",    "intervalMinutes": 10080 },
+  { "name": "onboarding-followup", "label": "オンボーディングフォロー", "schedule": "0 16 * * *",   "intervalMinutes": 1440 },
+  { "name": "birthday-coupon",     "label": "誕生日クーポン",           "schedule": "0 14 * * *",   "intervalMinutes": 1440 },
+  { "name": "flag-reviews",        "label": "レビューフラグ",           "schedule": "0 * * * *",    "intervalMinutes": 60 },
+  { "name": "favorites-digest",    "label": "お気に入りダイジェスト",   "schedule": "0 15 * * 1",   "intervalMinutes": 10080 },
+  { "name": "weekly-report",       "label": "週次レポート",             "schedule": "10 22 * * 0",  "intervalMinutes": 10080 },
+  { "name": "waitlist-notify",     "label": "キャンセル待ち通知",       "schedule": "30 * * * *",   "intervalMinutes": 60 },
+  { "name": "webhook-retry",       "label": "Webhook再送",              "schedule": "*/15 * * * *", "intervalMinutes": 15 },
+  { "name": "hpb-menu-scrape",     "label": "HPBメニュー取得",          "schedule": "20 17 * * *",  "intervalMinutes": 1440 },
+  { "name": "schema-drift-check",  "label": "スキーマドリフト監視",     "schedule": "40 17 * * *",  "intervalMinutes": 1440 },
+  { "name": "cron-heartbeat",      "label": "cron死活監視",             "schedule": "7,37 * * * *", "intervalMinutes": 30 }
+]
