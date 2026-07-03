@@ -1311,6 +1311,68 @@ describe('POST /api/booking', () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
   });
 
+  test('A-14: LINE通知に指名スタッフ名を含める（staff_id あり → 担当名を解決）', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-staff' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+    const staffId = '223e4567-e89b-12d3-a456-426614174000';
+
+    const conflictChain = fluent(null);
+    const noConflict = Promise.resolve({ data: [] });
+    const chainEnd: Record<string, unknown> = {};
+    chainEnd.eq = jest.fn(() => noConflict);
+    chainEnd.then = noConflict.then.bind(noConflict);
+    conflictChain.gt = jest.fn(() => chainEnd);
+
+    const lineLinkChain = fluent({ data: { line_user_id: 'line-user-staff' } });
+    const staffChain = fluent({ data: { name: '佐藤スタッフ' } });
+    const nullChain = fluent({ data: null });
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'staff_profiles') return staffChain;
+      return nullChain;
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, staff_id: staffId }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendLineConfirm).toHaveBeenCalledWith('line-user-staff', expect.objectContaining({ staffName: '佐藤スタッフ' }));
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  test('A-14: staff_id ありでも担当解決が空なら staffName は undefined', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-staff2' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+    const staffId = '223e4567-e89b-12d3-a456-426614174000';
+
+    const conflictChain = fluent(null);
+    const noConflict = Promise.resolve({ data: [] });
+    const chainEnd: Record<string, unknown> = {};
+    chainEnd.eq = jest.fn(() => noConflict);
+    chainEnd.then = noConflict.then.bind(noConflict);
+    conflictChain.gt = jest.fn(() => chainEnd);
+
+    const lineLinkChain = fluent({ data: { line_user_id: 'line-user-staff2' } });
+    const nullChain = fluent({ data: null });
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'line_user_links') return lineLinkChain;
+      return nullChain; // staff_profiles も null → staffForLine?.name || '' の右辺
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, staff_id: staffId }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(sendLineConfirm).toHaveBeenCalledWith('line-user-staff2', expect.objectContaining({ staffName: undefined }));
+
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
   test('LINE Works ループ（proper call ordering、staffList複数エントリ）', async () => {
     const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
       isLineWorksConfigured: jest.Mock;

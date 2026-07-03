@@ -88,6 +88,14 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     return NextResponse.json({ error: 'この予約はキャンセルできません' }, { status: 400 });
   }
 
+  // 開始時刻を過ぎた予約はオンラインでキャンセル不可（A-12）。来店済み/無断キャンセルは施設側が
+  // completed/no_show で記録すべきで、客が事後に cancelled へ上書きできると no_show 判定や
+  // トラブル記録を握り潰せてしまう。キャンセル料算出と同じ JST 基準ヘルパで開始経過を判定する
+  // （素の Date 比較による TZ ズレを回避）。当日でも start_time を過ぎた分のみを弾く粒度。
+  if (hoursUntilBookingStart(booking.booking_date, booking.start_time, Date.now()) < 0) {
+    return NextResponse.json({ error: '予約開始時刻を過ぎているため、オンラインでのキャンセルはできません。施設へ直接ご連絡ください。' }, { status: 400 });
+  }
+
   // CAS: 読み取った status を WHERE に含める（単一文の条件付き UPDATE＝原子的）。読み取り〜更新の間に
   // 別経路（stripe webhook の cancel_fee_paid / admin の completed 等）が状態を変えていたら 0 行と
   // なり 409 を返す。旧実装は status 条件も 0 行検査もなく、completed/cancel_fee_paid を cancelled で
