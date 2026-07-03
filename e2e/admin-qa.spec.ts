@@ -45,16 +45,24 @@ test('オーナーがQ&Aに回答→公開トグル→削除できる', async ({
   await page.fill('#qa-answer', 'E2Eテスト回答です。');
   const submit = page.getByRole('button', { name: '回答を送信' });
   await submit.scrollIntoViewIfNeeded();
-  await submit.press('Enter');
-  await expect(page.getByText('回答を送信しました')).toBeVisible({ timeout: 15000 });
 
-  // 公開トグル（非公開→公開）＝POST /api/admin/qa?action=toggle-public。focus→Enter。
+  // POST /api/admin/qa（回答）の成功を、4秒で自動消滅し CI では消滅後にポーリングして flake する
+  // 成功トーストではなく API 応答そのもので判定する（唯一の副作用ゼロな決定的判定）。
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/admin/qa') && !r.url().includes('action=') && r.request().method() === 'POST' && r.ok()),
+    submit.press('Enter'),
+  ]);
+  // status='answered' 反映＝「回答済」バッジ＋公開トグルボタンが出る（永続 DOM 証拠）。
   const toPublic = card.getByRole('button', { name: '公開にする' });
   await expect(toPublic).toBeVisible({ timeout: 15000 });
+
+  // 公開トグル（非公開→公開）＝POST /api/admin/qa?action=toggle-public。focus→Enter。
   await toPublic.scrollIntoViewIfNeeded();
-  await toPublic.press('Enter');
-  await expect(page.getByText('公開にしました')).toBeVisible({ timeout: 15000 });
-  // is_public=true 反映＝アイコンの aria-label が「非公開にする」に変わる。
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/admin/qa') && r.url().includes('action=toggle-public') && r.request().method() === 'POST' && r.ok()),
+    toPublic.press('Enter'),
+  ]);
+  // is_public=true 反映＝アイコンの aria-label が「非公開にする」に変わる（永続 DOM 証拠）。
   await expect(card.getByRole('button', { name: '非公開にする' })).toBeVisible({ timeout: 15000 });
 
   // 削除＝POST /api/admin/qa?action=delete。ConfirmDialog で確定。
@@ -63,8 +71,10 @@ test('オーナーがQ&Aに回答→公開トグル→削除できる', async ({
   await del.press('Enter');
   const confirm = page.getByRole('button', { name: '削除する' });
   await confirm.scrollIntoViewIfNeeded();
-  await confirm.press('Enter');
-  await expect(page.getByText('削除しました')).toBeVisible({ timeout: 15000 });
-  // 一覧から消滅（削除永続化＋再読込反映）。
+  await Promise.all([
+    page.waitForResponse((r) => r.url().includes('/api/admin/qa') && r.url().includes('action=delete') && r.request().method() === 'POST' && r.ok()),
+    confirm.press('Enter'),
+  ]);
+  // 一覧から消滅（削除永続化＋再読込反映＝永続 DOM 証拠）。
   await expect(page.getByText(question)).toHaveCount(0, { timeout: 15000 });
 });

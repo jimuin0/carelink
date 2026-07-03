@@ -21,7 +21,12 @@ test('来院者が自分の予約の日時を変更できる', async ({ page }) 
   await expect(firstSlot).toBeVisible({ timeout: 15000 });
   await firstSlot.click();
 
-  // 「{date} {time}に変更する」ボタンで確定 → 成功トースト（書き込みが反映され 1.5s 後に一覧へ遷移）。
-  await page.getByRole('button', { name: /に変更する$/ }).click();
-  await expect(page.getByText('日時を変更しました')).toBeVisible({ timeout: 15000 });
+  // 「{date} {time}に変更する」ボタンで確定（書き込みが反映され 1.5s 後に一覧へ遷移）。
+  // 成功判定は、4秒で自動消滅し CI では消滅後にポーリングして flake する成功トーストではなく
+  // API 応答＋その後の一覧ページへの遷移（永続 DOM 状態）で行う（唯一の副作用ゼロな決定的判定）。
+  await Promise.all([
+    page.waitForResponse((r) => /\/api\/booking\/[^/]+\/change$/.test(r.url()) && r.request().method() === 'POST' && r.ok()),
+    page.getByRole('button', { name: /に変更する$/ }).click(),
+  ]);
+  await page.waitForURL('**/mypage/bookings', { timeout: 15000 });
 });

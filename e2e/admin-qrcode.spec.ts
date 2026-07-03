@@ -16,9 +16,15 @@ test('オーナーが施設QRコードを生成しPNG保存できる', async ({ 
   // 施設ページ URL（slug 由来）が表示される。
   await expect(page.getByText('carelink-jp.com/facility/').first()).toBeVisible();
 
-  // PNG 保存（data URL のローカルダウンロード）→ 成功トースト。focus→Enter で hit-test 被り回避。
+  // PNG 保存（data URL のローカルダウンロード。API 呼び出しは無い client-side generateAnchor+click）。
+  // focus→Enter で hit-test 被り回避。成功判定は、4秒で自動消滅し CI では消滅後にポーリングして
+  // flake する成功トーストではなく、実際に発火した download イベントそのもので行う
+  // （唯一の副作用ゼロな決定的判定）。
   const pngBtn = page.getByRole('button', { name: 'PNG保存' });
   await pngBtn.scrollIntoViewIfNeeded();
-  await pngBtn.press('Enter');
-  await expect(page.getByText('QRコードをダウンロードしました')).toBeVisible({ timeout: 15000 });
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    pngBtn.press('Enter'),
+  ]);
+  expect(download.suggestedFilename()).toMatch(/^carelink-qr-.*\.png$/);
 });

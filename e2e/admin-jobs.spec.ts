@@ -44,7 +44,9 @@ test('オーナーが求人を作成できる（書き込み→一覧反映）',
 
     // 成功なら router.push で /admin/jobs へ遷移する。遷移しなければ（検証落ち＝rhf 未受理）throw して
     // toPass が再試行する。遷移したら成功＝ループを抜ける（成功 POST は 1 回のみ）。
-    await page.waitForURL('**/admin/jobs', { timeout: 8000 });
+    // 他 spec のナビゲーション待ち（15000-20000ms）と揃える。8000ms は CI の低速時に
+    // 単一試行内で不足し、toPass の再試行（＝フォーム再送信）を誘発し得るため過小だった。
+    await page.waitForURL('**/admin/jobs', { timeout: 15000 });
   }).toPass({ timeout: 45000, intervals: [500, 1000, 2000] });
 
   // 一覧に作成求人が出る（書き込み永続化＋再読込反映）。
