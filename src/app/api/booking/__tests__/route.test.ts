@@ -8,6 +8,7 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@/lib/email', () => ({
   sendBookingConfirmation: jest.fn(() => Promise.resolve()),
+  sendBookingConfirmed: jest.fn(() => Promise.resolve()),
   sendNewBookingNotification: jest.fn(() => Promise.resolve()),
 }));
 jest.mock('@/lib/push', () => ({
@@ -1326,6 +1327,11 @@ describe('POST /api/booking', () => {
       'create_booking_atomic',
       expect.objectContaining({ p_status: 'confirmed' })
     );
+    // A-3: 自動確定施設(status='confirmed')では確定メール(sendBookingConfirmed)を送り、
+    // 「確認後に確定メールを後送」と案内する確認待ちメール(sendBookingConfirmation)は送らない。
+    const emailMock = require('@/lib/email');
+    expect(emailMock.sendBookingConfirmed).toHaveBeenCalled();
+    expect(emailMock.sendBookingConfirmation).not.toHaveBeenCalled();
   });
 
   test('sendPushToFacilityOwners が reject → .catch() → Sentry', async () => {

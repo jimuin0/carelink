@@ -75,14 +75,47 @@ export default function BookingChangePage() {
     setSlots([]);
     setSelectedSlot(null);
     try {
-      const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id || ''}&date=${date}&duration=${booking.duration}`, {
-        signal: controller.signal,
-      });
-      // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
-      // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      if (!controller.signal.aborted) setSlots(data.slots ?? []);
+      let merged: AvailableSlot[];
+      if (booking.staff_id) {
+        // 指名予約: 当該スタッフの空き枠のみ（従来挙動）。
+        const res = await fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${booking.staff_id}&date=${date}&duration=${booking.duration}`, {
+          signal: controller.signal,
+        });
+        // res.ok を検証しないと、エラー応答(JSON)でも data.slots=undefined → 空配列となり
+        // 「空き枠なし」と障害が区別不能になる。失敗は catch のエラートーストへ流す。
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        merged = data.slots ?? [];
+      } else {
+        // おまかせ予約(staff_id=NULL): 施設の全予約可能スタッフ分をマージする（作成側 BookingFlow と同一挙動）。
+        // slots API は staffId 必須で空文字だと必ず空配列を返すため、これをしないと全日「空き枠なし」に
+        // なり、おまかせ予約の顧客は日時変更が一切できなくなる（A-1 の根治）。
+        const supabase = createBrowserSupabaseClient();
+        const { data: staffList, error: staffErr } = await supabase
+          .from('staff_profiles')
+          .select('id')
+          .eq('facility_id', booking.facility_id)
+          .eq('is_active', true)
+          .order('sort_order');
+        // スタッフ取得失敗を空リスト＝「空き枠なし」に偽装すると障害と区別できないため、
+        // 失敗は下の catch のエラートーストへ流す（取得失敗の空状態偽装の予防）。
+        if (staffErr) throw new Error();
+        const ids = ((staffList ?? []) as { id: string }[]).map((s) => s.id);
+        const results = await Promise.all(ids.map((sid) =>
+          fetch(`/api/slots?facilityId=${booking.facility_id}&staffId=${sid}&date=${date}&duration=${booking.duration}`, { signal: controller.signal })
+            .then((r) => (r.ok ? r.json() : { slots: [] }))
+            .catch(() => ({ slots: [] }))
+        ));
+        const map = new Map<string, AvailableSlot>();
+        results.forEach((data, i) => {
+          for (const slot of ((data.slots ?? []) as AvailableSlot[])) {
+            // 同一開始時刻は最初に見つかったスタッフの枠を採用（作成側と同じ）。
+            if (!map.has(slot.slot_start)) map.set(slot.slot_start, { ...slot, staff_id: ids[i] });
+          }
+        });
+        merged = Array.from(map.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start));
+      }
+      if (!controller.signal.aborted) setSlots(merged);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') return;
       setToast({ type: 'error', message: '空き枠の取得に失敗しました' });
