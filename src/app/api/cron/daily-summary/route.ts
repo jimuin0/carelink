@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { todayJst, addDays } from '@/lib/admin-date';
 import { sendDailySummaryEmail } from '@/lib/email';
 
@@ -18,12 +19,13 @@ export const maxDuration = 60;
 /**
  * email_daily_summary を ON にした施設にのみ、前日の売上サマリーをメール送信する。
  * 既定（行なし）は OFF（email_daily_summary DEFAULT false）なので、明示的に ON の施設だけ送る。
- * 送信失敗・1施設の取得失敗は他施設の送信を止めない（best-effort）。送信成功件数を返す。
+ * 送信失敗・1施設の取得失敗は他施設の送信を止めない（best-effort）。
+ * 送信成功件数(sent)と送達失敗件数(failed)を返す（failed は run 単位で集約 Slack 通報される）。
  */
 async function sendDailySummaryEmails(
   supabase: ReturnType<typeof createServiceRoleClient>,
   dateStr: string,
-): Promise<number> {
+): Promise<{ sent: number; failed: number }> {
   const { data: optedIn, error: optedInErr } = await supabase
     .from('facility_notification_settings')
     .select('facility_id')
@@ -32,9 +34,9 @@ async function sendDailySummaryEmails(
   // skip される（設定 ON なのに届かない silent miss）。error を可視化して原因を追える様にする。
   if (optedInErr) {
     console.error('[daily-summary] facility_notification_settings fetch failed', { err: optedInErr });
-    return 0;
+    return { sent: 0, failed: 0 };
   }
-  if (!optedIn || optedIn.length === 0) return 0;
+  if (!optedIn || optedIn.length === 0) return { sent: 0, failed: 0 };
   const facilityIds = (optedIn as { facility_id: string }[]).map((r) => r.facility_id);
 
   const { data: summaries, error: summariesErr } = await supabase
@@ -45,11 +47,12 @@ async function sendDailySummaryEmails(
   // 同上：daily_revenue_summary の取得失敗を「サマリ 0 件」と区別できず無音 skip するのを防ぐ。
   if (summariesErr) {
     console.error('[daily-summary] daily_revenue_summary fetch failed', { err: summariesErr, date: dateStr });
-    return 0;
+    return { sent: 0, failed: 0 };
   }
-  if (!summaries || summaries.length === 0) return 0;
+  if (!summaries || summaries.length === 0) return { sent: 0, failed: 0 };
 
   let sent = 0;
+  let failed = 0;
   for (const s of summaries as Array<Record<string, number | string | null>>) {
     const facilityId = s.facility_id as string;
     const { data: owner } = await supabase
@@ -74,8 +77,9 @@ async function sendDailySummaryEmails(
       repeatCustomerCount: (s.repeat_customer_count as number) ?? 0,
     });
     if (ok) sent++;
+    else failed++;
   }
-  return sent;
+  return { sent, failed };
 }
 
 export async function GET(request: Request) {
@@ -109,13 +113,18 @@ export async function GET(request: Request) {
     // 日次売上サマリーメール（email_daily_summary=true の施設のみ・non-blocking）。
     // 旧実装は集計のみでメール送信が無く、設定トグルが効かない飾りだった。
     let emailsSent = 0;
+    let deliveryFailures = 0;
     try {
-      emailsSent = await sendDailySummaryEmails(supabase, dateStr);
+      const r = await sendDailySummaryEmails(supabase, dateStr);
+      emailsSent = r.sent;
+      deliveryFailures = r.failed;
     } catch (e) {
       console.error('[daily-summary] summary email batch failed', e);
     }
 
     await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent } });
+    // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
+    alertDeliveryFailures('daily-summary', deliveryFailures, { emailsSent });
     return NextResponse.json({ processed: count, skipped: 0, date: dateStr, emailsSent });
   } catch (e) {
     console.error('[daily-summary] Error:', e);
