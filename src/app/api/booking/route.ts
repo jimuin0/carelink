@@ -266,7 +266,20 @@ export async function POST(request: Request) {
   // roll back and cancel the booking.
   if (pointsUsed > 0 && user && newBookingId) {
     const serviceSupabase = createServiceRoleClient();
-    const { data: deductionRow } = await serviceSupabase
+    // ロールバック共通処理: 予約をキャンセルし、成立しなかったクーポン利用(coupon_redemptions)も解放する。
+    // クーポンを解放しないと、予約が成立していないのに「1人1回」上限が恒久消費され、以後そのクーポンが
+    // COUPON_ALREADY_USED で使えなくなる（SM-6）。coupon_redemptions は booking_id 列で一意特定できる。
+    const rollbackBooking = async () => {
+      const { error: rbErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
+      if (rbErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rbErr.message });
+      if (parsed.data.coupon_id) {
+        const { error: crErr } = await serviceSupabase.from('coupon_redemptions').delete().eq('booking_id', newBookingId);
+        /* istanbul ignore next — 解放 delete 失敗は DB 障害時のみの防御ログ */
+        if (crErr) console.error('[booking] coupon redemption release failed — manual cleanup needed', { bookingId: newBookingId, err: crErr.message });
+      }
+    };
+
+    const { data: deductionRow, error: deductErr } = await serviceSupabase
       .from('user_points')
       .insert({
         user_id: user.id,
@@ -276,21 +289,33 @@ export async function POST(request: Request) {
       .select('id')
       .single();
 
+    // 控除 INSERT が失敗すると、控除行が入らないのに total_price は値引き済で予約が確定し、
+    // 客はポイントを保持したまま値引きを得る（キャンセル返還でポイント鋳造にも波及）＝金銭損失。
+    // 従来 error を捨てていたためこの経路が無音だった。失敗時は予約をキャンセルして 500 で明示する。
+    if (deductErr) {
+      await rollbackBooking();
+      return NextResponse.json({ error: 'ポイントの利用処理に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+    }
+
     // Re-verify balance to detect concurrent deductions since our snapshot
-    const { data: recheck } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
+    const { data: recheck, error: recheckErr } = await serviceSupabase.from('user_points').select('points').eq('user_id', user.id);
+    // recheck の取得失敗を fail-open（残高不明を 0 扱い）にすると `0 < 0` が成立せず負残高検知が無効化し、
+    // 残高を超えるポイント利用が通ってしまう。取得できない場合は安全側で控除と予約をロールバックする。
+    if (recheckErr) {
+      /* istanbul ignore next — deductionRow は直前の insert 成功で常に存在する防御チェック */
+      if (deductionRow?.id) await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
+      await rollbackBooking();
+      return NextResponse.json({ error: 'ポイント残高の確認に失敗しました。時間をおいて再度お試しください。' }, { status: 500 });
+    }
     const newBalance = (recheck ?? []).reduce((sum: number, r: { points: number }) => sum + r.points, 0);
     if (newBalance < 0) {
       // CAS failed: another concurrent request deducted points between our read and write.
       // Rollback: delete this specific deduction row by ID (not by reason, to avoid ambiguity)
       if (deductionRow?.id) {
         const { error: rollbackPointsErr } = await serviceSupabase.from('user_points').delete().eq('id', deductionRow.id);
-        /* istanbul ignore next */
         if (rollbackPointsErr) console.error('[booking] point deduction rollback failed — manual cleanup needed', { deductionId: deductionRow.id, err: rollbackPointsErr });
       }
-      // Cancel the booking (service_role bypasses booking RLS for reliable rollback)
-      const { error: rollbackBookingErr } = await serviceSupabase.from('bookings').update({ status: 'cancelled' }).eq('id', newBookingId);
-      /* istanbul ignore next */
-      if (rollbackBookingErr) console.error('[booking] booking rollback failed — manual cleanup needed', { bookingId: newBookingId, err: rollbackBookingErr });
+      await rollbackBooking();
       return NextResponse.json({ error: 'ポイント残高が不足しています（競合が発生しました）' }, { status: 400 });
     }
   }

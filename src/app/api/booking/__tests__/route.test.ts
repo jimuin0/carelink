@@ -388,6 +388,112 @@ describe('POST /api/booking', () => {
     );
   });
 
+  // ポイント控除経路のヘルパ: menu価格・残高・facility の chain を組む（coupon なし）。
+  function pointMenuChains(price: number, balance: number) {
+    const menuLookupResult = { data: [{ id: '323e4567-e89b-12d3-a456-426614174000', price }], error: null };
+    const menuChain: Record<string, unknown> = {}; const mh = jest.fn(() => menuChain);
+    menuChain.select = mh; menuChain.in = mh; menuChain.eq = mh; menuChain.or = mh;
+    menuChain.then = Promise.resolve(menuLookupResult).then.bind(Promise.resolve(menuLookupResult));
+    const conflictChain = fluent(null); conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const balanceChain = fluent(null); balanceChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: balance }] }));
+    return { menuChain, conflictChain, balanceChain };
+  }
+
+  test('H-1: ポイント控除INSERT失敗 → 予約キャンセル+500（無償値引き防止）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    const { menuChain, conflictChain, balanceChain } = pointMenuChains(8000, 10000);
+    const nullChain = fluent({ data: null });
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'insert failed' } })) })) }));
+    const bookingRbChain: Record<string, unknown> = {};
+    // rollback の bookings update が失敗しても console.error で可視化するのみ（rbErr 分岐も網羅）。
+    bookingRbChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'rb failed' } })) }));
+    mockRpc.mockResolvedValue({ data: 'booking-h1a', error: null });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain;                                 // facility auto-confirm
+      if (table === 'user_points' && callNum === 5) return deductionChain; // 控除 insert（error）
+      if (table === 'bookings') return bookingRbChain;                     // ロールバック
+      return nullChain;
+    });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 5000 }));
+    expect(res.status).toBe(500);
+    // coupon なしなので coupon_redemptions 解放は呼ばれず、予約は cancelled 化される。
+    expect(bookingRbChain.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
+  });
+
+  test('SM-12: 残高recheck取得失敗 → 控除削除+予約キャンセル+500（fail-open防止）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    const { menuChain, conflictChain, balanceChain } = pointMenuChains(8000, 10000);
+    const nullChain = fluent({ data: null });
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' }, error: null })) })) }));
+    const recheckChain = fluent(null);
+    recheckChain.eq = jest.fn(() => Promise.resolve({ data: null, error: { message: 'recheck failed' } }));
+    // recheck 後の控除削除も from('user_points') 経由でこの chain を通る。
+    recheckChain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    const bookingRbChain: Record<string, unknown> = {};
+    bookingRbChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    mockRpc.mockResolvedValue({ data: 'booking-sm12', error: null });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (callNum === 3) return balanceChain;
+      if (callNum === 4) return nullChain;
+      if (table === 'user_points' && callNum === 5) return deductionChain; // 控除 insert（ok）
+      if (table === 'user_points') return recheckChain;                    // recheck（error）
+      if (table === 'bookings') return bookingRbChain;                     // ロールバック
+      return nullChain;
+    });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 5000 }));
+    expect(res.status).toBe(500);
+    expect(recheckChain.delete).toHaveBeenCalled();                        // 控除行を削除
+    expect(bookingRbChain.update).toHaveBeenCalledWith(expect.objectContaining({ status: 'cancelled' }));
+  });
+
+  test('SM-6: ポイント控除失敗時にクーポン利用(coupon_redemptions)も解放', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+    const menuId = '323e4567-e89b-12d3-a456-426614174000';
+    const couponId = '423e4567-e89b-12d3-a456-426614174000';
+    const { menuChain, conflictChain, balanceChain } = pointMenuChains(8000, 10000);
+    const nullChain = fluent({ data: null });
+    // coupon 検証（fixed 0円割引 = 価格不変・有効）
+    const couponsChain = fluent({ data: { discount_type: 'fixed', discount_value: 0, special_price: null, is_active: true, valid_from: null, valid_until: null } });
+    const deductionChain: Record<string, unknown> = {};
+    deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'insert failed' } })) })) }));
+    const bookingRbChain: Record<string, unknown> = {};
+    bookingRbChain.update = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) }));
+    const couponDelChain: Record<string, unknown> = {};
+    // 解放 delete が失敗する場合も console.error で可視化するのみ（本体は continue）＝crErr 分岐も網羅。
+    couponDelChain.delete = jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: { message: 'coupon release failed' } })) }));
+    mockRpc.mockResolvedValue({ data: 'booking-sm6', error: null });
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      if (table === 'coupons') return couponsChain;          // coupon 検証（callNum 3）
+      if (callNum === 4) return balanceChain;
+      if (callNum === 5) return nullChain;                   // facility auto-confirm
+      if (table === 'user_points' && callNum === 6) return deductionChain; // 控除 insert（error）
+      if (table === 'bookings') return bookingRbChain;       // ロールバック
+      if (table === 'coupon_redemptions') return couponDelChain; // クーポン解放
+      return nullChain;
+    });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, points_used: 5000, coupon_id: couponId }));
+    expect(res.status).toBe(500);
+    // coupon_id あり → coupon_redemptions を booking_id で解放（「1人1回」の恒久消費を防ぐ）。
+    expect(couponDelChain.delete).toHaveBeenCalled();
+  });
+
   test('未認証ユーザーがポイント利用→401', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 
