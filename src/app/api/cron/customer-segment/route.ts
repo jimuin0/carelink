@@ -201,7 +201,10 @@ export async function GET(request: Request) {
           // Collect at-risk candidates first
           const atRiskCandidates = entries.filter(([, data]) => {
             const daysSince = Math.floor((now.getTime() - new Date(data.lastVisit).getTime()) / (1000 * 60 * 60 * 24));
-            return classifySegment(data.visits, daysSince) === 'at_risk' && daysSince >= 60 && daysSince <= 65;
+            // 窓幅は週次 run 間隔(7日)以上にする。上限 65 だと窓幅 6 < 7 で、daysSince が 60→67 と 7 刻みで
+            // 進む位相の顧客が [60,65] を飛び越え、ウィンバックメールが永久に送られない（M-5）。66 で 7 値幅に
+            // し全位相を最低1回は捕捉する（30日以内の重複送信は notified_at + cutoff30d で別途防止済み）。
+            return classifySegment(data.visits, daysSince) === 'at_risk' && daysSince >= 60 && daysSince <= 66;
           });
 
           if (atRiskCandidates.length > 0) {

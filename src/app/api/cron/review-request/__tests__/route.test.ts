@@ -185,6 +185,21 @@ describe('GET /api/cron/review-request', () => {
     expect(json.sent).toBe(0);
   });
 
+  test('H-2: bookings主クエリがerror → 500（0件=skipped 成功偽装しない）', async () => {
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+    const errChain = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'db error' } }) }) }) }) }) }),
+    });
+    mockFrom.mockImplementation((table: string) => (table === 'bookings' ? { select: errChain } : {}));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    // 「0件=skipped(成功)」でなく error として logCronRun されること（他 cron と対称・無音化しない）。
+    expect(logCronRun).toHaveBeenCalledWith('review-request', 'error', expect.anything(), expect.objectContaining({ error_msg: 'db error' }));
+  });
+
   test('completed bookings found → sends requests', async () => {
     setupDefaultMocks(1);
 
@@ -275,6 +290,27 @@ describe('GET /api/cron/review-request', () => {
 
     const res = await GET(makeRequest() as any);
 
+    expect(res.status).toBe(200);
+  });
+
+  test('H-3: facility取得がerror → claim解放して翌run再送（500にせず個別skip）', async () => {
+    setupDefaultMocks(1, true, false, false);
+    // facility_profiles だけ一過性 error に差し替え（bookings の claim/release mock は維持）。
+    const facErrSelect = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: { message: 'fac error' } }),
+      }),
+    });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_profiles') return { select: facErrSelect };
+      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
+      if (table === 'line_user_links') return { select: mockLineLinkSelect };
+      return {};
+    });
+
+    const res = await GET(makeRequest() as any);
+
+    // facility の一過性 error は個別 skip（claim 解放）で処理し、run 全体は 200（成功）のまま。
     expect(res.status).toBe(200);
   });
 
