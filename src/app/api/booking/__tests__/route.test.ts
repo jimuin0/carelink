@@ -1088,6 +1088,27 @@ describe('POST /api/booking', () => {
     expect(res.status).toBe(409);
   });
 
+  test('STAFF_NOT_IN_FACILITY（RPC が G1 ガードで RAISE）→ 400', async () => {
+    // 指名スタッフが当該施設に属さない場合、create_booking_atomic が STAFF_NOT_IN_FACILITY を RAISE。
+    // API はマルチテナント違反として 400 に変換する（500 汎用に落とさない）ことを検証する。
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'STAFF_NOT_IN_FACILITY: 指定されたスタッフはこの施設に所属していません', code: 'P0001' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('この施設で予約できません');
+  });
+
   test('認証済みユーザーの予約 → ユーザーへのプッシュ通知', async () => {
     const { sendPushToUser } = require('@/lib/push');
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-push-test' } } });
@@ -1456,6 +1477,35 @@ describe('POST /api/booking', () => {
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
   });
 
+  test('LINE通知: sendLineBookingConfirm が false（未送達）→ console.error で可観測化（H1）', async () => {
+    // false 返却は throw されないため、旧実装の .catch() では捕捉されず完全無音だった。
+    // then で false を検知し「not delivered」をログ化することを検証する。
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    sendLineConfirm.mockResolvedValue(false);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-line-undeliv' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return fluent({ data: { line_user_id: 'U_line_undeliv' } });
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(errSpy).toHaveBeenCalledWith('[booking] LINE booking confirmation not delivered', expect.any(Object));
+
+    errSpy.mockRestore();
+    sendLineConfirm.mockResolvedValue(true);
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
   test('LINE Works: notifyNewBookingLineWorks が reject → Sentry', async () => {
     const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
       isLineWorksConfigured: jest.Mock;
@@ -1487,6 +1537,76 @@ describe('POST /api/booking', () => {
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(200);
     await new Promise(r => setTimeout(r, 10));
+    isLineWorksConfigured.mockReturnValue(false);
+  });
+
+  test('LINE Works: notify が false（未送達）→ console.error で可観測化（H1）', async () => {
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock;
+      notifyNewBookingLineWorks: jest.Mock;
+    };
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockResolvedValue(false);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const staffListChain: Record<string, jest.Mock> = {};
+    staffListChain.select = jest.fn(() => staffListChain);
+    staffListChain.eq = jest.fn(() => staffListChain);
+    staffListChain.not = jest.fn(() => Promise.resolve({
+      data: [{ id: 'staff-lw-false', line_works_channel_id: 'ch-lw-false', line_works_notify_all: true }],
+    }));
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return staffListChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(errSpy).toHaveBeenCalledWith('[booking] LINE Works new-booking notification not delivered', expect.any(Object));
+
+    errSpy.mockRestore();
+    isLineWorksConfigured.mockReturnValue(false);
+  });
+
+  test('LINE Works: notify が true（送達成功）→ 未送達ログを出さない（H1・else 分岐）', async () => {
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock;
+      notifyNewBookingLineWorks: jest.Mock;
+    };
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockResolvedValue(true);
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const staffListChain: Record<string, jest.Mock> = {};
+    staffListChain.select = jest.fn(() => staffListChain);
+    staffListChain.eq = jest.fn(() => staffListChain);
+    staffListChain.not = jest.fn(() => Promise.resolve({
+      data: [{ id: 'staff-lw-true', line_works_channel_id: 'ch-lw-true', line_works_notify_all: true }],
+    }));
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 5) return staffListChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(errSpy).not.toHaveBeenCalledWith('[booking] LINE Works new-booking notification not delivered', expect.any(Object));
+
+    errSpy.mockRestore();
     isLineWorksConfigured.mockReturnValue(false);
   });
 

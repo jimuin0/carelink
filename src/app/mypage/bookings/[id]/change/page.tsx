@@ -7,6 +7,20 @@ import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
 import type { AvailableSlot } from '@/types';
 
+// 予約の実所要時間（分）を start_time/end_time（"HH:MM[:SS]"）の差から求める。
+// 単一 menu_id の duration_minutes では複数メニュー予約（例: カット+カラー120分）の実長を表せず、
+// 先頭メニュー分（例60分）に縮んでしまう。その duration で /api/slots を引くと本来120分ぶんの空きが
+// 必要な枠を60分基準で提示し、確定すると120分予約が60分に縮む／後半がダブルブッキングされ得る。
+// 予約行の start/end（確定済みの実枠）が唯一の真実なので、そこから所要時間を導出する。
+function durationMinutes(start: string, end: string): number {
+  const toMin = (t: string) => {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+  };
+  const diff = toMin(end) - toMin(start);
+  return diff > 0 ? diff : 60;
+}
+
 export default function BookingChangePage() {
   const router = useRouter();
   const params = useParams();
@@ -46,7 +60,7 @@ export default function BookingChangePage() {
       // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
       const { data: facility } = await supabase.from('facility_profiles').select('name').eq('id', b.facility_id).single();
       const { data: menu } = b.menu_id
-        ? await supabase.from('facility_menus').select('name, duration_minutes').eq('id', b.menu_id).single()
+        ? await supabase.from('facility_menus').select('name').eq('id', b.menu_id).single()
         : { data: null };
       const { data: staff } = b.staff_id
         ? await supabase.from('staff_profiles').select('name').eq('id', b.staff_id).single()
@@ -57,7 +71,7 @@ export default function BookingChangePage() {
         facility_name: facility?.name || '',
         menu_name: menu?.name || '',
         staff_name: staff?.name || '',
-        duration: menu?.duration_minutes || 60,
+        duration: durationMinutes(b.start_time, b.end_time),
       });
       setLoading(false);
   }, [bookingId, router]);
