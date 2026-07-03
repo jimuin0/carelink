@@ -22,6 +22,8 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
   const [gcalError, setGcalError] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  // 再予約リンク用の施設 slug。bookings に slug 列は無いため facility_id から別途解決する（A-5）。
+  const [facilitySlug, setFacilitySlug] = useState<string | null>(null);
 
   const load = useCallback(async () => {
       const supabase = createBrowserSupabaseClient();
@@ -39,6 +41,13 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
       // 通信/権限エラーは「見つかりません」に偽装せず失敗として明示する。
       if (error && error.code !== 'PGRST116') { setLoadError(true); setLoading(false); return; }
       setBooking(data as Booking | null);
+      // 再予約リンク用に施設 slug を解決する。bookings に slug 列は無く、facility_id(UUID)を
+      // URL に使うと /facility/{UUID}/booking が 404 になる（A-5）。取得できた時のみボタンを出す。
+      if (data?.facility_id) {
+        // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
+        const { data: fac } = await supabase.from('facility_profiles').select('slug').eq('id', data.facility_id).single();
+        setFacilitySlug(fac?.slug ?? null);
+      }
       setLoading(false);
       // Check Google Calendar connection
       fetch('/api/google-calendar')
@@ -211,14 +220,14 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
         </button>
       )}
       {/* リピート予約（v8.6） */}
-      {booking && ['completed', 'cancelled'].includes(booking.status) && booking.facility_id && (
+      {booking && ['completed', 'cancelled'].includes(booking.status) && facilitySlug && (
         <button
           type="button"
           onClick={() => {
             const params = new URLSearchParams();
-            if (booking.menu_id) params.set('menu', booking.menu_id);
-            if (booking.staff_id) params.set('staff', booking.staff_id);
-            router.push(`/facility/${(booking as unknown as { facility_slug?: string }).facility_slug || booking.facility_id}/booking?${params.toString()}`);
+            if (booking.menu_id) params.set('menu_id', booking.menu_id);
+            if (booking.staff_id) params.set('staff_id', booking.staff_id);
+            router.push(`/facility/${facilitySlug}/booking?${params.toString()}`);
           }}
           className="w-full mt-3 py-3 rounded-xl bg-sky-600 text-white font-bold hover:bg-sky-700 transition-colors"
         >

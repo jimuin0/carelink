@@ -47,7 +47,7 @@ export default async function BookingsPage() {
           {bookings.map((booking) => {
             const facilitySlug = slugMap.get(booking.facility_id);
             const rebookUrl = facilitySlug
-              ? `/facility/${facilitySlug}?${booking.menu_id ? `menu_id=${booking.menu_id}&` : ''}${booking.staff_id ? `staff_id=${booking.staff_id}` : ''}`
+              ? `/facility/${facilitySlug}/booking?${booking.menu_id ? `menu_id=${booking.menu_id}&` : ''}${booking.staff_id ? `staff_id=${booking.staff_id}` : ''}`
               : null;
 
             return (
