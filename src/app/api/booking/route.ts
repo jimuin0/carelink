@@ -419,12 +419,21 @@ export async function POST(request: Request) {
           lineMenuName = menuForLine?.name || '';
         }
 
+        // 指名予約の担当スタッフ名を LINE 確認に含める（A-14）。lib/line は staffName 対応済みだが
+        // 従来この呼び出しが渡しておらず、顧客の LINE 予約確認に担当名が出ていなかった。
+        let lineStaffName = '';
+        if (parsed.data.staff_id) {
+          const { data: staffForLine } = await supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).maybeSingle();
+          lineStaffName = staffForLine?.name || '';
+        }
+
         // sendLineBookingConfirm は sendLinePush 経由で送信失敗時も throw せず false を返す
         // 契約のため、.catch() だけでは失敗が無音化する。戻り値を確認して可視化する。
         // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
         sendLineBookingConfirm(lineLink.line_user_id, {
           facilityName: facilityForLine?.name || '',
           menuName: lineMenuName,
+          staffName: lineStaffName || undefined,
           date: parsed.data.booking_date,
           time: parsed.data.start_time,
         }).then((ok) => {

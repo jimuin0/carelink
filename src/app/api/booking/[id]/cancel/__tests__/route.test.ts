@@ -47,6 +47,9 @@ const validId = '123e4567-e89b-12d3-a456-426614174000';
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // A-12 の開始時刻経過ガードは Date.now() を見る。予約(2026-04-01 10:00 JST)の 10 時間前に固定し、
+  // ガード通過(開始前)かつ late cancel(free_cancel_hours=24 以内)を維持して既存のキャンセル料検証を保つ。
+  jest.spyOn(Date, 'now').mockReturnValue(new Date('2026-04-01T00:00:00+09:00').getTime());
   (checkCsrf as jest.Mock).mockReturnValue(null);
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
   (getBearerToken as jest.Mock).mockReturnValue(null); // 既定は Cookie 経路（Bearer 無し）
@@ -121,6 +124,23 @@ describe('POST /api/booking/[id]/cancel', () => {
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     const json = await res.json();
     expect(json.success).toBe(true);
+  });
+
+  test('A-12: 開始時刻を過ぎた予約はキャンセル不可 → 400', async () => {
+    // 予約(2026-04-01 10:00 JST)より後に現在を固定 → hours < 0（開始経過）。
+    (Date.now as jest.Mock).mockReturnValue(new Date('2026-04-01T12:00:00+09:00').getTime());
+    mockFrom.mockImplementation(() => fluent({
+      data: {
+        id: validId, user_id: 'user-1', status: 'confirmed',
+        facility_id: 'f-1', customer_name: 'テスト', email: 'test@example.com',
+        booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+        total_price: 5000, menu_id: null, staff_id: null, points_used: 0,
+      },
+    }));
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('開始時刻');
   });
 
   function setupSuccessfulCancelFrom(opts: { customerName?: string | null } = {}) {
