@@ -44,4 +44,50 @@ describe('cron ジョブ SSOT と cron.yml の整合（D-7 ドリフト検知）
     expect(cases.length).toBeGreaterThan(0);
     expect(toNames(cases)).toEqual(expected);
   });
+
+  // --- schedule / intervalMinutes の整合（heartbeat の期待間隔ドリフト防止）---
+
+  /** case 行 "<cron>") P="/api/cron/<name>" から name→schedule を抽出。 */
+  const caseScheduleByName: Record<string, string> = {};
+  for (const m of yml.matchAll(/"([^"]+)"\)\s*P="\/api\/cron\/([a-z0-9-]+)"/g)) {
+    caseScheduleByName[m[2]] = m[1];
+  }
+
+  it('cron.yml の case schedule 式が SSOT.schedule と厳密一致', () => {
+    const fromSsot = Object.fromEntries(CRON_JOBS.map((j) => [j.name, j.schedule]));
+    expect(caseScheduleByName).toEqual(fromSsot);
+  });
+
+  it('SSOT.schedule が全て on.schedule に存在する', () => {
+    const scheduled = new Set(
+      [...yml.matchAll(/-\s*cron:\s*'([^']+)'/g)].map((m) => m[1]),
+    );
+    for (const j of CRON_JOBS) {
+      expect(scheduled.has(j.schedule)).toBe(true);
+    }
+  });
+
+  it('SSOT.intervalMinutes が schedule 式と整合（内部矛盾防止）', () => {
+    // 対応する分頻度に分類する。未知パターンは null → テスト失敗させて明示対応を強制する。
+    const classify = (expr: string): number | null => {
+      const parts = expr.trim().split(/\s+/);
+      if (parts.length !== 5) return null;
+      const [min, hour, dom, mon, dow] = parts;
+      if (dom !== '*' || mon !== '*') return null;
+      const step = min.match(/^\*\/(\d+)$/);
+      if (step && hour === '*' && dow === '*') return parseInt(step[1], 10);
+      if (/^\d+(,\d+)*$/.test(min) && hour === '*' && dow === '*') {
+        return Math.round(60 / min.split(',').length);
+      }
+      const minNum = /^\d+$/.test(min);
+      const hourNum = /^\d+$/.test(hour);
+      if (minNum && hour === '*' && dow === '*') return 60;
+      if (minNum && hourNum && dow === '*') return 1440;
+      if (minNum && hourNum && /^\d+$/.test(dow)) return 10080;
+      return null;
+    };
+    for (const j of CRON_JOBS) {
+      expect(classify(j.schedule)).toBe(j.intervalMinutes);
+    }
+  });
 });

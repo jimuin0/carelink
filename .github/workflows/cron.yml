@@ -26,6 +26,7 @@ on:
     - cron: '*/15 * * * *' # webhook-retry          every 15 min
     - cron: '20 17 * * *'  # hpb-menu-scrape        JST 02:20 daily (minute 20=他cronと衝突回避)
     - cron: '40 17 * * *'  # schema-drift-check     JST 02:40 daily (minute 40=他cronと衝突回避)
+    - cron: '7,37 * * * *' # cron-heartbeat         every 30 min (minute 7,37=他cronと衝突回避)
     # ニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）。
     # 配信は管理画面 /admin/newsletters からの手動送信に一本化した。cron ジョブは持たない。
   workflow_dispatch:
@@ -49,6 +50,7 @@ on:
           - /api/cron/webhook-retry
           - /api/cron/hpb-menu-scrape
           - /api/cron/schema-drift-check
+          - /api/cron/cron-heartbeat
 
 jobs:
   dispatch:
@@ -67,7 +69,7 @@ jobs:
           # リクエストを送れた（本ワークフロー自体は最小権限だが、CRON_SECRET の悪用面を
           # 広げていた）。schedule 経由は case 文で既に既知パスに限定されているため、
           # 手動経路も同じ既知パス集合のみ許可する。
-          ALLOWED_JOBS="/api/cron/booking-reminder /api/cron/daily-summary /api/cron/customer-segment /api/cron/review-request /api/cron/sync-google-ratings /api/cron/onboarding-followup /api/cron/birthday-coupon /api/cron/flag-reviews /api/cron/favorites-digest /api/cron/weekly-report /api/cron/waitlist-notify /api/cron/webhook-retry /api/cron/hpb-menu-scrape /api/cron/schema-drift-check"
+          ALLOWED_JOBS="/api/cron/booking-reminder /api/cron/daily-summary /api/cron/customer-segment /api/cron/review-request /api/cron/sync-google-ratings /api/cron/onboarding-followup /api/cron/birthday-coupon /api/cron/flag-reviews /api/cron/favorites-digest /api/cron/weekly-report /api/cron/waitlist-notify /api/cron/webhook-retry /api/cron/hpb-menu-scrape /api/cron/schema-drift-check /api/cron/cron-heartbeat"
           if [ -n "$MANUAL_JOB" ]; then
             MATCH=0
             for p in $ALLOWED_JOBS; do
@@ -96,6 +98,7 @@ jobs:
             "*/15 * * * *")  P="/api/cron/webhook-retry" ;;
             "20 17 * * *")   P="/api/cron/hpb-menu-scrape" ;;
             "40 17 * * *")   P="/api/cron/schema-drift-check" ;;
+            "7,37 * * * *")  P="/api/cron/cron-heartbeat" ;;
             # ニュースレターは自動配信を廃止し手動送信のみ（cron 対象外）。
             *) echo "Unknown schedule: $TRIGGER_CRON"; exit 1 ;;
           esac
