@@ -10,57 +10,11 @@ import Toast from '@/components/Toast';
 import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
+import { compressImage } from '@/lib/image-compress';
 
 const MAX_PHOTOS = 3;
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (before compression)
-const MAX_OUTPUT_SIZE = 2 * 1024 * 1024; // 2MB after compression
-const MAX_DIMENSION = 1920; // px
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-
-/** 画像をリサイズ・圧縮してFileとして返す */
-async function compressImage(file: File): Promise<File> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > MAX_DIMENSION || height > MAX_DIMENSION) {
-        if (width > height) {
-          height = Math.round((height * MAX_DIMENSION) / width);
-          width = MAX_DIMENSION;
-        } else {
-          width = Math.round((width * MAX_DIMENSION) / height);
-          height = MAX_DIMENSION;
-        }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { resolve(file); return; }
-      ctx.drawImage(img, 0, 0, width, height);
-      // Try quality levels until under MAX_OUTPUT_SIZE
-      const tryCompress = (quality: number) => {
-        canvas.toBlob(
-          (blob) => {
-            if (!blob) { resolve(file); return; }
-            if (blob.size <= MAX_OUTPUT_SIZE || quality <= 0.4) {
-              resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
-            } else {
-              tryCompress(quality - 0.1);
-            }
-          },
-          'image/jpeg',
-          quality
-        );
-      };
-      tryCompress(0.85);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像読み込みエラー')); };
-    img.src = url;
-  });
-}
 
 // サーバ(src/app/api/review/route.ts)と検証水準を一致させる（監査F7）。
 // 評価軸は整数(.int())・氏名は50文字上限。クライアントが緩いと確認画面まで進んで

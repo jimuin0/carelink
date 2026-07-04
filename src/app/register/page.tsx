@@ -10,6 +10,7 @@ import { facilityFeatures } from '@/lib/constants';
 import StepIndicator from '@/components/StepIndicator';
 import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload';
 import Spinner from '@/components/Spinner';
+import { compressImage } from '@/lib/image-compress';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -117,20 +118,24 @@ export default function RegisterPage() {
     try {
       // Upload photos
       const uuid = crypto.randomUUID();
-      const photoUrls: string[] = [];
       const categories = ['exterior', 'interior_1', 'interior_2', 'interior_3', 'menu_1', 'menu_2', 'menu_3'];
+      const mimeToExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
 
-      for (let i = 0; i < photoFiles.length; i++) {
-        const file = photoFiles[i];
-        if (!file) continue;
-        const mimeToExt: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif' };
-        const ext = mimeToExt[file.type] || 'jpg';
-        const path = `salons/${uuid}/${categories[i]}.${ext}`;
-        const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, file);
-        if (uploadError) throw uploadError;
-        const url = supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
-        photoUrls.push(url);
-      }
+      // 監査P6: 従来は生ファイルを無圧縮・直列アップロードしていた（最大7枚×10MB）。
+      // 各ファイルをクライアント側で圧縮し、圧縮＋アップロードを Promise.all で並列化する。
+      // map はインデックス順を保持し、filter で order を保ったまま null（未選択枠）を除く。
+      const uploadResults = await Promise.all(
+        photoFiles.map(async (file, i) => {
+          if (!file) return null;
+          const compressed = await compressImage(file).catch(() => file); // 圧縮失敗時は元ファイル
+          const ext = mimeToExt[compressed.type] || 'jpg';
+          const path = `salons/${uuid}/${categories[i]}.${ext}`;
+          const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, compressed);
+          if (uploadError) throw uploadError;
+          return supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
+        })
+      );
+      const photoUrls = uploadResults.filter((u): u is string => !!u);
 
       const res = await fetch('/api/salons', {
         method: 'POST',
