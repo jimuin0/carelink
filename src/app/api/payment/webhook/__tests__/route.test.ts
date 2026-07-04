@@ -25,6 +25,7 @@ let mockInsert: jest.Mock;
 let mockUpdate: jest.Mock;
 let mockDelete: jest.Mock;
 let mockConstructEvent: jest.Mock;
+let mockSubscriptionsCancel: jest.Mock;
 
 function setupDefaultMocks(
   signatureValid: boolean = true,
@@ -71,9 +72,11 @@ function setupDefaultMocks(
     eq: jest.fn().mockResolvedValue({ error: null }),
   });
 
+  mockSubscriptionsCancel = jest.fn().mockResolvedValue({ id: 'sub_old', status: 'canceled' });
   const Stripe = require('stripe');
   Stripe.mockImplementation(() => ({
     webhooks: { constructEvent: mockConstructEvent },
+    subscriptions: { cancel: mockSubscriptionsCancel },
   }));
 
   mockFromDelegate.mockImplementation((table: string) => {
@@ -472,6 +475,7 @@ describe('POST /api/payment/webhook', () => {
             data: { object: dataObject },
           }),
         },
+        subscriptions: { cancel: mockSubscriptionsCancel },
       }));
     }
 
@@ -653,11 +657,22 @@ describe('POST /api/payment/webhook', () => {
 
     // ─── 有料オプション（施設向け月額サブスク）のエンタイトルメント自動 ON/OFF ───
 
-    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown; deleteError?: unknown } = {}) {
+    function setupEntitlementTables(opts: { upsertError?: unknown; updateError?: unknown; deleteError?: unknown; existingSubId?: string | null } = {}) {
       const entUpsert = jest.fn().mockResolvedValue({ error: opts.upsertError ?? null });
       const entUpdate = jest.fn().mockReturnValue({
         eq: jest.fn().mockResolvedValue({ error: opts.updateError ?? null }),
       });
+      // 監査D1: upsert 前の既存 active 行 select（.select().eq().eq().eq().maybeSingle()）。
+      // existingSubId を渡すと孤児化防止 cancel 経路を再現できる。
+      const entSelectMaybeSingle = jest.fn().mockResolvedValue({
+        data: opts.existingSubId ? { stripe_subscription_id: opts.existingSubId } : null,
+        error: null,
+      });
+      const entSelectChain: { eq: jest.Mock; maybeSingle: jest.Mock } = {
+        eq: jest.fn(() => entSelectChain),
+        maybeSingle: entSelectMaybeSingle,
+      };
+      const entSelect = jest.fn(() => entSelectChain);
       // 失敗経路の冪等行ロールバック（stripe_events delete）。deleteError でロールバック失敗も再現。
       const evDelete = jest.fn().mockReturnValue({
         eq: jest.fn().mockResolvedValue({ error: opts.deleteError ?? null }),
@@ -665,9 +680,9 @@ describe('POST /api/payment/webhook', () => {
       mockFromDelegate.mockImplementation((table: string) => {
         if (table === 'stripe_events') return { insert: mockInsert, delete: evDelete };
         if (table === 'bookings') return { update: mockUpdate };
-        if (table === 'facility_entitlements') return { upsert: entUpsert, update: entUpdate };
+        if (table === 'facility_entitlements') return { select: entSelect, upsert: entUpsert, update: entUpdate };
       });
-      return { entUpsert, entUpdate, evDelete };
+      return { entUpsert, entUpdate, evDelete, entSelect };
     }
 
     test('checkout.session.completed（option metadata）→ エンタイトルメント有効化', async () => {
@@ -700,6 +715,44 @@ describe('POST /api/payment/webhook', () => {
         expect.objectContaining({ stripe_subscription_id: null }),
         expect.any(Object),
       );
+    });
+
+    test('二重決済: 既存 active の別 sub があれば旧 sub を cancel してから upsert（監査D1・孤児化防止）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_new',
+      });
+      const { entUpsert } = setupEntitlementTables({ existingSubId: 'sub_old' });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      // 旧 sub を cancel してから新 sub で upsert すること
+      expect(mockSubscriptionsCancel).toHaveBeenCalledWith('sub_old');
+      expect(entUpsert).toHaveBeenCalledWith(
+        expect.objectContaining({ stripe_subscription_id: 'sub_new' }),
+        { onConflict: 'facility_id,option_key' },
+      );
+    });
+
+    test('同一 sub の再処理では cancel しない（冪等・監査D1）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_same',
+      });
+      setupEntitlementTables({ existingSubId: 'sub_same' });
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(mockSubscriptionsCancel).not.toHaveBeenCalled();
+    });
+
+    test('既存 active 無し（初回購入）では cancel しない（監査D1）', async () => {
+      setupEventMock('checkout.session.completed', {
+        metadata: { facility_id: 'fac-1', option_key: 'reminder_line' },
+        subscription: 'sub_first',
+      });
+      setupEntitlementTables(); // existingSubId 無し
+      const res = await POST(makeRequest('{}', 'sig') as any);
+      expect(res.status).toBe(200);
+      expect(mockSubscriptionsCancel).not.toHaveBeenCalled();
     });
 
     test('option エンタイトルメント有効化失敗 → 500＋冪等行ロールバック（Stripe リトライで再処理）', async () => {

@@ -98,13 +98,44 @@ export async function POST(request: Request) {
       const optionKey = session.metadata?.option_key;
       const facilityId = session.metadata?.facility_id;
       if (optionKey && facilityId) {
+        const newSubId = (session.subscription as string) ?? null;
+
+        // 監査D1: 二重決済完了（利用者が2タブ等で両方の Checkout を完了）時、下の upsert は
+        // onConflict('facility_id,option_key') で後勝ちするため、上書きされる旧 subscription が
+        // どの entitlement 行からも参照されない孤児となり、毎月課金され続ける。upsert 前に既存
+        // active 行の stripe_subscription_id を確認し、新 sub と異なる非null の旧 sub があれば
+        // Stripe 側で cancel して孤児化＝二重課金の継続を根絶する。
+        // 通常フロー（初回購入で既存 active 無し／同一イベント再処理で sub 同一）では cancel しない。
+        if (newSubId) {
+          const { data: existingEnt } = await supabase
+            .from('facility_entitlements')
+            .select('stripe_subscription_id')
+            .eq('facility_id', facilityId)
+            .eq('option_key', optionKey)
+            .eq('status', 'active')
+            .maybeSingle();
+          const oldSubId = existingEnt?.stripe_subscription_id;
+          if (oldSubId && oldSubId !== newSubId) {
+            try {
+              await stripe.subscriptions.cancel(oldSubId);
+              console.warn('[payment/webhook] 孤児化防止: 旧サブスクを cancel', { facilityId, optionKey, oldSubId, newSubId });
+            } catch (cancelErr) {
+              // 旧 sub が既に cancel 済み/不存在の場合も含め cancel 失敗は致命ではないが、
+              // 二重課金の継続に直結するため必ず可視化して手動確認へ回す。
+              console.error('[payment/webhook] 旧サブスク cancel 失敗（二重課金の疑い・要手動確認）', {
+                facilityId, optionKey, oldSubId, err: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+              });
+            }
+          }
+        }
+
         const { error } = await supabase
           .from('facility_entitlements')
           .upsert({
             facility_id: facilityId,
             option_key: optionKey,
             status: 'active',
-            stripe_subscription_id: (session.subscription as string) ?? null,
+            stripe_subscription_id: newSubId,
             updated_at: new Date().toISOString(),
           }, { onConflict: 'facility_id,option_key' });
         if (error) {

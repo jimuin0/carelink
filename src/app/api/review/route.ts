@@ -139,9 +139,13 @@ export async function POST(request: Request) {
   // is_verified_visit が false の口コミにもポイントを付けると、来店実績ゼロのまま複数施設へ
   // 投稿して 50pt×施設数 を稼ぐポイントファーミング（換金可能）が成立する。付与を来店者限定に
   // することで、算出済みの来店確認フラグを実際のゲートとして機能させ、悪用を根本から断つ。
-  // Keyed on review ID so one award per review submission.
+  // 監査D4: 従来は review.id 単位の dedup だったため、同一ユーザーが同一施設に二重投稿すると
+  // review.id が異なり 50pt×2 のポイントファーミングが成立した（換金可能）。dedup キーを
+  // 施設単位（user_id × facility_id）に変え、1ユーザー・1施設あたり口コミポイントは1回のみにする。
+  // TOCTOU（select→insert 非原子）による同時二重投稿は、DB 側の部分 UNIQUE インデックス
+  // uq_user_points_review（別途 SQL を神原さんへ提示）で最終的に閉じる。
   if (user && review && isVerifiedVisit) {
-    const reviewReason = `口コミポイント (${review.id.slice(0, 8)})`;
+    const reviewReason = `口コミポイント:${parsed.data.facility_id}`;
     supabase.from('user_points')
       .select('id')
       .eq('user_id', user.id)
