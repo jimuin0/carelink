@@ -39,9 +39,10 @@ jest.mock('@supabase/ssr', () => ({
     rpc: mockRpc,
   }),
 }));
-// Service-role client (createServiceRoleClient) must share mockFrom so CAS tests work
+// Service-role client (createServiceRoleClient) must share mockFrom so CAS tests work.
+// DB-2: create_booking_atomic は service_role クライアント経由で呼ぶため rpc も共有する。
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockFrom }),
+  createServiceRoleClient: () => ({ from: mockFrom, rpc: mockRpc }),
 }));
 
 jest.mock('@supabase/supabase-js', () => ({

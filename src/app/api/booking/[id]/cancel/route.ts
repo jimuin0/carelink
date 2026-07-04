@@ -100,7 +100,13 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   // 別経路（stripe webhook の cancel_fee_paid / admin の completed 等）が状態を変えていたら 0 行と
   // なり 409 を返す。旧実装は status 条件も 0 行検査もなく、completed/cancel_fee_paid を cancelled で
   // 握り潰す競合が成立し得た（8体監査 A4#5）。
-  const { data: cancelled, error } = await db
+  // DB-1: cookie(Web/mypage)分岐では db は anon クライアントで、この UPDATE は撤去した
+  // bookings_owner_update ポリシー+anon の直接 UPDATE 権に依存していた。所有権は上の
+  // booking.user_id !== userId ガードでサーバ側検証済みのため、UPDATE は service_role で実行する。
+  // CAS 条件(.eq('user_id', userId)/.eq('status', ...))はそのまま維持し、原子性・本人限定・競合検知
+  // (0行→409)を保つ。LIFF 分岐は既に db=service_role だが、両分岐とも service_role 書込に統一する。
+  const writeDb = createServiceRoleClient();
+  const { data: cancelled, error } = await writeDb
     .from('bookings')
     .update({ status: 'cancelled', updated_at: new Date().toISOString() })
     .eq('id', params.id)

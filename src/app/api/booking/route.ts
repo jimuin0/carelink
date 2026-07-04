@@ -204,7 +204,13 @@ export async function POST(request: Request) {
 
   // Use atomic RPC that does FOR UPDATE locking + INSERT in one transaction,
   // preventing double-booking race conditions at the DB level.
-  const { data: rpcResult, error } = await supabase.rpc('create_booking_atomic', {
+  // DB-2: create_booking_atomic は p_user_id / p_total_price / p_status を検証せず全入力を信頼する
+  // ため、anon/authenticated が PostgREST から直接呼ぶとサーバ側の認証・価格計算を迂回して
+  // total_price=0・任意 user_id・status 捏造の予約を作れてしまう。RPC は必ず service_role で呼び、
+  // migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出し経路を塞ぐ。ここで渡す値は
+  // すべて上流でサーバ側検証・算出済み（user は auth.getUser()、finalPrice はサーバ側計算）。
+  const rpcClient = createServiceRoleClient();
+  const { data: rpcResult, error } = await rpcClient.rpc('create_booking_atomic', {
     p_facility_id: parsed.data.facility_id,
     p_staff_id: parsed.data.staff_id ?? null,
     p_user_id: user?.id ?? null,
