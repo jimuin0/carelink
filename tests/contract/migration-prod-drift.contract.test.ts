@@ -120,10 +120,8 @@ function stripSqlComments(s: string): string {
  *   新規 migration は「本番適用 → 型再生成」をワンセットで完了させること。このリストへの追加は原則禁止。
  */
 const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
-  // 2026-07-04: cron_report_sends（M-1・daily/weekly レポートメール二重送信防止の冪等 claim
-  //   テーブル・20260704000010）は本番 apply ＋ database.types.ts 再生成まで pending。
-  //   神原さんが本番へ apply し型再生成したら本リストから削除する。
-  'cron_report_sends',
+  // 2026-07-04: cron_report_sends（M-1・20260704000010）は本番 apply ＋ database.types.ts 再生成を
+  //   完了し types に反映済みのため本リストから削除＝テーブルのドリフト 0。
 ]);
 
 /**
@@ -149,6 +147,9 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
   'facility_booking_suspensions',
   'facility_daily_capacity',
   'salon_customer_notes',
+  // 2026-07-04: 型再生成で表面化した手動バックアップ残骸（2026年6月12日に facility_members を
+  //   手動退避したもの・migration なし）。不要なら本番 DROP が綺麗だが要否は神原判断のため暫定登録。
+  '_backup_facility_members_20260612',
 ]);
 
 /**
@@ -185,17 +186,10 @@ const KNOWN_PROD_ONLY_COLUMNS: ReadonlySet<string> = new Set([]);
  * database.types.ts に反映済みのため本リストから除去）。
  */
 const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
-  // 2026-06-21: change_booking_atomic（PR #218）は本番適用済み（Supabase SQL Editor で
-  // 20260621000002/20260621000003 を実行・"Success" 確認）＝database.types.ts に反映済みのため
-  // 本リストから除去。これで関数ドリフト 0。
-  //
-  // 2026-06-29: get_public_constraints（制約ドリフト検知用 introspection RPC・
-  //   20260629000005_get_public_constraints_rpc.sql）は本番適用＋ database.types.ts 再生成までは
-  //   pending。神原さんが本番へ apply し型再生成したら本リストから削除する。
-  'get_public_constraints',
-  // 2026-07-04: cleanup_old_cron_report_sends（M-1・cron_report_sends の90日 retention・
-  //   20260704000010）は本番 apply ＋ 型再生成まで pending。適用したら本リストから削除する。
-  'cleanup_old_cron_report_sends',
+  // 2026-06-21: change_booking_atomic（PR #218）は本番適用済み＝database.types.ts に反映済みのため除去。
+  // 2026-06-29: get_public_constraints（20260629000005）／2026-07-04: cleanup_old_cron_report_sends
+  //   （M-1・20260704000010）はいずれも本番 apply ＋ database.types.ts 再生成を完了し types に反映済みの
+  //   ため本リストから削除＝関数ドリフト 0。
 ]);
 
 function migrationDefinedTables(): Set<string> {

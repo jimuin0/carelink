@@ -12,33 +12,32 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
+      _backup_facility_members_20260612: {
+        Row: {
+          created_at: string | null
+          facility_id: string | null
+          id: string | null
+          role: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          facility_id?: string | null
+          id?: string | null
+          role?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          facility_id?: string | null
+          id?: string | null
+          role?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       ab_test_events: {
         Row: {
           created_at: string
@@ -247,22 +246,22 @@ export type Database = {
       }
       birthday_notifications: {
         Row: {
+          channel: string
+          notified_at: string
           user_id: string
           year: number
-          notified_at: string
-          channel: string
         }
         Insert: {
+          channel: string
+          notified_at?: string
           user_id: string
           year: number
-          notified_at?: string
-          channel: string
         }
         Update: {
+          channel?: string
+          notified_at?: string
           user_id?: string
           year?: number
-          notified_at?: string
-          channel?: string
         }
         Relationships: [
           {
@@ -837,17 +836,17 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
-            columns: ["coupon_id"]
-            isOneToOne: false
-            referencedRelation: "coupons"
-            referencedColumns: ["id"]
-          },
-          {
             foreignKeyName: "coupon_redemptions_booking_id_fkey"
             columns: ["booking_id"]
             isOneToOne: false
             referencedRelation: "bookings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "coupon_redemptions_coupon_id_fkey"
+            columns: ["coupon_id"]
+            isOneToOne: false
+            referencedRelation: "coupons"
             referencedColumns: ["id"]
           },
         ]
@@ -974,6 +973,45 @@ export type Database = {
           status?: string
         }
         Relationships: []
+      }
+      cron_report_sends: {
+        Row: {
+          facility_id: string
+          id: string
+          job: string
+          period_key: string
+          sent_at: string
+        }
+        Insert: {
+          facility_id: string
+          id?: string
+          job: string
+          period_key: string
+          sent_at?: string
+        }
+        Update: {
+          facility_id?: string
+          id?: string
+          job?: string
+          period_key?: string
+          sent_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "cron_report_sends_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "cron_report_sends_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       customer_segments: {
         Row: {
@@ -1137,6 +1175,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "customers_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "customers_facility_id_fkey"
             columns: ["facility_id"]
@@ -1845,6 +1890,39 @@ export type Database = {
           },
         ]
       }
+      facility_page_views: {
+        Row: {
+          created_at: string
+          facility_id: string
+          id: string
+        }
+        Insert: {
+          created_at?: string
+          facility_id: string
+          id?: string
+        }
+        Update: {
+          created_at?: string
+          facility_id?: string
+          id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "facility_page_views_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "facility_page_views_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       facility_photos: {
         Row: {
           caption: string | null
@@ -2386,39 +2464,6 @@ export type Database = {
           },
         ]
       }
-      facility_page_views: {
-        Row: {
-          created_at: string
-          facility_id: string
-          id: string
-        }
-        Insert: {
-          created_at?: string
-          facility_id: string
-          id?: string
-        }
-        Update: {
-          created_at?: string
-          facility_id?: string
-          id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "facility_page_views_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facility_card_view"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "facility_page_views_facility_id_fkey"
-            columns: ["facility_id"]
-            isOneToOne: false
-            referencedRelation: "facility_profiles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       favorites: {
         Row: {
           created_at: string | null
@@ -2835,6 +2880,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "hpb_menu_durations_facility_id_fkey"
+            columns: ["facility_id"]
+            isOneToOne: false
+            referencedRelation: "facility_card_view"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "hpb_menu_durations_facility_id_fkey"
             columns: ["facility_id"]
@@ -5555,13 +5607,25 @@ export type Database = {
             }
             Returns: string
           }
+      aggregate_daily_revenue: { Args: { p_date: string }; Returns: number }
       booking_status_occupies: { Args: { p_status: string }; Returns: boolean }
+      change_booking_atomic: {
+        Args: {
+          p_booking_date: string
+          p_booking_id: string
+          p_end_time: string
+          p_start_time: string
+          p_user_id: string
+        }
+        Returns: undefined
+      }
       check_rate_limit: {
         Args: { p_key: string; p_limit: number; p_window_ms: number }
         Returns: boolean
       }
       cleanup_old_audit_logs: { Args: never; Returns: undefined }
       cleanup_old_cron_logs: { Args: never; Returns: undefined }
+      cleanup_old_cron_report_sends: { Args: never; Returns: undefined }
       cleanup_old_webhook_retry: { Args: never; Returns: undefined }
       consume_subscription_session: {
         Args: { p_subscription_id: string }
@@ -5583,16 +5647,6 @@ export type Database = {
           p_total_price: number
         }
         Returns: string
-      }
-      change_booking_atomic: {
-        Args: {
-          p_booking_date: string
-          p_booking_id: string
-          p_end_time: string
-          p_start_time: string
-          p_user_id: string
-        }
-        Returns: undefined
       }
       create_blog_author_atomic: {
         Args: { p_facility_id: string; p_name: string }
@@ -5781,14 +5835,14 @@ export type Database = {
       get_facility_customers_v1: {
         Args: {
           p_facility_id: string
-          p_search: string | null
           p_limit: number
           p_offset: number
+          p_search: string
         }
         Returns: {
+          email: string
           name: string
-          phone: string | null
-          email: string | null
+          phone: string
           total_count: number
         }[]
       }
@@ -5801,24 +5855,19 @@ export type Database = {
       }
       get_month_availability: {
         Args: {
-          p_dates: string[]
           p_duration_minutes: number
           p_facility_id: string
+          p_month: number
           p_staff_ids: string[]
+          p_year: number
         }
         Returns: {
           d: string
           slots: number
         }[]
       }
-      aggregate_daily_revenue: {
-        Args: { p_date: string }
-        Returns: number
-      }
-      get_public_columns: {
-        Args: Record<PropertyKey, never>
-        Returns: Json
-      }
+      get_public_columns: { Args: never; Returns: Json }
+      get_public_constraints: { Args: never; Returns: Json }
       get_unique_customers: {
         Args: { p_facility_id: string }
         Returns: {
@@ -5831,10 +5880,6 @@ export type Database = {
       get_user_points_balance: { Args: { p_user_id: string }; Returns: number }
       gettransactionid: { Args: never; Returns: unknown }
       increment_view_count: {
-        Args: { facility_uuid: string }
-        Returns: undefined
-      }
-      record_facility_page_view: {
         Args: { facility_uuid: string }
         Returns: undefined
       }
@@ -5879,6 +5924,10 @@ export type Database = {
       }
       postgis_version: { Args: never; Returns: string }
       postgis_wagyu_version: { Args: never; Returns: string }
+      record_facility_page_view: {
+        Args: { facility_uuid: string }
+        Returns: undefined
+      }
       record_incident_thread: {
         Args: { p_channel: string; p_key: string; p_thread_ts: string }
         Returns: undefined
@@ -6678,9 +6727,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
