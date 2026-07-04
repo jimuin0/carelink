@@ -62,10 +62,13 @@ async function compressImage(file: File): Promise<File> {
   });
 }
 
-const ratingAxis = z.number().min(1, '評価を選択してください').max(5);
+// サーバ(src/app/api/review/route.ts)と検証水準を一致させる（監査F7）。
+// 評価軸は整数(.int())・氏名は50文字上限。クライアントが緩いと確認画面まで進んで
+// から送信時にサーバ拒否され、原因不明のエラーになる。
+const ratingAxis = z.number().int('評価を選択してください').min(1, '評価を選択してください').max(5);
 
 const reviewSchema = z.object({
-  reviewer_name: z.string().min(1, 'お名前を入力してください'),
+  reviewer_name: z.string().min(1, 'お名前を入力してください').max(50, 'お名前は50文字以内で入力してください'),
   rating_skill: ratingAxis,
   rating_service: ratingAxis,
   rating_atmosphere: ratingAxis,

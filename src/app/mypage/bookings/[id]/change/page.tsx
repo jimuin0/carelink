@@ -155,6 +155,9 @@ export default function BookingChangePage() {
           start_time: selectedSlot.slot_start,
           end_time: selectedSlot.slot_end,
         }),
+        // 監査F10: 新規予約(BookingFlow)と同様にタイムアウトを付与。
+        // 未設定だとサーバ/プロキシのハング時に「変更中...」のまま無限待機になる。
+        signal: AbortSignal.timeout(15000),
       });
       const data = await res.json();
       if (!res.ok) {

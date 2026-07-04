@@ -6,26 +6,19 @@
 
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { withRoute } from '@/lib/with-route';
 import { sendNotify } from '@/lib/notify';
+import { contactSchema } from '@/lib/validations-contact';
+import { zodErrorResponse } from '@/lib/api-validation';
 
 export const dynamic = 'force-dynamic';
-
-const contactSchema = z.object({
-  name: z.string().min(1).max(100),
-  email: z.string().email().max(254),
-  phone: z.string().max(20).optional().nullable(),
-  inquiry_type: z.string().min(1).max(100),
-  message: z.string().min(1).max(5000),
-});
 
 export const POST = withRoute(async (request) => {
   const body = await request.json().catch(() => null);
   const parsed = contactSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
+    return zodErrorResponse(parsed.error);
   }
 
   const supabase = createClient(

@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 import { bookingSchema } from '@/lib/validations-booking';
+import { zodErrorResponse } from '@/lib/api-validation';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmation, sendBookingConfirmed, sendNewBookingNotification } from '@/lib/email';
 import { bookingRateLimit, checkRateLimit } from '@/lib/rate-limit';
@@ -50,7 +51,7 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}));
   const parsed = bookingSchema.safeParse(body);
   if (!parsed.success) {
-    return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+    return zodErrorResponse(parsed.error);
   }
 
   // 時間バリデーション

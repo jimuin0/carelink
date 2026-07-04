@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import { isValidIsoDate } from './date-utils';
-
-const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
+import { phoneField } from './phone';
 
 const timeString = z.string()
   .regex(/^\d{2}:\d{2}$/, '正しい時間形式で入力してください')
@@ -49,7 +48,7 @@ export const bookingSchema = z.object({
   end_time: timeString,
   customer_name: z.string().min(1, 'お名前は必須です').max(100),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
-  phone: z.string().regex(phoneRegex, '正しい電話番号を入力してください').or(z.literal('')).optional().nullable(),
+  phone: phoneField(),
   // BookingFlow は備考未入力時に note: null を送る（phone と同様）。optional だけだと null を
   // 弾き、備考なしのオンライン予約が一律 400 になるため、phone と揃えて nullable も許可する。
   note: z.string().max(500, '備考は500文字以内で入力してください').optional().nullable(),

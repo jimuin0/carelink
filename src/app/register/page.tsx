@@ -259,7 +259,7 @@ export default function RegisterPage() {
             <div className="space-y-5">
               <div>
                 <label htmlFor="reg-postal-code" className="form-label">郵便番号 <span className="text-gray-400 text-xs font-normal">7桁入力で住所を自動補完</span></label>
-                <input {...register('postal_code')} id="reg-postal-code" autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={7} inputMode="numeric" />
+                <input {...register('postal_code')} id="reg-postal-code" autoComplete="postal-code" className="form-input" placeholder="5600001" maxLength={8} inputMode="numeric" />
                 {errors.postal_code && <p className="form-error" role="alert">{errors.postal_code.message}</p>}
               </div>
               <div>

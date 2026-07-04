@@ -160,7 +160,7 @@ test('PATCH: 全項目更新で正常 → 200', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   mockAdminFrom.mockReturnValue(updateSingle({ id: CUSTOMER_ID, name: '山田 太郎' }));
   const res = await PATCH(makeRequest('PATCH', validBody({
-    name_kana: 'ヤマダ', email: 'a@example.com', phone: '090', birthday: '1990-04-01', gender: 'female', notes: 'memo',
+    name_kana: 'ヤマダ', email: 'a@example.com', phone: '090-1234-5678', birthday: '1990-04-01', gender: 'female', notes: 'memo',
   })), params());
   const json = await res.json();
   expect(res.status).toBe(200);

@@ -72,6 +72,12 @@ export async function POST(request: Request) {
     if (!body?.template_id || !body?.customer_name || !body?.facility_id) {
       return NextResponse.json({ error: '必須フィールドが不足しています' }, { status: 400 });
     }
+    // 監査F9: 従来は customer_name を slice(0,50) で無警告に切り詰めており、
+    // 51文字以上の氏名が黙って切られて保存され利用者が気づけなかった（データの静かな破損）。
+    // 明示的に 400 で拒否する（クライアント側 maxLength=50 と揃える）。
+    if (String(body.customer_name).length > 50) {
+      return NextResponse.json({ error: 'お名前は50文字以内で入力してください' }, { status: 400 });
+    }
     if (!UUID_REGEX.test(body.template_id)) return NextResponse.json({ error: 'Invalid template_id' }, { status: 400 });
     if (!UUID_REGEX.test(body.facility_id)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
     if (body.booking_id && !UUID_REGEX.test(body.booking_id)) return NextResponse.json({ error: 'Invalid booking_id' }, { status: 400 });
