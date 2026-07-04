@@ -1,7 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { timingSafeEqual } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { createServiceRoleClient } from '@/lib/supabase-server';
@@ -24,6 +24,29 @@ function timingSafeStrEqual(a: string, b: string): boolean {
   const bb = Buffer.from(b);
   if (ba.length !== bb.length) return false;
   return timingSafeEqual(ba, bb);
+}
+
+/**
+ * LINE の email 非提供時に使う合成メールを、サーバ秘密（LINE_CHANNEL_SECRET）で
+ * HMAC 導出して予測不能にする（監査A1・アカウント先回り乗っ取りの根治）。
+ *
+ * 旧実装は `line_${userId}@line.carelink.local` と userId 平文で予測可能だったため、
+ * 攻撃者が被害者の LINE userId を知っていれば、その合成メールをパスワード付きで
+ * 先回り登録でき、被害者の初回 LINE ログイン（この合成メール経路）を
+ * verifyOtp で攻撃者アカウントに流し込めた。HMAC 化で第三者は合成メールを
+ * 算出できず先回り登録が不能になる。
+ *
+ * - userId 起点の決定的導出なので冪等（リトライで同一メール＝createUser も冪等）。
+ * - 既存 LINE ユーザーは line_user_links 経由（line_user_id 起点）で照合され、
+ *   GoTrue に保存済みの実 email を使うため、この合成メール形式変更の影響を受けない
+ *   （新形式が効くのは link 未作成の初回ログインのみ）。
+ * - LINE_CHANNEL_SECRET は token 交換（上流）でも必須のため、ここに到達する時点で
+ *   必ず設定済み。未設定なら LINE ログイン自体が先に失敗する。
+ */
+function syntheticLineEmail(userId: string): string {
+  const secret = process.env.LINE_CHANNEL_SECRET || '';
+  const digest = createHmac('sha256', secret).update(userId).digest('hex');
+  return `line_${digest}@line.carelink.local`;
 }
 
 export async function GET(request: NextRequest) {
@@ -147,9 +170,9 @@ export async function GET(request: NextRequest) {
         .maybeSingle();
       if (linkRow?.user_id) {
         const { data: { user: existingUser } } = await adminSupabase.auth.admin.getUserById(linkRow.user_id);
-        email = existingUser?.email || `line_${lineProfile.userId}@line.carelink.local`;
+        email = existingUser?.email || syntheticLineEmail(lineProfile.userId);
       } else {
-        email = `line_${lineProfile.userId}@line.carelink.local`;
+        email = syntheticLineEmail(lineProfile.userId);
       }
     }
 

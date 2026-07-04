@@ -156,3 +156,42 @@ describe('signupSchema - 境界値・エッジケース', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// ─── 監査A1: LINE 合成メール予約ドメインの先回り登録拒否 ─────────────────────
+describe('予約ドメイン @line.carelink.local の拒否（アカウント先回り乗っ取り対策）', () => {
+  const loginBase = { email: 'test@example.com', password: '12345678' };
+  const signupBase = {
+    display_name: 'テスト太郎',
+    email: 'test@example.com',
+    password: '12345678',
+    password_confirm: '12345678',
+  };
+
+  test('loginSchema は line_ 合成メールを拒否する', () => {
+    expect(loginSchema.safeParse({
+      ...loginBase, email: 'line_U1234567890abcdef@line.carelink.local',
+    }).success).toBe(false);
+  });
+
+  test('loginSchema は大文字混在の予約ドメインも拒否する', () => {
+    expect(loginSchema.safeParse({
+      ...loginBase, email: 'line_x@LINE.Carelink.Local',
+    }).success).toBe(false);
+  });
+
+  test('signupSchema は line_ 合成メールを拒否する', () => {
+    expect(signupSchema.safeParse({
+      ...signupBase, email: 'line_U1234567890abcdef@line.carelink.local',
+    }).success).toBe(false);
+  });
+
+  test('正規ドメインの類似メールは通過する（過剰拒否しない）', () => {
+    // carelink.local で終わらない正規メールは影響を受けないこと
+    expect(loginSchema.safeParse({
+      ...loginBase, email: 'line_fan@carelink.example.com',
+    }).success).toBe(true);
+    expect(signupSchema.safeParse({
+      ...signupBase, email: 'user@line.carelink.local.example.com',
+    }).success).toBe(true);
+  });
+});

@@ -1,13 +1,27 @@
 import { z } from 'zod';
 
+/**
+ * LINE ログイン用の合成メール（`line_...@line.carelink.local`）は、パスワード認証の
+ * email/password フローから登録・ログイン・パスワード再設定できてはならない。
+ * 予約ドメインを第三者が先回り登録すると、被害者の LINE 初回ログインを乗っ取れる
+ * （監査A1）。合成メール本体の予測不能化（callback 側の HMAC 導出）が主防御で、
+ * ここはアプリ自身のフォーム経路に対する多層防御として予約ドメインを拒否する。
+ */
+const RESERVED_LINE_EMAIL_DOMAIN = '@line.carelink.local';
+const notReservedLineEmail = (email: string): boolean =>
+  !email.toLowerCase().endsWith(RESERVED_LINE_EMAIL_DOMAIN);
+const reservedLineEmailMessage = 'このメールアドレスは使用できません';
+
 export const loginSchema = z.object({
-  email: z.string().email('正しいメールアドレスを入力してください').max(254),
+  email: z.string().email('正しいメールアドレスを入力してください').max(254)
+    .refine(notReservedLineEmail, reservedLineEmailMessage),
   password: z.string().min(8, 'パスワードは8文字以上で入力してください').max(128),
 });
 
 export const signupSchema = z.object({
   display_name: z.string().min(1, 'お名前を入力してください').max(50),
-  email: z.string().email('正しいメールアドレスを入力してください').max(254),
+  email: z.string().email('正しいメールアドレスを入力してください').max(254)
+    .refine(notReservedLineEmail, reservedLineEmailMessage),
   password: z.string().min(8, 'パスワードは8文字以上で入力してください').max(128),
   password_confirm: z.string().max(128),
 }).refine((data) => data.password === data.password_confirm, {
