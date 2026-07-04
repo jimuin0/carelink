@@ -65,6 +65,9 @@ export async function getLineWorksToken(forceRefresh = false): Promise<string | 
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: body.toString(),
+      // 監査X5: 他の外部fetch(gbp/line/hpb)と同様にタイムアウトを付与。
+      // 未設定だとハング時に呼び出し元(予約API/cron)をVercel強制killまでブロックする。
+      signal: AbortSignal.timeout(10000),
     });
 
     if (!res.ok) return null;
@@ -157,6 +160,8 @@ export async function sendLineWorksMessage(
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(message),
+      // 監査X5: 送信fetchにもタイムアウトを付与（トークン取得側と対称）。
+      signal: AbortSignal.timeout(10000),
     }
   );
 

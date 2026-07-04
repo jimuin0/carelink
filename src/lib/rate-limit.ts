@@ -73,6 +73,14 @@ export function inMemoryRateLimit(
   return limited;
 }
 
+/**
+ * テスト/観測用: in-memory フォールバックストアの現在エントリ数を返す。
+ * LRU eviction・hard cap(1000)が実際に機能しているかを検証可能にする（監査T5）。
+ */
+export function inMemoryStoreSize(): number {
+  return store.size;
+}
+
 // ===== Supabase RPC ベース =====
 
 export async function checkRateLimit(

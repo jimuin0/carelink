@@ -2,7 +2,7 @@ jest.mock('../supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
 }));
 
-import { inMemoryRateLimit, checkRateLimit } from '../rate-limit';
+import { inMemoryRateLimit, checkRateLimit, inMemoryStoreSize } from '../rate-limit';
 const { createServiceRoleClient } = require('../supabase-server');
 
 describe('inMemoryRateLimit', () => {
@@ -85,24 +85,37 @@ describe('inMemoryRateLimit', () => {
     expect(inMemoryRateLimit(ipv6, limit, windowMs, prefix)).toBe(true);
   });
 
-  test('LRU eviction triggers when store > 500 entries', () => {
-    const limit = 1;
-    const windowMs = 1; // すぐ expire させる
-    for (let i = 0; i < 550; i++) {
-      inMemoryRateLimit(`evict-ip-${i}`, limit, windowMs, 'lru-prefix');
+  test('store>500 で期限切れエントリが実際にクリーンアップされる（監査T5）', () => {
+    // fake timer で決定的に期限切れを起こす。501件挿入→時間を窓幅超に進める→
+    // trigger 挿入で cleanup 経路を通し、期限切れが一掃されてサイズが減ることを検証する。
+    jest.useFakeTimers();
+    try {
+      jest.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+      const windowMs = 1000;
+      for (let i = 0; i < 501; i++) {
+        inMemoryRateLimit(`evict-ip-${i}`, 1, windowMs, 'lru-prefix');
+      }
+      const before = inMemoryStoreSize();
+      // 窓幅(1000ms)を超えて時間を進め、上記エントリを全て期限切れにする
+      jest.setSystemTime(new Date('2026-01-01T00:00:02Z'));
+      inMemoryRateLimit('final-ip', 1, windowMs, 'lru-prefix-final');
+      const after = inMemoryStoreSize();
+      // cleanup が機能していれば、期限切れ501件が削除されサイズは大幅に減る
+      // （ロジックを消すと after >= before になりこのテストが落ちる）。
+      expect(after).toBeLessThan(before);
+    } finally {
+      jest.useRealTimers();
     }
-    // sleep 不要、windowMs=1ms で 550 個入れてさらに 1 追加 → expired cleanup 経路通過
-    inMemoryRateLimit('final-ip', limit, windowMs, 'lru-prefix-final');
-    expect(true).toBe(true);
   });
 
-  test('LRU hard cap > 1000', () => {
-    const limit = 1;
-    const windowMs = 60000; // 期限切れさせずに 1000 超
-    for (let i = 0; i < 1050; i++) {
-      inMemoryRateLimit(`cap-ip-${i}`, limit, windowMs, 'cap-prefix');
+  test('LRU hard cap でストアが 1000 を超えない（監査T5）', () => {
+    const windowMs = 60000; // 期限切れさせずに 1000 超を狙う
+    for (let i = 0; i < 1100; i++) {
+      inMemoryRateLimit(`cap-ip-${i}`, 1, windowMs, 'cap-prefix');
     }
-    expect(true).toBe(true);
+    // hard cap(1000)が機能していればサイズは 1000 以下に抑えられる
+    // （eviction を消すと 1100 まで膨張しこのテストが落ちる）。
+    expect(inMemoryStoreSize()).toBeLessThanOrEqual(1000);
   });
 
   test('high request rate is handled correctly', () => {

@@ -205,6 +205,22 @@ describe('POST /api/intake', () => {
     expect(res.status).toBe(400);
   });
 
+  test('customer_name が50文字超 → 400（監査F9・サイレント切り詰め廃止）', async () => {
+    const { POST } = await import('../route');
+    const res = await POST(new Request('http://localhost/api/intake', {
+      method: 'POST',
+      body: JSON.stringify({
+        template_id: '11111111-1111-1111-1111-111111111111',
+        facility_id: '11111111-1111-1111-1111-111111111111',
+        customer_name: 'あ'.repeat(51),
+      }),
+    }) as any);
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error).toBe('お名前は50文字以内で入力してください');
+  });
+
   test('invalid template_id UUID → 400', async () => {
     const { POST } = await import('../route');
     const res = await POST(new Request('http://localhost/api/intake', {

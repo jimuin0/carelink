@@ -7,6 +7,7 @@
  * バックし、通知漏れより誤送信を許容する（可用性優先・既存挙動維持）。
  */
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { errorMessage } from '@/lib/err';
 
 export type NotificationFlags = {
   pushOnNewBooking: boolean;
@@ -41,7 +42,13 @@ export async function getFacilityNotificationSettings(facilityId: string): Promi
       emailDailySummary: data.email_daily_summary ?? DEFAULT_NOTIFICATION_FLAGS.emailDailySummary,
       emailWeeklyReport: data.email_weekly_report ?? DEFAULT_NOTIFICATION_FLAGS.emailWeeklyReport,
     };
-  } catch {
+  } catch (e) {
+    // 監査X8: 従来は無音でフェイルオープンしており、設定取得障害(DB接続断等)が
+    // 誰にも気づかれなかった。可用性優先のフェイルオープン方針は維持しつつ、
+    // 障害は可視化する。
+    console.error('[notification-settings] 取得失敗・デフォルトへフォールバック', {
+      err: errorMessage(e),
+    });
     return DEFAULT_NOTIFICATION_FLAGS;
   }
 }

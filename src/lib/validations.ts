@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
-// Phone format helper (Japanese phone: 090-1234-5678, 03-1234-5678, etc.)
-const phoneRegex = /^0\d{1,4}-?\d{1,4}-?\d{3,4}$/;
+import { phoneField } from './phone';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -11,7 +9,7 @@ export const customerSchema = z.object({
   name: z.string().min(1).max(50),
   name_kana: z.string().max(50).optional().nullable(),
   email: z.string().email().max(254).optional().nullable().or(z.literal('')),
-  phone: z.string().max(20).optional().nullable(),
+  phone: phoneField(),
   birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal('')),
   gender: z.enum(['male', 'female', 'other']).optional().nullable(),
   notes: z.string().max(2000).optional().nullable(),
@@ -24,8 +22,8 @@ export const salonStep1Schema = z.object({
   representative_name: z.string().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
   contact_name: z.string().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
-  phone: z.string().min(1, '電話番号を入力してください').regex(phoneRegex, '正しい電話番号を入力してください'),
-  contact_phone: z.string().regex(phoneRegex, '正しい電話番号を入力してください').or(z.literal('')).optional(),
+  phone: phoneField({ required: true }),
+  contact_phone: phoneField(),
   website: z.string().max(2000).url('正しいURLを入力してください').or(z.literal('')).optional(),
 });
 

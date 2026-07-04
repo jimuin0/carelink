@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { customerSchema } from '@/lib/validations';
+import { zodErrorResponse } from '@/lib/api-validation';
 
 async function getAdminInfo(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
@@ -41,7 +42,7 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => null);
   const parsed = customerSchema.safeParse(body);
-  if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
+  if (!parsed.success) return zodErrorResponse(parsed.error);
 
   const admin = createServiceRoleClient();
   const { data, error } = await admin.from('customers').insert({

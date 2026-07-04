@@ -127,6 +127,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
             onChange={(e) => setCustomerName(e.target.value)}
             placeholder="山田 花子"
             required
+            maxLength={50}
             className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-sky-400"
           />
         </div>
@@ -134,7 +135,10 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
         {/* 動的フィールド */}
         {fields.map((field) => (
           <div key={field.id}>
-            <label htmlFor={`intake-${field.id}`} className="block text-sm font-bold text-gray-700 mb-1.5">
+            {/* 監査F11: checkbox/radio/boolean グループの aria-labelledby が参照する実体。
+                従来は htmlFor のみで id を持たず、グループのラベルがスクリーンリーダーで
+                解決不能だった。ラベルに id を付与し aria-labelledby から参照する。 */}
+            <label id={`intake-label-${field.id}`} htmlFor={`intake-${field.id}`} className="block text-sm font-bold text-gray-700 mb-1.5">
               {field.label}
               {field.required && <span className="text-red-500 ml-0.5">*</span>}
             </label>
@@ -143,6 +147,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
               <input
                 id={`intake-${field.id}`}
                 type="text"
+                maxLength={200}
                 value={(responses[field.id] as string) || ''}
                 onChange={(e) => setValue(field.id, e.target.value)}
                 placeholder={field.placeholder}
@@ -179,7 +184,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
             {/* checkbox: options から複数選択（配列で保持）。未実装だと checkbox 型の
                 必須フィールドが入力欄なしで描画され送信不能になるため明示的に対応する。 */}
             {field.type === 'checkbox' && field.options && (
-              <div className="space-y-2" role="group" aria-labelledby={`intake-${field.id}`}>
+              <div className="space-y-2" role="group" aria-labelledby={`intake-label-${field.id}`}>
                 {field.options.map((opt) => {
                   const selected = Array.isArray(responses[field.id]) ? (responses[field.id] as string[]) : [];
                   const checked = selected.includes(opt);
@@ -205,7 +210,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
             )}
 
             {field.type === 'radio' && field.options && (
-              <div className="space-y-2" role="radiogroup" aria-labelledby={`intake-${field.id}`}>
+              <div className="space-y-2" role="radiogroup" aria-labelledby={`intake-label-${field.id}`}>
                 {field.options.map((opt) => (
                   <label key={opt} className="flex items-center gap-2 cursor-pointer">
                     <input
@@ -223,7 +228,7 @@ export default function IntakeForm({ facilityId, facilityName, bookingId, templa
             )}
 
             {field.type === 'boolean' && (
-              <div className="flex gap-4" role="radiogroup" aria-labelledby={`intake-${field.id}`}>
+              <div className="flex gap-4" role="radiogroup" aria-labelledby={`intake-label-${field.id}`}>
                 {['はい', 'いいえ'].map((opt) => (
                   <label key={opt} className="flex items-center gap-2 cursor-pointer">
                     <input

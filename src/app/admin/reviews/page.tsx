@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import LoadError from '@/components/admin/LoadError';
@@ -77,8 +77,14 @@ export default function AdminReviewsPage() {
     reload().catch(() => { setLoadError(true); setLoading(false); });
   }, [reload]);
 
+  // 監査P13: この effect は filter 変更時の再取得用。従来は reload() が facilityId を
+  // セットした初回にも発火し、reload 内の loadReviews と合わせて初回に2回フェッチしていた。
+  // 初回（facilityId 確定＝reload が取得済み）の1回はスキップし、以降の filter 変更時のみ再取得する。
+  const filterEffectInitialized = useRef(false);
   useEffect(() => {
-    if (facilityId) loadReviews(facilityId);
+    if (!facilityId) return;
+    if (!filterEffectInitialized.current) { filterEffectInitialized.current = true; return; }
+    loadReviews(facilityId);
   }, [filter, facilityId, loadReviews]);
 
   const toggleStatus = async (review: FacilityReview) => {

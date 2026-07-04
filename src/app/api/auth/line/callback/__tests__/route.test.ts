@@ -345,6 +345,42 @@ describe('GET /api/auth/line/callback', () => {
     expect(res.status).toBe(307);
   });
 
+  test('合成メールは HMAC 導出で予測不能（監査A1・先回り登録乗っ取り対策）', async () => {
+    // id_token 無し + line_user_links 未登録 → 合成メール生成経路。
+    // 旧実装の予測可能な line_${userId}@... ではなく、LINE_CHANNEL_SECRET を
+    // 鍵にした HMAC-SHA256 で導出されることを固定する。
+    const { createHmac } = require('crypto');
+    const userId = 'line-no-email';
+    global.fetch = jest.fn((url: string) => {
+      if (url.includes('oauth2/v2.1/token')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ access_token: 'test-token' }), // no id_token
+          { ok: true, status: 200 }
+        ));
+      }
+      if (url.includes('api.line.me/v2/profile')) {
+        return Promise.resolve(new Response(
+          JSON.stringify({ userId, displayName: 'No Email User' }),
+          { ok: true, status: 200 }
+        ));
+      }
+      return Promise.resolve(new Response('{}'));
+    }) as jest.Mock;
+
+    await GET(makeRequest('?code=test-code&state=saved-state') as any);
+
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    const adminClient = createServiceRoleClient.mock.results[
+      createServiceRoleClient.mock.results.length - 1
+    ].value;
+    const createUserArg = adminClient.auth.admin.createUser.mock.calls[0][0];
+
+    const expectedDigest = createHmac('sha256', 'test-secret').update(userId).digest('hex');
+    expect(createUserArg.email).toBe(`line_${expectedDigest}@line.carelink.local`);
+    // 旧・予測可能形式では絶対にないこと（回帰防止）
+    expect(createUserArg.email).not.toBe(`line_${userId}@line.carelink.local`);
+  });
+
   test('generateLink失敗 → 302 with line_auth_failed', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({

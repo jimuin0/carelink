@@ -4,20 +4,12 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { contactSchema, type ContactFormData } from '@/lib/validations-contact';
 
-const contactSchema = z.object({
-  name: z.string().min(1, 'お名前を入力してください'),
-  email: z.string().email('正しいメールアドレスを入力してください'),
-  phone: z.string().regex(/^$|^0\d{1,4}-?\d{1,4}-?\d{3,4}$/, '正しい電話番号を入力してください').optional().or(z.literal('')),
-  inquiry_type: z.string().min(1, 'お問い合わせ種別を選択してください'),
-  message: z.string().min(1, '内容を入力してください').max(5000, '5000文字以内で入力してください'),
-});
-
-type ContactForm = z.infer<typeof contactSchema>;
+type ContactForm = ContactFormData;
 
 export default function ContactPage() {
   const [submitting, setSubmitting] = useState(false);
