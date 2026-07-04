@@ -95,14 +95,26 @@ export { esc, escSubject, formatDate, formatTime };
  * 実際の送達可否を判定する。再throwすると他の一括送信が巻き込まれて止まるため throw はしない。
  */
 async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await resend.emails.send(params);
+    // 監査X7: Resend SDK は自前タイムアウトを持たず、cron の maxDuration/予算ガードは
+    // iteration 間でしか効かないため await 中のハングを救えない。Promise.race で 10s 上限を
+    // 課し、ハング時は失敗(false)扱いにして一括送信全体のブロックを防ぐ。
+    await Promise.race([
+      resend.emails.send(params),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('resend send timeout (10s)')), 10_000);
+      }),
+    ]);
     return true;
   } catch (e) {
     safeCaptureException(e, `email:${context}`);
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
+
 
 /** 予約受付確認（顧客向け） */
 export async function sendBookingConfirmation(data: BookingEmailData): Promise<boolean> {

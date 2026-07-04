@@ -16,6 +16,13 @@ import { todayJst } from '@/lib/admin-date';
 import { escSubject, esc } from '@/lib/email';
 
 export const dynamic = 'force-dynamic';
+// 監査X3: 他cron(booking-reminder/review-request/favorites-digest/weekly-report)と揃えて
+// 実行時間上限を明示。未設定だと claim(status='notified')直後にプラットフォーム強制killされると、
+// 通知未送達のまま notified で残り48h後にexpired化＝恒久miss。予算ガードで claim 前に停止する。
+export const maxDuration = 60;
+
+// 60s の maxDuration に対し 10s の余裕を残して打ち切る。残りは 2h オーバーラップ窓で次 run が拾う。
+const WAITLIST_BUDGET_MS = 50_000;
 
 export async function GET(request: Request) {
   const cronAuthError = checkCronAuth(request);
@@ -67,11 +74,20 @@ export async function GET(request: Request) {
 
     let notified = 0;
     let deliveryFailures = 0; // メール送達失敗（run 単位で集約 Slack 通報）
+    let budgetExceeded = false;
+    const loopStart = Date.now();
 
     if (recentCancels && recentCancels.length > 0) {
       const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
       for (const cancel of recentCancels) {
+        // 実時間予算ガード: claim→送信の途中で強制killされ孤児 notified が残るのを防ぐため、
+        // 予算超過時は新たな cancel の処理に入らず打ち切る（残りは次 run が 2h 窓で拾う）。
+        if (Date.now() - loopStart > WAITLIST_BUDGET_MS) {
+          budgetExceeded = true;
+          console.warn('[waitlist-notify] time budget exceeded, deferring rest to next run');
+          break;
+        }
         // 同じ施設・日時のウェイトリスト（waiting 状態のもの）を取得。
         // error を無音で握ると「待ち客なし」と区別できず恒久 miss になるため可視化する
         // （2h オーバーラップ窓により、一過性失敗は次 run で自己修復される）。
@@ -169,7 +185,7 @@ export async function GET(request: Request) {
 
     await logCronRun('waitlist-notify', 'success', startedAt, {
       processed: notified,
-      meta: { expired: expiredCount ?? 0 },
+      meta: { expired: expiredCount ?? 0, budgetExceeded },
     });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('waitlist-notify', deliveryFailures, { notified });

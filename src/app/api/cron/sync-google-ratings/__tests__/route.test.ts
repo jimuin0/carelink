@@ -156,13 +156,15 @@ describe('GET /api/cron/sync-google-ratings', () => {
     expect(updateCall[0].gbp_synced_at).toEqual(expect.any(String));
   });
 
-  test('no valid place data → skipped', async () => {
+  test('fetchPlaceDetails が null（API失敗）→ fetchFailed に計上（skipped と区別・監査X2）', async () => {
     (fetchPlaceDetails as jest.Mock).mockResolvedValue(null);
 
     const res = await GET(makeRequest() as any);
 
     const json = await res.json();
-    expect(json.skipped).toBeGreaterThan(0);
+    // null 返り＝例外/401/429/5xx 等の API 障害。レビュー無し施設の正常スキップとは区別する。
+    expect(json.fetchFailed).toBeGreaterThan(0);
+    expect(json.skipped).toBe(0);
   });
 
   test('place data with null rating → skipped', async () => {
@@ -393,16 +395,19 @@ describe('GET /api/cron/sync-google-ratings', () => {
     expect(json.skipped).toBeGreaterThan(0);
   });
 
-  // C-3 根治: 全件失敗（API 障害の疑い）は無音にせず Slack へ警報する
-  test('全件失敗(errors===対象件数) → alertWarning が発火する', async () => {
+  // C-3 / 監査X2 根治: 全件が API 失敗(null返り)＝Google Places API 障害の疑いは
+  // 無音にせず Slack へ警報する。fetchPlaceDetails は実運用で例外を投げず null を返すため、
+  // 現実的な全滅シナリオは null 返りで表現する（旧テストの reject は到達しない経路だった）。
+  test('全件 fetch 失敗(fetchFailed===対象件数) → alertWarning が発火する', async () => {
     setupDefaultMocks(2);
-    (fetchPlaceDetails as jest.Mock).mockRejectedValue(new Error('API error'));
+    (fetchPlaceDetails as jest.Mock).mockResolvedValue(null);
 
     const res = await GET(makeRequest() as any);
     const json = await res.json();
 
-    expect(json.errors).toBe(2);
+    expect(json.fetchFailed).toBe(2);
     expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(0);
     expect(alertWarning).toHaveBeenCalledTimes(1);
     expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/全件失敗/);
     expect(logCronRun).toHaveBeenCalledWith(

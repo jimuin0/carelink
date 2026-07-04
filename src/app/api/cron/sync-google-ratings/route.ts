@@ -43,7 +43,11 @@ export async function GET(request: Request) {
   }
 
   const list = facilities ?? [];
-  const results = { updated: 0, skipped: 0, errors: 0, deferred: 0 };
+  // 監査X2: fetchFailed は「Places API 呼び出しが null を返した(例外/401/429/5xx/status≠OK)」件数。
+  // 従来はこれを skipped に混ぜていたため、API キー失効・課金停止の全滅時も errors=0 のまま
+  // allFailed アラートが構造的に発火しなかった。attempted は place_id 有りで実際に fetch した件数。
+  const results = { updated: 0, skipped: 0, errors: 0, fetchFailed: 0, deferred: 0 };
+  let attempted = 0;
   const loopStart = Date.now();
 
   for (let i = 0; i < list.length; i++) {
@@ -62,11 +66,17 @@ export async function GET(request: Request) {
     // これにより、取得失敗が続く施設が先頭に居座って他施設の同期を阻害しない。
     const nowIso = new Date().toISOString();
     const payload: { gbp_synced_at: string; google_rating?: number | null; google_review_count?: number } = { gbp_synced_at: nowIso };
-    let outcome: 'updated' | 'skipped' | 'error' = 'skipped';
+    let outcome: 'updated' | 'skipped' | 'error' | 'fetch_failed' = 'skipped';
 
+    attempted++;
     try {
       const placeData = await fetchPlaceDetails(facility.gbp_place_id);
-      if (!placeData || (placeData.rating == null && placeData.user_ratings_total == null)) {
+      if (placeData === null) {
+        // fetchPlaceDetails は例外/401/429/5xx/status≠OK を全て null に畳む。
+        // これらは API 障害であり「レビュー無し施設」ではないため fetch 失敗として集計する。
+        outcome = 'fetch_failed';
+      } else if (placeData.rating == null && placeData.user_ratings_total == null) {
+        // 取得は成功したがレビューが無い施設（正常なスキップ＝API は稼働）。
         outcome = 'skipped';
       } else {
         payload.google_rating = placeData.rating ?? null;
@@ -89,6 +99,8 @@ export async function GET(request: Request) {
       results.updated++;
     } else if (outcome === 'error') {
       results.errors++;
+    } else if (outcome === 'fetch_failed') {
+      results.fetchFailed++;
     } else {
       results.skipped++;
     }
@@ -101,18 +113,21 @@ export async function GET(request: Request) {
   // 深刻な障害の疑い）の場合は無音にせず Slack へ警報する。旧実装は errors 件数に関わらず
   // 常に 'success' 記録で、cron_logs だけを見ても API 障害に気づけない盲点だった
   // （1件だけの失敗はノイズになるため許容し、全滅時のみ昇格する設計）。
-  const allFailed = list.length > 0 && results.updated === 0 && results.errors === list.length;
+  // 実際に fetch した全件が API 失敗で返り、成功(updated)もレビュー無し正常スキップ(skipped)も
+  // 1件も無い場合を「全滅」とみなす。1件でも成功/正常スキップがあれば API は稼働中なので発火しない。
+  const allFailed = attempted > 0 && results.updated === 0 && results.skipped === 0
+    && results.fetchFailed === attempted;
   if (allFailed) {
     alertWarning(
-      `sync-google-ratings: 対象${list.length}件が全件失敗（Google Places API 障害の疑い）`,
-      { route: '/api/cron/sync-google-ratings', extra: { errors: results.errors, skipped: results.skipped } },
+      `sync-google-ratings: fetch対象${attempted}件が全件失敗（Google Places API 障害の疑い）`,
+      { route: '/api/cron/sync-google-ratings', extra: { fetchFailed: results.fetchFailed, errors: results.errors, skipped: results.skipped } },
     );
   }
 
   await logCronRun('sync-google-ratings', 'success', startedAt, {
     processed: results.updated,
     skipped: results.skipped,
-    meta: { errors: results.errors, deferred: results.deferred, allFailed },
+    meta: { errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred, allFailed },
   });
-  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, deferred: results.deferred });
+  return NextResponse.json({ processed: results.updated, skipped: results.skipped, errors: results.errors, fetchFailed: results.fetchFailed, deferred: results.deferred });
 }
