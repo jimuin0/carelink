@@ -598,11 +598,13 @@ function TopTab({ facility, featuredMenus }: { facility: Facility; featuredMenus
           <div className="flex">
             <span className="text-gray-500 w-20 shrink-0">住所</span>
             <div className="flex items-center gap-2 flex-wrap">
-              <span>{facility.prefecture}{facility.city}{facility.address}</span>
+              {/* 監査T1: DBは prefecture/city/address が nullable。テンプレートリテラル(下のURL)は
+                  null を「null」文字列化するため ?? '' でガードする。 */}
+              <span>{facility.prefecture ?? ''}{facility.city ?? ''}{facility.address ?? ''}</span>
               <a
                 href={facility.gbp_place_id
                   ? `https://www.google.com/maps/place/?q=place_id:${encodeURIComponent(facility.gbp_place_id)}`
-                  : `https://www.google.com/maps/search/${encodeURIComponent(`${facility.prefecture}${facility.city}${facility.address}`)}`}
+                  : `https://www.google.com/maps/search/${encodeURIComponent(`${facility.prefecture ?? ''}${facility.city ?? ''}${facility.address ?? ''}`)}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-1 text-xs text-sky-600 hover:underline shrink-0"

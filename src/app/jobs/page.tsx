@@ -59,7 +59,13 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
   if (searchParams.job_type) query = query.eq('job_type', searchParams.job_type);
   if (searchParams.prefecture) query = query.eq('facility_profiles.prefecture', searchParams.prefecture);
 
-  const { data, count } = await query;
+  const { data, count, error } = await query;
+  if (error) {
+    // 監査T4: 従来は error を destructure せず破棄しており、クエリ失敗(RLS/PostgRESTエラー)時も
+    // 空配列→「求人がありません」を正常表示としてしまい、エラーとゼロ件が区別できなかった。
+    // ログを残し、下の空状態表示でエラーを明示する。
+    console.error('[jobs] 求人一覧の取得に失敗', { err: error.message });
+  }
   const jobs = (data || []) as unknown as JobListRow[];
   const total = count || 0;
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -115,7 +121,9 @@ export default async function JobsListPage(props: { searchParams: Promise<Search
         {/* リスト */}
         <div className="divide-y divide-gray-100">
           {jobs.length === 0 && (
-            <div className="px-4 sm:px-6 py-12 text-center text-gray-500 text-sm">該当する求人がありません</div>
+            <div className="px-4 sm:px-6 py-12 text-center text-gray-500 text-sm">
+              {error ? '求人情報の読み込みに失敗しました。時間をおいて再度お試しください。' : '該当する求人がありません'}
+            </div>
           )}
           {jobs.map((j) => {
             const f = j.facility_profiles;

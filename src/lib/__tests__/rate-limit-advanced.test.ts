@@ -7,7 +7,7 @@ jest.mock('@/lib/supabase-server', () => ({
   })),
 }));
 
-import { inMemoryRateLimit, checkRateLimit } from '../rate-limit';
+import { inMemoryRateLimit, checkRateLimit, inMemoryStoreSize } from '../rate-limit';
 
 describe('inMemoryRateLimit - advanced', () => {
   test('ウィンドウ期限後はカウントがリセットされる', () => {
@@ -67,14 +67,14 @@ describe('inMemoryRateLimit - メモリ管理', () => {
     }
   });
 
-  test('大量の異なる IP でメモリが爆発しない', () => {
+  test('大量の異なる IP でメモリが爆発しない（監査T5・実サイズ検証）', () => {
     const prefix = 'test-memory-' + Date.now();
-    // 600 件の異なる IP でリクエスト（store > 500 でクリーンアップが走る）
-    for (let i = 0; i < 600; i++) {
-      inMemoryRateLimit(`10.0.${Math.floor(i / 255)}.${i % 255}`, 100, 60_000, prefix);
+    // 1100 件の異なる IP でリクエスト（hard cap 1000 を超える件数）
+    for (let i = 0; i < 1100; i++) {
+      inMemoryRateLimit(`10.${Math.floor(i / 65025)}.${Math.floor(i / 255) % 255}.${i % 255}`, 100, 60_000, prefix);
     }
-    // クラッシュしないことを確認（メモリ爆発なし）
-    expect(true).toBe(true);
+    // hard cap が機能し、ストアが 1000 を超えて膨張しないことを実サイズで検証する。
+    expect(inMemoryStoreSize()).toBeLessThanOrEqual(1000);
   });
 
   test('同一 prefix・異なる IP は独立してカウント', () => {

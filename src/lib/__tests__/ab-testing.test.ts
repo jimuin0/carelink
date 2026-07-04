@@ -191,23 +191,8 @@ describe('trackAbEvent()', () => {
     getSpy.mockRestore();
   });
 
-  test('server-side (no window) → returns without fetch', async () => {
-    // Use jest.isolateModules to re-load with window undefined
-    const origWindow = (global as { window?: unknown }).window;
-    // @ts-expect-error - simulating SSR by removing window
-    delete (global as { window?: unknown }).window;
-    jest.isolateModules(() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const mod = require('../ab-testing');
-      return mod.trackAbEvent('exp-ssr', 'control', 'impression');
-    });
-    // Restore
-    (global as { window?: unknown }).window = origWindow;
-    // Fetch should not be called from the SSR branch
-    // (Note: still no assertion failure since other tests reset mockFetch in beforeEach.)
-    expect(true).toBe(true);
-  });
-
-  // Branch coverage: line 38 — typeof window === 'undefined' の true 分岐は
-  // 上の 'server-side (no window)' テストで jest.isolateModules + delete window により既にカバー済み
+  // 監査T5: SSR ガード（typeof window === 'undefined' → 早期 return・line 39）の検証は、
+  // jsdom 環境では window が非configurableで undefined 化できないため、
+  // node 環境の専用ファイル ab-testing-ssr.test.ts に移設して実アサーションで検証している。
+  // （旧テストは delete/代入が効かないまま expect(true).toBe(true) の空アサーションだった。）
 });
