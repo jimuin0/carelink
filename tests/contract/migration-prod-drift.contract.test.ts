@@ -119,7 +119,12 @@ function stripSqlComments(s: string): string {
  *       非 IMMUTABLE で失敗 → AT TIME ZONE 'UTC' 付与で IMMUTABLE 化（UTC 月/日境界で決定的）。
  *   新規 migration は「本番適用 → 型再生成」をワンセットで完了させること。このリストへの追加は原則禁止。
  */
-const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([]);
+const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
+  // 2026-07-04: cron_report_sends（M-1・daily/weekly レポートメール二重送信防止の冪等 claim
+  //   テーブル・20260704000010）は本番 apply ＋ database.types.ts 再生成まで pending。
+  //   神原さんが本番へ apply し型再生成したら本リストから削除する。
+  'cron_report_sends',
+]);
 
 /**
  * 本番に実在するが migration を持たない「残存テーブル」。
@@ -188,6 +193,9 @@ const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
   //   20260629000005_get_public_constraints_rpc.sql）は本番適用＋ database.types.ts 再生成までは
   //   pending。神原さんが本番へ apply し型再生成したら本リストから削除する。
   'get_public_constraints',
+  // 2026-07-04: cleanup_old_cron_report_sends（M-1・cron_report_sends の90日 retention・
+  //   20260704000010）は本番 apply ＋ 型再生成まで pending。適用したら本リストから削除する。
+  'cleanup_old_cron_report_sends',
 ]);
 
 function migrationDefinedTables(): Set<string> {
