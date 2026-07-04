@@ -1,4 +1,11 @@
 {
+  "_backup_facility_members_20260612": [
+    "created_at",
+    "facility_id",
+    "id",
+    "role",
+    "user_id"
+  ],
   "ab_test_events": [
     "created_at",
     "event_type",
@@ -220,6 +227,13 @@
     "skipped",
     "started_at",
     "status"
+  ],
+  "cron_report_sends": [
+    "facility_id",
+    "id",
+    "job",
+    "period_key",
+    "sent_at"
   ],
   "customer_segments": [
     "customer_email",
