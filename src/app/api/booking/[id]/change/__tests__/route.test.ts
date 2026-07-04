@@ -55,8 +55,10 @@ const mockAdminFrom = jest.fn().mockReturnValue({
   not: jest.fn().mockReturnThis(),
   maybeSingle: jest.fn(() => Promise.resolve({ data: null })),
 });
+// DB-2: change_booking_atomic は service_role クライアント(createServiceRoleClient →
+// @supabase/supabase-js createClient)経由で呼ぶため rpc: mockRpc を共有する。
 jest.mock('@supabase/supabase-js', () => ({
-  createClient: () => ({ from: (...args: unknown[]) => mockAdminFrom(...args) }),
+  createClient: () => ({ from: (...args: unknown[]) => mockAdminFrom(...args), rpc: mockRpc }),
 }));
 
 import { POST } from '../route';

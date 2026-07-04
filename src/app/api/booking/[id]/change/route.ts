@@ -105,7 +105,12 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     // 競合チェック＋UPDATE を change_booking_atomic で同一トランザクション・同一 advisory lock
     // 下に実行（TOCTOU 解消）。指名なし(staff_id NULL)もアクティブ施術者数までの容量判定を行う
     // （旧実装は指名なしの競合チェックを完全スキップしていた）。所有権・状態も RPC 内で再検査。
-    const { error } = await supabase.rpc('change_booking_atomic', {
+    // DB-2: change_booking_atomic は所有権を p_user_id パラメータのみで判定するため、直接 PostgREST
+    // で呼ぶと booking_id と被害者 user_id を渡すだけで他人の予約をリスケできる IDOR だった。RPC は
+    // service_role で呼び、migration 側で anon/authenticated の EXECUTE を撤回して直接呼び出しを塞ぐ。
+    // 所有権(booking.user_id === user.id)・状態は上の同期ブロックでサーバ側検証済み。
+    const rpcClient = createServiceRoleClient();
+    const { error } = await rpcClient.rpc('change_booking_atomic', {
       p_booking_id: params.id,
       p_user_id: user.id,
       p_booking_date: parsed.data.booking_date,
