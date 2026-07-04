@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       ab_test_events: {
@@ -1981,7 +2006,7 @@ export type Database = {
       facility_profiles: {
         Row: {
           access_info: string | null
-          address: string | null
+          address: string
           board_slot_minutes: number
           booking_auto_confirm: boolean | null
           booking_buffer_minutes: number | null
@@ -1990,7 +2015,7 @@ export type Database = {
           business_hours_text: string | null
           business_type: string
           catch_copy: string | null
-          city: string | null
+          city: string
           created_at: string | null
           credit_card: boolean | null
           deposit_amount: number | null
@@ -2032,7 +2057,7 @@ export type Database = {
           payment_other: string | null
           phone: string | null
           postal_code: string | null
-          prefecture: string | null
+          prefecture: string
           rating_avg: number | null
           rating_count: number | null
           regular_holiday: string | null
@@ -2052,7 +2077,7 @@ export type Database = {
         }
         Insert: {
           access_info?: string | null
-          address?: string | null
+          address: string
           board_slot_minutes?: number
           booking_auto_confirm?: boolean | null
           booking_buffer_minutes?: number | null
@@ -2061,7 +2086,7 @@ export type Database = {
           business_hours_text?: string | null
           business_type: string
           catch_copy?: string | null
-          city?: string | null
+          city: string
           created_at?: string | null
           credit_card?: boolean | null
           deposit_amount?: number | null
@@ -2103,7 +2128,7 @@ export type Database = {
           payment_other?: string | null
           phone?: string | null
           postal_code?: string | null
-          prefecture?: string | null
+          prefecture: string
           rating_avg?: number | null
           rating_count?: number | null
           regular_holiday?: string | null
@@ -2123,7 +2148,7 @@ export type Database = {
         }
         Update: {
           access_info?: string | null
-          address?: string | null
+          address?: string
           board_slot_minutes?: number
           booking_auto_confirm?: boolean | null
           booking_buffer_minutes?: number | null
@@ -2132,7 +2157,7 @@ export type Database = {
           business_hours_text?: string | null
           business_type?: string
           catch_copy?: string | null
-          city?: string | null
+          city?: string
           created_at?: string | null
           credit_card?: boolean | null
           deposit_amount?: number | null
@@ -2174,7 +2199,7 @@ export type Database = {
           payment_other?: string | null
           phone?: string | null
           postal_code?: string | null
-          prefecture?: string | null
+          prefecture?: string
           rating_avg?: number | null
           rating_count?: number | null
           regular_holiday?: string | null
@@ -3652,6 +3677,7 @@ export type Database = {
         Row: {
           avatar_url: string | null
           birth_date: string | null
+          birth_md: string | null
           city: string | null
           created_at: string | null
           display_name: string
@@ -3670,6 +3696,7 @@ export type Database = {
         Insert: {
           avatar_url?: string | null
           birth_date?: string | null
+          birth_md?: string | null
           city?: string | null
           created_at?: string | null
           display_name?: string
@@ -3688,6 +3715,7 @@ export type Database = {
         Update: {
           avatar_url?: string | null
           birth_date?: string | null
+          birth_md?: string | null
           city?: string | null
           created_at?: string | null
           display_name?: string
@@ -5604,7 +5632,11 @@ export type Database = {
       cleanup_old_cron_report_sends: { Args: never; Returns: undefined }
       cleanup_old_webhook_retry: { Args: never; Returns: undefined }
       consume_subscription_session: {
-        Args: { p_subscription_id: string }
+        Args: {
+          p_booking_id?: string
+          p_notes?: string
+          p_subscription_id: string
+        }
         Returns: Json
       }
       create_admin_booking_atomic: {
@@ -6703,6 +6735,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },
