@@ -200,6 +200,28 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     expect(deleteSpy).toHaveBeenCalled(); // claim 解放
   });
 
+  test('M-1: 送信 false かつ claim 解放も失敗 → LOUD にログ（恒久欠落の可視化）', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    (sendDailySummaryEmail as jest.Mock).mockResolvedValue(false);
+    const relErr = { message: 'delete failed' };
+    const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: relErr }) }) }) }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_notification_settings') return chain({ data: [{ facility_id: 'f-1' }], error: null });
+      if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 1 }], error: null });
+      if (table === 'facility_members') return chain({ data: { user_id: 'u1' } });
+      if (table === 'profiles') return chain({ data: { email: 'owner@example.com' } });
+      if (table === 'facility_profiles') return chain({ data: { name: 'テスト施設' } });
+      if (table === 'cron_report_sends') return { insert: () => Promise.resolve({ error: null }), delete: deleteSpy };
+      return chain({ data: null });
+    });
+    await GET(makeRequest());
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[daily-summary] claim release failed'),
+      expect.any(Object),
+    );
+    errSpy.mockRestore();
+  });
+
   test('数値列が null でも 0 にフォールバックし施設名も既定で送る', async () => {
     setupEmailFrom({
       optedIn: [{ facility_id: 'f-1' }],

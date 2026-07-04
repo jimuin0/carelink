@@ -143,6 +143,28 @@ test('M-1: 送信が false → claim を解放する（delete 呼び出し）', 
   expect(deleteSpy).toHaveBeenCalled(); // claim 解放
 });
 
+test('M-1: 送信 false かつ claim 解放も失敗 → LOUD にログ（恒久欠落の可視化）', async () => {
+  const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  (sendWeeklyReportEmail as jest.Mock).mockResolvedValue(false);
+  const relErr = { message: 'delete failed' };
+  const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: relErr }) }) }) }));
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null });
+    if (table === 'facility_notification_settings') return chain({ data: [], error: null });
+    if (table === 'facility_members') return chain({ data: { user_id: 'u1' } });
+    if (table === 'profiles') return chain({ data: { email: 'owner@example.com' } });
+    if (table === 'facility_profiles') return chain({ data: { name: 'テスト施設' } });
+    if (table === 'cron_report_sends') return { insert: () => Promise.resolve({ error: null }), delete: deleteSpy };
+    return chain({ data: null });
+  });
+  await GET(makeRequest());
+  expect(errSpy).toHaveBeenCalledWith(
+    expect.stringContaining('[weekly-report] claim release failed'),
+    expect.any(Object),
+  );
+  errSpy.mockRestore();
+});
+
 test('数値列が null でも 0 に合算し施設名も既定で送る', async () => {
   setupFrom({
     rows: { data: [
