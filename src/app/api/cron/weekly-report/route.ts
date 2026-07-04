@@ -81,6 +81,21 @@ async function sendWeeklyReports(
     if (!email) continue;
     const { data: fac } = await supabase
       .from('facility_profiles').select('name').eq('id', facilityId).maybeSingle();
+
+    // M-1: 送信前に (job, facility, 週期間) を claim して二重送信を防ぐ。GitHub Actions cron.yml と
+    // Render cron の二重発火（GitHub は最大176分遅延あり）でも、period_key が同一週なので UNIQUE
+    // 制約が2本目を 23505 で弾き、その run は送信せずスキップする。
+    const periodKey = `${start}..${end}`;
+    const { error: claimErr } = await supabase
+      .from('cron_report_sends')
+      .insert({ job: 'weekly-report', facility_id: facilityId, period_key: periodKey });
+    if (claimErr) {
+      if (claimErr.code !== '23505') {
+        console.error('[weekly-report] claim insert failed', { facilityId, period: periodKey, err: claimErr });
+      }
+      continue;
+    }
+
     const ok = await sendWeeklyReportEmail({
       facilityEmail: email,
       facilityName: (fac as { name?: string } | null)?.name ?? '施設',
@@ -94,7 +109,14 @@ async function sendWeeklyReports(
       repeatCustomerCount: sums.repeat_customer_count,
     });
     if (ok) sent++;
-    else failed++;
+    else {
+      failed++;
+      // 送信失敗時は claim を解放し翌 run で再送できるようにする。
+      // 解放にも失敗すると claim が残り翌 run が 23505 で skip＝そのメールが恒久欠落するため LOUD に可視化。
+      const { error: relErr } = await supabase.from('cron_report_sends').delete()
+        .eq('job', 'weekly-report').eq('facility_id', facilityId).eq('period_key', periodKey);
+      if (relErr) console.error('[weekly-report] claim release failed — mail may be permanently skipped', { facilityId, period: periodKey, err: relErr });
+    }
   }
   return { sent, failed };
 }

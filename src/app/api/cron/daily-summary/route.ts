@@ -65,6 +65,23 @@ async function sendDailySummaryEmails(
     if (!email) continue;
     const { data: fac } = await supabase
       .from('facility_profiles').select('name').eq('id', facilityId).maybeSingle();
+
+    // M-1: 送信前に (job, facility, 日付) を claim して二重送信を防ぐ。GitHub Actions cron.yml と
+    // Render cron が同一エンドポイントを二重発火する構成のため、UNIQUE 制約で2本目の INSERT を
+    // 23505 で弾き、その run は送信せずスキップする（GitHub が最大176分遅れて発火しても period_key
+    // が同一日付なので再送しない）。claim 取得に失敗（23505 含む）したら送信しない。
+    const { error: claimErr } = await supabase
+      .from('cron_report_sends')
+      .insert({ job: 'daily-summary', facility_id: facilityId, period_key: dateStr });
+    if (claimErr) {
+      // 23505 は正常な二重発火の抑止（別 run が既に送信）。それ以外の error も二重送信を避けるため
+      // 送らずスキップし、23505 以外だけ可視化する。
+      if (claimErr.code !== '23505') {
+        console.error('[daily-summary] claim insert failed', { facilityId, date: dateStr, err: claimErr });
+      }
+      continue;
+    }
+
     const ok = await sendDailySummaryEmail({
       facilityEmail: email,
       facilityName: (fac as { name?: string } | null)?.name ?? '施設',
@@ -77,7 +94,14 @@ async function sendDailySummaryEmails(
       repeatCustomerCount: (s.repeat_customer_count as number) ?? 0,
     });
     if (ok) sent++;
-    else failed++;
+    else {
+      failed++;
+      // 送信失敗時は claim を解放し、翌 run で再送できるようにする（sent_reminders 同型）。
+      // 解放にも失敗すると claim が残り翌 run が 23505 で skip＝そのメールが恒久欠落するため LOUD に可視化。
+      const { error: relErr } = await supabase.from('cron_report_sends').delete()
+        .eq('job', 'daily-summary').eq('facility_id', facilityId).eq('period_key', dateStr);
+      if (relErr) console.error('[daily-summary] claim release failed — mail may be permanently skipped', { facilityId, date: dateStr, err: relErr });
+    }
   }
   return { sent, failed };
 }

@@ -32,6 +32,7 @@ function chain(resolved: unknown) {
   const p = Promise.resolve(resolved);
   const obj: Record<string, unknown> = {
     select: () => obj, eq: () => obj, in: () => obj, limit: () => obj,
+    insert: () => obj, delete: () => obj,
     maybeSingle: () => Promise.resolve(resolved),
     then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) => p.then(onF, onR),
   };
@@ -47,6 +48,7 @@ function setupEmailFrom(opts: {
   owner?: { user_id: string } | null;
   prof?: { email?: string | null } | null;
   fac?: { name?: string } | null;
+  claimError?: { code?: string; message?: string } | null;
 } = {}) {
   mockFrom.mockImplementation((table: string) => {
     if (table === 'facility_notification_settings') return chain({ data: opts.optedIn ?? [], error: opts.optedInError ?? null });
@@ -54,6 +56,8 @@ function setupEmailFrom(opts: {
     if (table === 'facility_members') return chain({ data: 'owner' in opts ? opts.owner : { user_id: 'u1' } });
     if (table === 'profiles') return chain({ data: 'prof' in opts ? opts.prof : { email: 'owner@example.com' } });
     if (table === 'facility_profiles') return chain({ data: 'fac' in opts ? opts.fac : { name: 'テスト施設' } });
+    // M-1: cron_report_sends の claim insert / release delete。既定は claim 成功（error:null）。
+    if (table === 'cron_report_sends') return chain({ error: opts.claimError ?? null });
     return chain({ data: null });
   });
 }
@@ -143,6 +147,57 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     expect(sendDailySummaryEmail).toHaveBeenCalledWith(expect.objectContaining({
       facilityEmail: 'owner@example.com', facilityName: 'テスト施設', totalRevenue: 12000, bookingCount: 5,
     }));
+  });
+
+  test('M-1: 二重発火で claim が 23505 → その run は送信しない（冪等）', async () => {
+    setupEmailFrom({
+      optedIn: [{ facility_id: 'f-1' }],
+      summaries: [{ facility_id: 'f-1', total_revenue: 12000, booking_count: 5 }],
+      claimError: { code: '23505', message: 'duplicate key' },
+    });
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.emailsSent).toBe(0);
+    expect(sendDailySummaryEmail).not.toHaveBeenCalled();
+  });
+
+  test('M-1: claim insert が 23505 以外の error → 送信せずスキップ＋error ログ', async () => {
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    setupEmailFrom({
+      optedIn: [{ facility_id: 'f-1' }],
+      summaries: [{ facility_id: 'f-1', total_revenue: 12000, booking_count: 5 }],
+      claimError: { code: '55000', message: 'other db error' },
+    });
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.emailsSent).toBe(0);
+    expect(sendDailySummaryEmail).not.toHaveBeenCalled();
+    expect(errSpy).toHaveBeenCalledWith(
+      expect.stringContaining('[daily-summary] claim insert failed'),
+      expect.any(Object),
+    );
+    errSpy.mockRestore();
+  });
+
+  test('M-1: 送信が false → claim を解放する（delete 呼び出し）', async () => {
+    (sendDailySummaryEmail as jest.Mock).mockResolvedValue(false);
+    const deleteSpy = jest.fn(() => ({ eq: () => ({ eq: () => ({ eq: () => Promise.resolve({ error: null }) }) }) }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_notification_settings') return chain({ data: [{ facility_id: 'f-1' }], error: null });
+      if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 1 }], error: null });
+      if (table === 'facility_members') return chain({ data: { user_id: 'u1' } });
+      if (table === 'profiles') return chain({ data: { email: 'owner@example.com' } });
+      if (table === 'facility_profiles') return chain({ data: { name: 'テスト施設' } });
+      if (table === 'cron_report_sends') return { insert: () => Promise.resolve({ error: null }), delete: deleteSpy };
+      return chain({ data: null });
+    });
+    const res = await GET(makeRequest());
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.emailsSent).toBe(0);
+    expect(deleteSpy).toHaveBeenCalled(); // claim 解放
   });
 
   test('数値列が null でも 0 にフォールバックし施設名も既定で送る', async () => {
