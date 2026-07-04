@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
 import { z } from 'zod';
 import { zodErrorResponse } from '../api-validation';

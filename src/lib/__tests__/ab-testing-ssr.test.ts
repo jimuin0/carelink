@@ -1,5 +1,5 @@
 /**
- * @jest-environment node
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  *
  * 監査T5: trackAbEvent の SSR ガード（typeof window === 'undefined' → 早期 return）を
  * 実際に検証する。jsdom 環境では window が非configurableで undefined にできず、
