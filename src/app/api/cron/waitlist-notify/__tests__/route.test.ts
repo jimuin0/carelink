@@ -553,6 +553,28 @@ describe('GET /api/cron/waitlist-notify', () => {
     expect(json.error).toBe('Internal error');
   });
 
+  // 監査X3: 実時間予算ガード（budgetExceeded）— 予算超過時は残りの cancel をスキップして break
+  test('実時間予算超過 → 残りをスキップして break・processed=0・budgetExceeded=true', async () => {
+    setupDefaultMocks(2); // 2件の cancel。1件目の判定で予算超過 → break
+    const realNow = Date.now();
+    const nowSpy = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(realNow)          // loopStart（ループ直前）
+      .mockReturnValue(realNow + 60_000);    // 以降の Date.now()（ガード判定 > 50000ms）
+    try {
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.processed).toBe(0);
+      const { logCronRun } = require('@/lib/cron-logger');
+      expect(logCronRun).toHaveBeenCalledWith(
+        'waitlist-notify', 'success', expect.any(Date),
+        expect.objectContaining({ meta: expect.objectContaining({ budgetExceeded: true }) }),
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
   // Branch coverage: line 118 — e instanceof Error の true 分岐（Error オブジェクトがスローされた場合 e.message を使用）
   test('Error オブジェクトスロー → e instanceof Error true → e.message → 500（line 118 true 分岐）', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');

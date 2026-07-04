@@ -1,7 +1,7 @@
 /**
  * @jest-environment @stryker-mutator/jest-runner/jest-env/node
  */
-import { z } from 'zod';
+import { z, ZodError } from 'zod';
 import { zodErrorResponse } from '../api-validation';
 
 const schema = z.object({
@@ -29,5 +29,12 @@ describe('zodErrorResponse', () => {
     if (parsed.success) throw new Error('should fail');
     const res = zodErrorResponse(parsed.error, 422);
     expect(res.status).toBe(422);
+  });
+
+  test('フィールド/フォームエラーが無い場合は既定メッセージにフォールバックする', async () => {
+    // issue 皆無の ZodError（fieldErrors {} / formErrors []）→ 既定文言
+    const res = zodErrorResponse(new ZodError([]));
+    const body = await res.json();
+    expect(body.error).toBe('入力内容を確認してください');
   });
 });

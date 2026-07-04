@@ -24,6 +24,7 @@ import type {
   HpbParsedReserve,
   HpbTarget,
 } from '@/types/hpb';
+import { errorMessage } from '@/lib/err';
 
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) ' +
@@ -186,7 +187,7 @@ export async function collectListing(
       // 監査X6: 従来は無音でループを打ち切っており、全ページ失敗と正常終端が
       // 区別できなかった。原因切り分けのため warn を残す（打ち切り自体は仕様）。
       console.warn('[hpb-scraper] ページ取得失敗・巡回打ち切り', {
-        url, err: e instanceof Error ? e.message : String(e),
+        url, err: errorMessage(e),
       });
       break;
     }
@@ -239,7 +240,7 @@ export async function fetchStoreRows(
       } catch (e) {
         // 監査X6: 無音 continue を避け、失敗を可視化する（次候補へ進む挙動は仕様）。
         console.warn('[hpb-scraper] 予約ページ取得失敗・次候補へ', {
-          refId: it.refId, err: e instanceof Error ? e.message : String(e),
+          refId: it.refId, err: errorMessage(e),
         });
         continue;
       }

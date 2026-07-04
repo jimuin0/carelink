@@ -111,7 +111,7 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     safeCaptureException(e, `email:${context}`);
     return false;
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
   }
 }
 

@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { alertCaughtError } from '@/lib/alert';
+import { errorMessage } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,7 +124,7 @@ export async function POST(request: Request) {
               // 旧 sub が既に cancel 済み/不存在の場合も含め cancel 失敗は致命ではないが、
               // 二重課金の継続に直結するため必ず可視化して手動確認へ回す。
               console.error('[payment/webhook] 旧サブスク cancel 失敗（二重課金の疑い・要手動確認）', {
-                facilityId, optionKey, oldSubId, err: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+                facilityId, optionKey, oldSubId, err: errorMessage(cancelErr),
               });
             }
           }

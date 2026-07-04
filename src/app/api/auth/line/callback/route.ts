@@ -44,7 +44,8 @@ function timingSafeStrEqual(a: string, b: string): boolean {
  *   必ず設定済み。未設定なら LINE ログイン自体が先に失敗する。
  */
 function syntheticLineEmail(userId: string): string {
-  const secret = process.env.LINE_CHANNEL_SECRET || '';
+  // ここに到達する時点で LINE_CHANNEL_SECRET は必須（上流のトークン交換で使用済み）。
+  const secret = process.env.LINE_CHANNEL_SECRET!;
   const digest = createHmac('sha256', secret).update(userId).digest('hex');
   return `line_${digest}@line.carelink.local`;
 }

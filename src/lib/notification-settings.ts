@@ -7,6 +7,7 @@
  * バックし、通知漏れより誤送信を許容する（可用性優先・既存挙動維持）。
  */
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { errorMessage } from '@/lib/err';
 
 export type NotificationFlags = {
   pushOnNewBooking: boolean;
@@ -46,7 +47,7 @@ export async function getFacilityNotificationSettings(facilityId: string): Promi
     // 誰にも気づかれなかった。可用性優先のフェイルオープン方針は維持しつつ、
     // 障害は可視化する。
     console.error('[notification-settings] 取得失敗・デフォルトへフォールバック', {
-      err: e instanceof Error ? e.message : String(e),
+      err: errorMessage(e),
     });
     return DEFAULT_NOTIFICATION_FLAGS;
   }
