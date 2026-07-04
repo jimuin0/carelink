@@ -471,19 +471,34 @@ test('PATCH: booking_id が他ユーザーのもの → 400（RPC到達せず）
   expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('PATCH: 正常セッション使用 → 200（RPC ok→利用ログ）', async () => {
+test('PATCH: 正常セッション使用 → 200（RPC ok、監査D2で利用ログはRPC内部に統合済み）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildActiveSub()));
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.subscription).toBeDefined();
+  // 監査D2: booking_id/notes をRPCへ渡し、ログINSERTはRPC内部（行ロック配下）に統合済み。
+  // route側の事後INSERTは廃止（旧テストの usage log insert 経路は now unused）。
+  expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', {
+    p_subscription_id: SUB_UUID, p_booking_id: null, p_notes: null,
+  });
+});
+
+test('PATCH: RPCがalready_consumedを返す → 409（監査D2・真の同時二重消費をRPC内部で捕捉）', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildActiveSub());
-    return insertChain(); // usage log
+    if (callNum === 2) return bookingChain({ id: BOOKING_UUID, user_id: USER_ID, facility_id: FACILITY_UUID });
+    return usageLogSelectChain(null); // 事前チェックは素通り（TOCTOU）→ RPC内部で捕捉される
   });
-  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID }));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'already_consumed' }, error: null });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, booking_id: BOOKING_UUID }));
+  expect(res.status).toBe(409);
   const json = await res.json();
-  expect(res.status).toBe(200);
-  expect(json.subscription).toBeDefined();
-  expect(mockAdminRpc).toHaveBeenCalledWith('consume_subscription_session', { p_subscription_id: SUB_UUID });
+  expect(json.error).toBe('この予約は既に当月の利用として記録済みです');
 });
 
 test('PATCH: booking_id が既に当月利用記録済み → 409（二重消費防止・RPC到達せず）', async () => {
