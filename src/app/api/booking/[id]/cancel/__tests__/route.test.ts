@@ -24,6 +24,11 @@ jest.mock('@/lib/notification-settings', () => ({ getFacilityNotificationSetting
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
 const mockAdminFrom = jest.fn();
+// DB-1: bookings への書き込み(UPDATE)は service_role 経由になった。service_role クライアントの
+// 'bookings' 呼び出しだけを専用モックに振り分け、通知/user_points 等の他テーブルは従来どおり
+// mockAdminFrom に流す。これにより cookie 分岐の全テストは既定成功の update を自動で受け取り、
+// 各テストの mockAdminFrom オーバーライドに bookings 分岐を足す必要がない。
+const mockBookingsWrite = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
@@ -32,7 +37,9 @@ jest.mock('@supabase/ssr', () => ({
   }),
 }));
 jest.mock('@supabase/supabase-js', () => ({
-  createClient: jest.fn(() => ({ from: (...args: any[]) => mockAdminFrom(...args) })),
+  createClient: jest.fn(() => ({
+    from: (...args: any[]) => (args[0] === 'bookings' ? mockBookingsWrite(...args) : mockAdminFrom(...args)),
+  })),
 }));
 jest.mock('next/headers', () => ({
   cookies: () => ({ getAll: () => [], set: jest.fn() }),
@@ -62,17 +69,9 @@ beforeEach(() => {
     pushOnNewBooking: true, pushOnCancel: true, pushOnReview: true,
     emailDailySummary: false, emailWeeklyReport: true,
   });
-  mockAdminFrom.mockReturnValue({
-    select: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-        not: jest.fn().mockResolvedValue({ data: [] }),
-      }),
-      not: jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ data: [] }),
-      }),
-    }),
-  });
+  mockAdminFrom.mockReturnValue(adminReadChain());
+  // DB-1: bookings UPDATE は service_role 経由。既定は成功(1行更新)。負例(500/409)は各テストで上書き。
+  mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: [{ id: 'bk' }], error: null }));
 });
 
 function makeRequest() {
@@ -91,6 +90,29 @@ function fluent(resolvedValue: unknown) {
   self.limit = handler;
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
+}
+
+// DB-1: cancel の bookings UPDATE は service_role(createServiceRoleClient → @supabase/supabase-js
+// createClient = mockAdminFrom)経由になった。update→eq(id)→eq(user_id)→eq(status)→select('id') の
+// 3段 eq チェーンで result を解決するモックを返す。
+function bookingsUpdateChain(result: unknown) {
+  const sel = jest.fn(() => Promise.resolve(result));
+  const eq3 = jest.fn(() => ({ select: sel }));
+  const eq2 = jest.fn(() => ({ eq: eq3 }));
+  const eq1 = jest.fn(() => ({ eq: eq2 }));
+  return { update: jest.fn(() => ({ eq: eq1 })) };
+}
+// service_role 側の通知/読み取り系フォールバック（既存 beforeEach 既定と同一形）。
+function adminReadChain() {
+  return {
+    select: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
+        not: jest.fn().mockResolvedValue({ data: [] }),
+      }),
+      not: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [] }) }),
+    }),
+  };
 }
 
 describe('POST /api/booking/[id]/cancel', () => {
@@ -245,25 +267,23 @@ describe('POST /api/booking/[id]/cancel', () => {
     (getBearerToken as jest.Mock).mockReturnValue('line-token');
     (resolveLiffUserId as jest.Mock).mockResolvedValue('user-1');
 
+    // DB-1: LIFF(bearer)分岐は db=service_role のため bookings の READ も UPDATE も service_role
+    // クライアント経由＝mockBookingsWrite に振り分けられる。1回目=予約読み取り、2回目=更新。
     let bookingsCall = 0;
-    mockAdminFrom.mockImplementation((table: string) => {
-      if (table === 'bookings') {
-        bookingsCall++;
-        if (bookingsCall === 1) {
-          return {
-            select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: {
-              id: validId, user_id: 'user-1', status: 'pending', facility_id: 'f-1',
-              customer_name: 'テスト', email: 't@example.com', booking_date: '2026-04-01',
-              start_time: '10:00', end_time: '11:00', total_price: 5000, menu_id: null, staff_id: null, points_used: 0,
-            } })) })) })),
-          };
-        }
-        const sel = jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null }));
-        const eq3 = jest.fn(() => ({ select: sel }));
-        const eq2 = jest.fn(() => ({ eq: eq3 }));
-        const eq1 = jest.fn(() => ({ eq: eq2 }));
-        return { update: jest.fn(() => ({ eq: eq1 })) };
+    mockBookingsWrite.mockImplementation(() => {
+      bookingsCall++;
+      if (bookingsCall === 1) {
+        return {
+          select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: {
+            id: validId, user_id: 'user-1', status: 'pending', facility_id: 'f-1',
+            customer_name: 'テスト', email: 't@example.com', booking_date: '2026-04-01',
+            start_time: '10:00', end_time: '11:00', total_price: 5000, menu_id: null, staff_id: null, points_used: 0,
+          } })) })) })),
+        };
       }
+      return bookingsUpdateChain({ data: [{ id: 'bk' }], error: null });
+    });
+    mockAdminFrom.mockImplementation(() => {
       // 通知系の任意チェーンは全て null 解決でフォールバック
       const chain: Record<string, jest.Mock> = {};
       chain.select = jest.fn(() => chain);
@@ -296,16 +316,9 @@ describe('POST /api/booking/[id]/cancel', () => {
     mockAdminFrom.mockImplementation((table: string) => {
       if (table === 'user_points') return { insert: insertSpy };
       // LINE/LINE Works は無効化済みのため到達しないが、フォールバックの select チェーンを返す
-      return {
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-            not: jest.fn().mockResolvedValue({ data: [] }),
-          }),
-          not: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [] }) }),
-        }),
-      };
+      return adminReadChain();
     });
+    // DB-1: bookings UPDATE(service_role)は既定成功(beforeEach)を使用。
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
@@ -479,6 +492,8 @@ describe('POST /api/booking/[id]/cancel', () => {
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
+    // DB-1: UPDATE は service_role 経由。DB エラーを返させて 500 を検証する。
+    mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: null, error: { message: 'DB error' } }));
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(500);
   });
@@ -502,6 +517,8 @@ describe('POST /api/booking/[id]/cancel', () => {
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
+    // DB-1: UPDATE は service_role 経由。0 行(data=[])を返させて 409 を検証する。
+    mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: [], error: null }));
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(409);
   });
@@ -525,6 +542,8 @@ describe('POST /api/booking/[id]/cancel', () => {
       const eqFirst = jest.fn(() => ({ eq: eqTerminal }));
       return { update: jest.fn(() => ({ eq: eqFirst })) };
     });
+    // DB-1: UPDATE は service_role 経由。data=null を返させて 409 を検証する。
+    mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: null, error: null }));
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(409);
   });
@@ -646,10 +665,6 @@ describe('POST /api/booking/[id]/cancel', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
     let callNum = 0;
-    const innerEq = jest.fn(() => Promise.resolve({ error: null }));
-    const outerEq = jest.fn(() => ({ eq: innerEq }));
-    const updateMock = jest.fn(() => ({ eq: outerEq }));
-
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) {
@@ -662,15 +677,21 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      if (callNum === 2) return { update: updateMock };
       return {
         select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
       };
     });
 
+    // DB-1: UPDATE は service_role(mockBookingsWrite)経由。
+    // 実チェーン update→eq('id')→eq('user_id')→eq('status')→select('id') で eq('user_id',...) を検証。
+    const eqStatus = jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) }));
+    const eqUser = jest.fn(() => ({ eq: eqStatus }));
+    const eqId = jest.fn(() => ({ eq: eqUser }));
+    mockBookingsWrite.mockReturnValue({ update: jest.fn(() => ({ eq: eqId })) });
+
     await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
-    // innerEq は user_id でフィルタされる
-    expect(innerEq).toHaveBeenCalledWith('user_id', 'user-1');
+    // 2段目の eq が user_id でフィルタされる（IDOR 二重防御）
+    expect(eqUser).toHaveBeenCalledWith('user_id', 'user-1');
   });
 
 // ─── 深掘り: 例外 → 500 ──────────────────────────────────────────────────────
@@ -1585,17 +1606,17 @@ describe('POST /api/booking/[id]/cancel', () => {
           },
         });
       }
-      if (callNum === 2) {
-        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
-        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
-      }
       return fluent({ data: null });
     });
 
+    // DB-1: 1回目の createClient(=UPDATE writeDb)は正常ラッパー(bookings→mockBookingsWrite で更新成功)。
+    // 2回目以降(=通知の adminSupabase)は .from が throw ＝通知パスの例外を外側 catch が握って 200 を返すことを検証。
     const { createClient } = require('@supabase/supabase-js');
-    (createClient as jest.Mock).mockImplementationOnce(() => ({
-      from: jest.fn(() => { throw new Error('admin client exploded'); }),
-    })).mockImplementation(() => ({ from: (...args: any[]) => mockAdminFrom(...args) }));
+    (createClient as jest.Mock)
+      .mockImplementationOnce(() => ({
+        from: (...args: any[]) => (args[0] === 'bookings' ? mockBookingsWrite(...args) : mockAdminFrom(...args)),
+      }))
+      .mockImplementation(() => ({ from: jest.fn(() => { throw new Error('admin client exploded'); }) }));
 
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(200);

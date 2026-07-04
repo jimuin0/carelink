@@ -21,9 +21,11 @@
 --   USING は user_id（や施設相関）しか縛らないため、それ以外の列（金額・状態・施設）は無制約。
 --   ＝顧客が自分の予約を total_price=0 や status='confirmed' に書き換えられる状態だった。
 --
---   アプリの予約更新は全て service_role（RLS バイパス）または change_booking_atomic 経由で、
---   anon / authenticated クライアントが bookings を直接 UPDATE する箇所は皆無（全 src 精査済み。
---   直接 .from('bookings').update(...) は 5 箇所とも service_role クライアント）。
+--   アプリの予約更新は service_role（RLS バイパス）または change_booking_atomic 経由が原則。
+--   唯一 cancel/route.ts の cookie 分岐だけが anon クライアントで bookings を直接 UPDATE し
+--   bookings_owner_update ポリシーに依存していたため、同一 PR で service_role 書込に切替済み
+--   （所有権は同ルートのサーバ側ガードで検証済み・CAS 条件は維持）。これで anon / authenticated が
+--   bookings を直接 UPDATE する経路は皆無になった（全 src 多行精査済み）。
 --   よって直接 UPDATE 権を撤去し、宙に浮いた permissive ポリシー（将来 UPDATE grant が再付与
 --   されると即座に穴が再開する地雷）も除去する。service_role は RLS を無視するため管理画面・
 --   サーバ処理の予約更新には一切影響しない。SELECT ポリシー（自分の予約閲覧）は無改変。
