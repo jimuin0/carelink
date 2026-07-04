@@ -14,30 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      _backup_facility_members_20260612: {
-        Row: {
-          created_at: string | null
-          facility_id: string | null
-          id: string | null
-          role: string | null
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          facility_id?: string | null
-          id?: string | null
-          role?: string | null
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          facility_id?: string | null
-          id?: string | null
-          role?: string | null
-          user_id?: string | null
-        }
-        Relationships: []
-      }
       ab_test_events: {
         Row: {
           created_at: string

@@ -147,9 +147,8 @@ const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
   'facility_booking_suspensions',
   'facility_daily_capacity',
   'salon_customer_notes',
-  // 2026-07-04: 型再生成で表面化した手動バックアップ残骸（2026年6月12日に facility_members を
-  //   手動退避したもの・migration なし）。不要なら本番 DROP が綺麗だが要否は神原判断のため暫定登録。
-  '_backup_facility_members_20260612',
+  // 2026-07-04: _backup_facility_members_20260612（2026年6月12日の手動バックアップ残骸・0行）は
+  //   神原が本番で DROP 済み＝type/snapshot からも消えたため本リストから削除。
 ]);
 
 /**

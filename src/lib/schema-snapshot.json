@@ -1,11 +1,4 @@
 {
-  "_backup_facility_members_20260612": [
-    "created_at",
-    "facility_id",
-    "id",
-    "role",
-    "user_id"
-  ],
   "ab_test_events": [
     "created_at",
     "event_type",
