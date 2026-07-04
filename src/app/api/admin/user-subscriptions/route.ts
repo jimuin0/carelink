@@ -243,9 +243,9 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: '予約がサブスクリプションと一致しません' }, { status: 400 });
     }
 
-    // 冪等化（二重消費防止）: 同一 booking_id で既に消費済みなら当月利用回数を二重カウントしない
-    // （「1回使用」の連打/リトライ対策）。subscription_usage_logs(subscription_id, booking_id) の
-    // 部分 UNIQUE（migration・多層防御）が真の同時挿入を弾く。
+    // 早期リターン用の事前チェック（UX目的・非決定的な多層防御の一部）。
+    // 真の冪等性は RPC 内部の行ロック配下チェック（監査D2）が担保する。ここでの
+    // TOCTOU（事前SELECTと呼び出しの間の競合）は RPC 側の already_consumed で必ず捕捉される。
     const { data: existingLog } = await admin
       .from('subscription_usage_logs')
       .select('id')
@@ -258,12 +258,15 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  // 月次リセット・上限判定・インクリメントは consume_subscription_session RPC に集約する。
-  // 行ロック(FOR UPDATE)配下で read-modify-write を直列化し、月次リセット境界で2リクエストが
-  // 同時に走っても、後発のリセット(=0)が先発のインクリメントを上書きして上限を超過する競合を
-  // 物理的に不能化する（CAS は同時インクリメントは防げても、CAS 外の無条件リセットは防げなかった）。
+  // 監査D2: booking_id 単位の冪等チェック・ログINSERTを RPC 内部（行ロック配下・同一トランザクション）
+  // に統合した。従来は RPC 呼び出し後に別途 INSERT していたため、真の同時2リクエストが
+  // 両方 RPC を呼んでセッション枠を2回消費した後にログ INSERT の2件目だけが UNIQUE 違反で
+  // 弾かれる（枠は既に手遅れ）という欠陥があった。RPC 内で行ロック配下チェックすることで、
+  // 後着は先着コミット後にロックを獲得し必ず already_consumed を返す（真の二重消費を根絶）。
   const { data: rpcResult, error: rpcError } = await admin.rpc('consume_subscription_session', {
     p_subscription_id: useParsed.data.subscription_id,
+    p_booking_id: useParsed.data.booking_id ?? null,
+    p_notes: useParsed.data.notes ?? null,
   });
   if (rpcError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
@@ -283,23 +286,13 @@ export async function PATCH(request: NextRequest) {
         return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
       case 'cap_reached':
         return NextResponse.json({ error: `今月の利用回数上限（${result.limit ?? ''}回）に達しています` }, { status: 400 });
+      case 'already_consumed':
+        return NextResponse.json({ error: 'この予約は既に当月の利用として記録済みです' }, { status: 409 });
       default:
         return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     }
   }
   const updated = result.subscription;
-
-  const { error: logErr } = await admin.from('subscription_usage_logs').insert({
-    subscription_id: useParsed.data.subscription_id,
-    booking_id: useParsed.data.booking_id ?? null,
-    notes: useParsed.data.notes,
-  });
-  if (logErr) {
-    // RPC でセッション消費済み・ログのみ失敗のため best-effort で続行するが、
-    // 冪等チェックが次回すり抜けないよう警告ログを残す（booking_id ありの場合は
-    // DB の部分 UNIQUE インデックスが二重消費を弾くため実害は低い）。
-    console.error('[user-subscriptions] usage log insert failed', { subscriptionId: useParsed.data.subscription_id, bookingId: useParsed.data.booking_id, err: logErr });
-  }
 
   return NextResponse.json({ subscription: updated });
 }
