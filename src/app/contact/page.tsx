@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -11,7 +12,18 @@ import { contactSchema, type ContactFormData } from '@/lib/validations-contact';
 
 type ContactForm = ContactFormData;
 
-export default function ContactPage() {
+// salon/premium の料金プランからの遷移（?plan=standard 等）をお問い合わせ内容に反映する。
+// 従来はこのクエリを一切読んでおらず、「プラン比較表からスタンダードを選んで問い合わせた」
+// という文脈が消え、営業担当は種別「その他」の一般問い合わせとしてしか見えなかった
+// （関心プランが分からず対応が遅れる・営業機会の損失）。
+const PLAN_LABELS: Record<string, string> = {
+  standard: 'スタンダードプラン',
+  enterprise: 'エンタープライズプラン',
+  premium: 'プレミアムプラン（詳細未定）',
+};
+
+function ContactPageContent() {
+  const searchParams = useSearchParams();
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
@@ -22,10 +34,19 @@ export default function ContactPage() {
     register,
     handleSubmit,
     reset,
+    setValue,
     formState: { errors },
   } = useForm<ContactForm>({
     resolver: zodResolver(contactSchema),
   });
+
+  useEffect(() => {
+    const plan = searchParams.get('plan');
+    const planLabel = plan ? PLAN_LABELS[plan] : undefined;
+    if (!planLabel) return;
+    setValue('inquiry_type', '施設掲載について（オーナー向け）');
+    setValue('message', `【${planLabel}についてのお問い合わせ】\n`);
+  }, [searchParams, setValue]);
 
   const handleConfirmSubmit = () => {
     setShowConfirm(false);
@@ -176,5 +197,13 @@ export default function ContactPage() {
       />
       {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
     </div>
+  );
+}
+
+export default function ContactPage() {
+  return (
+    <Suspense fallback={<div className="section-container text-center py-20">読み込み中...</div>}>
+      <ContactPageContent />
+    </Suspense>
   );
 }
