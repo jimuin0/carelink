@@ -3,8 +3,8 @@
  *
  * Tests for PATCH/DELETE /api/admin/features/[id]
  * Key assertions:
- *   - SUPER_ADMIN_USER_IDS env var controls access (fail-safe: empty → always 401)
- *   - Non-super-admin → 401
+ *   - is_platform_admin(DB)方式 controls access (fail-safe: profile不在/false → 401)（監査A6b）
+ *   - Non-platform-admin → 401
  *   - image_url: must be valid URL or empty
  *   - sort_order max 9999
  *   - DELETE: 404 not possible (no pre-check), DB fail → 500
@@ -63,25 +63,33 @@ function deleteChain(error: unknown = null) {
   };
 }
 
+function profileChain(isAdmin: boolean | null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: isAdmin === null ? null : { is_platform_admin: isAdmin }, error: null })),
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockAnonFrom.mockReturnValue(profileChain(true)); // grant platform admin by default
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-  process.env.SUPER_ADMIN_USER_IDS = USER_ID; // grant super admin by default
 });
 
-// ─── Fail-safe: env var not set ───────────────────────────────────────────────
+// ─── Fail-safe: not a platform admin ──────────────────────────────────────────
 
-test('PATCH: SUPER_ADMIN_USER_IDS 未設定 → 401 (フェイルセーフ)', async () => {
-  delete process.env.SUPER_ADMIN_USER_IDS;
+test('PATCH: profileレコードなし → 401 (フェイルセーフ)', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(null));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
   expect(res.status).toBe(401);
 });
 
-test('PATCH: SUPER_ADMIN_USER_IDS に自分のIDなし → 401', async () => {
-  process.env.SUPER_ADMIN_USER_IDS = 'other-user-id';
+test('PATCH: is_platform_admin=false → 401', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(false));
   const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
   expect(res.status).toBe(401);
 });
@@ -217,13 +225,6 @@ test('PATCH: 不正JSON → 400', async () => {
 test('PATCH: image_url が有効URLで設定 → 200 (truthy 分岐)', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, image_url: 'https://example.com/x.png' }));
   const res = await PATCH(makeRequest('PATCH', { title: 'test', image_url: 'https://example.com/x.png' }), makeProps());
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: SUPER_ADMIN_USER_IDS に空白入り CSV → trim/filter で正しくパース', async () => {
-  process.env.SUPER_ADMIN_USER_IDS = `  ${USER_ID}  , , other  `;
-  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
-  const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
   expect(res.status).toBe(200);
 });
 

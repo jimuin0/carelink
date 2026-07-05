@@ -67,20 +67,39 @@ async function sendWeeklyReports(
   }
   const optedOutSet = new Set((optedOut as { facility_id: string }[] | null ?? []).map((r) => r.facility_id));
 
+  // 監査P2: 従来は施設ごとにfacility_members→profiles→facility_profilesの3クエリを
+  // ループ内で直列発行していた(O(N))。施設数増加でVercel関数のmaxDuration(60s)を超えて
+  // timeoutし、未処理施設のメールが恒久欠落するリスクがあった。前段でバルク一括取得し
+  // ループ内はマップ参照のみにする(クエリ数はO(1)、件数に依存しない)。
+  const targetFacilityIds = [...byFacility.keys()].filter((id) => !optedOutSet.has(id));
+
+  const { data: owners } = await supabase
+    .from('facility_members').select('facility_id, user_id')
+    .in('facility_id', targetFacilityIds).eq('role', 'owner');
+  const ownerByFacility = new Map<string, string>();
+  for (const o of (owners ?? []) as Array<{ facility_id: string; user_id: string }>) {
+    if (!ownerByFacility.has(o.facility_id)) ownerByFacility.set(o.facility_id, o.user_id);
+  }
+
+  const ownerUserIds = [...new Set(ownerByFacility.values())];
+  const { data: profs } = ownerUserIds.length
+    ? await supabase.from('profiles').select('id, email').in('id', ownerUserIds)
+    : { data: [] as Array<{ id: string; email: string | null }> };
+  const emailByUserId = new Map((profs ?? []).map((p) => [p.id as string, p.email as string | null]));
+
+  const { data: facs } = await supabase
+    .from('facility_profiles').select('id, name').in('id', targetFacilityIds);
+  const nameByFacility = new Map((facs ?? []).map((f) => [f.id as string, f.name as string | null]));
+
   let sent = 0;
   let failed = 0;
   for (const [facilityId, sums] of byFacility) {
     if (optedOutSet.has(facilityId)) continue;
-    const { data: owner } = await supabase
-      .from('facility_members').select('user_id')
-      .eq('facility_id', facilityId).eq('role', 'owner').limit(1).maybeSingle();
-    if (!owner) continue;
-    const { data: prof } = await supabase
-      .from('profiles').select('email').eq('id', (owner as { user_id: string }).user_id).maybeSingle();
-    const email = (prof as { email?: string | null } | null)?.email;
+    const ownerUserId = ownerByFacility.get(facilityId);
+    if (!ownerUserId) continue;
+    const email = emailByUserId.get(ownerUserId);
     if (!email) continue;
-    const { data: fac } = await supabase
-      .from('facility_profiles').select('name').eq('id', facilityId).maybeSingle();
+    const facilityName = nameByFacility.get(facilityId);
 
     // M-1: 送信前に (job, facility, 週期間) を claim して二重送信を防ぐ。GitHub Actions cron.yml と
     // Render cron の二重発火（GitHub は最大176分遅延あり）でも、period_key が同一週なので UNIQUE
@@ -98,7 +117,7 @@ async function sendWeeklyReports(
 
     const ok = await sendWeeklyReportEmail({
       facilityEmail: email,
-      facilityName: (fac as { name?: string } | null)?.name ?? '施設',
+      facilityName: facilityName ?? '施設',
       periodStart: start,
       periodEnd: end,
       totalRevenue: sums.total_revenue,
