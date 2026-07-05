@@ -156,7 +156,10 @@ export default function ManualPage() {
           問い合わせフォームからご連絡ください。
         </p>
         <div className="mt-3 flex gap-3">
-          <Link href="/admin/inquiries" className="text-sm text-sky-600 hover:underline">
+          {/* 監査対応: /admin/inquiries はプラットフォーム運営者専用の問い合わせ管理ダッシュボード
+              (contactsテーブルはprofiles.role='admin'限定のRLS)で、施設オーナーがアクセスしても
+              常に空表示になる死んだ導線だった。施設オーナー向けの実際の問い合わせ窓口は/contact。 */}
+          <Link href="/contact" className="text-sm text-sky-600 hover:underline">
             問い合わせフォーム →
           </Link>
           <Link href="/admin/tutorials" className="text-sm text-sky-600 hover:underline">

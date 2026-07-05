@@ -77,8 +77,10 @@ export default function TutorialsPage() {
           「この機能の使い方が分からない」というご要望があればお知らせください。
           優先的に動画を制作いたします。
         </p>
+        {/* 監査対応: /admin/inquiries はプラットフォーム運営者専用ページで施設オーナーには
+            機能しない死んだ導線だった。施設オーナー向けの実際の問い合わせ窓口は/contact。 */}
         <Link
-          href="/admin/inquiries"
+          href="/contact"
           className="inline-block mt-3 text-sm text-sky-600 hover:text-sky-700 underline"
         >
           リクエストを送る →
