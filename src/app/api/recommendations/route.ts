@@ -9,6 +9,7 @@ import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createClient } from '@supabase/supabase-js';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { getPopularFacilitiesCached } from '@/lib/popular-facilities-cache';
 
 export const dynamic = 'force-dynamic';
 
@@ -72,14 +73,9 @@ export async function GET(request: NextRequest) {
   const [topPref, topCity] = topPrefCity ? topPrefCity.split(':') : [null, null];
 
   if (!topType && !topPref) {
-    // 履歴なし → 人気施設を返す
-    const { data } = await admin
-      .from('facility_card_view')
-      .select('*')
-      .eq('status', 'published')
-      .order('rating_count', { ascending: false })
-      .limit(limit);
-    return NextResponse.json({ recommendations: data ?? [], type: 'popular' });
+    // 履歴なし → 人気施設を返す（ユーザー非依存・limit別に5分キャッシュ、監査P1）
+    const data = await getPopularFacilitiesCached(admin, limit);
+    return NextResponse.json({ recommendations: data, type: 'popular' });
   }
 
   // 同タイプ + 同エリアの施設

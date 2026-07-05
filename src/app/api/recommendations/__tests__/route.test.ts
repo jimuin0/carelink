@@ -18,6 +18,7 @@ jest.mock('@/lib/supabase-server-auth');
 jest.mock('@supabase/supabase-js');
 
 import { checkRateLimit } from '@/lib/rate-limit';
+import { clearPopularFacilitiesCache } from '@/lib/popular-facilities-cache';
 import { GET } from '../route';
 
 let mockBookingsSelect: jest.Mock;
@@ -107,6 +108,8 @@ function setupDefaultMocks(
 beforeEach(() => {
   jest.clearAllMocks();
   setupDefaultMocks();
+  // 監査P1: 人気施設キャッシュ(limit別)がテスト間で漏れないよう毎回クリアする
+  clearPopularFacilitiesCache();
 });
 
 function makeRequest(limit?: number, exclude?: string, ip = '192.168.1.1') {
