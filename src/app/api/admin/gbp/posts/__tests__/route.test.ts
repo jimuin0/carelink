@@ -34,14 +34,22 @@ import { GET, POST, PATCH, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 
-// Membership check: limit(1).single() → Promise
-function membershipSingle(data: unknown) {
+// 監査A2: getAdminFacilityIds は .select().eq().in() が直接配列Promiseを返す形（single()なし）。
+// GET/POSTはこれのみ使う。
+function membershipSingle(members: { facility_id: string }[]) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    in: jest.fn().mockReturnThis(),
-    limit: jest.fn().mockReturnThis(),
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
+    in: jest.fn(() => Promise.resolve({ data: members })),
+  };
+}
+
+// PATCH/DELETEはid起点のため、投稿の実所属施設を select().eq().single() で取得する。
+function postFacilitySingle(facilityId: string | null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: facilityId ? { facility_id: facilityId } : null, error: null })),
   };
 }
 
@@ -113,7 +121,7 @@ test('GET: レートリミット → 429', async () => {
 });
 
 test('GET: 非管理者 → 403', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(null));
+  mockAnonFrom.mockReturnValue(membershipSingle([]));
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
   expect(res.status).toBe(403);
 });
@@ -122,7 +130,7 @@ test('GET: DB失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return postListChain([], { message: 'DB error' });
   });
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
@@ -133,13 +141,29 @@ test('GET: 正常取得 → 200 with posts', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return postListChain([{ id: POST_UUID }]);
   });
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.posts).toBeDefined();
+});
+
+// ─── 監査A2: 複数施設所有者の非決定的施設選択の根治確認 ────────────────────────
+
+const FACILITY_UUID_2 = '44444444-4444-4444-4444-444444444444';
+
+test('GET: 複数施設所有・facility_id未指定 → 400', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA, { facility_id: FACILITY_UUID_2 }]));
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'GET' }));
+  expect(res.status).toBe(400);
+});
+
+test('GET: 複数施設所有・所属していないfacility_id指定 → 403（越境防止）', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA, { facility_id: FACILITY_UUID_2 }]));
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/posts?facility_id=99999999-9999-9999-9999-999999999999', { method: 'GET' }));
+  expect(res.status).toBe(403);
 });
 
 // ─── POST ─────────────────────────────────────────────────────────────────────
@@ -154,7 +178,7 @@ test('POST: 未認証 → 401', async () => {
 });
 
 test('POST: 非管理者 → 403', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(null));
+  mockAnonFrom.mockReturnValue(membershipSingle([]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body: 'テスト投稿' }),
@@ -163,7 +187,7 @@ test('POST: 非管理者 → 403', async () => {
 });
 
 test('POST: body が空 → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body: '' }),
@@ -175,7 +199,7 @@ test('POST: DB失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return insertSingle(null, { message: 'DB error' });
   });
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -189,7 +213,7 @@ test('POST: 正常作成 → 200 with post', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return insertSingle({ id: POST_UUID, body: 'テスト投稿' });
   });
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -201,10 +225,28 @@ test('POST: 正常作成 → 200 with post', async () => {
   expect(json.post).toBeDefined();
 });
 
+test('POST: 複数施設所有・facility_id未指定 → 400', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA, { facility_id: FACILITY_UUID_2 }]));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: 'テスト投稿' }),
+  }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: 複数施設所有・所属していないfacility_id指定 → 403（越境防止）', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA, { facility_id: FACILITY_UUID_2 }]));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: 'テスト投稿', facility_id: '99999999-9999-9999-9999-999999999999' }),
+  }));
+  expect(res.status).toBe(403);
+});
+
 // ─── PATCH ────────────────────────────────────────────────────────────────────
 
 test('PATCH: id なし → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title: '更新' }),
@@ -213,7 +255,7 @@ test('PATCH: id なし → 400', async () => {
 });
 
 test('PATCH: id が不正UUID → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: 'bad-uuid', title: '更新' }),
@@ -225,7 +267,8 @@ test('PATCH: 正常更新 → 200', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return updateEqEq(null);
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -235,16 +278,44 @@ test('PATCH: 正常更新 → 200', async () => {
   expect(res.status).toBe(200);
 });
 
+test('PATCH: 投稿が見つからない → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    return postFacilitySingle(null);
+  });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, title: '更新' }),
+  }));
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: 投稿は存在するが所属していない施設 → 403（越境防止・監査A2）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    return postFacilitySingle('99999999-9999-9999-9999-999999999999');
+  });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, title: '更新' }),
+  }));
+  expect(res.status).toBe(403);
+});
+
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 
 test('DELETE: id なし → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
   expect(res.status).toBe(400);
 });
 
 test('DELETE: id が不正UUID → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts?id=bad-uuid', { method: 'DELETE' }));
   expect(res.status).toBe(400);
 });
@@ -253,18 +324,42 @@ test('DELETE: 正常削除 → 200', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return deleteEqEq(null);
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
   expect(res.status).toBe(200);
 });
 
+test('DELETE: 投稿が見つからない → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    return postFacilitySingle(null);
+  });
+  const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
+  expect(res.status).toBe(404);
+});
+
+test('DELETE: 投稿は存在するが所属していない施設 → 403（越境防止・監査A2）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    return postFacilitySingle('99999999-9999-9999-9999-999999999999');
+  });
+  const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
+  expect(res.status).toBe(403);
+});
+
 test('DELETE: DB失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return deleteEqEq({ message: 'DB error' });
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
@@ -275,7 +370,8 @@ test('PATCH: DB失敗 → 500', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return updateEqEq({ message: 'DB error' });
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -289,7 +385,7 @@ test('POST: title あり・photo_url有効・cta_type有効・scheduled_at あ�
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return insertSingle({ id: POST_UUID, body: '詳細', status: 'scheduled' });
   });
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -314,7 +410,7 @@ test('POST: 無効なphoto_url → nullに変換', async () => {
   const capturedInsert = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return {
       insert: (data: unknown) => {
         capturedInsert(data);
@@ -335,7 +431,7 @@ test('POST: 無効なpost_type → STANDARDにフォールバック', async () =
   const capturedInsert = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return {
       insert: (data: unknown) => {
         capturedInsert(data);
@@ -355,7 +451,8 @@ test('PATCH: body, post_type, photo_url, cta_type, cta_url, status, scheduled_at
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return updateEqEq(null);
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
@@ -381,7 +478,8 @@ test('PATCH: 無効なpost_type → 更新されない（条件false）', async 
   const capturedUpdate = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
@@ -403,7 +501,8 @@ test('PATCH: photo_url 無効 → null に変換', async () => {
   const capturedUpdate = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
@@ -425,7 +524,8 @@ test('PATCH: title=null → null に変換', async () => {
   const capturedUpdate = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
@@ -494,7 +594,8 @@ test('PATCH: 無効な cta_type → null に変換（false分岐）', async () =
   const capturedUpdate = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
@@ -526,7 +627,12 @@ test('DELETE: 未認証 → 401', async () => {
 });
 
 test('PATCH: 非管理者 → 403', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(null));
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([]);
+    return postFacilitySingle(FACILITY_UUID);
+  });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: POST_UUID }),
   }));
@@ -534,13 +640,18 @@ test('PATCH: 非管理者 → 403', async () => {
 });
 
 test('DELETE: 非管理者 → 403', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(null));
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([]);
+    return postFacilitySingle(FACILITY_UUID);
+  });
   const res = await DELETE(new NextRequest('http://localhost/api/admin/gbp/posts', { method: 'DELETE' }));
   expect(res.status).toBe(403);
 });
 
 test('POST: body 未指定 → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
   }));
@@ -548,7 +659,7 @@ test('POST: body 未指定 → 400', async () => {
 });
 
 test('POST: 不正な JSON body → 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: 'not-json',
   }));
@@ -560,7 +671,7 @@ test('POST: scheduled_at なし → status=draft, invalid cta_type → null', as
   const capturedInsert = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return {
       insert: (d: unknown) => { capturedInsert(d); return { select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })) }) }; },
     };
@@ -581,7 +692,8 @@ test('PATCH: scheduled_at と published_at が falsy → null に変換', async 
   const capturedUpdate = jest.fn();
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
       update: (d: unknown) => { capturedUpdate(d); return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }; },
     };
@@ -596,7 +708,7 @@ test('PATCH: scheduled_at と published_at が falsy → null に変換', async 
 });
 
 test('PATCH: 不正な JSON body → id なしで 400', async () => {
-  mockAnonFrom.mockReturnValue(membershipSingle(MEMBER_DATA));
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: 'not-json',
   }));
@@ -607,13 +719,13 @@ test('GET: data が null のとき [] を返す', async () => {
   let callNum = 0;
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return membershipSingle(MEMBER_DATA);
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     return postListChain([], null); // null data, no error
   });
   // Override postListChain to return data: null
   mockAnonFrom.mockImplementation(() => {
     callNum++;
-    if (callNum <= 1) return membershipSingle(MEMBER_DATA);
+    if (callNum <= 1) return membershipSingle([MEMBER_DATA]);
     return {
       select: jest.fn().mockReturnThis(),
       eq: jest.fn().mockReturnThis(),

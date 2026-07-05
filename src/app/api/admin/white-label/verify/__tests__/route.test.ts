@@ -54,6 +54,15 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
+// 監査A2: getAdminFacilityIds は .select().eq().in() が直接配列Promiseを返す形（single()なし）。
+function facilityIdsChain(facilityIds: string[]) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    in: jest.fn(() => Promise.resolve({ data: facilityIds.map((facility_id) => ({ facility_id })) })),
+  };
+}
+
 function updateChain(error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
@@ -76,7 +85,7 @@ function setupOwnershipAndDomain(updateError: unknown = null) {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID }); // membership
+    if (callNum === 1) return facilityIdsChain([FACILITY_UUID]); // membership
     if (callNum === 2) return singleChain(DOMAIN_CONFIG); // domain config
     return updateChain(updateError); // verify update
   });
@@ -86,7 +95,7 @@ function setupOwnershipAndDomain(updateError: unknown = null) {
 
 test('未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
-  mockAdminFrom.mockReturnValue(singleChain(null));
+  mockAdminFrom.mockReturnValue(facilityIdsChain([]));
   const res = await POST(makeRequest());
   expect(res.status).toBe(401);
 });
@@ -98,7 +107,7 @@ test('レートリミット → 429', async () => {
 });
 
 test('施設が見つからない → 403', async () => {
-  mockAdminFrom.mockReturnValue(singleChain(null)); // no facility membership
+  mockAdminFrom.mockReturnValue(facilityIdsChain([])); // no facility membership
   const res = await POST(makeRequest());
   expect(res.status).toBe(403);
 });
@@ -107,7 +116,7 @@ test('ドメイン設定なし → 400', async () => {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
     return singleChain(null); // no domain config
   });
   const res = await POST(makeRequest());
@@ -120,7 +129,7 @@ test('DNS lookup失敗 → 200 { verified: false, reason: DNS lookup failed }', 
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
     return singleChain(DOMAIN_CONFIG);
   });
   (dns.resolveTxt as jest.Mock).mockRejectedValue(new Error('ENOTFOUND'));
@@ -136,7 +145,7 @@ test('TXTレコード不一致 → 200 { verified: false }', async () => {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
-    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (callNum === 1) return facilityIdsChain([FACILITY_UUID]);
     return singleChain(DOMAIN_CONFIG);
   });
   (dns.resolveTxt as jest.Mock).mockResolvedValue([['wrong-record']]);
@@ -223,4 +232,40 @@ test('x-forwarded-for ヘッダあり → IP抽出', async () => {
   });
   await POST(req);
   expect((checkRateLimit as jest.Mock).mock.calls[0][1]).toBe('1.2.3.4');
+});
+
+// ─── 監査A2: 複数施設所有者の非決定的施設選択の根治確認 ────────────────────────
+
+const FACILITY_UUID_2 = '44444444-4444-4444-4444-444444444444';
+
+function makeRequestWithFacilityId(facilityId: string) {
+  return new Request('http://localhost/api/admin/white-label/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ facility_id: facilityId }),
+  });
+}
+
+test('複数施設所有・facility_id未指定 → 400', async () => {
+  mockAdminFrom.mockReturnValue(facilityIdsChain([FACILITY_UUID, FACILITY_UUID_2]));
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(400);
+});
+
+test('複数施設所有・所属していないfacility_id指定 → 403（越境防止）', async () => {
+  mockAdminFrom.mockReturnValue(facilityIdsChain([FACILITY_UUID, FACILITY_UUID_2]));
+  const res = await POST(makeRequestWithFacilityId('99999999-9999-9999-9999-999999999999'));
+  expect(res.status).toBe(403);
+});
+
+test('不正なJSON body → catchでfacility_id未指定扱い（単一施設なら自動選択）', async () => {
+  setupOwnershipAndDomain(null);
+  (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+  const req = new Request('http://localhost/api/admin/white-label/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: 'not-json',
+  });
+  const res = await POST(req);
+  expect(res.status).toBe(200);
 });

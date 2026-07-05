@@ -7,18 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { alertCaughtError } from '@/lib/alert';
-
-async function getFacilityId(userId: string) {
-  const admin = createServiceRoleClient();
-  const { data } = await admin
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', userId)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  return data?.facility_id;
-}
+import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
@@ -29,10 +18,18 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const facilityId = await getFacilityId(user.id);
-  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
-
+  // 監査A2: facility_id をリクエスト(クエリ)から受け取り所属集合で検証する。
+  // 複数施設のowner/adminがfacility_id未指定の場合、DB返却順に依存した非決定的な
+  // 施設選択（従来のlimit(1)決め打ち）を排し、明示指定を要求する。
+  // (既存どおりservice roleクライアントでfacility_membersを問い合わせる)
   const admin = createServiceRoleClient();
+  const facilityIds = await getAdminFacilityIds(admin, user.id);
+  const requested = req.nextUrl.searchParams.get('facility_id');
+  const { facilityId, reason } = resolveTargetFacilityId(facilityIds, requested);
+  if (reason === 'none') return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
+
   const { data: config } = await admin
     .from('white_label_domains')
     .select('*')
@@ -53,10 +50,14 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const facilityId = await getFacilityId(user.id);
-  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  const { domain, brand_name, primary_color, logo_url, facility_id } = await req.json().catch(() => ({}));
 
-  const { domain, brand_name, primary_color, logo_url } = await req.json().catch(() => ({}));
+  const admin = createServiceRoleClient();
+  const facilityIds = await getAdminFacilityIds(admin, user.id);
+  const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
+  if (reason === 'none') return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
 
   if (!domain || typeof domain !== 'string') return NextResponse.json({ error: 'domain required' }, { status: 400 });
   if (domain.length > 253) return NextResponse.json({ error: 'domain too long' }, { status: 400 });
@@ -71,7 +72,6 @@ export async function POST(req: NextRequest) {
 
   const txtRecord = `carelink-verify=${randomBytes(16).toString('hex')}`;
 
-  const admin = createServiceRoleClient();
   const { data: config, error } = await admin
     .from('white_label_domains')
     .upsert({
