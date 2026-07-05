@@ -26,6 +26,9 @@ export default function AdminPhotosPage() {
   const [facilityId, setFacilityId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  // 監査対応: 従来は<input type="file">がmultiple非対応で1枚ずつしかアップロードできなかった。
+  // 複数枚選択時の進捗（何枚目/全何枚）を表示する。
+  const [uploadProgress, setUploadProgress] = useState<{ done: number; total: number } | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [settingMain, setSettingMain] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -68,53 +71,74 @@ export default function AdminPhotosPage() {
   }, [reload]);
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !facilityId || uploading) return;
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0 || !facilityId || uploading) return;
 
-    // Validate file
     const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
+    const invalid = files.find((f) => !allowedTypes.includes(f.type));
+    if (invalid) {
       setToast({ type: 'error', message: 'JPG, PNG, WebPのみ対応しています' });
+      e.target.value = '';
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    const tooLarge = files.find((f) => f.size > 5 * 1024 * 1024);
+    if (tooLarge) {
       setToast({ type: 'error', message: 'ファイルサイズは5MB以下にしてください' });
+      e.target.value = '';
       return;
     }
 
     setUploading(true);
+    setUploadProgress({ done: 0, total: files.length });
+    let succeeded = 0;
+    let failed = 0;
     try {
       const supabase = createBrowserSupabaseClient();
-      const ext = file.name.split('.').pop() || 'jpg';
-      const path = `facilities/${facilityId}/${Date.now()}.${ext}`;
+      // Storageのpathはミリ秒+連番でユニーク化（同一ミリ秒内での複数枚アップロードによる
+      // ファイル名衝突を防ぐ）。1枚失敗しても残りの続行を止めない(best-effort)。
+      let nextSortOrder = photos.length;
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        try {
+          const ext = file.name.split('.').pop() || 'jpg';
+          const path = `facilities/${facilityId}/${Date.now()}-${i}.${ext}`;
+          const { error: uploadError } = await supabase.storage
+            .from('photos')
+            .upload(path, file, { contentType: file.type });
+          if (uploadError) throw uploadError;
 
-      const { error: uploadError } = await supabase.storage
-        .from('photos')
-        .upload(path, file, { contentType: file.type });
+          const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
+          const { error: insertError } = await supabase
+            .from('facility_photos')
+            .insert({
+              facility_id: facilityId,
+              photo_url: urlData.publicUrl,
+              photo_type: selectedType,
+              caption: caption.trim() || null,
+              sort_order: nextSortOrder,
+            });
+          if (insertError) throw insertError;
+          nextSortOrder++;
+          succeeded++;
+        } catch {
+          failed++;
+        } finally {
+          setUploadProgress({ done: i + 1, total: files.length });
+        }
+      }
 
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage.from('photos').getPublicUrl(path);
-
-      const { error: insertError } = await supabase
-        .from('facility_photos')
-        .insert({
-          facility_id: facilityId,
-          photo_url: urlData.publicUrl,
-          photo_type: selectedType,
-          caption: caption.trim() || null,
-          sort_order: photos.length,
-        });
-
-      if (insertError) throw insertError;
-
-      setToast({ type: 'success', message: 'アップロードしました' });
+      if (failed === 0) {
+        setToast({ type: 'success', message: `${succeeded}枚アップロードしました` });
+      } else if (succeeded > 0) {
+        setToast({ type: 'error', message: `${succeeded}枚成功・${failed}枚失敗しました` });
+      } else {
+        setToast({ type: 'error', message: 'アップロードに失敗しました' });
+      }
       setCaption('');
       await loadPhotos(facilityId);
-    } catch {
-      setToast({ type: 'error', message: 'アップロードに失敗しました' });
     } finally {
       setUploading(false);
+      setUploadProgress(null);
       e.target.value = '';
     }
   };
@@ -196,11 +220,11 @@ export default function AdminPhotosPage() {
             <SbInput id="photo-caption" value={caption} onChange={(e) => setCaption(e.target.value)} maxLength={200} placeholder="写真の説明" />
           </div>
           <label className={`btn-primary !py-2.5 px-6 cursor-pointer ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
-            {uploading ? 'アップロード中...' : '写真を選択'}
-            <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} className="hidden" />
+            {uploadProgress ? `アップロード中... (${uploadProgress.done}/${uploadProgress.total})` : '写真を選択（複数可）'}
+            <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleUpload} className="hidden" />
           </label>
         </div>
-        <p className="text-xs text-gray-400 mt-2">JPG, PNG, WebP / 最大5MB</p>
+        <p className="text-xs text-gray-400 mt-2">JPG, PNG, WebP / 1枚あたり最大5MB（複数枚を一度に選択できます）</p>
       </div>
 
       {/* 写真一覧 */}

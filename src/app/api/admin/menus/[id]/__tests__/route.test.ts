@@ -147,6 +147,19 @@ test('PATCH: photo_url が空文字 → 許可', async () => {
   expect(res.status).toBe(200);
 });
 
+test('PATCH: sort_orderのみの更新（並び替え）→ 200', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation(() => updateSingleChain({ id: MENU_UUID, sort_order: 3 }));
+  const res = await PATCH(makeRequest('PATCH', { sort_order: 3 }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: sort_order が範囲外(負数) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { sort_order: -1 }), makeProps());
+  expect(res.status).toBe(400);
+});
+
 test('PATCH: price が 10000000 (max 9999999超) → 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const res = await PATCH(makeRequest('PATCH', { price: 10000000 }), makeProps());
