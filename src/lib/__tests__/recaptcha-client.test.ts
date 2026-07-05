@@ -1,5 +1,5 @@
 /**
- * @jest-environment jsdom
+ * @jest-environment @stryker-mutator/jest-runner/jest-env/jsdom
  *
  * getRecaptchaToken の分岐網羅テスト。
  * site key 未設定（dev/CI）・grecaptcha 既存・スクリプトロード成功/失敗・実行失敗・document 不在を検証。

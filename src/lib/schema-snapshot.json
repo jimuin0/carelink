@@ -918,6 +918,7 @@
   "profiles": [
     "avatar_url",
     "birth_date",
+    "birth_md",
     "city",
     "created_at",
     "display_name",

@@ -120,6 +120,16 @@
     "columns": "id"
   },
   {
+    "table_name": "cron_report_sends",
+    "kind": "p",
+    "columns": "id"
+  },
+  {
+    "table_name": "cron_report_sends",
+    "kind": "u",
+    "columns": "facility_id,job,period_key"
+  },
+  {
     "table_name": "customer_segments",
     "kind": "p",
     "columns": "id"
