@@ -30,11 +30,26 @@ export default function CookieConsent() {
   const [visible, setVisible] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [prefs, setPrefs] = useState<CookiePreferences>(getDefaultPrefs());
+  // 施設詳細ページのSticky予約バー(.sticky-bar、fixed bottom-0 z-40)と本バナー(fixed bottom-0
+  // z-50)が両方画面下部に固定表示されるため、本バナーが「今すぐ予約する」ボタンの前面に重なり
+  // クリックできなくなっていた（実機Playwright確認で発見）。sticky-barの高さ分だけ上にオフセットする。
+  const [bottomOffset, setBottomOffset] = useState(0);
 
   useEffect(() => {
     const consent = localStorage.getItem(STORAGE_KEY) || localStorage.getItem('cookie-consent');
     if (!consent) setVisible(true);
   }, []);
+
+  useEffect(() => {
+    if (!visible) return;
+    const measure = () => {
+      const bar = document.querySelector('.sticky-bar');
+      setBottomOffset(bar ? bar.getBoundingClientRect().height : 0);
+    };
+    measure();
+    window.addEventListener('resize', measure);
+    return () => window.removeEventListener('resize', measure);
+  }, [visible]);
 
   const save = (p: CookiePreferences) => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(p));
@@ -48,7 +63,10 @@ export default function CookieConsent() {
   if (!visible) return null;
 
   return (
-    <div className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900 backdrop-blur text-white shadow-xl">
+    <div
+      className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900 backdrop-blur text-white shadow-xl"
+      style={bottomOffset > 0 ? { bottom: bottomOffset } : undefined}
+    >
       <div className="max-w-4xl mx-auto px-4 pt-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
         {!showDetails ? (
           /* シンプルバー */
