@@ -5,6 +5,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 
 export async function GET(req: NextRequest) {
   const ip = getClientIp(req);
@@ -15,14 +16,18 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // 監査A2: facility_id をクエリから受け取り所属集合で検証する（非決定的なlimit(1)決め打ち排除）。
+  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const requested = req.nextUrl.searchParams.get('facility_id');
+  const { facilityId, reason } = resolveTargetFacilityId(facilityIds, requested);
+  if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
 
   const { data, error } = await supabase
     .from('gbp_posts')
     .select('*')
-    .eq('facility_id', membership.facility_id)
+    .eq('facility_id', facilityId)
     .order('created_at', { ascending: false })
     .limit(50);
 
@@ -41,12 +46,14 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
   const body = await req.json().catch(() => ({}));
-  const { title, body: postBody, post_type, photo_url, cta_type, cta_url, scheduled_at } = body;
+  const { title, body: postBody, post_type, photo_url, cta_type, cta_url, scheduled_at, facility_id } = body;
+
+  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
+  if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
 
   if (!postBody?.trim()) return NextResponse.json({ error: 'body is required' }, { status: 400 });
 
@@ -56,7 +63,7 @@ export async function POST(req: NextRequest) {
   const { data, error } = await supabase
     .from('gbp_posts')
     .insert({
-      facility_id: membership.facility_id,
+      facility_id: facilityId,
       title: title ? String(title).slice(0, 200) : null,
       body: String(postBody).slice(0, 1500),
       post_type: VALID_POST_TYPES.includes(post_type) ? post_type : 'STANDARD',
@@ -73,7 +80,7 @@ export async function POST(req: NextRequest) {
 
   void writeAuditLog({
     userId: user.id,
-    facilityId: membership.facility_id,
+    facilityId,
     action: 'create',
     tableName: 'gbp_posts',
     recordId: data.id,
@@ -95,14 +102,22 @@ export async function PATCH(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // 監査A2: 非会員は id の有無に関わらず即403にする（元の設計どおり）。
+  // PATCH/DELETEはid(投稿)起点のため、投稿が実際に属するfacility_idをDBから引き、
+  // それが自分の所属集合に含まれるかを検証する（非決定的なlimit(1)決め打ちでは、複数施設
+  // 所有者の場合に自分の別施設の投稿でもWHERE不一致で操作できなくなるバグがあった）。
+  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  if (facilityIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const { id, title, body: postBody, post_type, photo_url, cta_type, cta_url, status, scheduled_at, published_at } = body;
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   if (!UUID_REGEX.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
+
+  const { data: existingPost } = await supabase.from('gbp_posts').select('facility_id').eq('id', id).single();
+  if (!existingPost) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!facilityIds.includes(existingPost.facility_id)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const facilityId = existingPost.facility_id;
 
   const VALID_POST_TYPES = ['STANDARD', 'EVENT', 'OFFER'];
   const VALID_CTA_TYPES = ['BOOK', 'ORDER', 'SHOP', 'LEARN_MORE', 'SIGN_UP', 'CALL'];
@@ -123,13 +138,13 @@ export async function PATCH(req: NextRequest) {
     .from('gbp_posts')
     .update(allowed)
     .eq('id', id)
-    .eq('facility_id', membership.facility_id);
+    .eq('facility_id', facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   void writeAuditLog({
     userId: user.id,
-    facilityId: membership.facility_id,
+    facilityId,
     action: 'update',
     tableName: 'gbp_posts',
     recordId: id,
@@ -151,25 +166,31 @@ export async function DELETE(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await supabase
-    .from('facility_members').select('facility_id').eq('user_id', user.id).in('role', ['owner', 'admin']).limit(1).single();
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  // 監査A2: 非会員は id の有無に関わらず即403にする（元の設計どおり）。
+  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  if (facilityIds.length === 0) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const id = req.nextUrl.searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
   if (!UUID_REGEX.test(id)) return NextResponse.json({ error: 'Invalid id' }, { status: 400 });
 
+  // 監査A2: PATCHと同様、投稿の実所属施設をDBから検証する。
+  const { data: existingPost } = await supabase.from('gbp_posts').select('facility_id').eq('id', id).single();
+  if (!existingPost) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!facilityIds.includes(existingPost.facility_id)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const facilityId = existingPost.facility_id;
+
   const { error } = await supabase
     .from('gbp_posts')
     .delete()
     .eq('id', id)
-    .eq('facility_id', membership.facility_id);
+    .eq('facility_id', facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   void writeAuditLog({
     userId: user.id,
-    facilityId: membership.facility_id,
+    facilityId,
     action: 'delete',
     tableName: 'gbp_posts',
     recordId: id,

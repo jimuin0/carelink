@@ -4,6 +4,7 @@ import { fetchPlaceDetails, calculateGbpScore } from '@/lib/gbp';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
+import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 
 export async function GET(req: NextRequest) {
   // この GET は外部 Places API 取得＋facility_profiles の google_rating 上書き＋
@@ -23,19 +24,18 @@ export async function GET(req: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { data: membership } = await supabase
-      .from('facility_members')
-      .select('facility_id')
-      .eq('user_id', user.id)
-      .in('role', ['owner', 'admin'])
-      .limit(1)
-      .single();
-    if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    // 監査A2: facility_id をクエリから受け取り所属集合で検証する（非決定的なlimit(1)決め打ち排除）。
+    const facilityIds = await getAdminFacilityIds(supabase, user.id);
+    const requested = req.nextUrl.searchParams.get('facility_id');
+    const { facilityId, reason } = resolveTargetFacilityId(facilityIds, requested);
+    if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
 
     const { data: facility } = await supabase
       .from('facility_profiles')
       .select('gbp_place_id, name, description, phone, website_url, business_hours, main_photo_url')
-      .eq('id', membership.facility_id)
+      .eq('id', facilityId)
       .single();
 
     if (!facility) return NextResponse.json({ error: 'Not found' }, { status: 404 });
@@ -51,7 +51,7 @@ export async function GET(req: NextRequest) {
     if (placeData) {
       const [cacheResult, ratingResult] = await Promise.allSettled([
         supabase.from('gbp_audit_cache').upsert({
-          facility_id: membership.facility_id,
+          facility_id: facilityId,
           score: audit.score,
           details: { audit, placeData },
           fetched_at: new Date().toISOString(),
@@ -59,17 +59,17 @@ export async function GET(req: NextRequest) {
         supabase.from('facility_profiles').update({
           google_rating: placeData.rating ?? null,
           google_review_count: placeData.user_ratings_total ?? 0,
-        }).eq('id', membership.facility_id),
+        }).eq('id', facilityId),
       ]);
       if (cacheResult.status === 'rejected' || (cacheResult.status === 'fulfilled' && cacheResult.value.error)) {
-        console.error('[gbp/place] audit cache upsert failed', { facilityId: membership.facility_id });
+        console.error('[gbp/place] audit cache upsert failed', { facilityId });
       }
       if (ratingResult.status === 'rejected' || (ratingResult.status === 'fulfilled' && ratingResult.value.error)) {
-        console.error('[gbp/place] google_rating update failed', { facilityId: membership.facility_id });
+        console.error('[gbp/place] google_rating update failed', { facilityId });
       }
     }
 
-    return NextResponse.json({ placeData, audit, facilityId: membership.facility_id });
+    return NextResponse.json({ placeData, audit, facilityId });
   } catch (e) {
     console.error('[gbp/place] GET error:', e);
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
@@ -88,17 +88,14 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: membership } = await supabase
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', user.id)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  if (!membership) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-
   const body = await req.json().catch(() => ({}));
-  const { gbp_place_id, gbp_cid } = body;
+  const { gbp_place_id, gbp_cid, facility_id } = body;
+
+  const facilityIds = await getAdminFacilityIds(supabase, user.id);
+  const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
+  if (reason === 'none') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
 
   // 保存時に形式を検証し、DB へ不正値が入るのを発症前に防ぐ（読み手側の防御に依存しない根治）。
   // place_id は fetchPlaceDetails（src/lib/gbp.ts）の読み取り検証と同一規則に揃える。
@@ -117,7 +114,7 @@ export async function POST(req: NextRequest) {
       gbp_cid: gbp_cid || null,
       gbp_connected_at: gbp_place_id ? new Date().toISOString() : null,
     })
-    .eq('id', membership.facility_id);
+    .eq('id', facilityId);
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   return NextResponse.json({ ok: true });

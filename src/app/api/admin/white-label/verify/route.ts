@@ -6,18 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
-
-async function getFacilityId(userId: string) {
-  const admin = createServiceRoleClient();
-  const { data } = await admin
-    .from('facility_members')
-    .select('facility_id')
-    .eq('user_id', userId)
-    .in('role', ['owner', 'admin'])
-    .limit(1)
-    .single();
-  return data?.facility_id;
-}
+import { getAdminFacilityIds, resolveTargetFacilityId } from '@/lib/facility-membership';
 
 export async function POST(req: NextRequest) {
   const csrfError = checkCsrf(req);
@@ -30,10 +19,16 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const facilityId = await getFacilityId(user.id);
-  if (!facilityId) return NextResponse.json({ error: 'No facility' }, { status: 403 });
-
+  // 監査A2: white-label/route.tsと同一パターン。POSTはbody未読前提のためbodyから
+  // facility_idを受け取る(空bodyでもJSONパース失敗を許容)。既存どおりservice roleで問い合わせる。
+  const { facility_id } = await req.json().catch(() => ({} as { facility_id?: unknown }));
   const admin = createServiceRoleClient();
+  const facilityIds = await getAdminFacilityIds(admin, user.id);
+  const { facilityId, reason } = resolveTargetFacilityId(facilityIds, facility_id);
+  if (reason === 'none') return NextResponse.json({ error: 'No facility' }, { status: 403 });
+  if (reason === 'forbidden') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  if (reason === 'ambiguous') return NextResponse.json({ error: '施設を指定してください', facilityIds }, { status: 400 });
+
   const { data: config } = await admin
     .from('white_label_domains')
     .select('domain, txt_record')
