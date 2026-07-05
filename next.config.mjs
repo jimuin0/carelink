@@ -4,6 +4,10 @@ const nextConfig = {
     formats: ['image/avif', 'image/webp'],
     remotePatterns: [
       { protocol: 'https', hostname: 'xzafxiupbflvgbarrihe.supabase.co' },
+      // 監査対応: 初期シード(scripts/seed-facilities.mjs・migrations 20260321000004/20260331000001)
+      // で投入したデモ施設の写真がunsplash URLを使っており、未許可のため/search・/rankingで
+      // next/imageが400を返し画像が壊れて表示されていた(実機確認で本番発生を確認・2026年7月5日)。
+      { protocol: 'https', hostname: 'images.unsplash.com' },
     ],
   },
   async headers() {
