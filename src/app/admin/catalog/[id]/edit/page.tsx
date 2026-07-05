@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
+import ConfirmDialog from '@/components/ConfirmDialog';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 
 const TAGS_EXAMPLE = ['ショートヘア', 'ボブ', 'カラー'].join('、');
@@ -17,6 +18,7 @@ export default function EditCatalogPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   useEffect(() => {
@@ -63,8 +65,8 @@ export default function EditCatalogPage() {
 
   const handleDelete = async () => {
     if (deleting) return;
-    if (!window.confirm('このカタログを削除しますか？')) return;
     setDeleting(true);
+    setConfirmOpen(false);
 
     const res = await fetch(`/api/admin/catalog/${params.id}`, { method: 'DELETE' });
 
@@ -114,11 +116,22 @@ export default function EditCatalogPage() {
           <button type="button" onClick={handleUpdate} disabled={saving} className="btn-primary flex-1 !py-3">
             {saving ? '保存中...' : '更新する'}
           </button>
-          <button type="button" onClick={handleDelete} disabled={deleting} className="text-sm text-red-600 hover:underline">
+          <button type="button" onClick={() => setConfirmOpen(true)} disabled={deleting} className="text-sm text-red-600 hover:underline">
             {deleting ? '削除中...' : '削除'}
           </button>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title="カタログを削除"
+        message="このカタログを削除しますか？"
+        confirmLabel="削除する"
+        variant="danger"
+        confirmDisabled={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmOpen(false)}
+      />
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
     </div>

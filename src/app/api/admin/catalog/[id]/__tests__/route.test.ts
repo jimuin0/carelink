@@ -112,10 +112,67 @@ test('PATCH: 他施設のカタログ → 401 (IDOR防止)', async () => {
   expect(res.status).toBe(401);
 });
 
+test('PATCH: カタログ自体が存在しない → 401', async () => {
+  mockAdminFrom.mockReturnValue(singleChain(null));
+  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
+  expect(res.status).toBe(401);
+});
+
 test('PATCH: name(=title)とtagsが更新される → 200', async () => {
   setupOwnership();
   const res = await PATCH(makeRequest('PATCH', { name: '更新後タイトル', tags: ['t1'] }), makeProps());
   expect(res.status).toBe(200);
+});
+
+test('PATCH: リクエストボディが不正 → 400', async () => {
+  setupOwnership();
+  const res = await PATCH(makeRequest('PATCH', { name: '' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: nameを送らない(description等のみ更新) → titleキーを含まずUPDATE', async () => {
+  let adminCallNum = 0;
+  const updateMock = jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: { id: CATALOG_UUID }, error: null })),
+        }),
+      }),
+    }),
+  });
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    return { update: updateMock };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+
+  const res = await PATCH(makeRequest('PATCH', { description: '説明のみ更新' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateMock).toHaveBeenCalledWith({ description: '説明のみ更新' });
+});
+
+test('PATCH: DB更新成功だがdataが取得できない → 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+            }),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: DB更新失敗 → 500', async () => {
@@ -171,6 +228,12 @@ test('PATCH: レートリミット → 429', async () => {
 test('DELETE: 不正なUUID → 400', async () => {
   const res = await DELETE(makeRequest('DELETE'), makeProps('bad-id'));
   expect(res.status).toBe(400);
+});
+
+test('DELETE: 未認証 → 401', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(401);
 });
 
 test('DELETE: 他施設のカタログ → 401', async () => {

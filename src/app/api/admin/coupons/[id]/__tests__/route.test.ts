@@ -242,6 +242,24 @@ test('DELETE: 利用実績あり → 削除せず無効化のみ → 200', async
   expect(updateMock).toHaveBeenCalledWith({ is_active: false });
 });
 
+test('DELETE: 利用実績あり → 無効化のDB更新自体が失敗 → 500', async () => {
+  let adminCallNum = 0;
+  const updateEq2 = jest.fn(() => Promise.resolve({ error: { message: 'DB error' } }));
+  const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
+  const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
+
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return redemptionCountChain(3);
+    return { update: updateMock };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(500);
+});
+
 test('DELETE: 利用実績カウント取得失敗 → 500', async () => {
   let adminCallNum = 0;
   mockAdminFrom.mockImplementation(() => {
