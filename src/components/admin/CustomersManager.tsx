@@ -19,7 +19,17 @@ export interface MasterCustomer {
   notes: string | null;
   visit_count: number;
   last_visit: string | null;
+  segment: string | null;
+  total_spent: number | null;
 }
+
+const SEGMENT_LABEL: Record<string, { label: string; className: string }> = {
+  vip: { label: 'VIP', className: 'bg-amber-100 text-amber-800' },
+  regular: { label: 'レギュラー', className: 'bg-sky-100 text-sky-700' },
+  at_risk: { label: '離脱リスク', className: 'bg-orange-100 text-orange-700' },
+  lost: { label: '離脱', className: 'bg-gray-100 text-gray-500' },
+  new: { label: '新規', className: 'bg-green-100 text-green-700' },
+};
 
 export interface UnregisteredCustomer {
   name: string;
@@ -269,6 +279,8 @@ export default function CustomersManager({
               <SbTh>連絡先</SbTh>
               <SbTh align="center">来店回数</SbTh>
               <SbTh>最終来店</SbTh>
+              <SbTh align="center">セグメント</SbTh>
+              <SbTh align="right">累計利用額</SbTh>
               <SbTh align="center">操作</SbTh>
             </SbThead>
             <SbTbody>
@@ -286,6 +298,18 @@ export default function CustomersManager({
                   </SbTd>
                   <SbTd align="center">{c.visit_count}回</SbTd>
                   <SbTd className="text-gray-500">{c.last_visit ?? '—'}</SbTd>
+                  <SbTd align="center">
+                    {c.segment && SEGMENT_LABEL[c.segment] ? (
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-bold ${SEGMENT_LABEL[c.segment].className}`}>
+                        {SEGMENT_LABEL[c.segment].label}
+                      </span>
+                    ) : (
+                      <span className="text-gray-300">—</span>
+                    )}
+                  </SbTd>
+                  <SbTd align="right" className="text-gray-700">
+                    {c.total_spent !== null ? `¥${c.total_spent.toLocaleString()}` : '—'}
+                  </SbTd>
                   <SbTd align="center">
                     <div className="flex items-center justify-center gap-1">
                       <button type="button" onClick={() => openEdit(c)} className="px-3 py-1.5 text-xs rounded border border-sky-200 text-sky-700 hover:bg-sky-50">編集</button>

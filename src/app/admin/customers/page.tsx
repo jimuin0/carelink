@@ -30,7 +30,7 @@ export default async function AdminCustomersPage() {
   if (masterErr && masterErr.code !== 'PGRST205' && masterErr.code !== '42P01') {
     throw new Error(`顧客マスターの取得に失敗しました: ${masterErr.message}`);
   }
-  const master = (masterRows ?? []) as Omit<MasterCustomer, 'visit_count' | 'last_visit'>[];
+  const master = (masterRows ?? []) as Omit<MasterCustomer, 'visit_count' | 'last_visit' | 'segment' | 'total_spent'>[];
 
   // 来店実績（予約完了から自動集計・email 正規化キー）。
   const visits = await getUniqueCustomers(facilityId);
@@ -39,13 +39,36 @@ export default async function AdminCustomersPage() {
     if (v.email) visitByEmail.set(v.email.trim().toLowerCase(), { visit_count: v.visit_count, last_visit: v.last_visit });
   }
 
-  // マスター顧客に来店実績を突合（email 一致）。
+  // 監査対応: customer-segment cron が週次計算するRFMセグメント(VIP/レギュラー/離脱リスク/離脱/新規)
+  // と累計利用金額(LTV相当)は customer_segments テーブルに存在するが、これまで顧客一覧の各行に
+  // 表示されておらず、admin/analytics の全体分布グラフでしか見えなかった（経営者が「上位顧客を
+  // 一目で見つけて優遇する」入口が欠けていた）。email正規化キーで突合し一覧に出す。
+  const { data: segmentRows, error: segmentErr } = await supabase
+    .from('customer_segments')
+    .select('customer_email, segment, total_spent')
+    .eq('facility_id', facilityId);
+  if (segmentErr && segmentErr.code !== 'PGRST205' && segmentErr.code !== '42P01') {
+    throw new Error(`顧客セグメントの取得に失敗しました: ${segmentErr.message}`);
+  }
+  const segmentByEmail = new Map<string, { segment: string | null; total_spent: number | null }>();
+  for (const s of (segmentRows ?? []) as Array<{ customer_email: string; segment: string | null; total_spent: number | null }>) {
+    if (s.customer_email) segmentByEmail.set(s.customer_email.trim().toLowerCase(), { segment: s.segment, total_spent: s.total_spent });
+  }
+
+  // マスター顧客に来店実績・セグメントを突合（email 一致）。
   const matchedEmails = new Set<string>();
   const customers: MasterCustomer[] = master.map((c) => {
     const key = c.email ? c.email.trim().toLowerCase() : '';
     const hit = key ? visitByEmail.get(key) : undefined;
+    const seg = key ? segmentByEmail.get(key) : undefined;
     if (key && hit) matchedEmails.add(key);
-    return { ...c, visit_count: hit?.visit_count ?? 0, last_visit: hit?.last_visit ?? null };
+    return {
+      ...c,
+      visit_count: hit?.visit_count ?? 0,
+      last_visit: hit?.last_visit ?? null,
+      segment: seg?.segment ?? null,
+      total_spent: seg?.total_spent ?? null,
+    };
   });
 
   // 来店履歴はあるがマスター未登録の顧客（「登録」導線を出す）。

@@ -80,6 +80,14 @@ export default async function MyPageLayout({ children }: { children: React.React
           >
             プロフィール
           </Link>
+          {/* 監査対応: Googleカレンダー/LINE連携設定ページ(/mypage/settings)へのナビリンクが
+              一切無く、URLを直接知らない限り到達できなかった（迷子導線）。 */}
+          <Link
+            href="/mypage/settings"
+            className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
+          >
+            連携設定
+          </Link>
         </nav>
         {children}
       </div>
