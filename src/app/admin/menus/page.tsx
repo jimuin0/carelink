@@ -39,6 +39,9 @@ export default function AdminMenusPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  // 監査対応: 従来は追加時に末尾固定(sort_order: menus.length)のみで並び替え手段が無かった。
+  // カテゴリ内の隣接メニューとsort_orderを交換する↑↓ボタンで並び替えを可能にする。
+  const [reordering, setReordering] = useState<string | null>(null);
 
   const loadMenus = useCallback(async (fId: string) => {
     const supabase = createBrowserSupabaseClient();
@@ -147,6 +150,38 @@ export default function AdminMenusPage() {
     }
   };
 
+  // カテゴリ内で隣接するメニュー(direction: -1=上へ, 1=下へ)とsort_orderを交換する。
+  const handleReorder = async (categoryItems: FacilityMenu[], index: number, direction: -1 | 1) => {
+    const targetIndex = index + direction;
+    if (!facilityId || reordering || targetIndex < 0 || targetIndex >= categoryItems.length) return;
+    const current = categoryItems[index];
+    const target = categoryItems[targetIndex];
+    setReordering(current.id);
+    try {
+      const [resA, resB] = await Promise.all([
+        fetch(`/api/admin/menus/${current.id}?facility_id=${facilityId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sort_order: target.sort_order }),
+        }),
+        fetch(`/api/admin/menus/${target.id}?facility_id=${facilityId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ sort_order: current.sort_order }),
+        }),
+      ]);
+      if (!resA.ok || !resB.ok) {
+        setToast({ type: 'error', message: '並び替えに失敗しました' });
+        return;
+      }
+      await loadMenus(facilityId);
+    } catch {
+      setToast({ type: 'error', message: '並び替えに失敗しました' });
+    } finally {
+      setReordering(null);
+    }
+  };
+
   const startEdit = (menu: FacilityMenu) => {
     setEditForm({
       id: menu.id,
@@ -252,8 +287,28 @@ export default function AdminMenusPage() {
             <section key={cat}>
               <h2 className="text-sm font-bold text-gray-800 mb-3 pl-3 border-l-[3px] border-sky-500">{cat}</h2>
               <div className="bg-white rounded-xl shadow-sm divide-y">
-                {items.map((menu) => (
+                {items.map((menu, index) => (
                   <div key={menu.id} className="flex items-center gap-4 p-4">
+                    <div className="flex flex-col shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => handleReorder(items, index, -1)}
+                        disabled={index === 0 || reordering !== null}
+                        className="p-1 text-gray-300 hover:text-sky-600 disabled:opacity-30 disabled:hover:text-gray-300 transition-colors"
+                        aria-label="上へ"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" /></svg>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleReorder(items, index, 1)}
+                        disabled={index === items.length - 1 || reordering !== null}
+                        className="p-1 text-gray-300 hover:text-sky-600 disabled:opacity-30 disabled:hover:text-gray-300 transition-colors"
+                        aria-label="下へ"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                    </div>
                     {menu.photo_url && (
                       <div className="shrink-0 w-12 h-12 relative rounded-lg overflow-hidden bg-gray-100">
                         <Image src={menu.photo_url} alt={menu.name} fill className="object-cover" sizes="48px" unoptimized />

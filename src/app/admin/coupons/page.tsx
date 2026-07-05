@@ -1,4 +1,5 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { getCouponsByFacility } from '@/lib/coupons';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -20,6 +21,21 @@ export default async function AdminCouponsPage() {
   if (!membership) notFound();
 
   const coupons = await getCouponsByFacility(membership.facility_id);
+
+  // 監査対応: 従来はクーポンの発行内容のみで利用実績(使用件数)が一切見えず、
+  // 経営者がROI判断できなかった。coupon_redemptionsはRLSポリシー未整備(service role限定)
+  // のため、施設の全クーポンID分をservice roleでまとめて集計する。
+  const usageByCoupon = new Map<string, number>();
+  if (coupons.length > 0) {
+    const admin = createServiceRoleClient();
+    const { data: redemptions } = await admin
+      .from('coupon_redemptions')
+      .select('coupon_id')
+      .in('coupon_id', coupons.map((c) => c.id));
+    for (const r of (redemptions ?? []) as Array<{ coupon_id: string }>) {
+      usageByCoupon.set(r.coupon_id, (usageByCoupon.get(r.coupon_id) ?? 0) + 1);
+    }
+  }
 
   return (
     <div>
@@ -65,8 +81,11 @@ export default async function AdminCouponsPage() {
                   )}
                 </div>
               </div>
-              <div className="flex gap-3 mt-3 pt-3 border-t">
-                <Link href={`/admin/coupons/${coupon.id}/edit`} className="text-xs text-primary hover:underline">編集</Link>
+              <div className="flex items-center gap-3 mt-3 pt-3 border-t">
+                <span className="text-xs text-gray-500">
+                  利用実績：<span className="font-bold text-gray-700">{usageByCoupon.get(coupon.id) ?? 0}</span>件
+                </span>
+                <Link href={`/admin/coupons/${coupon.id}/edit`} className="text-xs text-primary hover:underline ml-auto">編集</Link>
               </div>
             </div>
           ))}

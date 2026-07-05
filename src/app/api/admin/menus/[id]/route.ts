@@ -17,6 +17,8 @@ const menuUpdateSchema = z.object({
   duration_minutes: z.number().int().min(0).max(1440).optional().nullable(),
   photo_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
   is_featured: z.boolean().optional(),
+  // 監査対応: メニュー一覧の並び替え(↑↓ボタン)用。同一カテゴリ内で隣接メニューと交換する。
+  sort_order: z.number().int().min(0).max(999999).optional(),
 });
 
 async function getAdminContext(request: NextRequest): Promise<{ facilityId: string; userId: string } | null> {
