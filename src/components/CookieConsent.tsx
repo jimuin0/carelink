@@ -64,7 +64,10 @@ export default function CookieConsent() {
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900 backdrop-blur text-white shadow-xl"
+      // 監査対応(実機Playwright確認・第2件): Modal.tsx(z-50)のフッターボタンともz-50同値の
+      // 重なりで衝突しクリックできなくなっていた(admin/customersの保存ボタン等)。Modal表示中は
+      // 背景オーバーレイの下に隠れるのが自然な挙動のため、z-40に下げてModalより確実に低くする。
+      className="fixed bottom-0 left-0 right-0 z-40 bg-gray-900 backdrop-blur text-white shadow-xl"
       style={bottomOffset > 0 ? { bottom: bottomOffset } : undefined}
     >
       <div className="max-w-4xl mx-auto px-4 pt-4 pb-[calc(1rem_+_env(safe-area-inset-bottom))]">
