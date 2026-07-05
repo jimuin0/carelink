@@ -102,6 +102,32 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
+
+  // 利用実績(coupon_redemptions)がある場合は削除しない。ON DELETE CASCADEにより
+  // 監査記録である利用実績が道連れで消えるため、packages/subscription-plansと同様に
+  // 無効化のみに留める。
+  const { count, error: countErr } = await admin
+    .from('coupon_redemptions')
+    .select('id', { count: 'exact', head: true })
+    .eq('coupon_id', params.id);
+  if (countErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (count && count > 0) {
+    const { error: deactivateErr } = await admin.from('coupons').update({ is_active: false }).eq('id', params.id).eq('facility_id', facilityId);
+    if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+    void writeAuditLog({
+      userId: user.id,
+      facilityId,
+      action: 'update',
+      tableName: 'coupons',
+      recordId: params.id,
+      newValues: { is_active: false },
+      ipAddress: ip,
+    });
+
+    return NextResponse.json({ message: '利用実績があるため無効化しました' });
+  }
+
   // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
   const { error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId);
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
