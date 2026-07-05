@@ -43,12 +43,23 @@ function setupFrom(opts: {
   fac?: { name?: string } | null;
   claimError?: { code?: string; message?: string } | null;
 } = {}) {
+  // 監査P2: facility_members/profiles/facility_profilesはバルク取得(配列)に変更済み。
+  // 各テストの単一オブジェクト指定を配列1件（またはnull→空配列）に変換する。
   mockFrom.mockImplementation((table: string) => {
     if (table === 'daily_revenue_summary') return chain(opts.rows ?? { data: [], error: null });
     if (table === 'facility_notification_settings') return chain({ data: 'optedOut' in opts ? opts.optedOut : [], error: opts.optedOutError ?? null });
-    if (table === 'facility_members') return chain({ data: 'owner' in opts ? opts.owner : { user_id: 'u1' } });
-    if (table === 'profiles') return chain({ data: 'prof' in opts ? opts.prof : { email: 'owner@example.com' } });
-    if (table === 'facility_profiles') return chain({ data: 'fac' in opts ? opts.fac : { name: 'テスト施設' } });
+    if (table === 'facility_members') {
+      const owner = 'owner' in opts ? opts.owner : { user_id: 'u1' };
+      return chain({ data: owner ? [{ facility_id: 'f-1', user_id: owner.user_id }] : [] });
+    }
+    if (table === 'profiles') {
+      const prof = 'prof' in opts ? opts.prof : { email: 'owner@example.com' };
+      return chain({ data: prof ? [{ id: 'u1', email: prof.email ?? null }] : [] });
+    }
+    if (table === 'facility_profiles') {
+      const fac = 'fac' in opts ? opts.fac : { name: 'テスト施設' };
+      return chain({ data: fac ? [{ id: 'f-1', name: fac.name ?? null }] : [] });
+    }
     // M-1: cron_report_sends の claim insert / release delete。既定は claim 成功（error:null）。
     if (table === 'cron_report_sends') return chain({ error: opts.claimError ?? null });
     return chain({ data: null });
@@ -132,9 +143,9 @@ test('M-1: 送信が false → claim を解放する（delete 呼び出し）', 
   mockFrom.mockImplementation((table: string) => {
     if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null });
     if (table === 'facility_notification_settings') return chain({ data: [], error: null });
-    if (table === 'facility_members') return chain({ data: { user_id: 'u1' } });
-    if (table === 'profiles') return chain({ data: { email: 'owner@example.com' } });
-    if (table === 'facility_profiles') return chain({ data: { name: 'テスト施設' } });
+    if (table === 'facility_members') return chain({ data: [{ facility_id: 'f-1', user_id: 'u1' }] });
+    if (table === 'profiles') return chain({ data: [{ id: 'u1', email: 'owner@example.com' }] });
+    if (table === 'facility_profiles') return chain({ data: [{ id: 'f-1', name: 'テスト施設' }] });
     if (table === 'cron_report_sends') return { insert: () => Promise.resolve({ error: null }), delete: deleteSpy };
     return chain({ data: null });
   });
@@ -151,9 +162,9 @@ test('M-1: 送信 false かつ claim 解放も失敗 → LOUD にログ（恒久
   mockFrom.mockImplementation((table: string) => {
     if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100, booking_count: 1 }], error: null });
     if (table === 'facility_notification_settings') return chain({ data: [], error: null });
-    if (table === 'facility_members') return chain({ data: { user_id: 'u1' } });
-    if (table === 'profiles') return chain({ data: { email: 'owner@example.com' } });
-    if (table === 'facility_profiles') return chain({ data: { name: 'テスト施設' } });
+    if (table === 'facility_members') return chain({ data: [{ facility_id: 'f-1', user_id: 'u1' }] });
+    if (table === 'profiles') return chain({ data: [{ id: 'u1', email: 'owner@example.com' }] });
+    if (table === 'facility_profiles') return chain({ data: [{ id: 'f-1', name: 'テスト施設' }] });
     if (table === 'cron_report_sends') return { insert: () => Promise.resolve({ error: null }), delete: deleteSpy };
     return chain({ data: null });
   });
@@ -242,4 +253,66 @@ test('非Error の例外でも 500（error_msg は String 化）', async () => {
   const res = await GET(makeRequest());
   expect(res.status).toBe(500);
   expect(logCronRun).toHaveBeenCalledWith('weekly-report', 'error', expect.anything(), expect.objectContaining({ error_msg: 'string-error' }));
+});
+
+// 監査P2: バルク取得のnull data分岐・同一施設への重複owner行の網羅
+test('facility_membersがdata:nullを返す → オーナーなし扱いでスキップ', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null });
+    if (table === 'facility_notification_settings') return chain({ data: [], error: null });
+    if (table === 'facility_members') return chain({ data: null });
+    if (table === 'profiles') return chain({ data: [{ id: 'u1', email: 'owner@example.com' }] });
+    if (table === 'facility_profiles') return chain({ data: [{ id: 'f-1', name: 'テスト施設' }] });
+    if (table === 'cron_report_sends') return chain({ error: null });
+    return chain({ data: null });
+  });
+  const json = await (await GET(makeRequest())).json();
+  expect(json.emailsSent).toBe(0);
+  expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+});
+
+test('facility_membersが同一施設に複数owner行を返す → 先頭のみ採用（重複スキップ）', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null });
+    if (table === 'facility_notification_settings') return chain({ data: [], error: null });
+    if (table === 'facility_members') return chain({ data: [
+      { facility_id: 'f-1', user_id: 'u1' },
+      { facility_id: 'f-1', user_id: 'u2' },
+    ] });
+    if (table === 'profiles') return chain({ data: [{ id: 'u1', email: 'owner@example.com' }] });
+    if (table === 'facility_profiles') return chain({ data: [{ id: 'f-1', name: 'テスト施設' }] });
+    if (table === 'cron_report_sends') return chain({ error: null });
+    return chain({ data: null });
+  });
+  await GET(makeRequest());
+  expect(sendWeeklyReportEmail).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.com' }));
+});
+
+test('profilesがdata:nullを返す → メールアドレス不明でスキップ', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null });
+    if (table === 'facility_notification_settings') return chain({ data: [], error: null });
+    if (table === 'facility_members') return chain({ data: [{ facility_id: 'f-1', user_id: 'u1' }] });
+    if (table === 'profiles') return chain({ data: null });
+    if (table === 'facility_profiles') return chain({ data: [{ id: 'f-1', name: 'テスト施設' }] });
+    if (table === 'cron_report_sends') return chain({ error: null });
+    return chain({ data: null });
+  });
+  const json = await (await GET(makeRequest())).json();
+  expect(json.emailsSent).toBe(0);
+  expect(sendWeeklyReportEmail).not.toHaveBeenCalled();
+});
+
+test('facility_profilesがdata:nullを返す → 施設名は既定「施設」で送信', async () => {
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'daily_revenue_summary') return chain({ data: [{ facility_id: 'f-1', total_revenue: 100 }], error: null });
+    if (table === 'facility_notification_settings') return chain({ data: [], error: null });
+    if (table === 'facility_members') return chain({ data: [{ facility_id: 'f-1', user_id: 'u1' }] });
+    if (table === 'profiles') return chain({ data: [{ id: 'u1', email: 'owner@example.com' }] });
+    if (table === 'facility_profiles') return chain({ data: null });
+    if (table === 'cron_report_sends') return chain({ error: null });
+    return chain({ data: null });
+  });
+  await GET(makeRequest());
+  expect(sendWeeklyReportEmail).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '施設' }));
 });

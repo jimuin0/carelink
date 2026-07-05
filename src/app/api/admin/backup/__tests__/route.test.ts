@@ -158,6 +158,19 @@ test('POST: エクスポートクエリ失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('POST: 1ページ目がdata:null（エラーなし）→ 404', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue({
+    select: jest.fn().mockReturnValue({
+      order: jest.fn().mockReturnValue({
+        range: jest.fn(() => Promise.resolve({ data: null, error: null })),
+      }),
+    }),
+  });
+  const res = await POST(makePostRequest({ table: 'bookings' }));
+  expect(res.status).toBe(404);
+});
+
 test('POST: データ0件 → 404', async () => {
   mockAnonFrom.mockReturnValue(profileChain(true));
   mockAdminFrom.mockReturnValue({
@@ -303,4 +316,80 @@ test('GET: count が null → 0 にフォールバック', async () => {
   const res = await GET(makeGetRequest());
   const json = await res.json();
   expect(json.table_counts.bookings).toBe(0);
+});
+
+// 監査P9: ReadableStreamのページング（複数ページにまたがるケース）
+describe('POST: ストリーミングの複数ページ処理', () => {
+  function makeRow(i: number) {
+    return { id: String(i), name: `row-${i}`, created_at: '2026-01-01' };
+  }
+
+  test('1ページ目ちょうど1000件 → 2ページ目を取得し全件出力', async () => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.resolve({ data: [makeRow(1000)], error: null });
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    expect(res.status).toBe(200);
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    expect(lines.length).toBe(1 + 1001); // header + 1001 rows
+    expect(rangeCallCount).toBe(2);
+  });
+
+  test('2ページ目取得でエラー → 1ページ目分だけ出力して打ち切り（部分エクスポート）', async () => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.resolve({ data: null, error: { message: 'page2 failed' } });
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    expect(res.status).toBe(200); // ヘッダー確定後なので200のまま（打ち切りのみ）
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    expect(lines.length).toBe(1 + 1000); // header + 1ページ目のみ
+  });
+
+  test('2ページ目がdata:nullを返す → 打ち切り', async () => {
+    mockAnonFrom.mockReturnValue(profileChain(true));
+    let rangeCallCount = 0;
+    mockAdminFrom.mockReturnValue({
+      select: jest.fn().mockReturnValue({
+        order: jest.fn().mockReturnValue({
+          range: jest.fn(() => {
+            rangeCallCount++;
+            if (rangeCallCount === 1) {
+              return Promise.resolve({ data: Array.from({ length: 1000 }, (_, i) => makeRow(i)), error: null });
+            }
+            return Promise.resolve({ data: null, error: null });
+          }),
+        }),
+      }),
+    });
+    const res = await POST(makePostRequest({ table: 'bookings' }));
+    const csv = await res.text();
+    const lines = csv.trim().split('\n');
+    expect(lines.length).toBe(1 + 1000);
+  });
 });

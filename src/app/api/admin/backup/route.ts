@@ -8,25 +8,25 @@
  */
 
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { NextRequest, NextResponse } from 'next/server';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
-import { fetchAllPaged } from '@/lib/paginate';
 
-async function requirePlatformAdmin() {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-  if (!profile?.is_platform_admin) return null;
-  return user;
+/** 1つのCSV値を安全にエスケープする（CSVインジェクション対策込み）。 */
+function csvEscape(val: unknown): string {
+  if (val === null || val === undefined) return '';
+  const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
+  const safe = /^[=+\-@|]/.test(str) ? `'${str}` : str;
+  return safe.includes(',') || safe.includes('\n') || safe.includes('"')
+    ? `"${safe.replace(/"/g, '""')}"`
+    : safe;
+}
+
+function csvRow(headers: string[], row: Record<string, unknown>): string {
+  return headers.map((h) => csvEscape(row[h])).join(',');
 }
 
 export const dynamic = 'force-dynamic';
@@ -90,57 +90,74 @@ export async function POST(request: NextRequest) {
 
   const serviceSupabase = createServiceRoleClient();
 
-  // 全件を CSV エクスポートする（バックアップは完全性が必須）。
-  // 旧実装は .limit(10000) で、bookings/profiles 等が1万件を超えるとバックアップが
-  // 黙って欠損していた。fetchAllPaged で created_at desc 順に全件ページング取得する。
-  const { rows: data, error } = await fetchAllPaged<Record<string, unknown>>(
-    async (offset, limit) => {
-      const { data, error } = await serviceSupabase
-        .from(table)
-        .select('*')
-        .order('created_at', { ascending: false })
-        .range(offset, offset + limit - 1);
-      return { data: data as Record<string, unknown>[] | null, error };
-    },
-    { maxRows: 1000000 },
-  );
+  // 監査P9: 従来は fetchAllPaged で全件（最大100万行）を一度に JS 配列へ蓄積してから
+  // CSV文字列化していた（大テーブルでメモリ全展開＝OOMリスク）。ReadableStream で
+  // ページ(1000件)ごとに読み取り即flushし、常時メモリに載るのは1ページ分のみにする。
+  //
+  // ただし「データ0件→404」「取得失敗→500」の判定はレスポンス開始（ヘッダ確定）前に
+  // 行う必要がある（ストリーム開始後はHTTPステータスを変更できない）。そのため最初の
+  // ページだけ先に取得して判定し、ヘッダー確定後にストリームへ引き継いで残りを読む。
+  const PAGE_SIZE = 1000;
+  const MAX_ROWS = 1000000;
 
-  if (error) {
-    console.error('[backup] export query failed', { table, err: error });
+  const fetchPage = (offset: number) =>
+    serviceSupabase
+      .from(table)
+      .select('*')
+      .order('created_at', { ascending: false })
+      .range(offset, offset + PAGE_SIZE - 1);
+
+  const first = await fetchPage(0);
+  if (first.error) {
+    console.error('[backup] export query failed', { table, err: first.error });
     return NextResponse.json({ error: 'データの取得に失敗しました' }, { status: 500 });
   }
-  if (data.length === 0) {
+  const firstRows = (first.data ?? []) as Record<string, unknown>[];
+  if (firstRows.length === 0) {
     return NextResponse.json({ error: 'エクスポート対象のデータがありません' }, { status: 404 });
   }
 
-  // JSONをCSVに変換
-  const headers = Object.keys(data[0]);
-  const csvRows = [
-    headers.join(','),
-    ...data.map((row) =>
-      headers.map((h) => {
-        const val = (row as Record<string, unknown>)[h];
-        if (val === null || val === undefined) return '';
-        const str = typeof val === 'object' ? JSON.stringify(val) : String(val);
-        const safe = /^[=+\-@|]/.test(str) ? `'${str}` : str;
-        return safe.includes(',') || safe.includes('\n') || safe.includes('"')
-          ? `"${safe.replace(/"/g, '""')}"`
-          : safe;
-      }).join(',')
-    ),
-  ].join('\n');
+  const headers = Object.keys(firstRows[0]);
+  const encoder = new TextEncoder();
 
-  const { ip: auditIp, ua } = getRequestContext(request);
-  void writeAuditLog({
-    userId: user.id,
-    action: 'export',
-    tableName: table,
-    newValues: { row_count: data.length },
-    ipAddress: auditIp,
-    userAgent: ua,
+  const stream = new ReadableStream({
+    async start(controller) {
+      let totalRows = 0;
+      try {
+        controller.enqueue(encoder.encode(headers.join(',') + '\n'));
+        let page = firstRows;
+        let offset = 0;
+        for (;;) {
+          for (const row of page) controller.enqueue(encoder.encode(csvRow(headers, row) + '\n'));
+          totalRows += page.length;
+          const isLastPage = page.length < PAGE_SIZE || totalRows >= MAX_ROWS;
+          if (isLastPage) break;
+          offset += PAGE_SIZE;
+          const next = await fetchPage(offset);
+          if (next.error) {
+            console.error('[backup] export streaming query failed (partial export)', { table, offset, err: next.error });
+            break;
+          }
+          page = (next.data ?? []) as Record<string, unknown>[];
+          if (page.length === 0) break;
+        }
+
+        const { ip: auditIp, ua } = getRequestContext(request);
+        void writeAuditLog({
+          userId: user.id,
+          action: 'export',
+          tableName: table,
+          newValues: { row_count: totalRows },
+          ipAddress: auditIp,
+          userAgent: ua,
+        });
+      } finally {
+        controller.close();
+      }
+    },
   });
 
-  return new Response(csvRows, {
+  return new Response(stream, {
     headers: {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': `attachment; filename="${table}_${new Date().toISOString().split('T')[0]}.csv"`,

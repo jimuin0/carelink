@@ -3,7 +3,7 @@
  *
  * Tests for POST /api/admin/features
  * Key assertions:
- *   - SUPER_ADMIN_USER_IDS env var gating → 401 for non-super-admin
+ *   - is_platform_admin(DB)方式 gating → 401 for non-platform-admin（監査A6b: 旧SUPER_ADMIN_USER_IDS方式から統一）
  *   - image_url must be URL or empty string
  *   - sort_order 0-9999
  *   - DB failure → 500
@@ -52,17 +52,21 @@ function insertSingle(data: unknown, error: unknown = null) {
   };
 }
 
+function profileChain(isAdmin: boolean | null) {
+  return {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    single: jest.fn(() => Promise.resolve({ data: isAdmin === null ? null : { is_platform_admin: isAdmin }, error: null })),
+  };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  mockAnonFrom.mockReturnValue(profileChain(true));
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
-  process.env.SUPER_ADMIN_USER_IDS = USER_ID;
-});
-
-afterEach(() => {
-  delete process.env.SUPER_ADMIN_USER_IDS;
 });
 
 test('POST: 未認証 → 401', async () => {
@@ -77,14 +81,14 @@ test('POST: レートリミット → 429', async () => {
   expect(res.status).toBe(429);
 });
 
-test('POST: SUPER_ADMIN_USER_IDS 未設定 → 401', async () => {
-  delete process.env.SUPER_ADMIN_USER_IDS;
+test('POST: is_platform_admin=false → 401', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(false));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(401);
 });
 
-test('POST: 異なるユーザーID → 401', async () => {
-  process.env.SUPER_ADMIN_USER_IDS = 'other-user-id';
+test('POST: profileレコードなし → 401', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(null));
   const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(401);
 });
@@ -121,13 +125,6 @@ test('POST: 正常作成 → 201 with feature', async () => {
 test('POST: image_url が空文字 → 201', async () => {
   mockAdminFrom.mockReturnValue(insertSingle({ id: 'feature-1' }));
   const res = await POST(makeRequest(validBody({ image_url: '' })));
-  expect(res.status).toBe(201);
-});
-
-test('POST: 複数スーパー管理者のうち1人 → 201', async () => {
-  process.env.SUPER_ADMIN_USER_IDS = `other-id, ${USER_ID}, another-id`;
-  mockAdminFrom.mockReturnValue(insertSingle({ id: 'feature-1' }));
-  const res = await POST(makeRequest(validBody()));
   expect(res.status).toBe(201);
 });
 

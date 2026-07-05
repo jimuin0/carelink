@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -16,30 +16,6 @@ const featureArticleSchema = z.object({
   sort_order: z.number().int().min(0).max(9999).optional(),
 });
 
-
-/**
- * feature_articles はサイト全体の特集記事（facility_id を持たない）。
- * 書き込み操作は SUPER_ADMIN_USER_IDS に列挙されたユーザーのみに限定する。
- * 環境変数未設定時はすべての書き込みを拒否する（フェイルセーフ）。
- */
-function getSuperAdminIds(): Set<string> {
-  const raw = process.env.SUPER_ADMIN_USER_IDS ?? '';
-  return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function getAdminUser(_request: NextRequest): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // feature_articles はサイトワイドコンテンツ — スーパーアドミンのみ編集可
-  const superAdminIds = getSuperAdminIds();
-  if (!superAdminIds.has(user.id)) return null;
-
-  return user.id;
-}
-
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -49,8 +25,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const userId = await getAdminUser(request);
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // feature_articles はサイトワイドコンテンツ(facility_idを持たない) — プラットフォーム管理者のみ編集可（監査A6b）
+  const user = await requirePlatformAdmin();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = user.id;
 
   const body = await request.json().catch(() => null);
   const parsed = featureArticleSchema.safeParse(body);

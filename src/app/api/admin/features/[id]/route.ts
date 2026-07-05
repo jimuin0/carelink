@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -17,29 +17,6 @@ const featureUpdateSchema = z.object({
   sort_order: z.number().int().min(0).max(9999).optional(),
 });
 
-/**
- * feature_articles はサイト全体の特集記事（facility_id を持たない）。
- * 書き込み操作は SUPER_ADMIN_USER_IDS に列挙されたユーザーのみに限定する。
- * 環境変数未設定時はすべての書き込みを拒否する（フェイルセーフ）。
- */
-function getSuperAdminIds(): Set<string> {
-  const raw = process.env.SUPER_ADMIN_USER_IDS ?? '';
-  return new Set(raw.split(',').map((s) => s.trim()).filter(Boolean));
-}
-
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-async function getAdminUser(request: NextRequest): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // feature_articles はサイトワイドコンテンツ — スーパーアドミンのみ編集可
-  const superAdminIds = getSuperAdminIds();
-  if (!superAdminIds.has(user.id)) return null;
-
-  return user.id;
-}
-
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const csrfError = checkCsrf(request);
@@ -52,8 +29,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const userId = await getAdminUser(request);
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  // feature_articles はサイトワイドコンテンツ(facility_idを持たない) — プラットフォーム管理者のみ編集可（監査A6b）
+  const user = await requirePlatformAdmin();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = user.id;
 
   const body = await request.json().catch(() => null);
   const parsed = featureUpdateSchema.safeParse(body);
@@ -98,8 +77,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
 
   if (!UUID_REGEX.test(params.id)) return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
 
-  const userId = await getAdminUser(request);
-  if (!userId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const user = await requirePlatformAdmin();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const userId = user.id;
 
   const admin = createServiceRoleClient();
   const { error } = await admin.from('feature_articles').delete().eq('id', params.id);
