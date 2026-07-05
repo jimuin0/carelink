@@ -226,6 +226,16 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
           </div>
         </div>
       )}
+      {/* 監査F5: オンライン事前決済は未実装（決済導線がフロントに存在しない）。
+          今回は実装せず「近日公開」表示のみに留める（2026年7月5日・神原さん決定）。 */}
+      {canCancel && booking && booking.total_price !== null && (
+        <div
+          aria-disabled="true"
+          className="w-full mt-4 py-3 rounded-xl border border-gray-200 text-gray-400 font-bold text-center cursor-not-allowed select-none"
+        >
+          オンライン事前決済（近日公開）
+        </div>
+      )}
       {canCancel && booking && (
         <button
           type="button"

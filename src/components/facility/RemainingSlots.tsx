@@ -27,6 +27,11 @@ export default function RemainingSlots({ facilityId }: { facilityId: string }) {
   return (
     <span className="text-xs text-red-500 font-bold animate-pulse">
       {remaining === 0 ? '本日満枠' : `本日残り${remaining}枠`}
+      {/* 監査F13: キャンセル待ち登録は未実装（登録UIがフロントに存在しない）。
+          今回は実装せず「近日公開」表示のみに留める（2026年7月5日・神原さん決定）。 */}
+      {remaining === 0 && (
+        <span className="ml-1 text-gray-400 font-normal">（キャンセル待ち登録：近日公開）</span>
+      )}
     </span>
   );
 }
