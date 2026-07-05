@@ -47,6 +47,9 @@ export default async function AdminCatalogPage() {
                   </span>
                 ))}
               </div>
+              <Link href={`/admin/catalog/${c.id}/edit`} className="text-xs text-primary hover:underline mt-2 inline-block">
+                編集
+              </Link>
             </div>
           ))}
         </div>
