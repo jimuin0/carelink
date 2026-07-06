@@ -28,10 +28,12 @@ jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 jest.mock('@/lib/push', () => ({ sendPushToFacilityOwners: jest.fn(() => Promise.resolve()) }));
 jest.mock('@/lib/notification-settings', () => ({ getFacilityNotificationSettings: jest.fn() }));
+jest.mock('@/lib/email', () => ({ sendNewReviewNotification: jest.fn(() => Promise.resolve(true)) }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { sendNewReviewNotification } from '@/lib/email';
 import { POST } from '../route';
 
 let mockGetUser: jest.Mock;
@@ -59,6 +61,17 @@ function setupDefaultMocks(hasUser: boolean = true, hasRecentReview: boolean = f
   const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
   mockInsert = jest.fn().mockReturnValue({ select: mockSelectInsert });
 
+  const mockMembersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+  const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2 });
+  const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
+
+  const mockProfilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
+  const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });
+
+  const mockFacilitySingle = jest.fn().mockResolvedValue({ data: { name: 'テスト施設' } });
+  const mockFacilityEq = jest.fn().mockReturnValue({ single: mockFacilitySingle });
+  const mockFacilitySelect = jest.fn().mockReturnValue({ eq: mockFacilityEq });
+
   const fromRouter = jest.fn((table: string) => {
     if (table === 'facility_reviews') {
       return {
@@ -69,6 +82,12 @@ function setupDefaultMocks(hasUser: boolean = true, hasRecentReview: boolean = f
       return { select: mockSelectBooking };
     } else if (table === 'user_points') {
       return { select: mockSelect, insert: mockInsert };
+    } else if (table === 'facility_members') {
+      return { select: mockMembersSelect };
+    } else if (table === 'profiles') {
+      return { select: mockProfilesSelect };
+    } else if (table === 'facility_profiles') {
+      return { select: mockFacilitySelect };
     }
   });
 
@@ -325,12 +344,16 @@ describe('POST /api/review', () => {
       hasRecentReview?: boolean;
       hasCompletedBooking?: boolean;
       insertResult?: { data: { id: string } | null; error: { message: string } | null };
+      ownerUserIds?: string[];
+      ownerEmails?: (string | null)[];
     } = {}) {
       const {
         hasUser = true,
         hasRecentReview = false,
         hasCompletedBooking = false,
         insertResult = { data: { id: 'review-123' }, error: null },
+        ownerUserIds = ['owner-1'],
+        ownerEmails = ['owner@example.invalid'],
       } = options;
 
       const mockGetUser = jest.fn().mockResolvedValue({
@@ -367,6 +390,20 @@ describe('POST /api/review', () => {
       const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
       const mockPointsInsert = jest.fn().mockResolvedValue({ error: null });
 
+      // facility_members.select('user_id').eq('facility_id',...).eq('role','owner')
+      const mockMembersEq2 = jest.fn().mockResolvedValue({ data: ownerUserIds.map((id) => ({ user_id: id })) });
+      const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2 });
+      const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
+
+      // profiles.select('email').in('id', [...])
+      const mockProfilesIn = jest.fn().mockResolvedValue({ data: ownerEmails.map((e) => ({ email: e })) });
+      const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });
+
+      // facility_profiles.select('name').eq('id',...).single()
+      const mockFacilitySingle = jest.fn().mockResolvedValue({ data: { name: 'テスト施設' } });
+      const mockFacilityEq = jest.fn().mockReturnValue({ single: mockFacilitySingle });
+      const mockFacilitySelect = jest.fn().mockReturnValue({ eq: mockFacilityEq });
+
       const fromRouter = jest.fn((table: string) => {
         if (table === 'facility_reviews') {
           return { select: mockDupSelect, insert: mockInsert };
@@ -374,6 +411,12 @@ describe('POST /api/review', () => {
           return { select: mockBookingSelect };
         } else if (table === 'user_points') {
           return { select: mockPointsSelect, insert: mockPointsInsert };
+        } else if (table === 'facility_members') {
+          return { select: mockMembersSelect };
+        } else if (table === 'profiles') {
+          return { select: mockProfilesSelect };
+        } else if (table === 'facility_profiles') {
+          return { select: mockFacilitySelect };
         }
       });
 
@@ -430,6 +473,141 @@ describe('POST /api/review', () => {
       const res = await POST(makeRequest(bizReview));
       expect(res.status).toBe(200);
       expect((await res.json()).success).toBe(true);
+    });
+
+    test('口コミ投稿成功時 push_on_review=true → 施設オーナーへメールを送る', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerEmails: ['owner@example.invalid'] });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.invalid' }));
+    });
+
+    test('施設にオーナーがいない場合はメールを送らない', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerUserIds: [] });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
+    });
+
+    test('メール送信が失敗(false)を返しても投稿成功を返す（防御）', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      (sendNewReviewNotification as jest.Mock).mockResolvedValueOnce(false);
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect((await res.json()).success).toBe(true);
+    });
+
+    // facility_reviews(24h重複チェック)/bookings(来店確認)の基本チェーンを共通化。
+    function baseDupAndBookingHandlers() {
+      const dupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const dupGte = jest.fn().mockReturnValue({ limit: dupLimit });
+      const dupEq2 = jest.fn().mockReturnValue({ gte: dupGte });
+      const dupEq1 = jest.fn().mockReturnValue({ eq: dupEq2 });
+      const dupSelect = jest.fn().mockReturnValue({ eq: dupEq1 });
+
+      const bookingLimit = jest.fn().mockResolvedValue({ data: [] });
+      const bookingEq3 = jest.fn().mockReturnValue({ limit: bookingLimit });
+      const bookingEq2 = jest.fn().mockReturnValue({ eq: bookingEq3 });
+      const bookingEq1 = jest.fn().mockReturnValue({ eq: bookingEq2 });
+      const bookingSelect = jest.fn().mockReturnValue({ eq: bookingEq1 });
+
+      return { dupSelect, bookingSelect };
+    }
+
+    test('ownerRowsがnull → メール送信自体が発生しない（防御）', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      const { dupSelect, bookingSelect } = baseDupAndBookingHandlers();
+      const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
+      const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
+      const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
+      const nullMembersEq2 = jest.fn().mockResolvedValue({ data: null });
+      const nullMembersEq1 = jest.fn().mockReturnValue({ eq: nullMembersEq2 });
+      const nullMembersSelect = jest.fn().mockReturnValue({ eq: nullMembersEq1 });
+      const overrideFrom = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: dupSelect, insert: insertFn };
+        if (table === 'bookings') return { select: bookingSelect };
+        if (table === 'facility_members') return { select: nullMembersSelect };
+        return { select: jest.fn() };
+      });
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: overrideFrom });
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
+    });
+
+    test('ownerProfilesがnull → メール送信自体が発生しない（防御）', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerUserIds: ['owner-1'] });
+
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      const { dupSelect, bookingSelect } = baseDupAndBookingHandlers();
+      const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
+      const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
+      const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
+      const membersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+      const membersEq1 = jest.fn().mockReturnValue({ eq: membersEq2 });
+      const membersSelect = jest.fn().mockReturnValue({ eq: membersEq1 });
+      const nullProfilesIn = jest.fn().mockResolvedValue({ data: null });
+      const nullProfilesSelect = jest.fn().mockReturnValue({ in: nullProfilesIn });
+
+      const overrideFrom = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: dupSelect, insert: insertFn };
+        if (table === 'bookings') return { select: bookingSelect };
+        if (table === 'facility_members') return { select: membersSelect };
+        if (table === 'profiles') return { select: nullProfilesSelect };
+        return { select: jest.fn() };
+      });
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: overrideFrom });
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sendNewReviewNotification).not.toHaveBeenCalled();
+    });
+
+    test('facilityRowがnull → メールは空文字の施設名で送信される（防御）', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerUserIds: ['owner-1'], ownerEmails: ['owner@example.invalid'] });
+
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      const { dupSelect, bookingSelect } = baseDupAndBookingHandlers();
+      const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
+      const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
+      const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
+      const membersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+      const membersEq1 = jest.fn().mockReturnValue({ eq: membersEq2 });
+      const membersSelect = jest.fn().mockReturnValue({ eq: membersEq1 });
+      const profilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
+      const profilesSelect = jest.fn().mockReturnValue({ in: profilesIn });
+      const nullFacilitySingle = jest.fn().mockResolvedValue({ data: null });
+      const nullFacilityEq = jest.fn().mockReturnValue({ single: nullFacilitySingle });
+      const nullFacilitySelect = jest.fn().mockReturnValue({ eq: nullFacilityEq });
+
+      const overrideFrom = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: dupSelect, insert: insertFn };
+        if (table === 'bookings') return { select: bookingSelect };
+        if (table === 'facility_members') return { select: membersSelect };
+        if (table === 'profiles') return { select: profilesSelect };
+        if (table === 'facility_profiles') return { select: nullFacilitySelect };
+        return { select: jest.fn() };
+      });
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: overrideFrom });
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityName: '' }));
     });
 
     test('24h duplicate for authenticated user → 429', async () => {
@@ -857,10 +1035,22 @@ describe('POST /api/review', () => {
       const mockPointsSelect = jest.fn();
       const mockPointsInsert = jest.fn();
 
+      const mockMembersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+      const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2 });
+      const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
+      const mockProfilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
+      const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });
+      const mockFacilitySingle = jest.fn().mockResolvedValue({ data: { name: 'テスト施設' } });
+      const mockFacilityEq = jest.fn().mockReturnValue({ single: mockFacilitySingle });
+      const mockFacilitySelect = jest.fn().mockReturnValue({ eq: mockFacilityEq });
+
       const fromRouter = jest.fn((table: string) => {
         if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
         if (table === 'bookings') return { select: mockBookingSelect };
         if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+        if (table === 'facility_members') return { select: mockMembersSelect };
+        if (table === 'profiles') return { select: mockProfilesSelect };
+        if (table === 'facility_profiles') return { select: mockFacilitySelect };
       });
 
       const { createServerClient } = require('@supabase/ssr');

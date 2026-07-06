@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -143,6 +143,33 @@ describe('sendNewBookingNotification', () => {
     const args = mockSend.mock.calls[0][0];
     expect(args.to).toBe('salon@example.com');
     expect(args.subject).toContain('新しい予約');
+  });
+});
+
+describe('sendNewReviewNotification', () => {
+  const reviewData = {
+    facilityEmail: 'salon@example.com',
+    facilityName: 'テストサロン',
+    reviewerName: 'テスト花子',
+    rating: 4,
+  };
+
+  test('施設メールに送信する', async () => {
+    await sendNewReviewNotification({ ...reviewData, comment: '良かったです' });
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('salon@example.com');
+    expect(args.subject).toContain('新しい口コミ');
+    expect(args.subject).toContain('★4');
+    expect(args.html).toContain('テスト花子');
+    expect(args.html).toContain('良かったです');
+    expect(args.html).toContain('/admin/reviews');
+  });
+
+  test('commentがnullの場合はコメント欄を出力しない', async () => {
+    await sendNewReviewNotification({ ...reviewData, comment: null });
+    const args = mockSend.mock.calls[0][0];
+    expect(args.html).not.toContain('コメント</td>');
   });
 });
 
@@ -430,6 +457,7 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     await mod.sendBookingConfirmed(minData);
     await mod.sendBookingCancelled(minData);
     await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });
+    await mod.sendNewReviewNotification({ facilityEmail: 'f@f.com', facilityName: 'F', reviewerName: 'R', rating: 5 });
     await mod.sendBookingCancellationToFacility({ ...minData, facilityEmail: 'f@f.com' });
     await mod.sendWelcomeEmail({ ownerEmail: 'o@o.com', facilityName: 'F' });
     await mod.sendOnboardingFollowEmail({ ownerEmail: 'o@o.com', facilityName: 'F', missingSteps: [] });

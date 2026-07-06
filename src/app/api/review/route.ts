@@ -14,6 +14,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { sendPushToFacilityOwners } from '@/lib/push';
+import { sendNewReviewNotification } from '@/lib/email';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
@@ -168,7 +169,8 @@ export async function POST(request: Request) {
       });
   }
 
-  // 施設オーナーへの口コミ投稿 Push（non-blocking）。施設の通知設定 push_on_review で制御する。
+  // 施設オーナーへの口コミ投稿 Push + メール（non-blocking）。施設の通知設定 push_on_review で
+  // 両方を共通制御する（設定画面のトグルが一つで足り、後から個別設定を増やす場合は容易に分離できる）。
   // 旧実装は口コミ投稿時に店への通知が一切無く、設定トグルが効かない飾りだった。
   try {
     const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
@@ -183,9 +185,45 @@ export async function POST(request: Request) {
         safeCaptureException(e, 'review-push');
         alertCaughtError('review-push', e, '/api/review');
       });
+
+      const { data: ownerRows } = await supabase
+        .from('facility_members')
+        .select('user_id')
+        .eq('facility_id', parsed.data.facility_id)
+        .eq('role', 'owner');
+      const ownerUserIds = Array.from(new Set((ownerRows ?? []).map((o) => o.user_id).filter(Boolean)));
+      if (ownerUserIds.length > 0) {
+        const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+        const ownerEmails = Array.from(new Set(
+          ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
+        ));
+        const { data: facilityRow } = await supabase
+          .from('facility_profiles')
+          .select('name')
+          .eq('id', parsed.data.facility_id)
+          .single();
+        for (const facilityEmail of ownerEmails) {
+          sendNewReviewNotification({
+            facilityEmail,
+            facilityName: facilityRow?.name ?? '',
+            reviewerName: parsed.data.reviewer_name,
+            rating: avg,
+            comment: parsed.data.comment,
+          }).then((ok) => {
+            if (!ok) {
+              const err = new Error('new review notification email send failed');
+              safeCaptureException(err, 'review-email');
+              alertCaughtError('review-email', err, '/api/review');
+            }
+          }).catch((e) => {
+            safeCaptureException(e, 'review-email');
+            alertCaughtError('review-email', e, '/api/review');
+          });
+        }
+      }
     }
   } catch (e) {
-    console.error('[review] push setup failed', e);
+    console.error('[review] push/email setup failed', e);
     safeCaptureException(e, 'review-push-setup');
     alertCaughtError('review-push-setup', e, '/api/review');
   }
