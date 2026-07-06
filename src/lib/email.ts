@@ -1,5 +1,6 @@
 import { Resend } from 'resend';
 import { safeCaptureException } from '@/lib/safe';
+import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import crypto from 'crypto';
 
@@ -11,6 +12,24 @@ function getResend(): Resend | null {
 }
 
 const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
+
+// Resend で verified 済みのドメインのみ許可（未検証ドメインは送信元として使うと Resend 側で
+// 拒否/制限される）。EMAIL_FROM の設定ミスは実際にメールが送られるまで気づけなかった
+// （本番でこの穴により口コミ通知メールが未達になった 2026年7月6日 の事例を踏まえた予防策）。
+const RESEND_VERIFIED_DOMAINS = ['carelink-jp.com'];
+
+(function validateFromDomain() {
+  // 開発・テストでは Resend のサンドボックスドメイン(resend.dev 等)を使うのが正常系のため、
+  // 本番実行時のみ検証する。
+  if (process.env.NODE_ENV !== 'production') return;
+  const match = FROM.match(/@([^>\s]+)/);
+  const domain = match?.[1];
+  if (domain && !RESEND_VERIFIED_DOMAINS.includes(domain)) {
+    const msg = `EMAIL_FROM のドメイン "${domain}" が Resend 検証済みドメイン(${RESEND_VERIFIED_DOMAINS.join(', ')})に含まれていません。メール送信が全て失敗する可能性があります。`;
+    console.error(`[email:from-domain-guard]`, msg);
+    postAlert({ level: 'error', message: msg, env: process.env.VERCEL_ENV });
+  }
+})();
 import { SITE_URL } from '@/lib/constants';
 
 /** HTML特殊文字エスケープ（XSS防止） */
@@ -109,6 +128,8 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     return true;
   } catch (e) {
     safeCaptureException(e, `email:${context}`);
+    const msg = e instanceof Error ? e.message : String(e);
+    postAlert({ level: 'error', message: `メール送信失敗(${context}): ${msg}`, env: process.env.VERCEL_ENV });
     return false;
   } finally {
     clearTimeout(timer);
