@@ -12,6 +12,8 @@ import {
   BOOKING_STATUSES,
   SLOT_OCCUPYING_STATUSES,
   SLOT_RELEASING_STATUSES,
+  CUSTOMER_NON_CANCELLABLE_STATUSES,
+  canCustomerCancelBooking,
   type BookingStatus,
 } from '@/lib/booking-status';
 
@@ -183,6 +185,31 @@ describe('ステータス遷移 SSOT（ALLOWED_STATUS_TRANSITIONS / getAllowedSt
   it('遷移先に自分自身は含まれない（同一ステータスは「既にそのステータス」で別途弾く）', () => {
     for (const s of ALL_STATUSES) {
       expect(ALLOWED_STATUS_TRANSITIONS[s]).not.toContain(s);
+    }
+  });
+});
+
+describe('booking-status: 客側キャンセル可否のSSOT', () => {
+  it('pending/confirmed/arrived はキャンセル可能', () => {
+    expect(canCustomerCancelBooking('pending')).toBe(true);
+    expect(canCustomerCancelBooking('confirmed')).toBe(true);
+    expect(canCustomerCancelBooking('arrived')).toBe(true);
+  });
+
+  it('cancelled/cancel_fee_paid/completed/no_show はキャンセル不可', () => {
+    for (const s of CUSTOMER_NON_CANCELLABLE_STATUSES) {
+      expect(canCustomerCancelBooking(s)).toBe(false);
+    }
+  });
+
+  it('未知のステータスは false', () => {
+    expect(canCustomerCancelBooking('unknown')).toBe(false);
+    expect(canCustomerCancelBooking('')).toBe(false);
+  });
+
+  it('CUSTOMER_NON_CANCELLABLE_STATUSES と canCustomerCancelBooking は全ステータスで一致する', () => {
+    for (const s of ALL_STATUSES) {
+      expect(canCustomerCancelBooking(s)).toBe(!CUSTOMER_NON_CANCELLABLE_STATUSES.includes(s));
     }
   });
 });

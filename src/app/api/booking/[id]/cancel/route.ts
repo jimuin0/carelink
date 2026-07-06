@@ -17,6 +17,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { notifyCancellationLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
+import { canCustomerCancelBooking } from '@/lib/booking-status';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,8 +84,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   if (!booking) return NextResponse.json({ error: '予約が見つかりません' }, { status: 404 });
   if (booking.user_id !== userId) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
   // キャンセル済み・キャンセル料支払い済み・完了済みは操作不可
-  const nonCancellableStatuses = ['cancelled', 'cancel_fee_paid', 'completed', 'no_show'];
-  if (nonCancellableStatuses.includes(booking.status)) {
+  if (!canCustomerCancelBooking(booking.status)) {
     return NextResponse.json({ error: 'この予約はキャンセルできません' }, { status: 400 });
   }
 

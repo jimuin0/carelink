@@ -185,3 +185,25 @@ export const ALLOWED_STATUS_TRANSITIONS: Record<BookingStatus, BookingStatus[]> 
 export function getAllowedStatusTransitions(status: string): BookingStatus[] {
   return ALLOWED_STATUS_TRANSITIONS[status as BookingStatus] ?? [];
 }
+
+/**
+ * 客側が自分の予約をキャンセルできないステータスの単一 source of truth。
+ * /api/booking/[id]/cancel（バックエンド）とマイページ予約詳細（フロント）の両方が参照する。
+ *
+ * 以前はフロントが独自に `canCancel = status === 'pending' || 'confirmed'` とハードコード
+ * しており、arrived（来店中）は API 側ではキャンセル可能なのに UI にボタンが出ない不整合が
+ * あった。API 側の真実（このステータスは終端/金銭確定済でキャンセル不可）をここに集約し、
+ * フロントは補集合（canCustomerCancelBooking）を参照することでドリフトを構造的に無くす。
+ */
+export const CUSTOMER_NON_CANCELLABLE_STATUSES: BookingStatus[] = [
+  'cancelled',
+  'cancel_fee_paid',
+  'completed',
+  'no_show',
+];
+
+/** 客が自分でこの予約をキャンセルできるか（未知値は false）。 */
+export function canCustomerCancelBooking(status: string): boolean {
+  return BOOKING_STATUSES.includes(status as BookingStatus)
+    && !CUSTOMER_NON_CANCELLABLE_STATUSES.includes(status as BookingStatus);
+}

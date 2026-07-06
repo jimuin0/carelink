@@ -7,7 +7,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import LoadError from '@/components/admin/LoadError';
 import type { Booking } from '@/types';
-import { statusChipClass, bookingStatusLabel } from '@/lib/booking-status';
+import { statusChipClass, bookingStatusLabel, canCustomerCancelBooking } from '@/lib/booking-status';
 
 export default function BookingDetailPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
@@ -113,7 +113,7 @@ export default function BookingDetailPage(props: { params: Promise<{ id: string 
     );
   }
 
-  const canCancel = booking.status === 'pending' || booking.status === 'confirmed';
+  const canCancel = canCustomerCancelBooking(booking.status);
 
   return (
     <div>
