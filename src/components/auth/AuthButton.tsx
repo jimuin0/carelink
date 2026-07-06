@@ -12,6 +12,20 @@ export default function AuthButton() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isFacilityMember, setIsFacilityMember] = useState(false);
+
+  // 施設オーナー/スタッフが自分の管理画面(/admin)へ辿り着く導線がヘッダーに一切無く、
+  // URLを直接知らないと迷子になっていた(2026年7月6日・神原さん指摘)。facility_members
+  // に自分が所属していれば「管理画面」リンクを表示する。
+  const checkFacilityMembership = (userId: string) => {
+    const supabase = createBrowserSupabaseClient();
+    supabase
+      .from('facility_members')
+      .select('facility_id')
+      .eq('user_id', userId)
+      .limit(1)
+      .then(({ data }) => setIsFacilityMember(!!data && data.length > 0));
+  };
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -19,10 +33,13 @@ export default function AuthButton() {
     supabase.auth.getUser().then(({ data: { user } }) => {
       setUser(user);
       setLoading(false);
+      if (user) checkFacilityMembership(user.id);
     }).catch(() => setLoading(false));
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
+      if (session?.user) checkFacilityMembership(session.user.id);
+      else setIsFacilityMember(false);
     });
 
     return () => subscription.unsubscribe();
@@ -95,6 +112,15 @@ export default function AuthButton() {
             <div className="px-4 py-2 border-b border-gray-100">
               <p className="text-sm font-medium text-gray-900 truncate">{displayName}</p>
             </div>
+            {isFacilityMember && (
+              <Link
+                href="/admin"
+                onClick={() => setMenuOpen(false)}
+                className="flex items-center min-h-[44px] px-4 py-2 text-sm text-primary font-medium hover:bg-sky-50 active:bg-sky-100"
+              >
+                管理画面
+              </Link>
+            )}
             <Link
               href="/mypage"
               onClick={() => setMenuOpen(false)}
