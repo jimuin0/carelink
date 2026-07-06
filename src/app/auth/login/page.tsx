@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -44,6 +44,17 @@ function LoginContent() {
     resolver: zodResolver(loginSchema),
   });
   const [showPassword, setShowPassword] = useState(false);
+
+  // ログイン済みユーザーが /auth/login に来た場合(ブックマーク・戻る操作・リンク共有等)、
+  // フォームを表示し続けるとヘッダーだけログイン済みに見えて「ログインできない」と誤解される
+  // (2026年7月6日・神原さん指摘)。マウント時にセッションを確認し、あれば即座にredirect先へ送る。
+  useEffect(() => {
+    const supabase = createBrowserSupabaseClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) router.replace(redirect);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const onSubmit = async (data: LoginFormData) => {
     const supabase = createBrowserSupabaseClient();

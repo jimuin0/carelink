@@ -2,12 +2,20 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
+import { usePathname } from 'next/navigation';
 import dynamic from 'next/dynamic';
 
 const AuthButton = dynamic(() => import('@/components/auth/AuthButton'), { ssr: false });
 
 export default function Header() {
   const [isOpen, setIsOpen] = useState(false);
+  const pathname = usePathname();
+  // 「施設掲載」がリロードが不要な軽微な訴求リンクとの誤解を招くよう text-xs で
+  // 目立たせない意図だったが、他リンクとフォントサイズが不揃いに見え「なぜ大きさが
+  // 違うのか」と混乱を招いた。加えて /salon に既にいる時にクリックしても遷移せず、
+  // 「押せたのか」がUXとして分からなかった(2026年7月6日・神原さん指摘)。フォント
+  // サイズを他リンクに揃え、現在地では aria-current でハイライトして押した意味を示す。
+  const isOnSalon = pathname === '/salon';
 
   return (
     <header className="sticky top-0 z-50 bg-white/95 backdrop-blur border-b border-gray-100">
@@ -30,7 +38,12 @@ export default function Header() {
             </Link>
             <Link
               href="/salon"
-              className="text-xs text-gray-600 hover:text-gray-800 transition-colors"
+              aria-current={isOnSalon ? 'page' : undefined}
+              className={
+                isOnSalon
+                  ? 'text-primary font-bold transition-colors'
+                  : 'text-gray-700 hover:text-primary font-medium transition-colors'
+              }
             >
               施設掲載
             </Link>
@@ -93,7 +106,12 @@ export default function Header() {
             </Link>
             <Link
               href="/salon"
-              className="text-xs text-gray-600 hover:text-gray-800 transition-colors"
+              aria-current={isOnSalon ? 'page' : undefined}
+              className={
+                isOnSalon
+                  ? 'text-primary font-bold transition-colors'
+                  : 'text-gray-700 font-medium hover:text-primary transition-colors'
+              }
               onClick={() => setIsOpen(false)}
             >
               施設掲載はこちら
