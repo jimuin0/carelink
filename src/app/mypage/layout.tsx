@@ -18,7 +18,7 @@ export default async function MyPageLayout({ children }: { children: React.React
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 py-8">
         <MyPageNav />
         {children}
       </div>

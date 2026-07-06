@@ -129,10 +129,10 @@ export default function ProfileEditPage() {
   }
 
   return (
-    <div>
+    <div className="space-y-6">
       <h1 className="text-xl font-bold mb-4">プロフィール編集</h1>
 
-      <div className="bg-white rounded-2xl shadow-sm p-6">
+      <div className="bg-white rounded-2xl shadow-sm p-6 sm:p-8">
         {/* Avatar */}
         <div className="flex items-center gap-4 mb-6 pb-6 border-b">
           <div className="w-16 h-16 rounded-full bg-sky-100 flex items-center justify-center overflow-hidden shrink-0 relative">
