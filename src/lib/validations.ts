@@ -6,13 +6,13 @@ import { phoneField } from './phone';
 // route.ts から export すると Next.js の Route Handler 制約（GET/POST 等以外の export 禁止）に
 // 違反するため、共有スキーマは lib 側に置く（admin/customers/route.ts と [id]/route.ts の両方が使う）。
 export const customerSchema = z.object({
-  name: z.string().min(1).max(50),
-  name_kana: z.string().max(50).optional().nullable(),
-  email: z.string().email().max(254).optional().nullable().or(z.literal('')),
+  name: z.string().min(1, 'お名前を入力してください').max(50, '50文字以内で入力してください'),
+  name_kana: z.string().max(50, '50文字以内で入力してください').optional().nullable(),
+  email: z.string().email('正しいメールアドレスを入力してください').max(254).optional().nullable().or(z.literal('')),
   phone: phoneField(),
-  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable().or(z.literal('')),
+  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生年月日を正しく入力してください').optional().nullable().or(z.literal('')),
   gender: z.enum(['male', 'female', 'other']).optional().nullable(),
-  notes: z.string().max(2000).optional().nullable(),
+  notes: z.string().max(2000, '2000文字以内で入力してください').optional().nullable(),
 });
 
 // Salon form schemas (per step)
