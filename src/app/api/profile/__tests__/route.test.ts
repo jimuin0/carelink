@@ -126,42 +126,74 @@ describe('PUT /api/profile', () => {
     expect(res.status).toBe(400);
   });
 
+  // お名前・電話番号・都道府県は必須化(2026年7月6日・神原さん指摘)。以降のテストは
+  // 特に検証したいフィールド以外は有効値で埋める。
+  const req = {
+    display_name: 'Test',
+    phone: '090-1234-5678',
+    prefecture: '東京都',
+  };
+
   test('missing display_name → 400', async () => {
-    const res = await PUT(makeRequest({ phone: '09012345678' }) as any);
+    const res = await PUT(makeRequest({ phone: '090-1234-5678', prefecture: '東京都' }) as any);
 
     expect(res.status).toBe(400);
   });
 
   test('empty display_name → 400', async () => {
-    const res = await PUT(makeRequest({ display_name: '' }) as any);
+    const res = await PUT(makeRequest({ ...req, display_name: '' }) as any);
 
     expect(res.status).toBe(400);
   });
 
   test('display_name > 50 chars → 400', async () => {
-    const res = await PUT(makeRequest({ display_name: 'x'.repeat(51) }) as any);
+    const res = await PUT(makeRequest({ ...req, display_name: 'x'.repeat(51) }) as any);
 
     expect(res.status).toBe(400);
   });
 
   test('valid display_name (50 chars) → 200', async () => {
-    const res = await PUT(makeRequest({ display_name: 'x'.repeat(50) }) as any);
+    const res = await PUT(makeRequest({ ...req, display_name: 'x'.repeat(50) }) as any);
 
     expect(res.status).toBe(200);
   });
 
+  test('missing phone → 400', async () => {
+    const res = await PUT(makeRequest({ display_name: 'Test', prefecture: '東京都' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('でたらめな電話番号 → 400', async () => {
+    const res = await PUT(makeRequest({ ...req, phone: 'abc-defg' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
   test('phone > 20 chars → 400', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       phone: 'x'.repeat(21),
     }) as any);
 
     expect(res.status).toBe(400);
   });
 
+  test('missing prefecture → 400', async () => {
+    const res = await PUT(makeRequest({ display_name: 'Test', phone: '090-1234-5678' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('empty prefecture → 400', async () => {
+    const res = await PUT(makeRequest({ ...req, prefecture: '' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
   test('prefecture > 20 chars → 400', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       prefecture: 'x'.repeat(21),
     }) as any);
 
@@ -170,7 +202,7 @@ describe('PUT /api/profile', () => {
 
   test('city > 50 chars → 400', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       city: 'x'.repeat(51),
     }) as any);
 
@@ -179,7 +211,7 @@ describe('PUT /api/profile', () => {
 
   test('birth_date > 10 chars → 400', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       birth_date: '12345678901',
     }) as any);
 
@@ -188,7 +220,7 @@ describe('PUT /api/profile', () => {
 
   test('gender=male → 200', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       gender: 'male',
     }) as any);
 
@@ -197,7 +229,7 @@ describe('PUT /api/profile', () => {
 
   test('gender=female → 200', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       gender: 'female',
     }) as any);
 
@@ -206,7 +238,7 @@ describe('PUT /api/profile', () => {
 
   test('gender=other → 200', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       gender: 'other',
     }) as any);
 
@@ -215,7 +247,7 @@ describe('PUT /api/profile', () => {
 
   test('gender=unspecified → 200', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       gender: 'unspecified',
     }) as any);
 
@@ -224,7 +256,7 @@ describe('PUT /api/profile', () => {
 
   test('invalid gender → 400', async () => {
     const res = await PUT(makeRequest({
-      display_name: 'Test',
+      ...req,
       gender: 'invalid',
     }) as any);
 
@@ -247,7 +279,7 @@ describe('PUT /api/profile', () => {
   });
 
   test('updates profiles table with user_id', async () => {
-    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    const res = await PUT(makeRequest(req) as any);
 
     expect(mockUpdate).toHaveBeenCalled();
     const eqCall = mockUpdate.mock.calls[0][0];
@@ -255,18 +287,16 @@ describe('PUT /api/profile', () => {
   });
 
   test('includes updated_at timestamp', async () => {
-    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    const res = await PUT(makeRequest(req) as any);
 
     const updateData = mockUpdate.mock.calls[0][0];
     expect(updateData.updated_at).toBeDefined();
   });
 
   test('sets optional fields to null when omitted', async () => {
-    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    const res = await PUT(makeRequest(req) as any);
 
     const updateData = mockUpdate.mock.calls[0][0];
-    expect(updateData.phone).toBeNull();
-    expect(updateData.prefecture).toBeNull();
     expect(updateData.city).toBeNull();
     expect(updateData.birth_date).toBeNull();
     expect(updateData.gender).toBeNull();
@@ -275,7 +305,7 @@ describe('PUT /api/profile', () => {
   test('update error → 500', async () => {
     setupDefaultMocks(true, false);
 
-    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    const res = await PUT(makeRequest(req) as any);
 
     expect(res.status).toBe(500);
   });
@@ -284,7 +314,7 @@ describe('PUT /api/profile', () => {
     (checkRateLimit as jest.Mock).mockClear();
 
     await PUT(
-      makeRequest({ display_name: 'Test' }, '192.168.1.1') as any
+      makeRequest(req, '192.168.1.1') as any
     );
 
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
@@ -299,7 +329,7 @@ describe('PUT /api/profile', () => {
 
     await PUT(
       makeRequest(
-        { display_name: 'Test' },
+        req,
         '10.0.0.1, 192.168.1.1'
       ) as any
     );
@@ -314,7 +344,7 @@ describe('PUT /api/profile', () => {
       throw new Error('Connection error');
     });
 
-    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    const res = await PUT(makeRequest(req) as any);
 
     expect(res.status).toBe(500);
   });
@@ -331,7 +361,7 @@ describe('PUT /api/profile', () => {
       return { auth: { getUser: jest.fn().mockResolvedValue({ data: { user: null } }) }, from: jest.fn() };
     });
 
-    const res = await PUT(makeRequest({ display_name: 'Test' }) as any);
+    const res = await PUT(makeRequest(req) as any);
     expect(res.status).toBe(401);
     expect(mockCookieStore.getAll).toHaveBeenCalled();
     expect(mockCookieStore.set).toHaveBeenCalled();

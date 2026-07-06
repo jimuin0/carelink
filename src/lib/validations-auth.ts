@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { phoneField } from './phone';
 
 /**
  * LINE ログイン用の合成メール（`line_...@line.carelink.local`）は、パスワード認証の
@@ -22,6 +23,10 @@ export const signupSchema = z.object({
   display_name: z.string().min(1, 'お名前を入力してください').max(50),
   email: z.string().email('正しいメールアドレスを入力してください').max(254)
     .refine(notReservedLineEmail, reservedLineEmailMessage),
+  // お名前・電話番号・住所(都道府県)はアカウント登録時点で必須化(2026年7月6日・神原さん指摘)。
+  // でたらめな電話番号を弾くため予約フォーム等と同じ phoneField() の書式検証を通す。
+  phone: phoneField({ required: true }),
+  prefecture: z.string().min(1, '都道府県を選択してください').max(20),
   password: z.string().min(8, 'パスワードは8文字以上で入力してください').max(128),
   password_confirm: z.string().max(128),
 }).refine((data) => data.password === data.password_confirm, {

@@ -28,6 +28,8 @@ describe('signupSchema', () => {
   const valid = {
     display_name: 'テスト太郎',
     email: 'test@example.com',
+    phone: '090-1234-5678',
+    prefecture: '東京都',
     password: '12345678',
     password_confirm: '12345678',
   };
@@ -54,6 +56,28 @@ describe('signupSchema', () => {
 
   test('パスワードが短いとエラー', () => {
     expect(signupSchema.safeParse({ ...valid, password: 'short', password_confirm: 'short' }).success).toBe(false);
+  });
+
+  test('電話番号が空だとエラー', () => {
+    expect(signupSchema.safeParse({ ...valid, phone: '' }).success).toBe(false);
+  });
+
+  test('電話番号がでたらめだとエラー', () => {
+    expect(signupSchema.safeParse({ ...valid, phone: 'abc-defg' }).success).toBe(false);
+  });
+
+  test('電話番号が未指定だとエラー', () => {
+    const { phone: _phone, ...rest } = valid;
+    expect(signupSchema.safeParse(rest).success).toBe(false);
+  });
+
+  test('都道府県が空だとエラー', () => {
+    expect(signupSchema.safeParse({ ...valid, prefecture: '' }).success).toBe(false);
+  });
+
+  test('都道府県が未指定だとエラー', () => {
+    const { prefecture: _prefecture, ...rest } = valid;
+    expect(signupSchema.safeParse(rest).success).toBe(false);
   });
 });
 
@@ -108,6 +132,8 @@ describe('signupSchema - 境界値・エッジケース', () => {
   const base = {
     display_name: 'テスト太郎',
     email: 'test@example.com',
+    phone: '090-1234-5678',
+    prefecture: '東京都',
     password: '12345678',
     password_confirm: '12345678',
   };
@@ -155,6 +181,11 @@ describe('signupSchema - 境界値・エッジケース', () => {
     const result = signupSchema.safeParse({ ...base, unknown_field: 'value' });
     expect(result.success).toBe(true);
   });
+
+  test('電話番号の全角数字・全角ハイフンは正規化されて通過する', () => {
+    const result = signupSchema.safeParse({ ...base, phone: '０９０ー１２３４ー５６７８' });
+    expect(result.success).toBe(true);
+  });
 });
 
 // ─── 監査A1: LINE 合成メール予約ドメインの先回り登録拒否 ─────────────────────
@@ -163,6 +194,8 @@ describe('予約ドメイン @line.carelink.local の拒否（アカウント先
   const signupBase = {
     display_name: 'テスト太郎',
     email: 'test@example.com',
+    phone: '090-1234-5678',
+    prefecture: '東京都',
     password: '12345678',
     password_confirm: '12345678',
   };

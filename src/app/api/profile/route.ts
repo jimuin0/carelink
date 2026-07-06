@@ -3,13 +3,16 @@ import { z } from 'zod';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
+import { phoneField } from '@/lib/phone';
 
 export const dynamic = 'force-dynamic';
 
+// お名前・電話番号・住所(都道府県)は必須化(2026年7月6日・神原さん指摘)。
+// 電話番号はでたらめな値を弾くため、予約フォーム等と同じ phoneField() の書式検証を通す。
 const profileSchema = z.object({
   display_name: z.string().min(1, 'お名前は必須です').max(50),
-  phone: z.string().max(20).nullable().optional(),
-  prefecture: z.string().max(20).nullable().optional(),
+  phone: phoneField({ required: true }),
+  prefecture: z.string().min(1, '都道府県を選択してください').max(20),
   city: z.string().max(50).nullable().optional(),
   birth_date: z.string().max(10).nullable().optional(),
   gender: z.enum(['male', 'female', 'other', 'unspecified']).nullable().optional(),
@@ -51,8 +54,8 @@ export const PUT = withRoute(async (request, ctx) => {
     .from('profiles')
     .update({
       display_name: d.display_name,
-      phone: d.phone ?? null,
-      prefecture: d.prefecture ?? null,
+      phone: d.phone,
+      prefecture: d.prefecture,
       city: d.city ?? null,
       birth_date: d.birth_date ?? null,
       gender: d.gender ?? null,
