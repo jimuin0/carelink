@@ -43,6 +43,7 @@ function LoginContent() {
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<LoginFormData>({
     resolver: zodResolver(loginSchema),
   });
+  const [showPassword, setShowPassword] = useState(false);
 
   const onSubmit = async (data: LoginFormData) => {
     const supabase = createBrowserSupabaseClient();
@@ -70,7 +71,6 @@ function LoginContent() {
                 id="login-email"
                 type="email"
                 className="form-input"
-                placeholder="example@email.com"
                 autoComplete="email"
                 aria-required="true"
               />
@@ -79,15 +79,37 @@ function LoginContent() {
 
             <div>
               <label htmlFor="login-password" className="form-label">パスワード</label>
-              <input
-                {...register('password')}
-                id="login-password"
-                type="password"
-                className="form-input"
-                placeholder="8文字以上"
-                autoComplete="current-password"
-                aria-required="true"
-              />
+              <div className="relative">
+                <input
+                  {...register('password')}
+                  id="login-password"
+                  type={showPassword ? 'text' : 'password'}
+                  className="form-input pr-10"
+                  autoComplete="current-password"
+                  aria-required="true"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                  aria-pressed={showPassword}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.94 10.94 0 0112 20c-6 0-10-6-10-8a11.28 11.28 0 013.16-4.5" />
+                      <path d="M9.9 4.24A9.6 9.6 0 0112 4c6 0 10 6 10 8a11.24 11.24 0 01-1.87 2.87" />
+                      <path d="M14.12 14.12a3 3 0 11-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </div>
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 

@@ -245,6 +245,34 @@ export async function sendBookingCancelled(data: BookingEmailData): Promise<bool
   }, 'booking_cancelled');
 }
 
+/** 新着口コミ通知（施設向け・push_on_review設定と共通制御） */
+export async function sendNewReviewNotification(data: {
+  facilityEmail: string;
+  facilityName: string;
+  reviewerName: string;
+  rating: number;
+  comment?: string | null;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  const name = esc(data.reviewerName);
+  const comment = data.comment ? esc(data.comment) : null;
+  return safeSend(resend, {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】新しい口コミが投稿されました - ★${data.rating}`),
+    html: wrapHtml(`
+      <p>新しい口コミが投稿されました。管理画面から確認・返信してください。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">投稿者</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">評価</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">★${data.rating}</td></tr>
+        ${comment ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">コメント</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${comment}</td></tr>` : ''}
+      </table>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/reviews" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+    `),
+  }, 'new_review_notification');
+}
+
 /** 新規予約通知（施設向け） */
 export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
