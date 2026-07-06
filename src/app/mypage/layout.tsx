@@ -75,6 +75,12 @@ export default async function MyPageLayout({ children }: { children: React.React
             指名スタッフ
           </Link>
           <Link
+            href="/mypage/reviews"
+            className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
+          >
+            投稿した口コミ
+          </Link>
+          <Link
             href="/mypage/profile"
             className="text-sm px-4 py-2 rounded-full bg-white border border-gray-200 text-gray-700 hover:bg-sky-50 hover:text-primary transition-colors whitespace-nowrap"
           >

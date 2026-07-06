@@ -557,16 +557,26 @@ describe('POST /api/review', () => {
       expect(insertArg.photo_urls).toEqual(photoUrls);
     });
 
-    test('user_id は insert に含めない（facility_reviews に user_id 列は存在しない）', async () => {
+    test('ログイン時はuser_idと来店確認フラグをinsertに含める（2026年7月6日DDLでuser_id列追加・投稿者本人によるレビュー編集削除の前提）', async () => {
       setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
 
       await POST(makeRequest(bizReview));
 
       expect(mockInsert).toHaveBeenCalled();
       const insertArg = mockInsert.mock.calls[0][0];
-      expect(insertArg.user_id).toBeUndefined();
-      // ログイン時は来店確認フラグのみ保存される
+      expect(insertArg.user_id).toBe('user-123');
       expect('is_verified_visit' in insertArg).toBe(true);
+    });
+
+    test('未ログイン時はuser_id/is_verified_visitともにinsertに含めない', async () => {
+      setupBizMocks({ hasUser: false, hasRecentReview: false, hasCompletedBooking: false });
+
+      await POST(makeRequest(bizReview));
+
+      expect(mockInsert).toHaveBeenCalled();
+      const insertArg = mockInsert.mock.calls[0][0];
+      expect(insertArg.user_id).toBeUndefined();
+      expect('is_verified_visit' in insertArg).toBe(false);
     });
 
     test('reviewer_ip included in insert', async () => {
