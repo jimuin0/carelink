@@ -7,7 +7,7 @@ import Spinner from '@/components/Spinner';
 export default function PageLoading() {
   return (
     <div className="min-h-[60vh] flex flex-col items-center justify-center text-gray-400" role="status" aria-live="polite">
-      <Spinner className="w-10 h-10 text-sky-500" label="読み込み中" />
+      <Spinner className="w-10 h-10 text-sky-600" label="読み込み中" />
       <p className="mt-4 text-sm">読み込み中...</p>
     </div>
   );
