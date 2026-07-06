@@ -2,6 +2,7 @@ import { createServerClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { checkCsrf } from '@/lib/csrf';
 import { getBearerToken, resolveLiffUserId } from '@/lib/liff-auth';
 import { sendPushToFacilityOwners } from '@/lib/push';
@@ -189,13 +190,15 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     };
     // sendBookingCancelled/sendBookingCancellationToFacility は送信失敗時も throw せず false を
     // 返す契約のため、void で捨てると失敗が無音化する。戻り値を確認して可視化する。
-    sendBookingCancelled(emailData).then((ok) => {
-      if (!ok) {
-        const err = new Error('booking cancellation email send failed');
-        safeCaptureException(err, 'cancel-email');
-        alertCaughtError('cancel-email', err, '/api/booking/[id]/cancel');
-      }
-    });
+    waitUntil(
+      sendBookingCancelled(emailData).then((ok) => {
+        if (!ok) {
+          const err = new Error('booking cancellation email send failed');
+          safeCaptureException(err, 'cancel-email');
+          alertCaughtError('cancel-email', err, '/api/booking/[id]/cancel');
+        }
+      })
+    );
 
     // サロンオーナーにキャンセル通知
     const { data: owner } = await db
@@ -210,13 +213,15 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       if (ownerProfile?.email) {
         // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
         // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
-        sendBookingCancellationToFacility({ ...emailData, facilityEmail: ownerProfile.email }).then((ok) => {
-          if (!ok) {
-            const err = new Error('booking cancellation facility email send failed');
-            safeCaptureException(err, 'cancel-email-owner');
-            alertCaughtError('cancel-email-owner', err, '/api/booking/[id]/cancel');
-          }
-        });
+        waitUntil(
+          sendBookingCancellationToFacility({ ...emailData, facilityEmail: ownerProfile.email }).then((ok) => {
+            if (!ok) {
+              const err = new Error('booking cancellation facility email send failed');
+              safeCaptureException(err, 'cancel-email-owner');
+              alertCaughtError('cancel-email-owner', err, '/api/booking/[id]/cancel');
+            }
+          })
+        );
       }
     }
   } catch (err) {
@@ -296,8 +301,10 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
           if (!staff.line_works_channel_id) continue;
           const isAssigned = staff.id === booking.staff_id;
           if (isAssigned || staff.line_works_notify_all) {
-            notifyCancellationLineWorks(staff.line_works_channel_id, cancelInfo).catch((e) =>
-              safeCaptureException(e, 'cancel-lineworks')
+            waitUntil(
+              notifyCancellationLineWorks(staff.line_works_channel_id, cancelInfo).catch((e) =>
+                safeCaptureException(e, 'cancel-lineworks')
+              )
             );
           }
         }
@@ -312,12 +319,14 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   try {
     const notif = await getFacilityNotificationSettings(booking.facility_id);
     if (notif.pushOnCancel) {
-      sendPushToFacilityOwners(booking.facility_id, {
-        title: '予約がキャンセルされました',
-        body: `${booking.customer_name ?? 'お客様'}様 ${booking.booking_date} ${String(booking.start_time).slice(0, 5)}〜 の予約がキャンセルされました`,
-        url: '/admin/bookings',
-        tag: `cancel-${booking.id}`,
-      }).catch((e) => safeCaptureException(e, 'cancel-push-owner'));
+      waitUntil(
+        sendPushToFacilityOwners(booking.facility_id, {
+          title: '予約がキャンセルされました',
+          body: `${booking.customer_name ?? 'お客様'}様 ${booking.booking_date} ${String(booking.start_time).slice(0, 5)}〜 の予約がキャンセルされました`,
+          url: '/admin/bookings',
+          tag: `cancel-${booking.id}`,
+        }).catch((e) => safeCaptureException(e, 'cancel-push-owner'))
+      );
     }
   } catch (e) {
     safeCaptureException(e, 'cancel-push-setup');

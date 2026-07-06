@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -163,41 +164,47 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       if (full?.email) {
         // sendBookingRescheduled は送信失敗時も throw せず false を返す契約のため、.catch() だけでは
         // 失敗が無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
-        sendBookingRescheduled({
-          customerName: full.customer_name ?? '',
-          customerEmail: full.email,
-          facilityName: facility?.name ?? '',
-          bookingDate: parsed.data.booking_date,
-          startTime: parsed.data.start_time,
-          endTime: parsed.data.end_time,
-          menuName: menuRes.data?.name ?? undefined,
-          totalPrice: full.total_price ?? undefined,
-          bookingId: params.id,
-        }).then((ok) => {
-          if (!ok) {
-            const err = new Error('booking rescheduled email send failed');
-            safeCaptureException(err, 'change-email');
-            alertCaughtError('change-email', err, '/api/booking/[id]/change');
-          }
-        }).catch((e) => {
-          safeCaptureException(e, 'change-email');
-          alertCaughtError('change-email', e, '/api/booking/[id]/change');
-        });
+        waitUntil(
+          sendBookingRescheduled({
+            customerName: full.customer_name ?? '',
+            customerEmail: full.email,
+            facilityName: facility?.name ?? '',
+            bookingDate: parsed.data.booking_date,
+            startTime: parsed.data.start_time,
+            endTime: parsed.data.end_time,
+            menuName: menuRes.data?.name ?? undefined,
+            totalPrice: full.total_price ?? undefined,
+            bookingId: params.id,
+          }).then((ok) => {
+            if (!ok) {
+              const err = new Error('booking rescheduled email send failed');
+              safeCaptureException(err, 'change-email');
+              alertCaughtError('change-email', err, '/api/booking/[id]/change');
+            }
+          }).catch((e) => {
+            safeCaptureException(e, 'change-email');
+            alertCaughtError('change-email', e, '/api/booking/[id]/change');
+          })
+        );
       }
-      sendPushToUser(user.id, {
-        title: 'ご予約日時を変更しました',
-        body: `${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
-        url: `/mypage/bookings/${params.id}`,
-        tag: `booking-change-${params.id}`,
-      }).catch((e) => safeCaptureException(e, 'change-push-user'));
+      waitUntil(
+        sendPushToUser(user.id, {
+          title: 'ご予約日時を変更しました',
+          body: `${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
+          url: `/mypage/bookings/${params.id}`,
+          tag: `booking-change-${params.id}`,
+        }).catch((e) => safeCaptureException(e, 'change-push-user'))
+      );
       const notif = await getFacilityNotificationSettings(booking.facility_id);
       if (notif.pushOnNewBooking) {
-        sendPushToFacilityOwners(booking.facility_id, {
-          title: '予約日時変更',
-          body: `${full?.customer_name ?? 'お客様'}が${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
-          url: '/admin/bookings',
-          tag: `booking-change-owner-${params.id}`,
-        }).catch((e) => safeCaptureException(e, 'change-push-owner'));
+        waitUntil(
+          sendPushToFacilityOwners(booking.facility_id, {
+            title: '予約日時変更',
+            body: `${full?.customer_name ?? 'お客様'}が${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
+            url: '/admin/bookings',
+            tag: `booking-change-owner-${params.id}`,
+          }).catch((e) => safeCaptureException(e, 'change-push-owner'))
+        );
       }
     } catch (e) {
       safeCaptureException(e, 'change-notify-setup');
@@ -237,8 +244,10 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           for (const staff of staffList) {
             if (!staff.line_works_channel_id) continue;
             if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
-            sendLineWorksMessage(staff.line_works_channel_id, { content: { type: 'text', text } })
-              .catch((e) => safeCaptureException(e, 'change-lineworks'));
+            waitUntil(
+              sendLineWorksMessage(staff.line_works_channel_id, { content: { type: 'text', text } })
+                .catch((e) => safeCaptureException(e, 'change-lineworks'))
+            );
           }
         }
       } catch (e) {

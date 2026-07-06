@@ -14,7 +14,7 @@ jest.mock('@/lib/email', () => ({
   sendBookingCancelled: jest.fn(),
   sendBookingStatusUpdate: jest.fn(),
 }));
-jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn() }));
+jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn(() => Promise.resolve(true)) }));
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn() }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 // 紹介ボーナス付与(applyCompletionSideEffects 経由)は referral.test / booking-completion.test で
