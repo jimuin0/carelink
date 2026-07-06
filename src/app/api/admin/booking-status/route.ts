@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
@@ -255,12 +256,14 @@ export async function POST(request: Request) {
         completed: '施術が完了しました',
         no_show: '来店確認が取れませんでした',
       };
-      void sendPushToUser(booking.user_id, {
-        title: statusLabels[status] || /* istanbul ignore next */ 'ステータス更新',
-        body: `${facility?.name || ''} ${booking.booking_date} ${booking.start_time}〜`,
-        url: `/mypage/bookings/${booking.id}`,
-        tag: `booking-status-${booking.id}`,
-      });
+      waitUntil(
+        sendPushToUser(booking.user_id, {
+          title: statusLabels[status] || /* istanbul ignore next */ 'ステータス更新',
+          body: `${facility?.name || ''} ${booking.booking_date} ${booking.start_time}〜`,
+          url: `/mypage/bookings/${booking.id}`,
+          tag: `booking-status-${booking.id}`,
+        }).catch((e) => safeCaptureException(e, 'admin-booking-status-push'))
+      );
     }
 
     return NextResponse.json({ success: true });

@@ -7,6 +7,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
@@ -147,26 +148,28 @@ export async function POST(request: Request) {
   // uq_user_points_review（別途 SQL を神原さんへ提示）で最終的に閉じる。
   if (user && review && isVerifiedVisit) {
     const reviewReason = `口コミポイント:${parsed.data.facility_id}`;
-    supabase.from('user_points')
-      .select('id')
-      .eq('user_id', user.id)
-      .eq('reason', reviewReason)
-      .limit(1)
-      .then(({ data: existing, error: selectErr }) => {
-        if (selectErr) {
-          console.error('[review] points dedup check failed', { userId: user.id, reviewId: review.id, err: selectErr });
-          return;
-        }
-        if (!existing || existing.length === 0) {
-          supabase.from('user_points').insert({
-            user_id: user.id,
-            points: 50,
-            reason: reviewReason,
-          }).then(({ error: insertErr }) => {
-            if (insertErr) console.error('[review] points insert failed', { userId: user.id, reviewId: review.id, err: insertErr });
-          });
-        }
-      });
+    // 監査: Vercelのサーバーレス関数はレスポンス返却後に実行環境が終了しうるため、
+    // waitUntil() で明示的に完了を待たない fire-and-forget は非同期処理が途中で
+    // 打ち切られ、確率的に実行されない(2026年7月6日・本番調査で発覚)。
+    waitUntil((async () => {
+      const { data: existing, error: selectErr } = await supabase.from('user_points')
+        .select('id')
+        .eq('user_id', user.id)
+        .eq('reason', reviewReason)
+        .limit(1);
+      if (selectErr) {
+        console.error('[review] points dedup check failed', { userId: user.id, reviewId: review.id, err: selectErr });
+        return;
+      }
+      if (!existing || existing.length === 0) {
+        const { error: insertErr } = await supabase.from('user_points').insert({
+          user_id: user.id,
+          points: 50,
+          reason: reviewReason,
+        });
+        if (insertErr) console.error('[review] points insert failed', { userId: user.id, reviewId: review.id, err: insertErr });
+      }
+    })());
   }
 
   // 施設オーナーへの口コミ投稿 Push + メール（non-blocking）。施設の通知設定 push_on_review で
@@ -175,16 +178,18 @@ export async function POST(request: Request) {
   try {
     const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
     if (notif.pushOnReview) {
-      sendPushToFacilityOwners(parsed.data.facility_id, {
-        title: '新しい口コミが投稿されました',
-        body: `${parsed.data.reviewer_name}様より★${avg}の口コミが届きました`,
-        url: '/admin/reviews',
-        tag: `review-${review.id}`,
-      }).catch((e) => {
-        console.error('[review] push failed', e);
-        safeCaptureException(e, 'review-push');
-        alertCaughtError('review-push', e, '/api/review');
-      });
+      waitUntil(
+        sendPushToFacilityOwners(parsed.data.facility_id, {
+          title: '新しい口コミが投稿されました',
+          body: `${parsed.data.reviewer_name}様より★${avg}の口コミが届きました`,
+          url: '/admin/reviews',
+          tag: `review-${review.id}`,
+        }).catch((e) => {
+          console.error('[review] push failed', e);
+          safeCaptureException(e, 'review-push');
+          alertCaughtError('review-push', e, '/api/review');
+        })
+      );
 
       const { data: ownerRows } = await supabase
         .from('facility_members')
@@ -203,22 +208,24 @@ export async function POST(request: Request) {
           .eq('id', parsed.data.facility_id)
           .single();
         for (const facilityEmail of ownerEmails) {
-          sendNewReviewNotification({
-            facilityEmail,
-            facilityName: facilityRow?.name ?? '',
-            reviewerName: parsed.data.reviewer_name,
-            rating: avg,
-            comment: parsed.data.comment,
-          }).then((ok) => {
-            if (!ok) {
-              const err = new Error('new review notification email send failed');
-              safeCaptureException(err, 'review-email');
-              alertCaughtError('review-email', err, '/api/review');
-            }
-          }).catch((e) => {
-            safeCaptureException(e, 'review-email');
-            alertCaughtError('review-email', e, '/api/review');
-          });
+          waitUntil(
+            sendNewReviewNotification({
+              facilityEmail,
+              facilityName: facilityRow?.name ?? '',
+              reviewerName: parsed.data.reviewer_name,
+              rating: avg,
+              comment: parsed.data.comment,
+            }).then((ok) => {
+              if (!ok) {
+                const err = new Error('new review notification email send failed');
+                safeCaptureException(err, 'review-email');
+                alertCaughtError('review-email', err, '/api/review');
+              }
+            }).catch((e) => {
+              safeCaptureException(e, 'review-email');
+              alertCaughtError('review-email', e, '/api/review');
+            })
+          );
         }
       }
     }

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
@@ -144,24 +145,26 @@ export async function POST(request: NextRequest) {
   // 失敗が無音化する。戻り値を確認して可視化する。
   if (d.email) {
     const { data: facility } = await admin.from('facility_profiles').select('name').eq('id', d.facility_id).single();
-    sendBookingConfirmed({
-      bookingId: newId,
-      customerName: d.customer_name,
-      customerEmail: d.email,
-      facilityName: facility?.name ?? '',
-      bookingDate: d.booking_date,
-      startTime: d.start_time,
-      endTime: d.end_time,
-      menuName: menuList.map((r) => r.name).filter(Boolean).join('、'),
-      staffName,
-      totalPrice,
-    }).then((ok) => {
-      if (!ok) {
-        const err = new Error('admin booking confirmation email send failed');
-        safeCaptureException(err, 'admin-bookings-email');
-        alertCaughtError('admin-bookings-email', err, '/api/admin/bookings');
-      }
-    });
+    waitUntil(
+      sendBookingConfirmed({
+        bookingId: newId,
+        customerName: d.customer_name,
+        customerEmail: d.email,
+        facilityName: facility?.name ?? '',
+        bookingDate: d.booking_date,
+        startTime: d.start_time,
+        endTime: d.end_time,
+        menuName: menuList.map((r) => r.name).filter(Boolean).join('、'),
+        staffName,
+        totalPrice,
+      }).then((ok) => {
+        if (!ok) {
+          const err = new Error('admin booking confirmation email send failed');
+          safeCaptureException(err, 'admin-bookings-email');
+          alertCaughtError('admin-bookings-email', err, '/api/admin/bookings');
+        }
+      })
+    );
   }
 
   return NextResponse.json({ success: true, id: newId }, { status: 201 });
