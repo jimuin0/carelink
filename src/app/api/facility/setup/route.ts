@@ -7,6 +7,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { sendWelcomeEmail } from '@/lib/email';
@@ -185,19 +186,21 @@ export async function POST(request: NextRequest) {
     // 失敗が無音化する（実際に例外を投げるのは Resend 呼び出し前の想定外エラーのみ）。
     // 戻り値を確認して両方の失敗経路を可視化する。
     if (user.email) {
-      sendWelcomeEmail({
-        ownerEmail: user.email,
-        facilityName: facility_name,
-      }).then((ok) => {
-        if (!ok) {
-          const err = new Error('welcome email send failed');
-          safeCaptureException(err, 'welcome-email');
-          alertCaughtError('welcome-email', err, '/api/facility/setup');
-        }
-      }).catch((e) => {
-        safeCaptureException(e, 'welcome-email');
-        alertCaughtError('welcome-email', e, '/api/facility/setup');
-      });
+      waitUntil(
+        sendWelcomeEmail({
+          ownerEmail: user.email,
+          facilityName: facility_name,
+        }).then((ok) => {
+          if (!ok) {
+            const err = new Error('welcome email send failed');
+            safeCaptureException(err, 'welcome-email');
+            alertCaughtError('welcome-email', err, '/api/facility/setup');
+          }
+        }).catch((e) => {
+          safeCaptureException(e, 'welcome-email');
+          alertCaughtError('welcome-email', e, '/api/facility/setup');
+        })
+      );
     }
 
     return NextResponse.json({
