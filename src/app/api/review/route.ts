@@ -124,9 +124,9 @@ export async function POST(request: Request) {
       comment: parsed.data.comment || null,
       photo_urls: parsed.data.photo_urls?.length ? parsed.data.photo_urls : null,
       reviewer_ip: ip,
-      // facility_reviews に user_id 列は無い。来店確認フラグのみ保存（ログイン時）。
-      // 旧実装は user_id を insert しており列が無いため 400 → ログインユーザーの投稿が全失敗していた。
-      ...(user ? { is_verified_visit: isVerifiedVisit } : {}),
+      // facility_reviews.user_id は投稿者本人によるレビュー編集・削除の判定に使う
+      // （2026年7月6日DDL追加、ALTER TABLE facility_reviews ADD COLUMN user_id）。
+      ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
     })
     .select('id')
     .single();

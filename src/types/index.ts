@@ -147,6 +147,7 @@ export interface FacilityCardData {
 export interface FacilityReview {
   id: string;
   facility_id: string;
+  user_id: string | null;
   reviewer_name: string;
   rating: number;
   rating_skill: number | null;
