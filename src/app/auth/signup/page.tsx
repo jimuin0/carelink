@@ -7,6 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
+import { prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
 
 export default function SignupPage() {
@@ -41,6 +42,7 @@ function SignupContent() {
     redirect = `/admin/onboarding?${params.toString()}`;
   }
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<SignupFormData>({
     resolver: zodResolver(signupSchema),
@@ -52,7 +54,9 @@ function SignupContent() {
       email: data.email,
       password: data.password,
       options: {
-        data: { display_name: data.display_name },
+        // display_name/phone/prefecture は auth.users.raw_user_meta_data に保存され、
+        // handle_new_user トリガー(DDL)経由で profiles へ複製される。
+        data: { display_name: data.display_name, phone: data.phone, prefecture: data.prefecture },
         emailRedirectTo: `${window.location.origin}/auth/callback?redirect=${encodeURIComponent(redirect)}`,
       },
     });
@@ -81,7 +85,6 @@ function SignupContent() {
                 {...register('display_name')}
                 id="signup-name"
                 className="form-input"
-                placeholder="山田 太郎"
                 autoComplete="name"
                 aria-required="true"
               />
@@ -95,7 +98,6 @@ function SignupContent() {
                 id="signup-email"
                 type="email"
                 className="form-input"
-                placeholder="example@email.com"
                 autoComplete="email"
                 aria-required="true"
               />
@@ -103,16 +105,67 @@ function SignupContent() {
             </div>
 
             <div>
-              <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-500">*</span></label>
+              <label htmlFor="signup-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
               <input
-                {...register('password')}
-                id="signup-password"
-                type="password"
+                {...register('phone')}
+                id="signup-phone"
+                type="tel"
                 className="form-input"
-                placeholder="8文字以上"
-                autoComplete="new-password"
+                autoComplete="tel"
                 aria-required="true"
               />
+              {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="signup-prefecture" className="form-label">都道府県 <span className="text-red-500">*</span></label>
+              <select
+                {...register('prefecture')}
+                id="signup-prefecture"
+                className="form-input"
+                aria-required="true"
+              >
+                <option value="">選択してください</option>
+                {prefectures.map((p) => (
+                  <option key={p} value={p}>{p}</option>
+                ))}
+              </select>
+              {errors.prefecture && <p className="form-error" role="alert">{errors.prefecture.message}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="signup-password" className="form-label">パスワード <span className="text-red-500">*</span></label>
+              <div className="relative">
+                <input
+                  {...register('password')}
+                  id="signup-password"
+                  type={showPassword ? 'text' : 'password'}
+                  className="form-input pr-10"
+                  autoComplete="new-password"
+                  aria-required="true"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((v) => !v)}
+                  aria-label={showPassword ? 'パスワードを隠す' : 'パスワードを表示'}
+                  aria-pressed={showPassword}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M17.94 17.94A10.94 10.94 0 0112 20c-6 0-10-6-10-8a11.28 11.28 0 013.16-4.5" />
+                      <path d="M9.9 4.24A9.6 9.6 0 0112 4c6 0 10 6 10 8a11.24 11.24 0 01-1.87 2.87" />
+                      <path d="M14.12 14.12a3 3 0 11-4.24-4.24" />
+                      <line x1="1" y1="1" x2="23" y2="23" />
+                    </svg>
+                  ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z" />
+                      <circle cx="12" cy="12" r="3" />
+                    </svg>
+                  )}
+                </button>
+              </div>
               {errors.password && <p className="form-error" role="alert">{errors.password.message}</p>}
             </div>
 
@@ -121,9 +174,8 @@ function SignupContent() {
               <input
                 {...register('password_confirm')}
                 id="signup-password-confirm"
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 className="form-input"
-                placeholder="もう一度入力"
                 autoComplete="new-password"
                 aria-required="true"
               />

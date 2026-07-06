@@ -1,1 +1,5 @@
-export default function Loading() { return <div className="min-h-[60vh] flex items-center justify-center"><div className="w-10 h-10 border-4 border-sky-200 border-t-sky-500 rounded-full animate-spin" /></div>; }
+import PageLoading from '@/components/PageLoading';
+
+export default function Loading() {
+  return <PageLoading />;
+}

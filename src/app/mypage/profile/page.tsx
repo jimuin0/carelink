@@ -5,10 +5,12 @@ import Image from 'next/image';
 import { useForm } from 'react-hook-form';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { prefectures } from '@/lib/constants';
+import { phoneRegex, normalizePhone } from '@/lib/phone';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
+import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
 interface ProfileForm {
@@ -92,8 +94,8 @@ export default function ProfileEditPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           display_name: data.display_name,
-          phone: data.phone || null,
-          prefecture: data.prefecture || null,
+          phone: data.phone,
+          prefecture: data.prefecture,
           city: data.city || null,
           birth_date: data.birth_date || null,
           gender: data.gender || null,
@@ -113,16 +115,7 @@ export default function ProfileEditPage() {
   };
 
   if (loading) {
-    return (
-      <div className="bg-white rounded-2xl shadow-sm p-6 animate-pulse">
-        <div className="h-6 bg-gray-200 rounded w-1/3 mb-6" />
-        <div className="space-y-4">
-          {[...Array(5)].map((_, i) => (
-            <div key={i} className="h-10 bg-gray-200 rounded" />
-          ))}
-        </div>
-      </div>
-    );
+    return <PageLoading />;
   }
 
   // 取得失敗時はフォームを描画しない（空フォームを保存して実プロフィールを上書きする事故を防ぐ）
@@ -198,25 +191,35 @@ export default function ProfileEditPage() {
           </div>
 
           <div>
-            <label htmlFor="profile-phone" className="form-label">電話番号</label>
+            <label htmlFor="profile-phone" className="form-label">電話番号 <span className="text-red-500">*</span></label>
             <input
-              {...register('phone')}
+              {...register('phone', {
+                required: '電話番号は必須です',
+                validate: (v) => phoneRegex.test(normalizePhone(v || '')) || '正しい電話番号を入力してください',
+              })}
               id="profile-phone"
               type="tel"
               className="form-input"
-              placeholder="090-1234-5678"
+              aria-required="true"
             />
+            {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label htmlFor="profile-prefecture" className="form-label">都道府県</label>
-              <select {...register('prefecture')} id="profile-prefecture" className="form-input">
+              <label htmlFor="profile-prefecture" className="form-label">都道府県 <span className="text-red-500">*</span></label>
+              <select
+                {...register('prefecture', { required: '都道府県を選択してください' })}
+                id="profile-prefecture"
+                className="form-input"
+                aria-required="true"
+              >
                 <option value="">選択してください</option>
                 {prefectures.map((p) => (
                   <option key={p} value={p}>{p}</option>
                 ))}
               </select>
+              {errors.prefecture && <p className="form-error" role="alert">{errors.prefecture.message}</p>}
             </div>
             <div>
               <label htmlFor="profile-city" className="form-label">市区町村</label>
@@ -290,9 +293,22 @@ export default function ProfileEditPage() {
         )}
       </div>
 
-      {/* メール配信設定（v8.17） */}
+      {/* メール配信設定（v8.17。2026年7月6日: 予約確認・リマインドは取引メールのため常時送信に
+          固定し、配信停止設定の対象はお知らせメール（クーポン等のマーケティング系）のみである
+          実態にUI文言を合わせた。DB列(email_unsubscribed)自体は変更していない） */}
       <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8">
         <h2 className="text-lg font-bold text-gray-800 mb-4">メール配信設定</h2>
+
+        <div className="flex items-start gap-3 mb-4 pb-4 border-b border-gray-100">
+          <svg className="w-5 h-5 text-sky-500 mt-0.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <div>
+            <p className="text-sm font-medium text-gray-800">予約確認・リマインドメール</p>
+            <p className="text-xs text-gray-500 mt-0.5">予約に関する重要なお知らせのため、常に送信されます（配信停止はできません）。</p>
+          </div>
+        </div>
+
         <label className="flex items-start gap-3 cursor-pointer">
           <input
             type="checkbox"
@@ -308,7 +324,7 @@ export default function ProfileEditPage() {
                 const { error: updateError } = await supabase.from('profiles').update({ email_unsubscribed: newValue }).eq('id', user.id);
                 if (updateError) throw updateError;
                 setEmailUnsubscribed(newValue);
-                setToast({ type: 'success', message: newValue ? 'メール配信を停止しました' : 'メール配信を再開しました' });
+                setToast({ type: 'success', message: newValue ? 'お知らせメールの配信を停止しました' : 'お知らせメールの配信を再開しました' });
               } catch {
                 setToast({ type: 'error', message: '設定の変更に失敗しました' });
               } finally {
@@ -318,8 +334,8 @@ export default function ProfileEditPage() {
             className="mt-0.5 rounded border-gray-300 text-sky-500 focus:ring-sky-500"
           />
           <div>
-            <p className="text-sm font-medium text-gray-800">予約確認・リマインドメールを受け取る</p>
-            <p className="text-xs text-gray-500 mt-0.5">OFFにするとCareLink からのメール配信が停止されます。</p>
+            <p className="text-sm font-medium text-gray-800">お知らせメール（クーポン・キャンペーン情報など）を受け取る</p>
+            <p className="text-xs text-gray-500 mt-0.5">OFFにするとお知らせメールの配信が停止されます。</p>
           </div>
         </label>
       </div>
@@ -384,7 +400,6 @@ export default function ProfileEditPage() {
               type="text"
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
-              placeholder="DELETE"
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm mb-4 font-mono"
             />
             <div className="flex gap-3">
