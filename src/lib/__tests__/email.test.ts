@@ -287,6 +287,14 @@ describe('送信エラー時', () => {
     );
     consoleSpy.mockRestore();
   });
+
+  test('Error以外がrejectされた場合もString化してfalseを返す', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSend.mockRejectedValueOnce('plain-string-rejection');
+    const ok = await sendBookingConfirmation(baseData);
+    expect(ok).toBe(false);
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('generateUnsubscribeToken', () => {
