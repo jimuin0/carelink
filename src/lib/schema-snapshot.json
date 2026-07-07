@@ -586,6 +586,7 @@
     "reviewer_name",
     "staff_id",
     "status",
+    "user_id",
     "visit_date"
   ],
   "facility_symptoms": [
