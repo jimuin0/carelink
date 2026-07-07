@@ -2,6 +2,7 @@ import { Resend } from 'resend';
 import { safeCaptureException } from '@/lib/safe';
 import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
+import { SITE_URL } from '@/lib/constants';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -23,14 +24,13 @@ const RESEND_VERIFIED_DOMAINS = ['carelink-jp.com'];
   // 本番実行時のみ検証する。
   if (process.env.NODE_ENV !== 'production') return;
   const match = FROM.match(/@([^>\s]+)/);
-  const domain = match?.[1];
+  const domain = match?.[1]?.toLowerCase();
   if (domain && !RESEND_VERIFIED_DOMAINS.includes(domain)) {
     const msg = `EMAIL_FROM のドメイン "${domain}" が Resend 検証済みドメイン(${RESEND_VERIFIED_DOMAINS.join(', ')})に含まれていません。メール送信が全て失敗する可能性があります。`;
     console.error(`[email:from-domain-guard]`, msg);
     postAlert({ level: 'error', message: msg, route: 'email:from-domain-guard', env: process.env.VERCEL_ENV });
   }
 })();
-import { SITE_URL } from '@/lib/constants';
 
 /** HTML特殊文字エスケープ（XSS防止） */
 function esc(str: string): string {
@@ -108,6 +108,21 @@ function wrapHtml(body: string, unsubscribeToken?: string): string {
 export { esc, escSubject, formatDate, formatTime };
 
 /**
+ * cron が run 単位で alertDeliveryFailures() に集約して1メッセージにまとめて通知する context。
+ * これらは safeSend からも個別に postAlert すると、集約1件 + 失敗件数分の個別アラートが
+ * 二重に飛び、正当な個別失敗（顧客のメールアドレス不備等）で Slack が連投される
+ * （alertDeliveryFailures のコメントが名指しで禁止しているアンチパターンの再導入になる）。
+ * 該当 cron: booking-reminder / daily-summary / weekly-report / onboarding-followup / favorites-digest
+ */
+const BULK_AGGREGATED_CONTEXTS = new Set([
+  'booking_reminder',
+  'daily_summary',
+  'weekly_report',
+  'onboarding_follow',
+  'favorites_digest',
+]);
+
+/**
  * メール送信ラッパー（エラーログ付き）。
  * 戻り値: 送信成功=true / 例外を握り潰した場合=false。
  * 「失敗時は翌 run で再送」する cron（onboarding-followup / favorites-digest）は、この戻り値で
@@ -128,8 +143,10 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     return true;
   } catch (e) {
     safeCaptureException(e, `email:${context}`);
-    const msg = e instanceof Error ? e.message : String(e);
-    postAlert({ level: 'error', message: `メール送信失敗(${context}): ${msg}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
+    if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
+      const msg = e instanceof Error ? e.message : String(e);
+      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${msg}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
+    }
     return false;
   } finally {
     clearTimeout(timer);
