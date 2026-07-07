@@ -27,7 +27,7 @@ const RESEND_VERIFIED_DOMAINS = ['carelink-jp.com'];
   if (domain && !RESEND_VERIFIED_DOMAINS.includes(domain)) {
     const msg = `EMAIL_FROM のドメイン "${domain}" が Resend 検証済みドメイン(${RESEND_VERIFIED_DOMAINS.join(', ')})に含まれていません。メール送信が全て失敗する可能性があります。`;
     console.error(`[email:from-domain-guard]`, msg);
-    postAlert({ level: 'error', message: msg, env: process.env.VERCEL_ENV });
+    postAlert({ level: 'error', message: msg, route: 'email:from-domain-guard', env: process.env.VERCEL_ENV });
   }
 })();
 import { SITE_URL } from '@/lib/constants';
@@ -129,7 +129,7 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
   } catch (e) {
     safeCaptureException(e, `email:${context}`);
     const msg = e instanceof Error ? e.message : String(e);
-    postAlert({ level: 'error', message: `メール送信失敗(${context}): ${msg}`, env: process.env.VERCEL_ENV });
+    postAlert({ level: 'error', message: `メール送信失敗(${context}): ${msg}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
     return false;
   } finally {
     clearTimeout(timer);
