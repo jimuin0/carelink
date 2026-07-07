@@ -503,6 +503,37 @@ describe('POST /api/review', () => {
       expect((await res.json()).success).toBe(true);
     });
 
+    // 恒久根治の回帰防止（2026年7月7日）: 通知メール送信は fire-and-forget(waitUntil)ではなく
+    // レスポンス返却前に await で確実に完了させる。Fluid Compute 無効の本番では waitUntil の
+    // 後処理が凍結され、ローンチ以来 waitUntil 経由の通知メールが1通も送信されていなかった
+    // （Resend 送信履歴の実データで確定）。送信が未完了の間はレスポンスも確定しないことを保証する。
+    test('メール送信が完了するまでレスポンスを確定させない（awaitで確実に完了）', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      let resolveSend: (() => void) | undefined;
+      (sendNewReviewNotification as jest.Mock).mockReturnValueOnce(
+        new Promise<boolean>((resolve) => {
+          resolveSend = () => resolve(true);
+        })
+      );
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, ownerEmails: ['owner@example.invalid'] });
+
+      const postPromise = POST(makeRequest(bizReview));
+      let settled = false;
+      void postPromise.then(() => { settled = true; });
+
+      // 送信 Promise が未解決の間はレスポンスも確定しない（＝fire-and-forget でない）。
+      await new Promise((r) => setTimeout(r, 20));
+      expect(settled).toBe(false);
+      expect(sendNewReviewNotification).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner@example.invalid' }));
+
+      // 送信完了でレスポンスが確定する。
+      resolveSend!();
+      const res = await postPromise;
+      expect(settled).toBe(true);
+      expect(res.status).toBe(200);
+      expect((await res.json()).success).toBe(true);
+    });
+
     // facility_reviews(24h重複チェック)/bookings(来店確認)の基本チェーンを共通化。
     function baseDupAndBookingHandlers() {
       const dupLimit = jest.fn().mockResolvedValue({ data: [] });

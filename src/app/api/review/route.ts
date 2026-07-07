@@ -7,7 +7,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
@@ -146,12 +145,21 @@ export async function POST(request: Request) {
   // 施設単位（user_id × facility_id）に変え、1ユーザー・1施設あたり口コミポイントは1回のみにする。
   // TOCTOU（select→insert 非原子）による同時二重投稿は、DB 側の部分 UNIQUE インデックス
   // uq_user_points_review（別途 SQL を神原さんへ提示）で最終的に閉じる。
+  // レスポンス返却後に走らせる副作用（ポイント付与・Push・メール）をここに集約し、
+  // return の直前に await Promise.allSettled でまとめて完了させる。
+  // 【重要・2026年7月7日 本番実データで確定した恒久根治】
+  //   従来は各副作用を Vercel の waitUntil() に渡す fire-and-forget だったが、Fluid Compute が
+  //   無効の本番では関数がレスポンス返却直後に凍結され、waitUntil のバックグラウンド処理が
+  //   一切完走していなかった。Resend の全送信履歴を照会したところ、ローンチ(2026年4月)以来
+  //   waitUntil 経由の通知メール(口コミ通知・予約確認等)は1通も送信されておらず、cron
+  //   (ニュースレター)と手動テストのみが配信されていた＝waitUntil 後処理が全滅していた。
+  //   よってレスポンス前に await して確実に実行する(各 send は safeSend の 10s タイムアウトで
+  //   保護され、失敗しても Promise.allSettled で握り、本体レスポンスは常に成功で返す)。
+  const reviewSideEffects: Promise<unknown>[] = [];
+
   if (user && review && isVerifiedVisit) {
     const reviewReason = `口コミポイント:${parsed.data.facility_id}`;
-    // 監査: Vercelのサーバーレス関数はレスポンス返却後に実行環境が終了しうるため、
-    // waitUntil() で明示的に完了を待たない fire-and-forget は非同期処理が途中で
-    // 打ち切られ、確率的に実行されない(2026年7月6日・本番調査で発覚)。
-    waitUntil((async () => {
+    reviewSideEffects.push((async () => {
       const { data: existing, error: selectErr } = await supabase.from('user_points')
         .select('id')
         .eq('user_id', user.id)
@@ -178,7 +186,7 @@ export async function POST(request: Request) {
   try {
     const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
     if (notif.pushOnReview) {
-      waitUntil(
+      reviewSideEffects.push(
         sendPushToFacilityOwners(parsed.data.facility_id, {
           title: '新しい口コミが投稿されました',
           body: `${parsed.data.reviewer_name}様より★${avg}の口コミが届きました`,
@@ -208,7 +216,7 @@ export async function POST(request: Request) {
           .eq('id', parsed.data.facility_id)
           .single();
         for (const facilityEmail of ownerEmails) {
-          waitUntil(
+          reviewSideEffects.push(
             sendNewReviewNotification({
               facilityEmail,
               facilityName: facilityRow?.name ?? '',
@@ -234,6 +242,10 @@ export async function POST(request: Request) {
     safeCaptureException(e, 'review-push-setup');
     alertCaughtError('review-push-setup', e, '/api/review');
   }
+
+  // レスポンス返却前に副作用を確実に完了させる（上のコメント参照＝waitUntil 後処理が本番で
+  // 全滅していた恒久根治）。allSettled なので個別失敗は本体レスポンス(200)に影響しない。
+  await Promise.allSettled(reviewSideEffects);
 
   return NextResponse.json({ success: true, id: review.id });
 }
