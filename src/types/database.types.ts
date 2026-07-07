@@ -2339,6 +2339,7 @@ export type Database = {
           reviewer_name: string
           staff_id: string | null
           status: string | null
+          user_id: string | null
           visit_date: string | null
         }
         Insert: {
@@ -2364,6 +2365,7 @@ export type Database = {
           reviewer_name: string
           staff_id?: string | null
           status?: string | null
+          user_id?: string | null
           visit_date?: string | null
         }
         Update: {
@@ -2389,6 +2391,7 @@ export type Database = {
           reviewer_name?: string
           staff_id?: string | null
           status?: string | null
+          user_id?: string | null
           visit_date?: string | null
         }
         Relationships: [
