@@ -90,4 +90,25 @@ describe('safeSend失敗時のSlackアラートにroute(email種別)が含まれ
     );
     consoleSpy.mockRestore();
   });
+
+  it('cronがrun単位で集約するcontext(booking_reminder等)は個別アラートしない(alertDeliveryFailuresとの二重通知防止)', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    mockSend.mockRejectedValueOnce(new Error('resend rejected'));
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const { sendBookingReminder } = require('../email');
+    const ok = await sendBookingReminder({
+      customerName: 'テスト太郎',
+      customerEmail: 'test@example.com',
+      facilityName: 'テストサロン',
+      bookingDate: '2026-04-01',
+      startTime: '10:00',
+      endTime: '11:00',
+      bookingId: 'b-1',
+    });
+    expect(ok).toBe(false);
+    expect(mockPostAlert).not.toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
 });
