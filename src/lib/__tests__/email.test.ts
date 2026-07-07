@@ -295,6 +295,35 @@ describe('送信エラー時', () => {
     expect(ok).toBe(false);
     consoleSpy.mockRestore();
   });
+
+  // 【最重要・恒久根治の回帰防止・2026年7月8日】Resend SDK は API エラー(Invalid from の 422 等)を
+  // throw せず戻り値 { data, error } の error に載せて resolve する。旧 safeSend は error を検査せず
+  // 無条件 return true しており、送信失敗が「成功」に化け、ローンチ以来 通知メールが送られて
+  // いないのに全て成功扱いされていた（本番診断で確定）。error があれば false を返すことを保証する。
+  test('resend.emails.sendが{error}をresolveした場合はfalseを返す（例外を投げないResend APIエラーを握り潰さない）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSend.mockResolvedValueOnce({
+      data: null,
+      error: { statusCode: 422, name: 'validation_error', message: 'Invalid `from` field.' },
+    });
+    const ok = await sendBookingConfirmation(baseData);
+    expect(ok).toBe(false);
+    consoleSpy.mockRestore();
+  });
+
+  test('resend.emails.sendが{data,error:null}をresolveした場合はtrueを返す（正常系）', async () => {
+    mockSend.mockResolvedValueOnce({ data: { id: 'em_123' }, error: null });
+    const ok = await sendBookingConfirmation(baseData);
+    expect(ok).toBe(true);
+  });
+
+  test('errorにstatusCode/name/messageが欠けていてもfalseを返す（フォールバック整形）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    mockSend.mockResolvedValueOnce({ data: null, error: { unexpected: 'shape' } });
+    const ok = await sendBookingConfirmation(baseData);
+    expect(ok).toBe(false);
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('generateUnsubscribeToken', () => {

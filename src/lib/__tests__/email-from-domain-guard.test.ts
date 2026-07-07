@@ -56,12 +56,32 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     expect(mockPostAlert).not.toHaveBeenCalled();
   });
 
-  it('FROMにドメインが含まれない場合は何もしない', () => {
+  it('本番でEMAIL_FROMが不正形式(@なし)なら形式ガードで🔴アラートしデフォルトへフォールバックする', () => {
     process.env.NODE_ENV = 'production';
     process.env.RESEND_API_KEY = 'k';
-    process.env.EMAIL_FROM = 'invalid-no-at-symbol';
+    process.env.EMAIL_FROM = 'carelink-jp.com'; // ドメインのみ＝Resend が 422 で拒否する不正値
     require('../email');
-    expect(mockPostAlert).not.toHaveBeenCalled();
+    expect(mockPostAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ level: 'error', route: 'email:from-format-guard' })
+    );
+    // 有効なデフォルト(carelink-jp.com ドメイン)へ倒れるため、ドメイン未検証アラートは出ない。
+    expect(mockPostAlert).not.toHaveBeenCalledWith(
+      expect.objectContaining({ route: 'email:from-domain-guard' })
+    );
+  });
+
+  it('不正形式のEMAIL_FROMでも実際の送信は有効なデフォルトfromで行う（設定ミスで送信全滅にしない）', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'carelink-jp.com';
+    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    const { sendNewReviewNotification } = require('../email');
+    await sendNewReviewNotification({
+      facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
+    });
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' })
+    );
   });
 });
 
