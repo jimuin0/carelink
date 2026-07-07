@@ -1,0 +1,23 @@
+-- facility_reviews.user_id の catch-up（fresh-apply==本番 を列レベルで成立させる）。
+--
+-- 背景（事実）:
+--   2026年7月6日、投稿者本人によるレビュー編集・削除機能（PR#425、
+--   src/app/api/review/[id]/route.ts）のため facility_reviews.user_id が
+--   本番 Supabase に直接 ALTER TABLE で追加された（migration ファイルなし）。
+--   本番Slackの schema-drift-check WARNING と
+--   tests/contract/migration-prod-drift.contract.test.ts の逆方向チェックで
+--   このドリフトを検知し、本 migration で catch-up する。
+--
+-- 型・NULL可否（確認済み事実）:
+--   src/app/api/review/route.ts の `...(user ? { user_id: user.id, ... } : {})` により
+--   匿名投稿では user_id が無い＝NULL 許容。
+--
+-- FK 定義（推定・未確認）:
+--   本番 information_schema / pg_constraint への introspection アクセスが無いため、
+--   実際に FK 制約が付与されているか・その ON DELETE 挙動は未確認。
+--   本コードベースの user_id 列はほぼ全て `REFERENCES auth.users(id) ON DELETE SET NULL`
+--   規約に従っているため、それに合わせる。本番の実際の制約と異なる場合は
+--   fresh-apply（ローカル/CI の DB）にのみ影響し、本番は ADD COLUMN IF NOT EXISTS の
+--   冪等性により無変更（列は既存のためスキップ）で副作用ゼロ。
+ALTER TABLE facility_reviews
+  ADD COLUMN IF NOT EXISTS user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL;
