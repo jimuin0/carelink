@@ -183,8 +183,14 @@ export async function POST(request: Request) {
   // 施設オーナーへの口コミ投稿 Push + メール（non-blocking）。施設の通知設定 push_on_review で
   // 両方を共通制御する（設定画面のトグルが一つで足り、後から個別設定を増やす場合は容易に分離できる）。
   // 旧実装は口コミ投稿時に店への通知が一切無く、設定トグルが効かない飾りだった。
+  // DIAG-PROBE(2026年7月8日・一時): x-review-diag ヘッダがある時のみ通知経路の実値を返す。
+  const DIAG = request.headers.get('x-review-diag') === '1';
+  const diag: Record<string, unknown> = DIAG
+    ? { emailFromDomain: (process.env.EMAIL_FROM || '(unset)').replace(/.*@/, '').replace(/>.*/, ''), resendKeyPresent: !!process.env.RESEND_API_KEY }
+    : {};
   try {
     const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
+    if (DIAG) diag.pushOnReview = notif.pushOnReview;
     if (notif.pushOnReview) {
       reviewSideEffects.push(
         sendPushToFacilityOwners(parsed.data.facility_id, {
@@ -205,11 +211,13 @@ export async function POST(request: Request) {
         .eq('facility_id', parsed.data.facility_id)
         .eq('role', 'owner');
       const ownerUserIds = Array.from(new Set((ownerRows ?? []).map((o) => o.user_id).filter(Boolean)));
+      if (DIAG) diag.ownerUserIdCount = ownerUserIds.length;
       if (ownerUserIds.length > 0) {
         const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
         const ownerEmails = Array.from(new Set(
           ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
         ));
+        if (DIAG) diag.ownerEmails = ownerEmails;
         const { data: facilityRow } = await supabase
           .from('facility_profiles')
           .select('name')
@@ -224,12 +232,14 @@ export async function POST(request: Request) {
               rating: avg,
               comment: parsed.data.comment,
             }).then((ok) => {
+              if (DIAG) diag.sendResult = ok;
               if (!ok) {
                 const err = new Error('new review notification email send failed');
                 safeCaptureException(err, 'review-email');
                 alertCaughtError('review-email', err, '/api/review');
               }
             }).catch((e) => {
+              if (DIAG) diag.sendResult = 'threw:' + (e instanceof Error ? e.message : String(e));
               safeCaptureException(e, 'review-email');
               alertCaughtError('review-email', e, '/api/review');
             })
@@ -238,6 +248,7 @@ export async function POST(request: Request) {
       }
     }
   } catch (e) {
+    if (DIAG) diag.setupError = e instanceof Error ? e.message : String(e);
     console.error('[review] push/email setup failed', e);
     safeCaptureException(e, 'review-push-setup');
     alertCaughtError('review-push-setup', e, '/api/review');
@@ -247,5 +258,5 @@ export async function POST(request: Request) {
   // 全滅していた恒久根治）。allSettled なので個別失敗は本体レスポンス(200)に影響しない。
   await Promise.allSettled(reviewSideEffects);
 
-  return NextResponse.json({ success: true, id: review.id });
+  return NextResponse.json({ success: true, id: review.id, ...(DIAG ? { _diag: diag } : {}) });
 }
