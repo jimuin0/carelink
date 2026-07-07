@@ -1,8 +1,9 @@
 const mockPostAlert = jest.fn();
+const mockSend = jest.fn();
 
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
-    emails: { send: jest.fn() },
+    emails: { send: mockSend },
   })),
 }));
 
@@ -15,6 +16,8 @@ const ORIGINAL_ENV = process.env;
 beforeEach(() => {
   jest.resetModules();
   mockPostAlert.mockReset();
+  mockSend.mockReset();
+  mockSend.mockResolvedValue({});
   process.env = { ...ORIGINAL_ENV };
 });
 
@@ -29,7 +32,11 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
     require('../email');
     expect(mockPostAlert).toHaveBeenCalledWith(
-      expect.objectContaining({ level: 'error', message: expect.stringContaining('resend.dev') })
+      expect.objectContaining({
+        level: 'error',
+        message: expect.stringContaining('resend.dev'),
+        route: 'email:from-domain-guard',
+      })
     );
   });
 
@@ -55,5 +62,32 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     process.env.EMAIL_FROM = 'invalid-no-at-symbol';
     require('../email');
     expect(mockPostAlert).not.toHaveBeenCalled();
+  });
+});
+
+describe('safeSend失敗時のSlackアラートにroute(email種別)が含まれる', () => {
+  it('sendNewReviewNotificationの失敗はroute="email:new_review_notification"でアラートする', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    mockSend.mockRejectedValueOnce(new Error('resend rejected'));
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const { sendNewReviewNotification } = require('../email');
+    const ok = await sendNewReviewNotification({
+      facilityEmail: 'owner@example.com',
+      facilityName: 'テストサロン',
+      reviewerName: 'テスト太郎',
+      rating: 5,
+      comment: null,
+    });
+    expect(ok).toBe(false);
+    expect(mockPostAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        level: 'error',
+        message: expect.stringContaining('new_review_notification'),
+        route: 'email:new_review_notification',
+      })
+    );
+    consoleSpy.mockRestore();
   });
 });
