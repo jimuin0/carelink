@@ -12,7 +12,20 @@ function getResend(): Resend | null {
   return _resend;
 }
 
-const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
+const DEFAULT_FROM = 'CareLink <noreply@carelink-jp.com>';
+
+// Resend が受理する from 形式は `email@example.com` または `Name <email@example.com>`。
+// 「email@domain.tld」の実体（@ の前後があり、ドメインに . がある）を含むかで妥当性を判定する。
+// 【2026年7月8日・本番診断で確定した恒久根治】本番 EMAIL_FROM が「carelink-jp.com」等の
+// 不正形式（@ を含まない＝メールアドレスでない）に設定されており、Resend が 422 validation_error で
+// 拒否 → safeSend が旧実装でエラーを握り潰し「送信成功」に化けていた。不正な env 値がコードの
+// 有効なデフォルトを上書きして送信全滅を招くため、妥当性を検査し不正なら DEFAULT_FROM に倒す。
+function isValidFrom(from: string): boolean {
+  return /[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+/.test(from);
+}
+
+const RAW_FROM = process.env.EMAIL_FROM || DEFAULT_FROM;
+const FROM = isValidFrom(RAW_FROM) ? RAW_FROM : DEFAULT_FROM;
 
 // Resend で verified 済みのドメインのみ許可（未検証ドメインは送信元として使うと Resend 側で
 // 拒否/制限される）。EMAIL_FROM の設定ミスは実際にメールが送られるまで気づけなかった
@@ -23,6 +36,12 @@ const RESEND_VERIFIED_DOMAINS = ['carelink-jp.com'];
   // 開発・テストでは Resend のサンドボックスドメイン(resend.dev 等)を使うのが正常系のため、
   // 本番実行時のみ検証する。
   if (process.env.NODE_ENV !== 'production') return;
+  // 不正形式で DEFAULT_FROM に倒れた場合も、その事実を可視化する（設定ミスの早期検知）。
+  if (!isValidFrom(RAW_FROM)) {
+    const msg = `EMAIL_FROM の形式が不正なため既定値にフォールバックしました。Resend の from 形式（Name <email@example.com>）で設定してください。`;
+    console.error(`[email:from-format-guard]`, msg);
+    postAlert({ level: 'error', message: msg, route: 'email:from-format-guard', env: process.env.VERCEL_ENV });
+  }
   const match = FROM.match(/@([^>\s]+)/);
   const domain = match?.[1]?.toLowerCase();
   if (domain && !RESEND_VERIFIED_DOMAINS.includes(domain)) {
@@ -130,24 +149,35 @@ const BULK_AGGREGATED_CONTEXTS = new Set([
  */
 async function safeSend(resend: Resend, params: Parameters<Resend['emails']['send']>[0], context: string): Promise<boolean> {
   let timer: ReturnType<typeof setTimeout> | undefined;
+  const fail = (detail: string): false => {
+    safeCaptureException(new Error(`resend send failed: ${detail}`), `email:${context}`);
+    if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
+      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${detail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
+    }
+    return false;
+  };
   try {
     // 監査X7: Resend SDK は自前タイムアウトを持たず、cron の maxDuration/予算ガードは
     // iteration 間でしか効かないため await 中のハングを救えない。Promise.race で 10s 上限を
     // 課し、ハング時は失敗(false)扱いにして一括送信全体のブロックを防ぐ。
-    await Promise.race([
+    const result = await Promise.race([
       resend.emails.send(params),
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         timer = setTimeout(() => reject(new Error('resend send timeout (10s)')), 10_000);
       }),
     ]);
+    // 【最重要・2026年7月8日 本番診断で確定した恒久根治】Resend SDK は API エラー（Invalid from の
+    // 422 等）を throw せず戻り値 { data, error } の error に載せて resolve する。旧実装は error を
+    // 検査せず無条件 return true していたため、送信失敗が「成功」に化け、ローンチ以来 通知メールが
+    // 送られていないのに全て成功扱いされ、アラートも一切出なかった。error を必ず検査する。
+    if (result && result.error) {
+      const err = result.error as { statusCode?: number; name?: string; message?: string };
+      return fail(`${err.statusCode ?? ''} ${err.name ?? ''} ${err.message ?? JSON.stringify(result.error)}`.trim());
+    }
     return true;
   } catch (e) {
-    safeCaptureException(e, `email:${context}`);
-    if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
-      const msg = e instanceof Error ? e.message : String(e);
-      postAlert({ level: 'error', message: `メール送信失敗(${context}): ${msg}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
-    }
-    return false;
+    // タイムアウト・ネットワーク断等の例外系。
+    return fail(e instanceof Error ? e.message : String(e));
   } finally {
     clearTimeout(timer);
   }
