@@ -102,7 +102,9 @@ export default async function BlogDetailPage(props: Props) {
       <div className="max-w-4xl mx-auto bg-white shadow-sm">
         <nav className="px-4 sm:px-6 pt-3 pb-1" aria-label="パンくずリスト">
           <ol className="flex items-center gap-1.5 text-xs text-gray-400">
-            <li><Link href="/search" className="hover:text-sky-600">トップ</Link></li>
+            {/* 他ページのパンくず「トップ」は全て / を指す（facility/[slug]/page.tsx等）。
+                このページのみ /search になっていた表記ゆれを統一する（2026年7月8日 恒久根治）。 */}
+            <li><Link href="/" className="hover:text-sky-600">トップ</Link></li>
             <li><span className="mx-1">/</span></li>
             <li><Link href={`/facility/${params.slug}`} className="hover:text-sky-600">{facility.name}</Link></li>
             <li><span className="mx-1">/</span></li>

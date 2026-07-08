@@ -754,9 +754,12 @@ describe('POST /api/review', () => {
 
     test('photo_urls included in insert', async () => {
       setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      // 2026年7月8日の恒久根治(review-photos バケットの自Storage公開URLプレフィックス限定
+      // チェック)後は、任意ドメインのURL（旧: https://example.com/...）は 400 で拒否されるため、
+      // 実際にアップロード先となる review-photos バケットの公開URL形式に合わせる。
       const photoUrls = [
-        'https://example.com/photo1.jpg',
-        'https://example.com/photo2.jpg',
+        'https://test.supabase.co/storage/v1/object/public/review-photos/facility-1/photo1.jpg',
+        'https://test.supabase.co/storage/v1/object/public/review-photos/facility-1/photo2.jpg',
       ];
 
       await POST(makeRequest({ ...bizReview, photo_urls: photoUrls }));
@@ -764,6 +767,28 @@ describe('POST /api/review', () => {
       expect(mockInsert).toHaveBeenCalled();
       const insertArg = mockInsert.mock.calls[0][0];
       expect(insertArg.photo_urls).toEqual(photoUrls);
+    });
+
+    // 【2026年7月8日 恒久根治の回帰防止】review-photos バケット以外のURL（自Storage以外の
+    // 任意ドメイン・別バケット）は 400 で拒否されることを固定する。
+    test('photo_urls が自Storage(review-photos)以外のドメイン → 400', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      const res = await POST(makeRequest({
+        ...bizReview,
+        photo_urls: ['https://evil.example.com/photo1.jpg'],
+      }));
+      expect(res.status).toBe(400);
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    test('photo_urls が自Storageの別バケット(carelink-uploads) → 400', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      const res = await POST(makeRequest({
+        ...bizReview,
+        photo_urls: ['https://test.supabase.co/storage/v1/object/public/carelink-uploads/x.jpg'],
+      }));
+      expect(res.status).toBe(400);
+      expect(mockInsert).not.toHaveBeenCalled();
     });
 
     test('ログイン時はuser_idと来店確認フラグをinsertに含める（2026年7月6日DDLでuser_id列追加・投稿者本人によるレビュー編集削除の前提）', async () => {

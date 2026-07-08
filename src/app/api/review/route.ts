@@ -18,6 +18,7 @@ import { sendNewReviewNotification } from '@/lib/email';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,7 +34,17 @@ const reviewSchema = z.object({
   rating_cleanliness: ratingAxis,
   rating_explanation: ratingAxis,
   comment: z.string().max(500).optional().nullable(),
-  photo_urls: z.array(z.string().url().startsWith('https://')).max(3).optional().nullable(),
+  // 【2026年7月8日 恒久根治】従来は .url().startsWith('https://') のみで任意のHTTPS URLを許容して
+  // おり、api/salons が実装する自Storage公開URLプレフィックス限定チェックより検証が緩かった。
+  // next.config の remotePatterns（自Supabase Storage と images.unsplash.com のみ許可）に守られて
+  // はいるが、許可済みホスト向けなら任意画像のホットリンクが可能で同水準の出所検証が欠けていた。
+  // レビュー写真は review-photos バケットにのみアップロードされる（ReviewForm.tsx）契約のため、
+  // そのバケットの公開URLプレフィックス以外は拒否する。
+  photo_urls: z.array(z.string().url().startsWith('https://')).max(3).optional().nullable()
+    .refine(
+      (urls) => !urls || urls.every((u) => isAllowedStorageUrl(u, 'review-photos')),
+      '不正な写真URLです'
+    ),
 });
 
 export async function POST(request: Request) {
