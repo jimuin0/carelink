@@ -38,6 +38,18 @@ describe('getRankedFacilities', () => {
     expect(chain.gt).toHaveBeenCalledWith('rating_count', 0);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】rating_avg のみの単一列ORDER BYだと同点施設の順序を
+  // PostgreSQLが保証せず、「1位/2位/3位」の順位バッジがISR再生成毎に入れ替わりうる。
+  // idを二次キーにして順序を決定的にする。
+  it('rating_avg降順に加えidを二次キー(昇順)として付与し、同点施設の順序を決定的にする', async () => {
+    const chain = buildChain([]);
+    mockFrom.mockReturnValue(chain);
+
+    await getRankedFacilities();
+    expect(chain.order).toHaveBeenCalledWith('rating_avg', { ascending: false });
+    expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
+  });
+
   it('filters by prefecture when provided', async () => {
     const chain = buildChain([]);
     mockFrom.mockReturnValue(chain);

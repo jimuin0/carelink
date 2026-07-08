@@ -7,7 +7,7 @@
 
 jest.mock('../supabase-server');
 
-import { getAreasByParent, getAreaBySlug, getAreaBreadcrumb } from '../areas';
+import { getAreasByParent, getAreaBySlug, getAreaBreadcrumb, buildAreaSearchParam } from '../areas';
 import type { Area } from '@/types';
 
 const { createServerSupabaseClient } = require('../supabase-server');
@@ -118,5 +118,24 @@ describe('getAreaBreadcrumb', () => {
     const result = await getAreaBreadcrumb(ORPHAN);
     // missing-parent-id は areaMap になく filter で外れるので、結果は ORPHAN のみ
     expect(result).toEqual([ORPHAN]);
+  });
+});
+
+describe('buildAreaSearchParam', () => {
+  // 【2026年7月8日 恒久根治の回帰防止】city タイプが完全一致フィルタ(city)を返すことを固定する。
+  // 旧実装は keyword（曖昧ILIKE検索）を返しており、無関係施設の混入や取りこぼしがあった。
+  test('prefecture タイプは { prefecture } を返す', () => {
+    expect(buildAreaSearchParam({ area_type: 'prefecture', name: '大阪府' })).toEqual({ prefecture: '大阪府' });
+  });
+
+  test('city タイプは { city } を返す（keyword ではない）', () => {
+    const result = buildAreaSearchParam({ area_type: 'city', name: '豊中市' });
+    expect(result).toEqual({ city: '豊中市' });
+    expect(result).not.toHaveProperty('keyword');
+  });
+
+  test('region/station タイプは空オブジェクトを返す', () => {
+    expect(buildAreaSearchParam({ area_type: 'region', name: '関西' })).toEqual({});
+    expect(buildAreaSearchParam({ area_type: 'station', name: '梅田駅' })).toEqual({});
   });
 });

@@ -11,6 +11,7 @@ import StepIndicator from '@/components/StepIndicator';
 import MultiPhotoUpload, { type PhotoSlot } from '@/components/MultiPhotoUpload';
 import Spinner from '@/components/Spinner';
 import { compressImage } from '@/lib/image-compress';
+import { rollbackUploadedSalonPhotos } from '@/lib/salon-photo-rollback';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 
@@ -115,6 +116,12 @@ export default function RegisterPage() {
 
   const onSubmit = async (data: SalonFormValues) => {
     setSubmitting(true);
+    // 【2026年7月8日 恒久根治】写真アップロード成功後に /api/salons が失敗（バリデーション/
+    // レート制限/ネットワーク断等）すると、アップロード済みファイルがストレージに孤児として
+    // 残り続けていた。再送信時は毎回新しい crypto.randomUUID() で再アップロードするため、
+    // 失敗を繰り返すほど孤児が積み上がる。アップロード成功パスを記録し、この関数のいずれの
+    // 失敗経路（アップロード自体の部分失敗・API失敗・例外）でも catch 節で確実に削除する。
+    const uploadedPaths: string[] = [];
     try {
       // Upload photos
       const uuid = crypto.randomUUID();
@@ -132,6 +139,7 @@ export default function RegisterPage() {
           const path = `salons/${uuid}/${categories[i]}.${ext}`;
           const { error: uploadError } = await supabase.storage.from('carelink-uploads').upload(path, compressed);
           if (uploadError) throw uploadError;
+          uploadedPaths.push(path);
           return supabase.storage.from('carelink-uploads').getPublicUrl(path).data.publicUrl;
         })
       );
@@ -195,6 +203,8 @@ export default function RegisterPage() {
       if (data.address) params.set('area', data.address);
       router.push(`/register/complete?${params.toString()}`);
     } catch {
+      // アップロード済みの写真をストレージから削除し、孤児ファイルの蓄積を防ぐ（上記コメント参照）。
+      await rollbackUploadedSalonPhotos(uploadedPaths);
       setToast({ message: '送信に失敗しました。時間をおいて再度お試しください。', type: 'error' });
     } finally {
       setSubmitting(false);
