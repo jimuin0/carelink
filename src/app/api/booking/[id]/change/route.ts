@@ -147,7 +147,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
 
     // レスポンス返却後に走らせていた副作用（メール・Push・LINE Works 通知）をここに集約し、return 直前に
     // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
-    // changeSideEffects.push() の fire-and-forget は Fluid Compute 無効の本番でレスポンス返却直後に凍結され後処理が
+    // waitUntil() の fire-and-forget は Fluid Compute 無効の本番でレスポンス返却直後に凍結され後処理が
     // 全滅していた（口コミルート /api/review と同一の欠陥・同一の根治）。allSettled なので個別 send の
     // 失敗（reject 含む）は本体レスポンス(200)に影響しない。
     const changeSideEffects: Promise<unknown>[] = [];

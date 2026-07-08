@@ -329,7 +329,7 @@ export async function POST(request: Request) {
 
   // レスポンス返却後に走らせていた副作用（メール・Push・LINE 通知）をここに集約し、return 直前に
   // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
-  // 従来は各副作用を Vercel の bookingSideEffects.push() に渡す fire-and-forget だったが、Fluid Compute 無効の
+  // 従来は各副作用を Vercel の waitUntil() に渡す fire-and-forget だったが、Fluid Compute 無効の
   // 本番では関数がレスポンス返却直後に凍結され、waitUntil の後処理が一切完走せず通知が全滅していた
   // （口コミルート /api/review と同一の欠陥・同一の根治）。各 send は safeSend 等の契約で失敗しても
   // reject せず、末尾 .catch でも握るため allSettled で本体レスポンス(200)には影響しない。
