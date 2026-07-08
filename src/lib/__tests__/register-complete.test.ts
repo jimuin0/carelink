@@ -44,6 +44,18 @@ describe('resolveRegisteredSalon', () => {
     expect(result).toEqual({ name: '', type: '', area: '' });
   });
 
+  it('coerces null DB columns to empty strings (address 等が NULL の実レコードでもクラッシュしない)', async () => {
+    // address は salons スキーマ上 nullable。facility_name/business_type も
+    // 将来的な NULL 混入に備え、null を '' にフォールバックする分岐を検証する。
+    mockMaybeSingle.mockResolvedValue({
+      data: { facility_name: null, business_type: null, address: null },
+    });
+
+    const result = await resolveRegisteredSalon(VALID_ID);
+
+    expect(result).toEqual({ name: '', type: '', area: '' });
+  });
+
   it('returns empty summary without querying DB when id is undefined', async () => {
     const result = await resolveRegisteredSalon(undefined);
 
