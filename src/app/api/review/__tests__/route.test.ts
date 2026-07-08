@@ -196,6 +196,14 @@ describe('POST /api/review', () => {
     expect(res.status).toBe(400);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの投稿者名が保存され得た。
+  test('reviewer_name がスペースのみ → 400', async () => {
+    const res = await POST(makeRequest({ ...validReview, reviewer_name: '   ' }));
+
+    expect(res.status).toBe(400);
+  });
+
   test('reviewer_name too long (51+ chars) → 400', async () => {
     const res = await POST(makeRequest({ ...validReview, reviewer_name: 'a'.repeat(51) }));
 

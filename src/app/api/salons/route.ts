@@ -7,6 +7,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { withRoute } from '@/lib/with-route';
+import { phoneField as sharedPhoneField } from '@/lib/phone';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,16 +28,19 @@ export const dynamic = 'force-dynamic';
 //   任意URL混入（保存型の不正データ）を封じる。
 // -----------------------------------------------------------------------------
 
-const phoneField = z.string().min(1).max(20).regex(/^[\d-]+$/, '正しい電話番号を入力してください');
-
 const salonInsertSchema = z.object({
-  facility_name: z.string().min(1).max(200),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  facility_name: z.string().trim().min(1).max(200),
   business_type: z.string().min(1).max(50),
-  representative_name: z.string().min(1).max(100),
-  contact_name: z.string().min(1).max(100),
+  representative_name: z.string().trim().min(1).max(100),
+  contact_name: z.string().trim().min(1).max(100),
   email: z.string().email().max(254),
-  phone: phoneField,
-  contact_phone: z.string().max(20).regex(/^[\d-]*$/).optional().nullable(),
+  // 【2026年7月8日 恒久根治】従来はこのファイル固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
+  // 全角未対応)を独自定義しており、共通ヘルパー phoneField()（予約/問い合わせ/会員登録の
+  // 全箇所で使用・先頭0必須の phoneRegex + 全角→半角正規化）より検証が緩かった。ハイフンのみ
+  // (例:"-")や先頭0なしの数字列がこのAPI経由でのみ通過し得た。共通ヘルパーに統一する。
+  phone: sharedPhoneField({ required: true }),
+  contact_phone: sharedPhoneField(),
   website: z.string().max(2000).url().or(z.literal('')).optional().nullable(),
   postal_code: z.string().max(8).optional().nullable(),
   address: z.string().max(500).optional().nullable(),

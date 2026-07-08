@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 // お名前・電話番号・住所(都道府県)は必須化(2026年7月6日・神原さん指摘)。
 // 電話番号はでたらめな値を弾くため、予約フォーム等と同じ phoneField() の書式検証を通す。
 const profileSchema = z.object({
-  display_name: z.string().min(1, 'お名前は必須です').max(50),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  display_name: z.string().trim().min(1, 'お名前は必須です').max(50),
   phone: phoneField({ required: true }),
   prefecture: z.string().min(1, '都道府県を選択してください').max(20),
   city: z.string().max(50).nullable().optional(),

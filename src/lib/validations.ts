@@ -6,7 +6,8 @@ import { phoneField } from './phone';
 // route.ts から export すると Next.js の Route Handler 制約（GET/POST 等以外の export 禁止）に
 // 違反するため、共有スキーマは lib 側に置く（admin/customers/route.ts と [id]/route.ts の両方が使う）。
 export const customerSchema = z.object({
-  name: z.string().min(1, 'お名前を入力してください').max(50, '50文字以内で入力してください'),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  name: z.string().trim().min(1, 'お名前を入力してください').max(50, '50文字以内で入力してください'),
   name_kana: z.string().max(50, '50文字以内で入力してください').optional().nullable(),
   email: z.string().email('正しいメールアドレスを入力してください').max(254).optional().nullable().or(z.literal('')),
   phone: phoneField(),
@@ -17,10 +18,11 @@ export const customerSchema = z.object({
 
 // Salon form schemas (per step)
 export const salonStep1Schema = z.object({
-  facility_name: z.string().min(1, '施設名を入力してください').max(200, '200文字以内で入力してください'),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  facility_name: z.string().trim().min(1, '施設名を入力してください').max(200, '200文字以内で入力してください'),
   business_type: z.string().min(1, '業種を選択してください').max(50),
-  representative_name: z.string().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
-  contact_name: z.string().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
+  representative_name: z.string().trim().min(1, '代表者名を入力してください').max(100, '100文字以内で入力してください'),
+  contact_name: z.string().trim().min(1, '担当者名を入力してください').max(100, '100文字以内で入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
   phone: phoneField({ required: true }),
   contact_phone: phoneField(),

@@ -179,6 +179,18 @@ describe('POST /api/inquiry', () => {
     expect(res.status).toBe(400);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの名前・内容が保存され得た。
+  test('name がスペースのみ → 400', async () => {
+    const res = await POST(makeRequest({ ...validInquiry, name: '   ' }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('message がスペースのみ → 400', async () => {
+    const res = await POST(makeRequest({ ...validInquiry, message: '   ' }) as any);
+    expect(res.status).toBe(400);
+  });
+
   test('null body (invalid JSON) → 400', async () => {
     const req = new Request('http://localhost/api/inquiry', {
       method: 'POST',

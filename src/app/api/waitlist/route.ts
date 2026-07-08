@@ -22,7 +22,8 @@ const WaitlistSchema = z.object({
   date:          z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   start_time:    z.string().regex(/^\d{2}:\d{2}$/),
   end_time:      z.string().regex(/^\d{2}:\d{2}$/),
-  customer_name: z.string().min(1).max(50),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  customer_name: z.string().trim().min(1).max(50),
   email:         z.string().email().optional(),
   phone:         z.string().optional(),
   notes:         z.string().max(200).optional(),
