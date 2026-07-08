@@ -1,7 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import { bookingSchema } from '@/lib/validations-booking';
 import { zodErrorResponse } from '@/lib/api-validation';
 import { checkCsrf } from '@/lib/csrf';
@@ -328,6 +327,14 @@ export async function POST(request: Request) {
     }
   }
 
+  // レスポンス返却後に走らせていた副作用（メール・Push・LINE 通知）をここに集約し、return 直前に
+  // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
+  // 従来は各副作用を Vercel の bookingSideEffects.push() に渡す fire-and-forget だったが、Fluid Compute 無効の
+  // 本番では関数がレスポンス返却直後に凍結され、waitUntil の後処理が一切完走せず通知が全滅していた
+  // （口コミルート /api/review と同一の欠陥・同一の根治）。各 send は safeSend 等の契約で失敗しても
+  // reject せず、末尾 .catch でも握るため allSettled で本体レスポンス(200)には影響しない。
+  const bookingSideEffects: Promise<unknown>[] = [];
+
   // Send email notifications (non-blocking)
   try {
     const [facilityResult, menuResult, staffResult, ownerResult] = await Promise.all([
@@ -367,7 +374,7 @@ export async function POST(request: Request) {
     const confirmationEmailSend = bookingStatus === 'confirmed'
       ? sendBookingConfirmed(emailData)
       : sendBookingConfirmation(emailData);
-    waitUntil(
+    bookingSideEffects.push(
       confirmationEmailSend.then((ok) => {
         if (!ok) {
           const err = new Error('booking confirmation email send failed');
@@ -389,7 +396,7 @@ export async function POST(request: Request) {
         ((ownerProfiles as { email: string | null }[] | null) ?? []).map((p) => p.email).filter(Boolean) as string[]
       ));
       for (const facilityEmail of ownerEmails) {
-        waitUntil(
+        bookingSideEffects.push(
           sendNewBookingNotification({ ...emailData, facilityEmail }).then((ok) => {
             if (!ok) {
               const err = new Error('new booking notification email send failed');
@@ -413,7 +420,7 @@ export async function POST(request: Request) {
     // 客本人への確認 Push（下）は施設設定の対象外（客自身の予約確認のため常に送る）。
     const notif = await getFacilityNotificationSettings(parsed.data.facility_id);
     if (notif.pushOnNewBooking) {
-      waitUntil(
+      bookingSideEffects.push(
         sendPushToFacilityOwners(parsed.data.facility_id, {
           title: '新規予約',
           body: `${parsed.data.customer_name}様から${parsed.data.booking_date} ${parsed.data.start_time}〜の予約が入りました`,
@@ -424,7 +431,7 @@ export async function POST(request: Request) {
     }
 
     if (user) {
-      waitUntil(
+      bookingSideEffects.push(
         sendPushToUser(user.id, {
           title: '予約を受け付けました',
           body: `${parsed.data.booking_date} ${parsed.data.start_time}〜のご予約を承りました`,
@@ -471,7 +478,7 @@ export async function POST(request: Request) {
         // sendLineBookingConfirm は sendLinePush 経由で送信失敗時も throw せず false を返す
         // 契約のため、.catch() だけでは失敗が無音化する。戻り値を確認して可視化する。
         // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
-        waitUntil(
+        bookingSideEffects.push(
           sendLineBookingConfirm(lineLink.line_user_id, {
             facilityName: facilityForLine?.name || '',
             menuName: lineMenuName,
@@ -532,7 +539,7 @@ export async function POST(request: Request) {
           if (isAssigned || staff.line_works_notify_all) {
             // notifyNewBookingLineWorks も失敗時 throw せず false を返す契約。line_works_channel_id
             // 設定済みスタッフのみが対象なので false は真の未送達＝ログ化して可観測にする（非ブロッキング維持）。
-            waitUntil(
+            bookingSideEffects.push(
               notifyNewBookingLineWorks(staff.line_works_channel_id, bookingInfo)
                 .then((ok) => { if (!ok) console.error('[booking] LINE Works new-booking notification not delivered', { bookingId: newBookingId, staffId: staff.id }); })
                 .catch((e) => safeCaptureException(e, 'booking-lineworks'))
@@ -545,6 +552,9 @@ export async function POST(request: Request) {
       safeCaptureException(e, 'booking-lineworks-setup');
     }
   }
+
+  // レスポンス返却前に副作用を確実に完了させる（waitUntil 後処理が本番で全滅していた恒久根治）。
+  await Promise.allSettled(bookingSideEffects);
 
   return NextResponse.json({ success: true, bookingId: newBookingId });
   } catch (e) {

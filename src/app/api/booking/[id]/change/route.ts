@@ -1,7 +1,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -146,6 +145,13 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       ipAddress: ip,
     });
 
+    // レスポンス返却後に走らせていた副作用（メール・Push・LINE Works 通知）をここに集約し、return 直前に
+    // await Promise.allSettled でまとめて完了させる。【2026年7月7日 本番実データで確定した恒久根治】
+    // changeSideEffects.push() の fire-and-forget は Fluid Compute 無効の本番でレスポンス返却直後に凍結され後処理が
+    // 全滅していた（口コミルート /api/review と同一の欠陥・同一の根治）。allSettled なので個別 send の
+    // 失敗（reject 含む）は本体レスポンス(200)に影響しない。
+    const changeSideEffects: Promise<unknown>[] = [];
+
     // 顧客・オーナーへの変更通知（作成/キャンセルと対称・A-4）。従来はスタッフ向け LINE Works のみで、
     // 顧客への確認(メール/Push)もオーナー Push も欠落していた。変更後の新日時を通知する。非ブロッキング。
     try {
@@ -164,7 +170,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       if (full?.email) {
         // sendBookingRescheduled は送信失敗時も throw せず false を返す契約のため、.catch() だけでは
         // 失敗が無音化する（想定外の例外のみ catch が発火する）。戻り値を確認して可視化する。
-        waitUntil(
+        changeSideEffects.push(
           sendBookingRescheduled({
             customerName: full.customer_name ?? '',
             customerEmail: full.email,
@@ -187,7 +193,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           })
         );
       }
-      waitUntil(
+      changeSideEffects.push(
         sendPushToUser(user.id, {
           title: 'ご予約日時を変更しました',
           body: `${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
@@ -197,7 +203,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       );
       const notif = await getFacilityNotificationSettings(booking.facility_id);
       if (notif.pushOnNewBooking) {
-        waitUntil(
+        changeSideEffects.push(
           sendPushToFacilityOwners(booking.facility_id, {
             title: '予約日時変更',
             body: `${full?.customer_name ?? 'お客様'}が${parsed.data.booking_date} ${parsed.data.start_time}〜に変更しました`,
@@ -244,7 +250,7 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
           for (const staff of staffList) {
             if (!staff.line_works_channel_id) continue;
             if (staff.id !== booking.staff_id && !staff.line_works_notify_all) continue;
-            waitUntil(
+            changeSideEffects.push(
               sendLineWorksMessage(staff.line_works_channel_id, { content: { type: 'text', text } })
                 .catch((e) => safeCaptureException(e, 'change-lineworks'))
             );
@@ -254,6 +260,9 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
         safeCaptureException(e, 'change-lineworks-setup');
       }
     }
+
+    // レスポンス返却前に副作用を確実に完了させる（waitUntil 後処理が本番で全滅していた恒久根治）。
+    await Promise.allSettled(changeSideEffects);
 
     return NextResponse.json({ success: true });
   } catch (e) {

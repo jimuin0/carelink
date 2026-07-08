@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
@@ -145,26 +144,31 @@ export async function POST(request: NextRequest) {
   // 失敗が無音化する。戻り値を確認して可視化する。
   if (d.email) {
     const { data: facility } = await admin.from('facility_profiles').select('name').eq('id', d.facility_id).single();
-    waitUntil(
-      sendBookingConfirmed({
-        bookingId: newId,
-        customerName: d.customer_name,
-        customerEmail: d.email,
-        facilityName: facility?.name ?? '',
-        bookingDate: d.booking_date,
-        startTime: d.start_time,
-        endTime: d.end_time,
-        menuName: menuList.map((r) => r.name).filter(Boolean).join('、'),
-        staffName,
-        totalPrice,
-      }).then((ok) => {
-        if (!ok) {
-          const err = new Error('admin booking confirmation email send failed');
-          safeCaptureException(err, 'admin-bookings-email');
-          alertCaughtError('admin-bookings-email', err, '/api/admin/bookings');
-        }
-      })
-    );
+    // 【2026年7月7日 本番実データで確定した恒久根治】waitUntil() の fire-and-forget は Fluid Compute
+    // 無効の本番でレスポンス返却直後に凍結され後処理が全滅していた（/api/review と同一の欠陥・同一の
+    // 根治）。レスポンス前に await で確実に送る。allSettled 相当に .catch を足し、送信失敗（reject 含む）
+    // が本体レスポンス(201)に影響しないようにする。
+    await sendBookingConfirmed({
+      bookingId: newId,
+      customerName: d.customer_name,
+      customerEmail: d.email,
+      facilityName: facility?.name ?? '',
+      bookingDate: d.booking_date,
+      startTime: d.start_time,
+      endTime: d.end_time,
+      menuName: menuList.map((r) => r.name).filter(Boolean).join('、'),
+      staffName,
+      totalPrice,
+    }).then((ok) => {
+      if (!ok) {
+        const err = new Error('admin booking confirmation email send failed');
+        safeCaptureException(err, 'admin-bookings-email');
+        alertCaughtError('admin-bookings-email', err, '/api/admin/bookings');
+      }
+    }).catch((e) => {
+      safeCaptureException(e, 'admin-bookings-email');
+      alertCaughtError('admin-bookings-email', e, '/api/admin/bookings');
+    });
   }
 
   return NextResponse.json({ success: true, id: newId }, { status: 201 });

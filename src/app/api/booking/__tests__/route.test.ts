@@ -175,6 +175,43 @@ describe('POST /api/booking', () => {
     expect(json.bookingId).toBe('new-booking-id');
   });
 
+  // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】通知の副作用を fire-and-forget
+  // (waitUntil) に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。
+  // レスポンスは副作用の完了(await Promise.allSettled)まで確定しないことを直列に検証する。
+  test('通知メール送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      return nullChain;
+    });
+
+    const { sendBookingConfirmation, sendBookingConfirmed } = require('@/lib/email');
+    let resolveSend: (() => void) | undefined;
+    const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
+    (sendBookingConfirmation as jest.Mock).mockReturnValueOnce(pending);
+    (sendBookingConfirmed as jest.Mock).mockReturnValueOnce(pending);
+
+    const postPromise = POST(makeRequest(validBooking));
+    let settled = false;
+    void postPromise.then(() => { settled = true; });
+
+    // 送信 Promise が未解決の間はレスポンスも確定しない（＝fire-and-forget でない）。
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+
+    // 送信完了でレスポンスが確定する。
+    resolveSend!();
+    const res = await postPromise;
+    expect(settled).toBe(true);
+    expect((await res.json()).success).toBe(true);
+  });
+
   test('バリデーション失敗→400', async () => {
     const res = await POST(makeRequest({ ...validBooking, customer_name: '' }));
     expect(res.status).toBe(400);
