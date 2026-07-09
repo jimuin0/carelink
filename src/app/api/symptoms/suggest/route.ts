@@ -9,6 +9,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { checkCsrf } from '@/lib/csrf';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 import { z } from 'zod';
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -16,6 +17,7 @@ const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const schema = z.object({
   symptoms: z.string().min(2).max(500),
   prefecture: z.string().max(50).optional(),
+  recaptcha_token: z.string().optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -29,6 +31,19 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null);
   const parsed = schema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
+
+  // reCAPTCHA v3 検証（fail-closed: secret設定時はtoken必須。/api/review と同水準）。
+  // このエンドポイントはリクエスト毎にAnthropic API（有料）を呼ぶため、Bot対策が無いと
+  // レート制限（IP単位10req/分）だけでは複数IPからの分散連打でAPIコストを無制限に浪費できた。
+  if (process.env.RECAPTCHA_SECRET_KEY) {
+    if (!parsed.data.recaptcha_token) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+    const captcha = await verifyRecaptcha(parsed.data.recaptcha_token, 'symptoms_suggest', 0.4);
+    if (!captcha.success) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+  }
 
   const { symptoms, prefecture } = parsed.data;
 

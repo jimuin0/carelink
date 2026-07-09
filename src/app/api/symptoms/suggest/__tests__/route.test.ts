@@ -6,6 +6,7 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 
 // Lazy wrapper: `mockCreate` is assigned in beforeEach; the closure captures the
 // variable slot so the singleton `client` (created at route module scope) always
@@ -20,6 +21,7 @@ jest.mock('@anthropic-ai/sdk', () => ({
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
 const VALID_AI_RESPONSE = {
@@ -30,8 +32,12 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkCsrf as jest.Mock).mockReturnValue(null);
+  (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true, score: 0.9 });
   mockCreate = jest.fn().mockResolvedValue(VALID_AI_RESPONSE);
   process.env.ANTHROPIC_API_KEY = 'test-key';
+  // jest.setup.js がグローバルに RECAPTCHA_SECRET_KEY を設定しているため、既存の
+  // 大半のテストは fail-closed 検証を通す想定で token ありのリクエストを使う。
+  process.env.RECAPTCHA_SECRET_KEY = 'test-recaptcha-secret';
 });
 
 function makeRequest(body: object, ip = '192.168.1.1') {
@@ -44,6 +50,7 @@ function makeRequest(body: object, ip = '192.168.1.1') {
 
 const validRequest = {
   symptoms: '腰が痛い',
+  recaptcha_token: 'valid-token',
 };
 
 describe('POST /api/symptoms/suggest', () => {
@@ -75,12 +82,12 @@ describe('POST /api/symptoms/suggest', () => {
   });
 
   test('prefecture optional', async () => {
-    const res = await POST(makeRequest({ symptoms: '肩こり' }) as any);
+    const res = await POST(makeRequest({ symptoms: '肩こり', recaptcha_token: 'valid-token' }) as any);
     expect(res.status).toBe(200);
   });
 
   test('prefecture あり → プロンプトに都道府県を含む', async () => {
-    const res = await POST(makeRequest({ symptoms: '腰が痛い', prefecture: '東京都' }) as any);
+    const res = await POST(makeRequest({ symptoms: '腰が痛い', prefecture: '東京都', recaptcha_token: 'valid-token' }) as any);
     expect(res.status).toBe(200);
   });
 
@@ -92,7 +99,7 @@ describe('POST /api/symptoms/suggest', () => {
   });
 
   test('strips HTML characters from symptoms (user input sanitized)', async () => {
-    await POST(makeRequest({ symptoms: '<script>alert("xss")</script>腰痛' }) as any);
+    await POST(makeRequest({ symptoms: '<script>alert("xss")</script>腰痛', recaptcha_token: 'valid-token' }) as any);
     expect(mockCreate).toHaveBeenCalled();
     const call = mockCreate.mock.calls[0];
     // User-injected script tag is stripped; route's own <symptoms> wrapper tags remain
@@ -163,5 +170,34 @@ describe('POST /api/symptoms/suggest', () => {
     });
     const res = await POST(makeRequest(validRequest) as any);
     expect(res.status).toBe(500);
+  });
+
+  describe('reCAPTCHA（有料AI APIをBot連打から守るfail-closed検証）', () => {
+    test('RECAPTCHA_SECRET_KEY設定時、token省略 → 403（Bot検証バイパス不可）', async () => {
+      const res = await POST(makeRequest({ symptoms: '腰が痛い' }) as any);
+      expect(res.status).toBe(403);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    test('reCAPTCHA検証失敗 → 403（AI APIは呼ばれない）', async () => {
+      (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: false, reason: 'low_score:0.1' });
+      const res = await POST(makeRequest(validRequest) as any);
+      expect(res.status).toBe(403);
+      expect(mockCreate).not.toHaveBeenCalled();
+    });
+
+    test('reCAPTCHA検証成功 → 200へ進む（action=symptoms_suggestで呼ばれる）', async () => {
+      const res = await POST(makeRequest(validRequest) as any);
+      expect(res.status).toBe(200);
+      expect(verifyRecaptcha).toHaveBeenCalledWith('valid-token', 'symptoms_suggest', 0.4);
+    });
+
+    test('RECAPTCHA_SECRET_KEY未設定（開発環境）→ tokenなしでもスキップして200', async () => {
+      delete process.env.RECAPTCHA_SECRET_KEY;
+      const res = await POST(makeRequest({ symptoms: '腰が痛い' }) as any);
+      expect(res.status).toBe(200);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
+    });
   });
 });

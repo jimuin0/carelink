@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
@@ -48,9 +48,19 @@ function ContactPageContent() {
     setValue('message', `【${planLabel}についてのお問い合わせ】\n`);
   }, [searchParams, setValue]);
 
+  // submitting(state)だけを見ると、zodResolver の非同期検証が終わり setSubmitting(true)が
+  // 反映されるまでの間（Reactの再レンダーを跨ぐ猶予）に連打されると両方とも通ってしまう
+  // （state 更新は非同期・バッチされるため）。ref は同期的に読み書きできるため、
+  // 同一tick内の連打も含めて確実にブロックできる。
+  const submitLockRef = useRef(false);
+
   const handleConfirmSubmit = () => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setShowConfirm(false);
-    handleSubmit(onSubmit)();
+    handleSubmit(onSubmit)().finally(() => {
+      submitLockRef.current = false;
+    });
   };
 
   const onSubmit = async (data: ContactForm) => {
@@ -192,6 +202,7 @@ function ContactPageContent() {
         title="送信内容の確認"
         message="お問い合わせ内容を送信します。よろしいですか？"
         confirmLabel="送信する"
+        confirmDisabled={submitting}
         onConfirm={handleConfirmSubmit}
         onCancel={() => setShowConfirm(false)}
       />
