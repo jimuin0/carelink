@@ -20,7 +20,8 @@ export const loginSchema = z.object({
 });
 
 export const signupSchema = z.object({
-  display_name: z.string().min(1, 'お名前を入力してください').max(50),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  display_name: z.string().trim().min(1, 'お名前を入力してください').max(50),
   email: z.string().email('正しいメールアドレスを入力してください').max(254)
     .refine(notReservedLineEmail, reservedLineEmailMessage),
   // お名前・電話番号・住所(都道府県)はアカウント登録時点で必須化(2026年7月6日・神原さん指摘)。

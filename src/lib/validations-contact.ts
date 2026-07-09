@@ -10,11 +10,12 @@ import { phoneField } from './phone';
  * 両者が同じ規則で検証する。電話は phoneField で全角正規化＋形式検証。
  */
 export const contactSchema = z.object({
-  name: z.string().min(1, 'お名前を入力してください').max(100, '100文字以内で入力してください'),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  name: z.string().trim().min(1, 'お名前を入力してください').max(100, '100文字以内で入力してください'),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
   phone: phoneField(),
   inquiry_type: z.string().min(1, 'お問い合わせ種別を選択してください').max(100),
-  message: z.string().min(1, '内容を入力してください').max(5000, '5000文字以内で入力してください'),
+  message: z.string().trim().min(1, '内容を入力してください').max(5000, '5000文字以内で入力してください'),
 });
 
 export type ContactFormData = z.infer<typeof contactSchema>;

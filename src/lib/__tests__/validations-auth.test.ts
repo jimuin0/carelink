@@ -42,6 +42,18 @@ describe('signupSchema', () => {
     expect(signupSchema.safeParse({ ...valid, display_name: '' }).success).toBe(false);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの名前が保存され得た。
+  test('表示名がスペースのみだとエラー', () => {
+    expect(signupSchema.safeParse({ ...valid, display_name: '   ' }).success).toBe(false);
+  });
+
+  test('表示名の前後空白はトリムされて保存される', () => {
+    const result = signupSchema.safeParse({ ...valid, display_name: '  テスト太郎  ' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.display_name).toBe('テスト太郎');
+  });
+
   test('パスワード不一致だとエラー', () => {
     const result = signupSchema.safeParse({ ...valid, password_confirm: 'different' });
     expect(result.success).toBe(false);
