@@ -403,6 +403,44 @@ describe('searchFacilities (additional branches)', () => {
       type_filter: null,
     }));
   });
+
+  // 【2026年7月10日 恒久根治の回帰】GPS検索でも keyword/features がRPCに渡り、
+  // DB側(migration 20260710000001)で絞り込まれることを保証する。
+  test('geo検索でkeywordがRPCのkeyword_filterに渡る（ワイルドカードはエスケープ）', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5, keyword: '100%オフ_割引' });
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      keyword_filter: '100\\%オフ\\_割引',
+    }));
+  });
+
+  test('geo検索でkeyword未指定はnull', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5 });
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      keyword_filter: null,
+    }));
+  });
+
+  test('geo検索でfeaturesがRPCのfeatures_filterに渡る', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5, features: ['駐車場', '個室'] });
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      features_filter: ['駐車場', '個室'],
+    }));
+  });
+
+  test('geo検索でfeatures未指定(空配列含む)はnull', async () => {
+    mockFrom.mockReturnValue(fluent({ data: [], error: null }));
+    mockRpc.mockResolvedValue({ data: [], error: null });
+    await searchFacilities({ lat: 34.7, lng: 135.5, features: [] });
+    expect(mockRpc).toHaveBeenCalledWith('search_facilities_nearby', expect.objectContaining({
+      features_filter: null,
+    }));
+  });
 });
 
 // ─── getPopularFacilities (cache fallback) ───────────────────────────────────
