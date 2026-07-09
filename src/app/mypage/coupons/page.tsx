@@ -4,7 +4,8 @@ import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 
 export const metadata: Metadata = {
-  title: 'クーポン手帳 | マイページ | CareLink',
+  // mypage/layout の title.template '%s | マイページ | CareLink' が自動付与するため、ここではページ名のみ（二重化防止）。
+  title: 'クーポン手帳',
   robots: { index: false, follow: false },
 };
 
