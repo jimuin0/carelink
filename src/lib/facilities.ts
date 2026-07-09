@@ -83,15 +83,20 @@ export async function searchFacilities(params: SearchParams) {
     return { facilities: filtered.slice(from, from + PER_PAGE) as FacilityCardData[], total: filtered.length, perPage: PER_PAGE, error };
   }
 
+  // 【2026年7月8日 恒久根治】主キー(id)を二次キーとして全ソート分岐に追加する。PostgreSQLは
+  // 単一列ORDER BYで同値行の順序を保証しないため、この関数のようにpage/rangeでページングする
+  // 場合、同点施設(同一rating_avg等)がページ境界で重複表示・欠落しうる（真の意味で不定であり
+  // 稀にしか発生しないバグではなく、実行毎に起こりうる構造的欠陥）。idは一意なため、これを
+  // 二次キーにすることで同点内の順序が常に決定的になる。
   if (params.sort === 'rating') {
-    query = query.order('rating_avg', { ascending: false });
+    query = query.order('rating_avg', { ascending: false }).order('id', { ascending: true });
   } else if (params.sort === 'popular') {
     // facility_card_view に view_count 列は存在しない（列は rating_count / google_review_count 等）。
     // 旧実装は view_count で order しており PostgREST エラー → sort=popular が常に0件だった。
     // 人気の代理指標として rating_count を使う（getPopularFacilities も同じ rating_count 順）。
-    query = query.order('rating_count', { ascending: false, nullsFirst: false });
+    query = query.order('rating_count', { ascending: false, nullsFirst: false }).order('id', { ascending: true });
   } else {
-    query = query.order('created_at', { ascending: false });
+    query = query.order('created_at', { ascending: false }).order('id', { ascending: true });
   }
 
   const page = Math.max(1, params.page || 1); // 負値(?page=-1 等)で range が負になり PostgREST エラー/末尾slice化するのを防ぐ
@@ -113,7 +118,10 @@ export async function getPopularFacilities(limit = 6) {
           .from(CARD_VIEW)
           .select(CARD_COLS)
           .eq('status', 'published')
+          // .order('id',...): 主キーを二次キーとして同点施設の順序を決定的にする（恒久根治、
+          // 詳細は searchFacilities のコメント参照）。
           .order('rating_count', { ascending: false })
+          .order('id', { ascending: true })
           .limit(limit);
         return (data || []) as FacilityCardData[];
       },
@@ -128,6 +136,7 @@ export async function getPopularFacilities(limit = 6) {
       .select(CARD_COLS)
       .eq('status', 'published')
       .order('rating_count', { ascending: false })
+      .order('id', { ascending: true })
       .limit(limit);
     return { facilities: (data || []) as FacilityCardData[], error };
   }
@@ -217,6 +226,7 @@ export async function getSimilarFacilities(facilityId: string, businessType: str
     .eq('prefecture', prefecture)
     .neq('id', facilityId)
     .order('rating_avg', { ascending: false })
+    .order('id', { ascending: true })
     .limit(limit);
   return (data || []) as FacilityCardData[];
 }
@@ -231,6 +241,7 @@ export async function getNearbyFacilities(facilityId: string, prefecture: string
     .eq('city', city)
     .neq('id', facilityId)
     .order('rating_avg', { ascending: false })
+    .order('id', { ascending: true })
     .limit(limit);
   return (data || []) as FacilityCardData[];
 }
@@ -242,6 +253,7 @@ export async function getLatestFacilities(limit = 6) {
     .select(CARD_COLS)
     .eq('status', 'published')
     .order('created_at', { ascending: false })
+    .order('id', { ascending: true })
     .limit(limit);
   return { facilities: (data || []) as FacilityCardData[], error };
 }
