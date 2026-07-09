@@ -14,6 +14,15 @@ import '@testing-library/jest-dom';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import SymptomsPage from '../page';
 
+// このページは分析リクエスト前に getRecaptchaToken を呼ぶ（#450 で追加）。
+// テスト環境（jest.setup.js）は NEXT_PUBLIC_RECAPTCHA_SITE_KEY を設定するため、
+// モックしないと本物の loadRecaptchaScript が <script> の onload を待って jsdom で
+// 永久にハングする。検索リンクのパラメータ生成という検証対象を reCAPTCHA の
+// スクリプトローダーから隔離するため、モジュール契約通り null（トークン無し）を返す。
+jest.mock('@/lib/recaptcha-client', () => ({
+  getRecaptchaToken: jest.fn().mockResolvedValue(null),
+}));
+
 global.fetch = jest.fn();
 
 function mockSuggestResponse() {
