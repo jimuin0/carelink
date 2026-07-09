@@ -2,14 +2,19 @@ import Link from 'next/link';
 import { regionGroups, businessTypes } from '@/lib/constants';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 
-const majorCities: { pref: string; cities: { slug: string; name: string }[] }[] = [
+// 神奈川・愛知・福岡・京都は src/data/city-slugs.ts に区レベルのslugが存在せず市レベルのみ
+// （東京・大阪だけが区レベルを持つ）。旧実装は区レベルの名称・slugをハードコードしており、
+// [prefectureSlug]/[secondSlug]/page.tsx で isValidCitySlug に該当せず notFound() になっていた
+// （実データ確認: /kanagawa/yokohama-nishi 等でnot-found.tsxのレンダリングを確認済み）。
+// 全エントリを city-slugs.ts に実在するslugに置換する。
+export const majorCities: { pref: string; cities: { slug: string; name: string }[] }[] = [
   { pref: 'tokyo', cities: [{ slug: 'shibuya', name: '渋谷区' }, { slug: 'shinjuku', name: '新宿区' }, { slug: 'minato', name: '港区' }, { slug: 'setagaya', name: '世田谷区' }, { slug: 'meguro', name: '目黒区' }] },
   { pref: 'osaka', cities: [{ slug: 'kita', name: '北区' }, { slug: 'chuo', name: '中央区' }, { slug: 'tennoji', name: '天王寺区' }, { slug: 'naniwa', name: '浪速区' }] },
-  { pref: 'kanagawa', cities: [{ slug: 'yokohama-nishi', name: '横浜市西区' }, { slug: 'kawasaki', name: '川崎市' }, { slug: 'fujisawa', name: '藤沢市' }] },
-  { pref: 'aichi', cities: [{ slug: 'nagoya-naka', name: '名古屋市中区' }, { slug: 'nagoya-chikusa', name: '名古屋市千種区' }, { slug: 'toyohashi', name: '豊橋市' }] },
-  { pref: 'fukuoka', cities: [{ slug: 'hakata', name: '博多区' }, { slug: 'chuo', name: '中央区' }, { slug: 'tenjin', name: '天神' }] },
+  { pref: 'kanagawa', cities: [{ slug: 'yokohama', name: '横浜市' }, { slug: 'kawasaki', name: '川崎市' }, { slug: 'fujisawa', name: '藤沢市' }] },
+  { pref: 'aichi', cities: [{ slug: 'nagoya', name: '名古屋市' }, { slug: 'toyota', name: '豊田市' }, { slug: 'toyohashi', name: '豊橋市' }] },
+  { pref: 'fukuoka', cities: [{ slug: 'fukuoka-city', name: '福岡市' }, { slug: 'kitakyushu', name: '北九州市' }, { slug: 'kurume', name: '久留米市' }] },
   { pref: 'hokkaido', cities: [{ slug: 'sapporo', name: '札幌市' }, { slug: 'asahikawa', name: '旭川市' }] },
-  { pref: 'kyoto', cities: [{ slug: 'shimogyo', name: '下京区' }, { slug: 'nakagyo', name: '中京区' }] },
+  { pref: 'kyoto', cities: [{ slug: 'kyoto-city', name: '京都市' }, { slug: 'uji', name: '宇治市' }] },
 ];
 
 export default function SearchFooter() {

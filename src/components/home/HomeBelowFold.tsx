@@ -34,7 +34,7 @@ const worryNavItems = [
   { label: '日頃の疲れを癒したい', href: '/search?type=リラクサロン' },
 ];
 
-const majorCities = [
+export const majorCities = [
   { pref: 'tokyo', slug: 'shibuya', name: '渋谷区' },
   { pref: 'tokyo', slug: 'shinjuku', name: '新宿区' },
   { pref: 'tokyo', slug: 'minato', name: '港区' },
@@ -43,13 +43,18 @@ const majorCities = [
   { pref: 'osaka', slug: 'kita', name: '大阪北区' },
   { pref: 'osaka', slug: 'chuo', name: '大阪中央区' },
   { pref: 'osaka', slug: 'tennoji', name: '天王寺区' },
-  { pref: 'kanagawa', slug: 'yokohama-nishi', name: '横浜市西区' },
-  { pref: 'aichi', slug: 'nagoya-naka', name: '名古屋市中区' },
-  { pref: 'fukuoka', slug: 'hakata', name: '博多区' },
+  // 神奈川・愛知・福岡・広島・京都は src/data/city-slugs.ts に区レベルのslugが存在せず市レベルのみ
+  // （東京・大阪だけが区レベルを持つ）。旧実装は区レベルの名称・slugをハードコードしており、
+  // [prefectureSlug]/[secondSlug]/page.tsx で isValidCitySlug に該当せず notFound() になっていた
+  // （実データ確認: /kanagawa/yokohama-nishi 等5件でnot-found.tsxのレンダリングを確認済み）。
+  // 実在する市レベルslugに置換する。
+  { pref: 'kanagawa', slug: 'yokohama', name: '横浜市' },
+  { pref: 'aichi', slug: 'nagoya', name: '名古屋市' },
+  { pref: 'fukuoka', slug: 'fukuoka-city', name: '福岡市' },
   { pref: 'hokkaido', slug: 'sapporo', name: '札幌市' },
   { pref: 'miyagi', slug: 'sendai', name: '仙台市' },
-  { pref: 'hiroshima', slug: 'hiroshima-naka', name: '広島市中区' },
-  { pref: 'kyoto', slug: 'shimogyo', name: '京都下京区' },
+  { pref: 'hiroshima', slug: 'hiroshima-city', name: '広島市' },
+  { pref: 'kyoto', slug: 'kyoto-city', name: '京都市' },
 ];
 
 const blogPosts = [
