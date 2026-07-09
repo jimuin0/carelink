@@ -115,7 +115,56 @@ function adminReadChain() {
   };
 }
 
+// 正常系のキャンセル通知チェーン（happy path と同一の mockFrom 構成）を共有する。
+function setupCancelHappyMocks() {
+  mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+  let callNum = 0;
+  mockFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) {
+      return fluent({
+        data: {
+          id: validId, user_id: 'user-1', status: 'pending',
+          facility_id: 'f-1', customer_name: 'テスト', email: 'test@example.com',
+          booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+          total_price: 5000, menu_id: null, staff_id: null,
+        },
+      });
+    }
+    const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+    const eqFirst = jest.fn(() => ({ eq: eqTerminal, then: (fn: (v: unknown) => unknown) => Promise.resolve({ error: null }).then(fn) }));
+    return {
+      update: jest.fn(() => ({ eq: eqFirst })),
+      select: jest.fn(() => ({ eq: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })), limit: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null })) })) })) })),
+    };
+  });
+}
+
 describe('POST /api/booking/[id]/cancel', () => {
+  // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】キャンセル通知を fire-and-forget
+  // (waitUntil) に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。
+  // レスポンスは副作用の完了(await Promise.allSettled)まで確定しないことを直列に検証する。
+  test('キャンセル通知送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+    setupCancelHappyMocks();
+
+    const { sendBookingCancelled } = require('@/lib/email');
+    let resolveSend: (() => void) | undefined;
+    const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
+    (sendBookingCancelled as jest.Mock).mockReturnValueOnce(pending);
+
+    const postPromise = POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    let settled = false;
+    void postPromise.then(() => { settled = true; });
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+
+    resolveSend!();
+    const res = await postPromise;
+    expect(settled).toBe(true);
+    expect((await res.json()).success).toBe(true);
+  });
+
   test('正常にキャンセルする', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 

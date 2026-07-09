@@ -250,6 +250,27 @@ test('正常作成（email あり） → 201・確認メール送信', async () 
   }));
 });
 
+// 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】確認メールを fire-and-forget (waitUntil)
+// に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。レスポンスは送信の
+// 完了(await)まで確定しないことを直列に検証する。
+test('確認メール送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+  let resolveSend: (() => void) | undefined;
+  const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
+  (sendBookingConfirmed as jest.Mock).mockReturnValueOnce(pending);
+
+  const postPromise = POST(makeRequest(validBody({ email: 'taro@example.com' })) as never);
+  let settled = false;
+  void postPromise.then(() => { settled = true; });
+
+  await new Promise((r) => setTimeout(r, 20));
+  expect(settled).toBe(false);
+
+  resolveSend!();
+  const res = await postPromise;
+  expect(settled).toBe(true);
+  expect(res.status).toBe(201);
+});
+
 test('メニュー price が null → 201（price フォールバック0）', async () => {
   setupAdminTables({ menus: [{ id: MENU_UUID, name: 'カット', price: null }] });
   const res = await POST(makeRequest(validBody()) as never);

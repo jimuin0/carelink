@@ -6,7 +6,8 @@ import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility } from '@/types';
 
 export const metadata: Metadata = {
-  title: '施設比較 | CareLink',
+  // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
+  title: '施設比較',
   robots: { index: false, follow: false },
 };
 
