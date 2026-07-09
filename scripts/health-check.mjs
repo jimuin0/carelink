@@ -12,11 +12,33 @@
  *   - CARELINK_BASE_URL      例: https://carelink-jp.com（必須）
  *   - SLACK_BOT_TOKEN        通報用（任意・未設定ならログのみ）
  *   - SLACK_DEFAULT_CHANNEL  同上
+ *   - ADMIN_HEARTBEAT_URL    admin-dashboard heartbeat 送信先（任意・未設定なら no-op）
+ *   - ADMIN_HEARTBEAT_TOKEN  同上
  */
 
 import { isHealthy, formatHealthSummary } from '../src/lib/render-cron.mjs';
 
 const TIMEOUT_MS = 30_000;
+const ADMIN_HEARTBEAT_JOB_ID = 'health-check';
+
+async function pushAdminHeartbeat(status) {
+  const url = (process.env.ADMIN_HEARTBEAT_URL || '').trim();
+  const token = (process.env.ADMIN_HEARTBEAT_TOKEN || '').trim();
+  if (!url || !token) return;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ project_id: 'carelink', job_id: ADMIN_HEARTBEAT_JOB_ID, status }),
+      signal: AbortSignal.timeout(TIMEOUT_MS),
+    });
+    if (!res.ok) {
+      console.error('[health-check] admin heartbeat 送信失敗:', res.status);
+    }
+  } catch (e) {
+    console.error('[health-check] admin heartbeat 例外:', e instanceof Error ? e.message : String(e));
+  }
+}
 
 async function postSlack(text) {
   const token = process.env.SLACK_BOT_TOKEN;
@@ -55,13 +77,16 @@ async function main() {
     body = await res.json().catch(() => null);
   } catch (e) {
     await postSlack(`🔴 CareLink production 到達不可（Render 監視）\n> ${e instanceof Error ? e.message : String(e)}`);
+    await pushAdminHeartbeat('fail');
     process.exit(0); // 通報済み。Render 側は「実行成功（通報した）」として扱う。
   }
   if (isHealthy(httpStatus, body)) {
     console.log(`[health-check] healthy: ${formatHealthSummary(httpStatus, body)}`);
+    await pushAdminHeartbeat('ok');
     return;
   }
   await postSlack(`🔴 CareLink production unhealthy（Render 監視）\n> ${formatHealthSummary(httpStatus, body)}`);
+  await pushAdminHeartbeat('fail');
 }
 
 main().catch((e) => {
