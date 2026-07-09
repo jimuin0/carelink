@@ -620,6 +620,32 @@ describe('getAvailableFacilityIds', () => {
     expect(result.has('fac-1')).toBe(true);
   });
 
+  // 【2026年7月9日 恒久根治の回帰】時間帯フィルタは勤務・予約を要求ウィンドウにクリップして判定する。
+  test('morning timeslot: 全日勤務で午前が満枠なら午前検索では無効（クリップ判定）', async () => {
+    // staff-1 は 09:00-18:00 勤務だが午前(09:00-12:00)が予約で埋まっている。
+    // 旧実装は全日(540分)>全予約(180分)で「空きあり」と誤表示していた。
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '12:00' }],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'morning');
+    expect(result.has('fac-1')).toBe(false);
+  });
+
+  test('morning timeslot: 午後の予約は午前検索の空き判定に影響しない（予約をウィンドウにクリップ）', async () => {
+    // staff-1 は 09:00-18:00 勤務・予約は午後(14:00-18:00)のみ → 午前は空き。
+    buildMultiTableMock({
+      staff_schedules: [{ staff_id: 'staff-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 'staff-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+      bookings: [{ staff_id: 'staff-1', start_time: '14:00', end_time: '18:00' }],
+    });
+    const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01', 'morning');
+    expect(result.has('fac-1')).toBe(true);
+  });
+
   test('スケジュールなしスタッフはスキップ', async () => {
     buildMultiTableMock({
       staff_schedules: [], // no schedule for this day

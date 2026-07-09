@@ -351,15 +351,32 @@ export async function getAvailableFacilityIds(
     const workEnd = override?.end_time || schedule?.end;
     if (!workStart || !workEnd) continue;
 
-    // Apply time filter
+    // Determine the effective availability window.
+    // 時間帯フィルタ指定時は「勤務時間 ∩ 要求ウィンドウ」の交差区間で判定する。
+    // 【2026年7月9日 恒久根治】旧実装は勤務と要求時間帯が重なるスタッフを除外はするが、
+    // 空き判定を1日全体（workMinutes=全勤務・bookedMinutes=全予約）で行っていたため、
+    // 「09:00-18:00 勤務で午前(09-12)が満枠・午後は空き」のスタッフが morning 検索でも
+    // 「空きあり」と誤表示された（要求時間帯外の空きを数えていた）。勤務・予約の双方を
+    // 要求ウィンドウにクリップして、その時間帯内に空きがあるかだけを見る。
+    const workStartMin = timeToMinutes(workStart);
+    const workEndMin = timeToMinutes(workEnd);
+    let winStart = workStartMin;
+    let winEnd = workEndMin;
     if (filterStart && filterEnd) {
-      if (workEnd <= filterStart || workStart >= filterEnd) continue;
+      winStart = Math.max(workStartMin, timeToMinutes(filterStart));
+      winEnd = Math.min(workEndMin, timeToMinutes(filterEnd));
     }
+    const workMinutes = winEnd - winStart;
+    // 勤務が要求時間帯と重ならない（交差が0以下）スタッフはこの時間帯では対象外。
+    if (workMinutes <= 0) continue;
 
-    // Check if at least one slot is free (simplified: if # bookings < working hours)
+    // Check if at least one slot is free within the window（各予約もウィンドウにクリップ）。
     const existingBookings = staffBookings.get(staffId) || [];
-    const workMinutes = timeToMinutes(workEnd) - timeToMinutes(workStart);
-    const bookedMinutes = existingBookings.reduce((sum, b) => sum + Math.max(0, timeToMinutes(b.end) - timeToMinutes(b.start)), 0);
+    const bookedMinutes = existingBookings.reduce((sum, b) => {
+      const bStart = Math.max(timeToMinutes(b.start), winStart);
+      const bEnd = Math.min(timeToMinutes(b.end), winEnd);
+      return sum + Math.max(0, bEnd - bStart);
+    }, 0);
     if (bookedMinutes < workMinutes) {
       availableFacilities.add(facilityId);
     }
