@@ -355,6 +355,28 @@ describe('POST /api/admin/booking-status - CAS and DB errors', () => {
 // Notifications
 // ---------------------------------------------------------------------------
 describe('POST /api/admin/booking-status - notifications', () => {
+  // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】ステータス更新 Push を fire-and-forget
+  // (waitUntil) に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。
+  // レスポンスは Push の完了(await)まで確定しないことを直列に検証する。
+  test('ステータス更新 Push が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+    setupSuccessMock('pending');
+    let resolveSend: (() => void) | undefined;
+    const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
+    (sendPushToUser as jest.Mock).mockReturnValueOnce(pending);
+
+    const postPromise = POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
+    let settled = false;
+    void postPromise.then(() => { settled = true; });
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+
+    resolveSend!();
+    const res = await postPromise;
+    expect(settled).toBe(true);
+    expect(res.status).toBe(200);
+  });
+
   test('confirmed → sendBookingConfirmed が呼ばれる', async () => {
     setupSuccessMock('pending');
     const res = await POST(makeRequest({ bookingId: validBookingId, status: 'confirmed' }));
