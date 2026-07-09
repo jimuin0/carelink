@@ -4,7 +4,9 @@ import FAQ from '@/components/FAQ';
 import HpbSimulator from '@/components/salon/HpbSimulator';
 
 export const metadata: Metadata = {
-  title: '施設を掲載しませんか？ | CareLink',
+  // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
+  // openGraph.title はテンプレ非適用のためフルタイトルのまま維持する。
+  title: '施設を掲載しませんか？',
   description: 'CareLink（ケアリンク）は掲載料無料の美容・医療・福祉ポータルサイト。HPBと同等機能が完全無料。最短3分で掲載登録完了。',
   alternates: { canonical: '/salon' },
   openGraph: {

@@ -2,7 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
-export const metadata: Metadata = { title: 'Uptime監視 | 管理画面 | CareLink' };
+// admin/layout の title.template '%s | 管理画面 | CareLink' が自動付与するため、ここではページ名のみ（二重化防止）。
+export const metadata: Metadata = { title: 'Uptime監視' };
 
 const MONITORS = [
   { name: 'メインサイト', url: 'https://carelink-jp.com', description: 'トップページ' },

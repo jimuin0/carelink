@@ -435,7 +435,7 @@ describe('POST /api/facility/setup', () => {
     expect(json.slug).toMatch(/salon-a-/);
   });
 
-  test('sends welcome email fire-and-forget', async () => {
+  test('sends welcome email (awaitで完了保証)', async () => {
     await POST(
       makeRequest({
         facility_name: 'Test',
@@ -449,6 +449,29 @@ describe('POST /api/facility/setup', () => {
         facilityName: 'Test',
       })
     );
+  });
+
+  // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】ウェルカムメールを fire-and-forget
+  // (waitUntil) に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ送信されない。
+  // レスポンスは送信の完了(await)まで確定しないことを直列に検証する。
+  test('ウェルカムメール送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+    let resolveSend: (() => void) | undefined;
+    const pending = new Promise<boolean>((resolve) => { resolveSend = () => resolve(true); });
+    (sendWelcomeEmail as jest.Mock).mockReturnValueOnce(pending);
+
+    const postPromise = POST(
+      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+    );
+    let settled = false;
+    void postPromise.then(() => { settled = true; });
+
+    await new Promise((r) => setTimeout(r, 20));
+    expect(settled).toBe(false);
+
+    resolveSend!();
+    const res = await postPromise;
+    expect(settled).toBe(true);
+    expect(res.status).toBe(200);
   });
 
   test('skips email if user has no email', async () => {

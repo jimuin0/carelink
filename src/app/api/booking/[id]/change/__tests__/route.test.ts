@@ -212,6 +212,29 @@ test('RPC エラーに message が無い → 500（message ?? "" フォールバ
   expect(res.status).toBe(500);
 });
 
+// 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】変更通知を fire-and-forget (waitUntil)
+// に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。レスポンスは副作用の
+// 完了(await Promise.allSettled)まで確定しないことを直列に検証する（常時送る顧客 Push で代表検証）。
+test('変更通知の送信が完了するまでレスポンスを確定させない（awaitで確実に完了・fire-and-forget回帰防止）', async () => {
+  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
+  const { sendPushToUser } = require('@/lib/push');
+  let resolveSend: (() => void) | undefined;
+  const pending = new Promise<void>((resolve) => { resolveSend = () => resolve(); });
+  (sendPushToUser as jest.Mock).mockReturnValueOnce(pending);
+
+  const postPromise = POST(makeRequest(), makeProps());
+  let settled = false;
+  void postPromise.then(() => { settled = true; });
+
+  await new Promise((r) => setTimeout(r, 20));
+  expect(settled).toBe(false);
+
+  resolveSend!();
+  const res = await postPromise;
+  expect(settled).toBe(true);
+  expect(res.status).toBe(200);
+});
+
 test('正常変更 → 200 success:true, RPC に p_user_id を渡す（IDOR defence-in-depth）', async () => {
   mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
   const res = await POST(makeRequest(), makeProps());

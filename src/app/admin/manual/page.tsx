@@ -3,7 +3,8 @@ import Link from 'next/link';
 import PrintButton from './PrintButton';
 import { SbPageHeader } from '@/components/admin/SbUi';
 
-export const metadata: Metadata = { title: '操作マニュアル | 管理画面 | CareLink' };
+// admin/layout の title.template '%s | 管理画面 | CareLink' が自動付与するため、ここではページ名のみ（二重化防止）。
+export const metadata: Metadata = { title: '操作マニュアル' };
 
 const SECTIONS = [
   {
