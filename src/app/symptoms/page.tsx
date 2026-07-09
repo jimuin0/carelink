@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 interface Treatment {
   name: string;
@@ -42,10 +43,15 @@ export default function SymptomsPage() {
     setResult(null);
 
     try {
+      const recaptchaToken = await getRecaptchaToken('symptoms_suggest');
       const res = await fetch('/api/symptoms/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symptoms: symptoms.trim(), prefecture: prefecture || undefined }),
+        body: JSON.stringify({
+          symptoms: symptoms.trim(),
+          prefecture: prefecture || undefined,
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
+        }),
       });
 
       if (res.ok) {

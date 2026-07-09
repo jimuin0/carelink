@@ -1,14 +1,13 @@
-'use client';
-
-import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Suspense } from 'react';
+import { resolveRegisteredSalon } from '@/lib/register-complete';
 
-function CompleteContent() {
-  const searchParams = useSearchParams();
-  const name = searchParams.get('name') || '';
-  const type = searchParams.get('type') || '';
-  const area = searchParams.get('area') || '';
+interface Props {
+  searchParams: Promise<{ id?: string }>;
+}
+
+export default async function RegisterCompletePage({ searchParams }: Props) {
+  const { id } = await searchParams;
+  const { name, type, area } = await resolveRegisteredSalon(id);
 
   return (
     <div className="section-container">
@@ -89,13 +88,5 @@ function CompleteContent() {
         </div>
       </div>
     </div>
-  );
-}
-
-export default function RegisterCompletePage() {
-  return (
-    <Suspense fallback={<div className="section-container text-center py-20">読み込み中...</div>}>
-      <CompleteContent />
-    </Suspense>
   );
 }
