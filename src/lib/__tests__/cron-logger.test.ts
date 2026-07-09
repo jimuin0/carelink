@@ -17,8 +17,14 @@ jest.mock('../alert', () => ({
   alertCaughtError: jest.fn(),
 }));
 
+// admin-dashboard heartbeat 送信を検証するためモック化（実送信させない）
+jest.mock('../admin-heartbeat', () => ({
+  pushAdminHeartbeat: jest.fn().mockResolvedValue(undefined),
+}));
+
 import { logCronRun, withCronLog } from '../cron-logger';
 import { alertCaughtError } from '../alert';
+import { pushAdminHeartbeat } from '../admin-heartbeat';
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -127,6 +133,27 @@ describe('logCronRun', () => {
     expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({
       meta: { count: 10, source: 'api' },
     }));
+  });
+
+  test('success → admin heartbeat を ok で送信する', async () => {
+    await logCronRun('booking-reminder', 'success', new Date());
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('booking-reminder', 'ok');
+  });
+
+  test('skipped → admin heartbeat を degraded で送信する', async () => {
+    await logCronRun('test-job', 'skipped', new Date());
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'degraded');
+  });
+
+  test('error → admin heartbeat を fail で送信する', async () => {
+    await logCronRun('test-job', 'error', new Date(), { error_msg: 'boom' });
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'fail');
+  });
+
+  test('DB insert 失敗時でも admin heartbeat は送信される（記録失敗と無関係に本体結果を通知）', async () => {
+    mockInsert.mockRejectedValue(new Error('DB error'));
+    await logCronRun('test-job', 'success', new Date());
+    expect(pushAdminHeartbeat).toHaveBeenCalledWith('test-job', 'ok');
   });
 });
 

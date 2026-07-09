@@ -5,6 +5,7 @@
 
 import { createServiceRoleClient } from './supabase-server';
 import { alertCaughtError } from './alert';
+import { pushAdminHeartbeat, type HeartbeatStatus } from './admin-heartbeat';
 
 export interface CronResult {
   processed?: number;
@@ -64,6 +65,14 @@ export async function logCronRun(
   if (status === 'error') {
     alertCaughtError(`cron:${jobName}`, new Error(result.error_msg ?? 'unknown error'), `/api/cron/${jobName}`);
   }
+
+  // admin-dashboard への heartbeat 送信（fire-and-forget・env未設定なら no-op）。
+  // status mapping: success→ok（正常完了）/ skipped→degraded（実行はしたが対象なし等で
+  // スキップ＝完全な正常でも失敗でもない中間状態）/ error→fail（実行を試みて失敗した積極的証拠）。
+  // await しない（cron 本体のレスポンスタイムを heartbeat 送信の待ち時間で汚染しない）。
+  const heartbeatStatus: HeartbeatStatus =
+    status === 'success' ? 'ok' : status === 'skipped' ? 'degraded' : 'fail';
+  void pushAdminHeartbeat(jobName, heartbeatStatus);
 }
 
 /**
