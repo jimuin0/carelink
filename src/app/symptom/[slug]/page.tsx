@@ -17,6 +17,13 @@ function getSupabase() {
   );
 }
 
+// 【2026年7月8日 恒久根治】revalidate/dynamic の明示指定が無く、generateStaticParams も無いため
+// Next.js のデフォルト挙動（動的APIを使わなければフルstatic＝実質無期限キャッシュ）に委ねられて
+// おり、症状データ(symptoms/facility_symptoms)の更新がビルド後に反映されない懸念があった。
+// 同種のDB駆動動的ページ([prefectureSlug]/type/[typeSlug]/feature/[slug]/blog/[slug]/
+// ranking/[area]/search/area/[slug])は全て revalidate=3600 で統一しているため、これに合わせる。
+export const revalidate = 3600;
+
 interface Props {
   params: Promise<{ slug: string }>;
 }

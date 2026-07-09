@@ -7,6 +7,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { withRoute } from '@/lib/with-route';
+import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 
 export const dynamic = 'force-dynamic';
@@ -67,10 +68,9 @@ const PUBLIC_SALON_COLUMNS =
   'features, pr_text, photo_url, photo_urls, website, postal_code, created_at';
 
 // Supabase Storage 公開バケットの自プレフィックスのみ許可（任意URL混入を拒否）。
+// review/route.ts と共通のヘルパー（src/lib/storage-url-guard.ts）を使う。
 function isAllowedPhotoUrl(url: string): boolean {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return false;
-  return url.startsWith(`${base}/storage/v1/object/public/carelink-uploads/`);
+  return isAllowedStorageUrl(url, 'carelink-uploads');
 }
 
 export const POST = withRoute(async (request) => {

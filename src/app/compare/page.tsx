@@ -5,6 +5,12 @@ import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import type { Facility } from '@/types';
 
+// 【2026年7月8日 恒久根治】比較対象(searchParams.ids)はリクエスト毎に変わるため、他の
+// DB駆動ページ(revalidate=3600で統一)とは異なりキャッシュしてはいけない。明示指定が無いのは
+// 他ページとの一貫性を欠いていたため、意図を明確化する（Next.jsはsearchParams利用で実質的には
+// 動的レンダリングされるが、明示宣言により将来の変更でも挙動が保証される）。
+export const dynamic = 'force-dynamic';
+
 export const metadata: Metadata = {
   // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
   title: '施設比較',
@@ -39,20 +45,27 @@ export default async function ComparePage(props: Props) {
   if (facilities.length === 0) notFound();
 
   // Get min/max prices
-  const pricePromises = facilities.map(async (f) => {
-    const { data: menus } = await supabase
-      .from('facility_menus')
-      .select('price')
-      .eq('facility_id', f.id)
-      .not('price', 'is', null)
-      // 非公開メニューは比較ページの価格帯に含めない。null/true は表示(既存維持)。
-      .or('is_published.is.null,is_published.eq.true')
-      .order('price');
-    const prices = (menus || []).map((m) => m.price).filter((p): p is number => p !== null && p > 0);
-    return { id: f.id, min: prices[0] ?? null, max: prices[prices.length - 1] ?? null };
-  });
-  const priceData = await Promise.all(pricePromises);
-  const priceMap = Object.fromEntries(priceData.map((p) => [p.id, p]));
+  // 【2026年7月8日 恒久根治】従来は比較対象施設(最大3件)ごとに facility_menus を個別クエリする
+  // N+1 だった。.in('facility_id', ids) 一発で全施設分をまとめて取得し、JS側で facility_id ごとに
+  // グルーピングする（.order('price') は結果セット全体への適用だが、facility_id で絞り込んでも
+  // 元の相対順序は保たれるため、施設ごとの min/max 抽出は従来と同じ結果になる）。
+  const { data: allMenus } = await supabase
+    .from('facility_menus')
+    .select('facility_id, price')
+    .in('facility_id', facilities.map((f) => f.id))
+    .not('price', 'is', null)
+    // 非公開メニューは比較ページの価格帯に含めない。null/true は表示(既存維持)。
+    .or('is_published.is.null,is_published.eq.true')
+    .order('price');
+  const priceMap = Object.fromEntries(
+    facilities.map((f) => {
+      const prices = (allMenus || [])
+        .filter((m) => m.facility_id === f.id)
+        .map((m) => m.price)
+        .filter((p): p is number => p !== null && p > 0);
+      return [f.id, { min: prices[0] ?? null, max: prices[prices.length - 1] ?? null }];
+    })
+  );
 
   const rows: { label: string; render: (f: Facility) => React.ReactNode }[] = [
     { label: '業種', render: (f) => f.business_type },
