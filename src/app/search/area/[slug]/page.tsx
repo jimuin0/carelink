@@ -1,9 +1,10 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { getAreaBySlug, getAreasByParent, getAreaBreadcrumb } from '@/lib/areas';
+import { getAreaBySlug, getAreasByParent, getAreaBreadcrumb, buildAreaSearchParam } from '@/lib/areas';
 import { searchFacilities } from '@/lib/facilities';
 import FacilityCard from '@/components/search/FacilityCard';
+import Pagination from '@/components/search/Pagination';
 
 export const revalidate = 3600;
 
@@ -16,6 +17,7 @@ export async function generateStaticParams() {
 
 interface Props {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ page?: string }>;
 }
 
 export async function generateMetadata(props: Props): Promise<Metadata> {
@@ -34,6 +36,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 
 export default async function AreaResultPage(props: Props) {
   const params = await props.params;
+  const searchParams = await props.searchParams;
   const area = await getAreaBySlug(params.slug);
   if (!area) notFound();
 
@@ -42,14 +45,16 @@ export default async function AreaResultPage(props: Props) {
     getAreaBreadcrumb(area),
   ]);
 
-  // Search facilities by prefecture or city
-  const searchParam = area.area_type === 'prefecture'
-    ? { prefecture: area.name }
-    : area.area_type === 'city'
-    ? { keyword: area.name }
-    : {};
+  // Search facilities by prefecture or city（フィルタ組み立ては buildAreaSearchParam 参照）
+  const searchParam = buildAreaSearchParam(area);
 
-  const { facilities } = await searchFacilities({ ...searchParam, sort: 'rating' });
+  const currentPage = Math.max(1, parseInt(searchParams.page || '1', 10) || 1);
+  // 【2026年7月8日 恒久根治】従来はページネーションが一切なく、PER_PAGE(20件)超のエリアで
+  // 21件目以降が無言で切り捨てられ、ユーザーが残りの施設を確認する手段が無かった。
+  // /search と同じ Pagination コンポーネントを使い、total 件数に基づくページ送りを提供する。
+  const { facilities, total, perPage } = await searchFacilities({ ...searchParam, sort: 'rating', page: currentPage });
+  const totalPages = Math.ceil(total / perPage);
+  const baseUrl = `/search/area/${params.slug}`;
 
   return (
     <div className="bg-gray-50 min-h-screen">
@@ -95,11 +100,14 @@ export default async function AreaResultPage(props: Props) {
 
         {/* Results */}
         {facilities.length > 0 ? (
-          <div className="grid sm:grid-cols-2 gap-6">
-            {facilities.map((f) => (
-              <FacilityCard key={f.id} facility={f} />
-            ))}
-          </div>
+          <>
+            <div className="grid sm:grid-cols-2 gap-6">
+              {facilities.map((f) => (
+                <FacilityCard key={f.id} facility={f} />
+              ))}
+            </div>
+            <Pagination currentPage={currentPage} totalPages={totalPages} baseUrl={baseUrl} />
+          </>
         ) : (
           <div className="bg-white rounded-2xl shadow-sm p-8 text-center">
             <p className="text-gray-400">このエリアにはまだサロン・クリニックが登録されていません</p>

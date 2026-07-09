@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo } from 'react';
+import { useState, useEffect } from 'react';
 
 interface Props {
   businessHours: Record<string, { open: string; close: string } | null> | null;
@@ -25,8 +25,14 @@ export function computeBusinessStatus(
 }
 
 export default function BusinessStatusBadge({ businessHours }: Props) {
-  const status = useMemo(() => {
-    if (!businessHours) return 'unknown';
+  // 現在時刻(new Date())は SSR ではサーバのタイムゾーン(通常UTC)、クライアントでは閲覧者の
+  // ローカル時刻(日本ならJST)で評価されるため、描画中に判定するとサーバHTMLとクライアント描画で
+  // 営業状態テキスト(営業中/営業時間外/定休日)が食い違い hydration mismatch を起こす。判定は
+  // マウント後(クライアントのみ=閲覧者のローカル時刻)に確定し、初期描画は null にして一致させる。
+  const [status, setStatus] = useState<'open' | 'closed' | 'holiday' | 'unknown' | null>(null);
+
+  useEffect(() => {
+    if (!businessHours) { setStatus('unknown'); return; }
     const now = new Date();
     const days = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
     const today = days[now.getDay()];
@@ -36,10 +42,10 @@ export default function BusinessStatusBadge({ businessHours }: Props) {
     const minutes = now.getMinutes();
     const currentTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
 
-    return computeBusinessStatus(currentTime, todayHours);
+    setStatus(computeBusinessStatus(currentTime, todayHours));
   }, [businessHours]);
 
-  if (status === 'unknown') return null;
+  if (status === null || status === 'unknown') return null;
 
   const config = {
     open: { text: '営業中', className: 'bg-emerald-100 text-emerald-700' },

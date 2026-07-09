@@ -1,4 +1,4 @@
-import { salonStep1Schema, salonStep2Schema, salonStep3Schema, formatPhone } from '../validations';
+import { salonStep1Schema, salonStep2Schema, salonStep3Schema, formatPhone, customerSchema } from '../validations';
 
 describe('salonStep1Schema', () => {
   const validData = {
@@ -30,6 +30,20 @@ describe('salonStep1Schema', () => {
     expect(result.success).toBe(false);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの施設名/担当者名が保存され得た。
+  test('施設名/代表者名/担当者名がスペースのみだとエラー', () => {
+    expect(salonStep1Schema.safeParse({ ...validData, facility_name: '   ' }).success).toBe(false);
+    expect(salonStep1Schema.safeParse({ ...validData, representative_name: '   ' }).success).toBe(false);
+    expect(salonStep1Schema.safeParse({ ...validData, contact_name: '   ' }).success).toBe(false);
+  });
+
+  test('施設名の前後空白はトリムされて保存される', () => {
+    const result = salonStep1Schema.safeParse({ ...validData, facility_name: '  テストサロン  ' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.facility_name).toBe('テストサロン');
+  });
+
   test('ハイフンなし電話番号も通過する', () => {
     const result = salonStep1Schema.safeParse({ ...validData, phone: '09012345678' });
     expect(result.success).toBe(true);
@@ -43,6 +57,30 @@ describe('salonStep1Schema', () => {
   test('ウェブサイト空文字はOK', () => {
     const result = salonStep1Schema.safeParse({ ...validData, website: '' });
     expect(result.success).toBe(true);
+  });
+});
+
+describe('customerSchema', () => {
+  const validData = { name: '山田太郎' };
+
+  test('正常データが通過する', () => {
+    expect(customerSchema.safeParse(validData).success).toBe(true);
+  });
+
+  test('お名前が空だとエラー', () => {
+    expect(customerSchema.safeParse({ ...validData, name: '' }).success).toBe(false);
+  });
+
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの顧客名が保存され得た。
+  test('お名前がスペースのみだとエラー', () => {
+    expect(customerSchema.safeParse({ ...validData, name: '   ' }).success).toBe(false);
+  });
+
+  test('お名前の前後空白はトリムされて保存される', () => {
+    const result = customerSchema.safeParse({ ...validData, name: '  山田太郎  ' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.name).toBe('山田太郎');
   });
 });
 

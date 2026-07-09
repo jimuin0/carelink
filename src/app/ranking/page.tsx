@@ -7,7 +7,9 @@ import { prefectures } from '@/lib/constants';
 export const revalidate = 3600;
 
 export const metadata: Metadata = {
-  title: '人気ランキング | CareLink',
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、ここでは「| CareLink」を付けない
+  // （付けると <title> が「人気ランキング | CareLink | CareLink」と二重化する。openGraph.title はテンプレ非適用のため付与のまま）。
+  title: '人気ランキング',
   description: '口コミ評価の高い美容・医療・福祉施設をランキング形式でご紹介。エリア別のランキングもご覧いただけます。',
   alternates: { canonical: '/ranking' },
   openGraph: {

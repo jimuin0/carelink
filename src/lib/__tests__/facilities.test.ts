@@ -205,6 +205,14 @@ describe('getPopularFacilities', () => {
     const result = await getPopularFacilities(6);
     expect(result.facilities).toEqual(facilities);
   });
+
+  // 【2026年7月8日 恒久根治の回帰防止】同点施設(rating_count同値)の表示順を決定的にする。
+  test('idを二次キー(昇順)として付与する', async () => {
+    const chain = fluent({ data: [], error: null });
+    mockFrom.mockReturnValue(chain);
+    await getPopularFacilities(6);
+    expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
+  });
 });
 
 describe('getFacilityBySlug', () => {
@@ -275,6 +283,14 @@ describe('getLatestFacilities', () => {
     const result = await getLatestFacilities(6);
     expect(result.facilities).toEqual(facilities);
   });
+
+  // 【2026年7月8日 恒久根治の回帰防止】同一時刻に登録された施設の表示順を決定的にする。
+  test('idを二次キー(昇順)として付与する', async () => {
+    const chain = fluent({ data: [], error: null });
+    mockFrom.mockReturnValue(chain);
+    await getLatestFacilities(6);
+    expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
+  });
 });
 
 describe('getSimilarFacilities', () => {
@@ -287,6 +303,14 @@ describe('getSimilarFacilities', () => {
     expect(result).toEqual(facilities);
     expect(chain.neq).toHaveBeenCalledWith('id', 'f-1');
     expect(chain.eq).toHaveBeenCalledWith('business_type', 'ヘアサロン');
+  });
+
+  // 【2026年7月8日 恒久根治の回帰防止】同点施設の表示順を決定的にする。
+  test('idを二次キー(昇順)として付与する', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getSimilarFacilities('f-1', 'ヘアサロン', '東京都');
+    expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
   });
 });
 
@@ -341,6 +365,18 @@ describe('searchFacilities (additional branches)', () => {
     await searchFacilities({ sort: 'popular' });
     // facility_card_view に view_count は無いため rating_count で order する（旧 view_count は常に0件エラー）
     expect(chain.order).toHaveBeenCalledWith('rating_count', expect.objectContaining({ ascending: false }));
+  });
+
+  // 【2026年7月8日 恒久根治の回帰防止】単一列ORDER BYだと同点施設の順序をPostgreSQLが保証せず、
+  // range()によるページングと組み合わさると同点施設が別ページに重複/欠落しうる。全ソート分岐で
+  // idを二次キー(昇順)にして順序を決定的にする。
+  test('sort=rating/popular/デフォルト全てでidを二次キー(昇順)として付与する', async () => {
+    for (const sort of ['rating', 'popular', undefined] as const) {
+      const chain = fluent({ data: [], count: 0, error: null });
+      mockFrom.mockReturnValue(chain);
+      await searchFacilities(sort ? { sort } : {});
+      expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
+    }
   });
 
   test('デフォルトは作成日降順', async () => {
@@ -455,6 +491,14 @@ describe('getNearbyFacilities', () => {
     mockFrom.mockReturnValue(chain);
     const result = await getNearbyFacilities('f-1', '大阪府', '豊中市');
     expect(result).toEqual([]);
+  });
+
+  // 【2026年7月8日 恒久根治の回帰防止】同点施設の表示順を決定的にする。
+  test('idを二次キー(昇順)として付与する', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+    await getNearbyFacilities('f-1', '大阪府', '豊中市');
+    expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
   });
 });
 

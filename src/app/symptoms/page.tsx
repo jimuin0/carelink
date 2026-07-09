@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 interface Treatment {
   name: string;
@@ -42,10 +43,15 @@ export default function SymptomsPage() {
     setResult(null);
 
     try {
+      const recaptchaToken = await getRecaptchaToken('symptoms_suggest');
       const res = await fetch('/api/symptoms/suggest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symptoms: symptoms.trim(), prefecture: prefecture || undefined }),
+        body: JSON.stringify({
+          symptoms: symptoms.trim(),
+          prefecture: prefecture || undefined,
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
+        }),
       });
 
       if (res.ok) {
@@ -187,7 +193,10 @@ export default function SymptomsPage() {
                 {result.search_keywords.map((kw) => (
                   <Link
                     key={kw}
-                    href={`/search?q=${encodeURIComponent(kw)}${prefecture ? `&pref=${encodeURIComponent(prefecture)}` : ''}`}
+                    // /search が読むクエリパラメータは keyword/area（q/pref ではない）。旧実装は
+                    // 存在しないパラメータ名を使っており絞り込みが無視され全件表示になっていた
+                    // （実データ確認: /search?q=...&pref=... は無指定と同じ件数を返していた）。
+                    href={`/search?keyword=${encodeURIComponent(kw)}${prefecture ? `&area=${encodeURIComponent(prefecture)}` : ''}`}
                     className="inline-flex items-center gap-1 px-4 py-2 bg-sky-600 text-white text-sm rounded-full hover:bg-sky-700 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

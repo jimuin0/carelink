@@ -27,7 +27,8 @@ const ratingAxis = z.number().int().min(1).max(5);
 const reviewSchema = z.object({
   facility_id: z.string().uuid(),
   recaptcha_token: z.string().optional(),
-  reviewer_name: z.string().min(1).max(50),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  reviewer_name: z.string().trim().min(1).max(50),
   rating_skill: ratingAxis,
   rating_service: ratingAxis,
   rating_atmosphere: ratingAxis,

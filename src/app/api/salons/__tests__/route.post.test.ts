@@ -180,6 +180,26 @@ describe('POST /api/salons', () => {
     expect(res.status).toBe(400);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】従来このAPI固有の緩い正規表現(/^[\d-]+$/、先頭0任意)を
+  // 独自定義しており、共通ヘルパー phoneField()（先頭0必須の phoneRegex）より検証が緩かった。
+  // ハイフンのみ・先頭0なしの数字列がこのAPI経由でのみ通過し得た。共通ヘルパーへの統一で
+  // これらが拒否されることを確認する。
+  test('phone がハイフンのみ(先頭0なし) → 400（共通phoneFieldへの統一後の回帰防止）', async () => {
+    const res = await POST(makeRequest({ ...validFull, phone: '----' }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('phone が先頭0なしの数字列 → 400（共通phoneFieldへの統一後の回帰防止）', async () => {
+    const res = await POST(makeRequest({ ...validFull, phone: '9012345678' }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  test('facility_name/representative_name/contact_name がスペースのみ → 400', async () => {
+    expect((await POST(makeRequest({ ...validFull, facility_name: '   ' }) as any)).status).toBe(400);
+    expect((await POST(makeRequest({ ...validFull, representative_name: '   ' }) as any)).status).toBe(400);
+    expect((await POST(makeRequest({ ...validFull, contact_name: '   ' }) as any)).status).toBe(400);
+  });
+
   test('seat_count out of range → 400', async () => {
     const res = await POST(makeRequest({ ...validFull, seat_count: 100000 }) as any);
     expect(res.status).toBe(400);
