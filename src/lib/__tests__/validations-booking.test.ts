@@ -47,6 +47,18 @@ describe('bookingSchema', () => {
     expect(result.success).toBe(false);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの名前で予約が保存され得た。
+  test('customer_nameがスペースのみだとエラー', () => {
+    expect(bookingSchema.safeParse({ ...validBooking, customer_name: '   ' }).success).toBe(false);
+  });
+
+  test('customer_nameの前後空白はトリムされて保存される', () => {
+    const result = bookingSchema.safeParse({ ...validBooking, customer_name: '  神原良祐  ' });
+    expect(result.success).toBe(true);
+    if (result.success) expect(result.data.customer_name).toBe('神原良祐');
+  });
+
   test('emailが不正だとエラー', () => {
     const result = bookingSchema.safeParse({ ...validBooking, email: 'invalid' });
     expect(result.success).toBe(false);

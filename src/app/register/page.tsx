@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -176,6 +176,7 @@ export default function RegisterPage() {
         }),
       });
       if (!res.ok) throw new Error('registration failed');
+      const resBody = await res.json().catch(() => null);
 
       // Slack notification (fire-and-forget)
       fetch('/api/notify', {
@@ -197,10 +198,13 @@ export default function RegisterPage() {
       }).catch(() => {});
 
       setIsDirty(false);
+      // 【2026年7月8日 恒久根治】/register/complete はクライアント供給の name/type/area だけを表示
+      // しており、サーバー確認なしで誰でも任意の値を使って「登録完了しました」画面を直接開けた
+      // （実登録なしでの偽装表示・分析上のコンバージョン計測歪みの懸念）。/api/salons が返す
+      // salon id を渡し、complete ページ側でその id が実在する登録データか検証してから
+      // サーバー側の実データを表示する方式に変更する。
       const params = new URLSearchParams();
-      params.set('name', data.facility_name);
-      params.set('type', data.business_type);
-      if (data.address) params.set('area', data.address);
+      if (resBody?.id) params.set('id', resBody.id);
       router.push(`/register/complete?${params.toString()}`);
     } catch {
       // アップロード済みの写真をストレージから削除し、孤児ファイルの蓄積を防ぐ（上記コメント参照）。
@@ -209,6 +213,21 @@ export default function RegisterPage() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // submitting(state)だけを見ると、zodResolver の非同期検証が終わり setSubmitting(true)が
+  // 反映されるまでの間（Reactの再レンダーを跨ぐ猶予）に連打されると両方とも通ってしまう
+  // （state 更新は非同期・バッチされるため）。ref は同期的に読み書きできるため、
+  // 同一tick内の連打も含めて確実にブロックできる（写真の二重アップロード・施設の二重登録を防止）。
+  const submitLockRef = useRef(false);
+
+  const handleConfirmSubmit = () => {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    setShowConfirm(false);
+    handleSubmit(onSubmit)().finally(() => {
+      submitLockRef.current = false;
+    });
   };
 
   return (
@@ -393,7 +412,8 @@ export default function RegisterPage() {
         message="送信後、続けてアカウントを作成すると、入力内容（営業時間・写真・特徴・PRなど）がそのまま管理画面に反映され、すぐに掲載を開始できます。"
         confirmLabel="送信する"
         cancelLabel="戻る"
-        onConfirm={() => { setShowConfirm(false); handleSubmit(onSubmit)(); }}
+        confirmDisabled={submitting}
+        onConfirm={handleConfirmSubmit}
         onCancel={() => setShowConfirm(false)}
       />
 

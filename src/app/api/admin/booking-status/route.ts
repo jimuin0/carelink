@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { safeCaptureException } from '@/lib/safe';
@@ -256,14 +255,15 @@ export async function POST(request: Request) {
         completed: '施術が完了しました',
         no_show: '来店確認が取れませんでした',
       };
-      waitUntil(
-        sendPushToUser(booking.user_id, {
-          title: statusLabels[status] || /* istanbul ignore next */ 'ステータス更新',
-          body: `${facility?.name || ''} ${booking.booking_date} ${booking.start_time}〜`,
-          url: `/mypage/bookings/${booking.id}`,
-          tag: `booking-status-${booking.id}`,
-        }).catch((e) => safeCaptureException(e, 'admin-booking-status-push'))
-      );
+      // 【2026年7月7日 本番実データで確定した恒久根治】waitUntil() の fire-and-forget は Fluid Compute
+      // 無効の本番でレスポンス返却直後に凍結され後処理が全滅していた（/api/review と同一の欠陥・同一の
+      // 根治）。レスポンス前に await して確実に送る。末尾 .catch で握るため本体レスポンスには影響しない。
+      await sendPushToUser(booking.user_id, {
+        title: statusLabels[status] || /* istanbul ignore next */ 'ステータス更新',
+        body: `${facility?.name || ''} ${booking.booking_date} ${booking.start_time}〜`,
+        url: `/mypage/bookings/${booking.id}`,
+        tag: `booking-status-${booking.id}`,
+      }).catch((e) => safeCaptureException(e, 'admin-booking-status-push'));
     }
 
     return NextResponse.json({ success: true });

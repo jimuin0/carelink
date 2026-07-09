@@ -46,7 +46,8 @@ export const bookingSchema = z.object({
     .refine((date) => date <= getMaxDateString(), '1年以上先の日付は指定できません'),
   start_time: timeString,
   end_time: timeString,
-  customer_name: z.string().min(1, 'お名前は必須です').max(100),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  customer_name: z.string().trim().min(1, 'お名前は必須です').max(100),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
   phone: phoneField(),
   // BookingFlow は備考未入力時に note: null を送る（phone と同様）。optional だけだと null を

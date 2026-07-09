@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic';
 
 const inquiryInsertSchema = z.object({
   facility_id: z.string().uuid(),
-  name: z.string().min(1).max(100),
+  // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
+  name: z.string().trim().min(1).max(100),
   email: z.string().email().max(254),
   phone: z
     .string()
@@ -34,7 +35,7 @@ const inquiryInsertSchema = z.object({
     .or(z.literal(''))
     .optional()
     .nullable(),
-  message: z.string().min(1).max(1000),
+  message: z.string().trim().min(1).max(1000),
 });
 
 export const POST = withRoute(async (request) => {

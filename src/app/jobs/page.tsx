@@ -33,7 +33,8 @@ interface JobListRow {
 }
 
 export const metadata: Metadata = {
-  title: '求人一覧 | CareLink',
+  // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
+  title: '求人一覧',
   description: '医療・福祉・美容の求人をCareLinkで探す。職種・都道府県で絞り込み可能。',
   alternates: { canonical: `${SITE_URL}/jobs` },
 };

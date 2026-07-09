@@ -7,7 +7,6 @@
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
-import { waitUntil } from '@vercel/functions';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { sendWelcomeEmail } from '@/lib/email';
@@ -186,21 +185,22 @@ export async function POST(request: NextRequest) {
     // 失敗が無音化する（実際に例外を投げるのは Resend 呼び出し前の想定外エラーのみ）。
     // 戻り値を確認して両方の失敗経路を可視化する。
     if (user.email) {
-      waitUntil(
-        sendWelcomeEmail({
-          ownerEmail: user.email,
-          facilityName: facility_name,
-        }).then((ok) => {
-          if (!ok) {
-            const err = new Error('welcome email send failed');
-            safeCaptureException(err, 'welcome-email');
-            alertCaughtError('welcome-email', err, '/api/facility/setup');
-          }
-        }).catch((e) => {
-          safeCaptureException(e, 'welcome-email');
-          alertCaughtError('welcome-email', e, '/api/facility/setup');
-        })
-      );
+      // 【2026年7月7日 本番実データで確定した恒久根治】waitUntil() の fire-and-forget は Fluid Compute
+      // 無効の本番でレスポンス返却直後に凍結され後処理が全滅していた（/api/review と同一の欠陥・同一の
+      // 根治）。レスポンス前に await して確実に送る。末尾 .catch で握るため本体レスポンスには影響しない。
+      await sendWelcomeEmail({
+        ownerEmail: user.email,
+        facilityName: facility_name,
+      }).then((ok) => {
+        if (!ok) {
+          const err = new Error('welcome email send failed');
+          safeCaptureException(err, 'welcome-email');
+          alertCaughtError('welcome-email', err, '/api/facility/setup');
+        }
+      }).catch((e) => {
+        safeCaptureException(e, 'welcome-email');
+        alertCaughtError('welcome-email', e, '/api/facility/setup');
+      });
     }
 
     return NextResponse.json({

@@ -146,6 +146,14 @@ describe('PUT /api/profile', () => {
     expect(res.status).toBe(400);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの表示名が保存され得た。
+  test('display_name がスペースのみ → 400', async () => {
+    const res = await PUT(makeRequest({ ...req, display_name: '   ' }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
   test('display_name > 50 chars → 400', async () => {
     const res = await PUT(makeRequest({ ...req, display_name: 'x'.repeat(51) }) as any);
 

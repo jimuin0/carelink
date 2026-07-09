@@ -8,6 +8,54 @@ import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types'
 
 type Step = 'menu' | 'staff' | 'datetime' | 'confirm';
 
+/**
+ * 予約フォームの合計金額を計算する純粋関数（TZ非依存の日付計算と同様、テスト容易化のため分離）。
+ * 【2026年7月8日 恒久根治】旧実装は menuTotal===0（無料メニュー）で指名料を加算する前に
+ * null を返していた。一方サーバー側(/api/booking)は menuTotal=0 でも serverTotalPrice(=0) != null
+ * として指名スタッフの nomination_fee を加算した金額で確定させる（本番確認: price=0メニューは
+ * 現状0件だが、追加された瞬間にクライアント/サーバーの計算が食い違う。金銭課金額はサーバー計算が
+ * 正のため差額は生じないが、確認画面の合計金額が非表示になりポイント利用セクションも隠れる=
+ * 使えるはずのポイントが使えないUX不整合になる）。menuTotal===0 の早期returnを外し、サーバーと
+ * 同一ロジック（クーポン→指名料の順）で計算する。
+ */
+export function calculateBookingPrice(
+  selectedMenus: FacilityMenu[],
+  selectedCoupon: Coupon | null,
+  selectedStaff: StaffProfile | null,
+): number | null {
+  if (selectedMenus.length === 0) return null;
+  const menuTotal = selectedMenus.reduce((sum, m) => sum + (m.price || 0), 0);
+  let price = menuTotal;
+  if (selectedCoupon) {
+    if (selectedCoupon.discount_type === 'fixed' && selectedCoupon.discount_value) {
+      price = Math.max(0, price - selectedCoupon.discount_value);
+    } else if (selectedCoupon.discount_type === 'percentage' && selectedCoupon.discount_value) {
+      price = Math.max(0, Math.round(price * (1 - selectedCoupon.discount_value / 100)));
+    } else if (selectedCoupon.discount_type === 'special_price' && selectedCoupon.special_price !== null) {
+      price = selectedCoupon.special_price;
+    }
+  }
+  if (selectedStaff && (selectedStaff.nomination_fee || 0) > 0) {
+    price += selectedStaff.nomination_fee || 0;
+  }
+  return price;
+}
+
+/**
+ * "YYYY-MM-DD" 文字列から月/日/曜日を取得する純粋関数（TZ非依存・テスト容易化のため分離）。
+ * 【2026年7月8日 恒久根治】旧実装は `new Date(dateStr)` で直接パースしていたが、この形式は
+ * ECMAScript仕様でUTC深夜としてパースされ、その後 .getMonth()/.getDate()/.getDay() は実行環境の
+ * ローカルタイムゾーンで読まれる。UTCより時刻が遅れるタイムゾーン（UTC+9=JST未満、世界の大半の
+ * 地域）で閲覧すると、UTC深夜の直前（前日）に繰り下がり、月/日/曜日の表示が実際に選択した日付
+ * から1日ずれる。文字列の年月日をそのまま使い、曜日計算のみ Date.UTC+getUTCDay()
+ * （ローカルTZを経由しない）で行うことで基準を固定する。
+ */
+export function parseDateString(dateStr: string): { month: number; day: number; dayOfWeek: number } {
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const dayOfWeek = new Date(Date.UTC(year, month - 1, day)).getUTCDay();
+  return { month, day, dayOfWeek };
+}
+
 interface Props {
   facility: { id: string; slug: string; name: string };
   staff: StaffProfile[];
@@ -191,25 +239,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     }
   };
 
-  const calculatePrice = () => {
-    if (selectedMenus.length === 0) return null;
-    const menuTotal = selectedMenus.reduce((sum, m) => sum + (m.price || 0), 0);
-    if (menuTotal === 0) return null;
-    let price = menuTotal;
-    if (selectedCoupon) {
-      if (selectedCoupon.discount_type === 'fixed' && selectedCoupon.discount_value) {
-        price = Math.max(0, price - selectedCoupon.discount_value);
-      } else if (selectedCoupon.discount_type === 'percentage' && selectedCoupon.discount_value) {
-        price = Math.max(0, Math.round(price * (1 - selectedCoupon.discount_value / 100)));
-      } else if (selectedCoupon.discount_type === 'special_price' && selectedCoupon.special_price !== null) {
-        price = selectedCoupon.special_price;
-      }
-    }
-    if (selectedStaff && (selectedStaff.nomination_fee || 0) > 0) {
-      price += selectedStaff.nomination_fee || 0;
-    }
-    return price;
-  };
+  const calculatePrice = () => calculateBookingPrice(selectedMenus, selectedCoupon, selectedStaff);
 
   // メニュー/クーポン変更で価格が下がった場合に、設定済み pointsToUse を価格・残高でクランプし直す。
   // これを怠ると「お支払い金額」が負表示になり、価格を超える points_used を送ってしまう（サーバ側でも
@@ -222,12 +252,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   }, [selectedMenus, selectedCoupon, selectedStaff, availablePoints]);
 
   // Generate date options (next 60 days)
+  // 【2026年7月8日 恒久根治】旧実装はブラウザのローカル時計(new Date())を基準に日付を生成して
+  // いたが、サーバー側の検証(src/lib/validations-booking.ts の getTodayString/getMaxDateString)
+  // はJST(UTC+9)固定で「今日」を計算する。JST以外のタイムゾーンで閲覧するユーザー（海外在住・
+  // 海外出張中・PCの時計設定がUTC等）では、クライアントが選択可能として提示した日付の一部が
+  // サーバー側の「過去の日付は指定できません」バリデーションで拒否されたり、選択した日付が
+  // 1日ずれる可能性があった。サーバーと同一のJSTシフトロジックで日付を生成し基準を一致させる。
   const dateOptions = Array.from({ length: 60 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i + 1);
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
+    const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    jstNow.setUTCDate(jstNow.getUTCDate() + i + 1);
+    const year = jstNow.getUTCFullYear();
+    const month = String(jstNow.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(jstNow.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   });
 
@@ -391,9 +427,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <p className="text-xs text-gray-500 mb-2">日付を選択してください</p>
             <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
               {dateOptions.map((date) => {
-                const d = new Date(date);
+                const { month, day, dayOfWeek } = parseDateString(date);
                 const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-                const isWeekend = d.getDay() === 0 || d.getDay() === 6;
+                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
                 const isActive = selectedDate === date;
                 return (
                   <button
@@ -404,9 +440,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                       isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                     }`}
                   >
-                    <p className="text-micro text-gray-400">{d.getMonth() + 1}/{d.getDate()}</p>
+                    <p className="text-micro text-gray-400">{month}/{day}</p>
                     <p className={`text-xs font-bold ${isWeekend ? 'text-red-500' : ''}`}>
-                      {dayNames[d.getDay()]}
+                      {dayNames[dayOfWeek]}
                     </p>
                   </button>
                 );
@@ -419,9 +455,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <div>
               <p className="text-xs text-gray-500 mb-2">
                 {(() => {
-                  const d = new Date(selectedDate);
+                  const { month, day, dayOfWeek } = parseDateString(selectedDate);
                   const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-                  return `${d.getMonth() + 1}/${d.getDate()}（${dayNames[d.getDay()]}）の空き時間`;
+                  return `${month}/${day}（${dayNames[dayOfWeek]}）の空き時間`;
                 })()}
               </p>
               {slotsLoading ? (

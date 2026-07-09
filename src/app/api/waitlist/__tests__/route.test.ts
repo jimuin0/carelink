@@ -199,6 +199,14 @@ describe('POST /api/waitlist', () => {
     expect(res.status).toBe(400);
   });
 
+  // 【2026年7月8日 恒久根治の回帰防止】.trim() 追加前は "   "(空白のみ)が min(1) を素通りし、
+  // スペースのみの名前がキャンセル待ちに保存され得た。
+  test('customer_name がスペースのみ → 400', async () => {
+    const res = await POST(makePostRequest({ ...validWaitlist, customer_name: '   ' }));
+
+    expect(res.status).toBe(400);
+  });
+
   test('customer_name too long (51+ chars) → 400', async () => {
     const res = await POST(makePostRequest({ ...validWaitlist, customer_name: 'a'.repeat(51) }));
 
