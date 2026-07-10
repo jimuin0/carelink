@@ -187,7 +187,17 @@ export async function POST(request: Request) {
           points: 50,
           reason: reviewReason,
         });
-        if (insertErr) console.error('[review] points insert failed', { userId: user.id, reviewId: review.id, err: insertErr });
+        if (insertErr) {
+          if ((insertErr as { code?: string }).code === '23505') {
+            // uq_user_points_review（部分UNIQUEインデックス）が防いだ想定内の重複。
+            // select→insert が非原子な TOCTOU で先に別リクエストが成立しただけで、
+            // ポイント自体はその成立分で正しく1回だけ付与されているため異常ではない。
+            return;
+          }
+          console.error('[review] points insert failed', { userId: user.id, reviewId: review.id, err: insertErr });
+          safeCaptureException(insertErr, 'review-points-insert');
+          alertCaughtError('review:points', insertErr, `review:${review.id}`);
+        }
       }
     })());
   }
