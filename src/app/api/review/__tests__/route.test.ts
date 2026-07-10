@@ -1048,9 +1048,9 @@ describe('POST /api/review', () => {
       const mockPointsEq2 = jest.fn().mockReturnValue({ limit: mockPointsLimit });
       const mockPointsEq1 = jest.fn().mockReturnValue({ eq: mockPointsEq2 });
       const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
-      // insert がエラーを返す → insertErr 分岐
+      // insert が実DBエラー(23505以外)を返す → insertErr 分岐（Sentry/Slack通知）
       const mockPointsInsert = jest.fn().mockReturnValue(
-        Promise.resolve({ error: { message: 'insert failed' } })
+        Promise.resolve({ error: { message: 'insert failed', code: '500' } })
       );
 
       const fromRouter = jest.fn((table: string) => {
@@ -1070,6 +1070,65 @@ describe('POST /api/review', () => {
       // insertErr があっても fire-and-forget なのでメインは200
       expect(res.status).toBe(200);
       expect(mockPointsInsert).toHaveBeenCalled();
+    });
+
+    // uq_user_points_review（部分UNIQUEインデックス）が23505を返すTOCTOU想定内の重複ケース。
+    // select→insert が非原子なため、同時多重投稿で先に別リクエストが成立していても
+    // 異常ログ・Sentry通知を出さず静かに終える（正常系として扱う）ことを保証する。
+    test('user_points insert が23505(一意制約違反) → 想定内の重複としてログ・通知なしで200', async () => {
+      const mockGetUserFn = jest.fn().mockResolvedValue({
+        data: { user: { id: 'user-123', email: 'test@example.com' } },
+      });
+
+      const mockDupLimit = jest.fn().mockResolvedValue({ data: [] });
+      const mockDupGte = jest.fn().mockReturnValue({ limit: mockDupLimit });
+      const mockDupEq2 = jest.fn().mockReturnValue({ gte: mockDupGte });
+      const mockDupEq1 = jest.fn().mockReturnValue({ eq: mockDupEq2 });
+      const mockDupSelect = jest.fn().mockReturnValue({ eq: mockDupEq1 });
+
+      const mockBookingLimit = jest.fn().mockResolvedValue({ data: [{ id: 'booking-1' }] });
+      const mockBookingEq3 = jest.fn().mockReturnValue({ limit: mockBookingLimit });
+      const mockBookingEq2 = jest.fn().mockReturnValue({ eq: mockBookingEq3 });
+      const mockBookingEq1 = jest.fn().mockReturnValue({ eq: mockBookingEq2 });
+      const mockBookingSelect = jest.fn().mockReturnValue({ eq: mockBookingEq1 });
+
+      const mockSingle = jest.fn().mockResolvedValue({ data: { id: 'review-999' }, error: null });
+      const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
+      const mockInsertFn = jest.fn().mockReturnValue({ select: mockSelectInsert });
+
+      const mockPointsLimit = jest.fn().mockResolvedValue({ data: [], error: null });
+      const mockPointsEq2 = jest.fn().mockReturnValue({ limit: mockPointsLimit });
+      const mockPointsEq1 = jest.fn().mockReturnValue({ eq: mockPointsEq2 });
+      const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
+      const mockPointsInsert = jest.fn().mockReturnValue(
+        Promise.resolve({ error: { message: 'duplicate key value violates unique constraint "uq_user_points_review"', code: '23505' } })
+      );
+
+      const fromRouter = jest.fn((table: string) => {
+        if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
+        if (table === 'bookings') return { select: mockBookingSelect };
+        if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+      });
+
+      const { createServerClient } = require('@supabase/ssr');
+      createServerClient.mockReturnValue({ auth: { getUser: mockGetUserFn }, from: fromRouter });
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      const { cookies } = require('next/headers');
+      cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      expect(mockPointsInsert).toHaveBeenCalled();
+      // 23505 は想定内の重複のため、insertErr 用の console.error は呼ばれない
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+        '[review] points insert failed',
+        expect.anything()
+      );
+
+      consoleErrorSpy.mockRestore();
     });
 
     // A-8 根治の回帰防止: 未来店(completed 予約なし)ユーザーはポイント付与されない
