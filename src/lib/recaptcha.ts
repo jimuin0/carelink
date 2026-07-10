@@ -7,6 +7,8 @@
  *   RECAPTCHA_SECRET_KEY            - サーバー検証用
  */
 
+import { postAlert } from '@/lib/alert';
+
 const RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
 
 /**
@@ -22,10 +24,16 @@ export async function verifyRecaptcha(
 ): Promise<{ success: boolean; score?: number; reason?: string }> {
   const secretKey = process.env.RECAPTCHA_SECRET_KEY;
   if (!secretKey) {
-    // キーが未設定の場合はスキップ（開発環境対応）
-    // 本番環境で未設定の場合はすべてのリクエストが素通りになるため警告ログを出す
+    // キーが未設定の場合はスキップ（開発環境対応）。fail-open/fail-closed のどちらにするかは
+    // 意図的な既存設計（ネットワーク障害時は fail-closed・secret未設定時のみ fail-open）で、
+    // このヘルパーでは変更しない（可用性とのトレードオフのため）。
+    // 【2026年7月10日 恒久根治】本番で未設定の場合、従来は console.warn のみで誰も気づけず
+    // Bot対策が無音で無効化されたままになり得た（email.ts の EMAIL_FROM 不正値と同型の
+    // 「無音の設定ミス」問題）。postAlert で Slack に必ず可視化する。
     if (process.env.NODE_ENV === 'production') {
-      console.warn('[recaptcha] RECAPTCHA_SECRET_KEY is not set — all requests will pass verification. Set this env var in production.');
+      const msg = `RECAPTCHA_SECRET_KEY が未設定のため reCAPTCHA 検証を全てスキップしています（Bot対策が無効化された状態です）。action=${action}`;
+      console.warn('[recaptcha:secret-missing]', msg);
+      postAlert({ level: 'error', message: msg, route: 'recaptcha:secret-missing', env: process.env.VERCEL_ENV });
     }
     return { success: true, reason: 'no_secret_key' };
   }
