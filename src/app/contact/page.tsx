@@ -9,6 +9,7 @@ import Spinner from '@/components/Spinner';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import { contactSchema, type ContactFormData } from '@/lib/validations-contact';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 type ContactForm = ContactFormData;
 
@@ -66,10 +67,14 @@ function ContactPageContent() {
   const onSubmit = async (data: ContactForm) => {
     setSubmitting(true);
     try {
+      const recaptchaToken = await getRecaptchaToken('contact');
       const res = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
+        body: JSON.stringify({
+          ...data,
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => null);
