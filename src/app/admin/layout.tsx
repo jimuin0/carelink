@@ -39,7 +39,12 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/catalog', label: 'カタログ', icon: 'M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10' },
   { href: '/admin/qa', label: 'Q&A', icon: 'M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
   { href: '/admin/features', label: '特集', icon: 'M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z' },
-  { href: '/admin/inquiries', label: '問い合わせ', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
+  // facility_inquiries（施設ページの問い合わせフォーム）は施設ごとにスコープされたデータで、
+  // /admin/inquiries（platformAdmin専用・contacts テーブル＝運営宛の全社横断問い合わせ）とは
+  // 別物。従来は facility_inquiries を参照するUIが存在せず、施設への問い合わせが実質誰にも
+  // 届かない構造的欠陥だったため新設する（オーナー/admin なら誰でも閲覧可＝platformAdmin無し）。
+  { href: '/admin/facility-inquiries', label: '問い合わせ', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+  { href: '/admin/inquiries', label: '問い合わせ(運営)', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
   { href: '/admin/registrations', label: '施設登録', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', platformAdmin: true },
   { href: '/admin/line-richmenu', label: 'LINEリッチメニュー', icon: 'M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2h4a1 1 0 110 2h-1v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6H3a1 1 0 110-2h4zM9 6v10h2V6H9zm4 0v10h2V6h-2z' },
   { href: '/admin/newsletters', label: 'ニュースレター', icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4', platformAdmin: true },
@@ -103,6 +108,7 @@ const navGroups: NavGroup[] = [
   {
     key: 'message', label: 'メッセージ管理',
     items: [
+      { href: '/admin/facility-inquiries', label: '問い合わせ' },
       { href: '/admin/email-setup', label: 'メール配信設定' },
       { href: '/admin/line-richmenu', label: 'LINEリッチメニュー' },
     ],
@@ -141,10 +147,11 @@ const navGroups: NavGroup[] = [
   {
     key: 'platform', label: '運営', platformAdmin: true,
     items: [
-      // newsletters / inquiries は全施設横断のプラットフォーム運営専用 API（platform-admin gate）。
+      // newsletters / inquiries(contacts) は全施設横断のプラットフォーム運営専用 API（platform-admin gate）。
       // オーナーの nav に出すと押下で 403 の死に導線になるため運営グループへ集約する。
+      // ※施設ごとの問い合わせ(facility_inquiries)は上の「メッセージ管理」グループの別項目。
       { href: '/admin/newsletters', label: 'ニュースレター' },
-      { href: '/admin/inquiries', label: '問い合わせ' },
+      { href: '/admin/inquiries', label: '問い合わせ(運営)' },
       { href: '/admin/registrations', label: '施設登録' },
       { href: '/admin/moderation', label: 'モデレーション' },
       { href: '/admin/feature-flags', label: 'Feature Flags' },

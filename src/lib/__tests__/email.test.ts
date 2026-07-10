@@ -16,7 +16,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -170,6 +170,45 @@ describe('sendNewReviewNotification', () => {
     await sendNewReviewNotification({ ...reviewData, comment: null });
     const args = mockSend.mock.calls[0][0];
     expect(args.html).not.toContain('コメント</td>');
+  });
+});
+
+// 【2026年7月10日 恒久根治】施設への問い合わせがオーナーに届かない構造的欠陥の修正。
+describe('sendNewInquiryNotification', () => {
+  const inquiryData = {
+    facilityEmail: 'salon@example.com',
+    facilityName: 'テストサロン',
+    inquirerName: 'テスト花子',
+    inquirerEmail: 'hanako@example.com',
+    inquirerPhone: '090-1234-5678',
+    message: '予約について質問があります',
+  };
+
+  test('施設メールに送信する', async () => {
+    await sendNewInquiryNotification(inquiryData);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('salon@example.com');
+    expect(args.subject).toContain('新しいお問い合わせ');
+    expect(args.subject).toContain('テスト花子');
+    expect(args.html).toContain('テスト花子');
+    expect(args.html).toContain('hanako@example.com');
+    expect(args.html).toContain('090-1234-5678');
+    expect(args.html).toContain('予約について質問があります');
+    expect(args.html).toContain('/admin/facility-inquiries');
+  });
+
+  test('phone未指定の場合は電話欄を出力しない', async () => {
+    await sendNewInquiryNotification({ ...inquiryData, inquirerPhone: null });
+    const args = mockSend.mock.calls[0][0];
+    expect(args.html).not.toContain('電話</td>');
+  });
+
+  test('本文はHTMLエスケープされる（XSS対策）', async () => {
+    await sendNewInquiryNotification({ ...inquiryData, message: '<script>alert(1)</script>' });
+    const args = mockSend.mock.calls[0][0];
+    expect(args.html).not.toContain('<script>alert(1)</script>');
+    expect(args.html).toContain('&lt;script&gt;');
   });
 });
 
@@ -495,6 +534,7 @@ describe('RESEND_API_KEY未設定時 — 全send関数', () => {
     await mod.sendBookingCancelled(minData);
     await mod.sendNewBookingNotification({ ...minData, facilityEmail: 'f@f.com' });
     await mod.sendNewReviewNotification({ facilityEmail: 'f@f.com', facilityName: 'F', reviewerName: 'R', rating: 5 });
+    await mod.sendNewInquiryNotification({ facilityEmail: 'f@f.com', facilityName: 'F', inquirerName: 'I', inquirerEmail: 'i@i.com', message: 'M' });
     await mod.sendBookingCancellationToFacility({ ...minData, facilityEmail: 'f@f.com' });
     await mod.sendWelcomeEmail({ ownerEmail: 'o@o.com', facilityName: 'F' });
     await mod.sendOnboardingFollowEmail({ ownerEmail: 'o@o.com', facilityName: 'F', missingSteps: [] });

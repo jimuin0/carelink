@@ -212,8 +212,12 @@ describe('adminUrlFor — type ごとの管理画面 URL', () => {
     expect(getBlocksJson()).toContain('/admin/registrations');
   });
 
-  test('facility_inquiry type → /admin/inquiries', async () => {
+  // 【2026年7月10日 恒久根治】/admin/inquiries は facility_inquiries を一切表示しない別テーブル
+  // (contacts) のページ。正しいリンク先 /admin/facility-inquiries に固定する回帰テスト。
+  test('facility_inquiry type → /admin/facility-inquiries（/admin/inquiries ではない）', async () => {
     await sendNotify(facilityInquiryPayload);
-    expect(getBlocksJson()).toContain('/admin/inquiries');
+    const blocks = getBlocksJson();
+    expect(blocks).toContain('/admin/facility-inquiries');
+    expect(blocks).not.toContain('/admin/inquiries"'); // 末尾"で完全一致を除外（facility-inquiriesの部分一致を誤検知しないため）
   });
 });

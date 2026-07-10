@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { mutationRateLimit } from '@/lib/rate-limit';
 import { withRoute } from '@/lib/with-route';
+import { sendNewInquiryNotification } from '@/lib/email';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -82,6 +85,44 @@ export const POST = withRoute(async (request) => {
     return NextResponse.json(
       { error: '送信に失敗しました。時間をおいて再度お試しください。' },
       { status: 500 }
+    );
+  }
+
+  // 【2026年7月10日 恒久根治】保存のみで通知経路が存在せず、問い合わせが実質誰にも届かない
+  // 構造的欠陥だった。施設の全オーナーへメール通知する（複数オーナー運用でも全員に届くよう、
+  // /api/booking の owner 全員通知と同じパターンで一部のみに絞らない）。送信失敗はレスポンスを
+  // ブロックしない（保存自体は成功しているため）が、無音にせず可視化する。
+  const { data: ownerRows } = await supabase
+    .from('facility_members')
+    .select('user_id')
+    .eq('facility_id', facility.id)
+    .eq('role', 'owner');
+  const ownerUserIds = Array.from(new Set(((ownerRows ?? []) as { user_id: string }[]).map((o) => o.user_id).filter(Boolean)));
+  if (ownerUserIds.length > 0) {
+    const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+    const ownerEmails = Array.from(new Set(
+      ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
+    ));
+    await Promise.allSettled(
+      ownerEmails.map((facilityEmail) =>
+        sendNewInquiryNotification({
+          facilityEmail,
+          facilityName: facility.name,
+          inquirerName: d.name,
+          inquirerEmail: d.email,
+          inquirerPhone: d.phone || null,
+          message: d.message,
+        }).then((ok) => {
+          if (!ok) {
+            const err = new Error('inquiry notification email send failed');
+            safeCaptureException(err, 'inquiry-email-owner');
+            alertCaughtError('inquiry-email-owner', err, '/api/inquiry');
+          }
+        }).catch((e) => {
+          safeCaptureException(e, 'inquiry-email-owner');
+          alertCaughtError('inquiry-email-owner', e, '/api/inquiry');
+        })
+      )
     );
   }
 
