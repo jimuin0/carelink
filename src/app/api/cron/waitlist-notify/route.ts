@@ -73,6 +73,7 @@ export async function GET(request: Request) {
     }
 
     let notified = 0;
+    let skippedNoContact = 0; // 通知手段なし（email未登録 or Resend未設定）でclaimせずskipした件数
     let deliveryFailures = 0; // メール送達失敗（run 単位で集約 Slack 通報）
     let budgetExceeded = false;
     const loopStart = Date.now();
@@ -130,6 +131,7 @@ export async function GET(request: Request) {
           // 恒久 miss になる。さらに notified++ で「通知した」と誤集計される。送れない待ち客は
           // claim せず skip し、本当に送れる次の待ち客へ順番が回るようにする（無音 miss 防止）。
           if (!waiter.email || !resend) {
+            skippedNoContact++;
             continue;
           }
 
@@ -185,12 +187,12 @@ export async function GET(request: Request) {
 
     await logCronRun('waitlist-notify', 'success', startedAt, {
       processed: notified,
-      meta: { expired: expiredCount ?? 0, budgetExceeded },
+      meta: { expired: expiredCount ?? 0, budgetExceeded, skipped: skippedNoContact },
     });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('waitlist-notify', deliveryFailures, { notified });
 
-    return NextResponse.json({ processed: notified, skipped: 0, expired: expiredCount ?? 0 });
+    return NextResponse.json({ processed: notified, skipped: skippedNoContact, expired: expiredCount ?? 0 });
   } catch (e) {
     await logCronRun('waitlist-notify', 'error', startedAt, {
       error_msg: e instanceof Error ? e.message : String(e),

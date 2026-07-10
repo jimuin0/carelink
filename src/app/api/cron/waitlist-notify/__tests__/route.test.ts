@@ -429,6 +429,9 @@ describe('GET /api/cron/waitlist-notify', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(mockSendEmail).not.toHaveBeenCalled();
+    // 通知手段なしでclaimせずskipした件数が skipped に反映される（監査: 従来は常に0固定だった）。
+    const json = await res.json();
+    expect(json.skipped).toBeGreaterThan(0);
   });
 
   test('メール送信失敗 → status を waiting に戻し再送可能にする（恒久 miss 防止・回帰防止）', async () => {
@@ -491,6 +494,9 @@ describe('GET /api/cron/waitlist-notify', () => {
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
     expect(mockSendEmail).not.toHaveBeenCalled();
+    // email未登録の待ち客はclaimせずskippedとしてカウントされる。
+    const json = await res.json();
+    expect(json.skipped).toBe(1);
   });
 
   test('expiredCount null → meta expired falls back to 0', async () => {
