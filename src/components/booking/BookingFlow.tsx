@@ -89,6 +89,36 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
+  // 【2026年7月10日 恒久根治】確認ステップの「ログインする」リンクは <a href> によるフルページ
+  // 遷移で、選択内容は useState のみで保持されるため React ツリーのアンマウントで全消失していた
+  // （数ステップかけた入力が水泡に帰す・離脱率に直結する重大UX欠陥）。ログイン遷移直前に
+  // sessionStorage へ保存し、復帰後マウント時に1回だけ読み込んで消去する。
+  // スロット選択(selectedSlot)は復元しない：ログイン滞在中に他ユーザーに取られている可能性が
+  // あり、鮮度不明な枠をそのまま確認画面に出すと在庫と乖離した表示になるため、日時ステップに
+  // 戻して枠を再取得・再選択させる（1クリックのみの負担・在庫整合性を優先）。
+  const bookingDraftKey = `booking-draft:${facility.id}`;
+  const BOOKING_DRAFT_TTL_MS = 15 * 60 * 1000; // 15分。ログイン離脱後の長時間放置は復元しない。
+
+  function saveBookingDraftBeforeLogin() {
+    try {
+      sessionStorage.setItem(bookingDraftKey, JSON.stringify({
+        savedAt: Date.now(),
+        menuIds: selectedMenus.map((m) => m.id),
+        staffId: selectedStaff?.id ?? null,
+        couponId: selectedCoupon?.id ?? null,
+        selectedDate,
+        customerName,
+        email,
+        phone,
+        note,
+        usePoints,
+        pointsToUse,
+      }));
+    } catch {
+      // sessionStorage 不可（プライベートモード等）でも遷移自体は妨げない。
+    }
+  }
+
   // Pre-fill from user profile
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -104,6 +134,55 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         setEmail(user.email || '');
       }
     }).catch(() => {});
+  }, []);
+
+  // ログイン遷移からの復帰時、保存済みドラフトを1回だけ復元する（読み取り後は消去）。
+  useEffect(() => {
+    let raw: string | null = null;
+    try {
+      raw = sessionStorage.getItem(bookingDraftKey);
+      sessionStorage.removeItem(bookingDraftKey);
+    } catch {
+      return;
+    }
+    if (!raw) return;
+    try {
+      const draft = JSON.parse(raw) as {
+        savedAt: number;
+        menuIds: string[];
+        staffId: string | null;
+        couponId: string | null;
+        selectedDate: string;
+        customerName: string;
+        email: string;
+        phone: string;
+        note: string;
+        usePoints: boolean;
+        pointsToUse: number;
+      };
+      if (Date.now() - draft.savedAt > BOOKING_DRAFT_TTL_MS) return;
+
+      const restoredMenus = draft.menuIds
+        .map((id) => menus.find((m) => m.id === id))
+        .filter((m): m is FacilityMenu => !!m);
+      if (restoredMenus.length === 0) return; // メニューが復元できなければ復元しない（不整合な部分復元を避ける）
+
+      setSelectedMenus(restoredMenus);
+      setSelectedStaff(draft.staffId ? (staff.find((s) => s.id === draft.staffId) ?? null) : null);
+      setSelectedCoupon(draft.couponId ? (coupons.find((c) => c.id === draft.couponId) ?? null) : null);
+      if (draft.selectedDate) setSelectedDate(draft.selectedDate);
+      if (draft.customerName) setCustomerName(draft.customerName);
+      if (draft.email) setEmail(draft.email);
+      if (draft.phone) setPhone(draft.phone);
+      if (draft.note) setNote(draft.note);
+      setUsePoints(draft.usePoints);
+      setPointsToUse(draft.pointsToUse);
+      // 日時ステップへ（枠は在庫鮮度のため再取得・再選択させる）。
+      setStep(draft.selectedDate ? 'datetime' : 'staff');
+    } catch {
+      // 破損データは無視して通常フローを続行。
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
@@ -652,7 +731,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-sm text-amber-700">
               <p className="font-bold">ログインしていません</p>
               <p className="text-xs mt-1">ログインせずに予約すると、予約履歴から確認・キャンセルできません。</p>
-              <a href={`/auth/login?redirect=/facility/${facility.slug}/booking`} className="text-xs text-primary hover:underline mt-1 inline-block">
+              <a
+                href={`/auth/login?redirect=/facility/${facility.slug}/booking`}
+                onClick={saveBookingDraftBeforeLogin}
+                className="text-xs text-primary hover:underline mt-1 inline-block"
+              >
                 ログインする
               </a>
             </div>
