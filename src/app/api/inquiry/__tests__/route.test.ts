@@ -19,10 +19,16 @@ jest.mock('@/lib/rate-limit', () => ({
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
 }));
+jest.mock('@/lib/email', () => ({ sendNewInquiryNotification: jest.fn() }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { sendNewInquiryNotification } from '@/lib/email';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 import { POST } from '../route';
 
 const FACILITY_ID = '550e8400-e29b-41d4-a716-446655440000';
@@ -32,7 +38,11 @@ let mockInsertSingle: jest.Mock;
 let mockFacilityMaybeSingle: jest.Mock;
 
 function setupDefaultMocks(
-  opts: { insertError?: boolean; noData?: boolean; noFacility?: boolean } = {}
+  opts: {
+    insertError?: boolean; noData?: boolean; noFacility?: boolean;
+    ownerUserIds?: string[]; ownerEmails?: (string | null)[];
+    ownerRowsDataNull?: boolean; ownerProfilesDataNull?: boolean;
+  } = {}
 ) {
   (checkCsrf as jest.Mock).mockReturnValue(null);
 
@@ -51,12 +61,20 @@ function setupDefaultMocks(
     select: jest.fn().mockReturnValue({ single: mockInsertSingle }),
   });
 
+  // オーナー通知（facility_members → profiles でメール解決）用チェーン。
+  // デフォルトはオーナー0件（通知ロジックが到達しても no-op で成功パスに影響しない）。
+  const ownerRows = opts.ownerRowsDataNull ? null : (opts.ownerUserIds ?? []).map((id) => ({ user_id: id }));
+  const ownersChain = { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: ownerRows }) }) }) };
+  const profileRows = opts.ownerProfilesDataNull ? null : (opts.ownerEmails ?? []).map((email) => ({ email }));
+  const profilesChain = { select: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: profileRows }) }) };
+
   (createServiceRoleClient as jest.Mock).mockReturnValue({
-    from: jest.fn((table: string) =>
-      table === 'facility_profiles'
-        ? { select: facilitySelect }
-        : { insert: mockInsert }
-    ),
+    from: jest.fn((table: string) => {
+      if (table === 'facility_profiles') return { select: facilitySelect };
+      if (table === 'facility_members') return ownersChain;
+      if (table === 'profiles') return profilesChain;
+      return { insert: mockInsert };
+    }),
   });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
@@ -66,6 +84,7 @@ function setupDefaultMocks(
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockResolvedValue(false);
+  (sendNewInquiryNotification as jest.Mock).mockResolvedValue(true);
   setupDefaultMocks();
 });
 
@@ -227,4 +246,86 @@ test('INQ-1: 施設確認でDBエラー → 500', async () => {
   mockFacilityMaybeSingle.mockResolvedValue({ data: null, error: { message: 'db down' } });
   const res = await POST(makeRequest(validInquiry));
   expect(res.status).toBe(500);
+});
+
+// 【2026年7月10日 恒久根治の回帰】施設への問い合わせがオーナーに届かない構造的欠陥の修正。
+describe('オーナー通知（施設への問い合わせがオーナーに届く経路）', () => {
+  test('オーナー1名 → メール通知が送られる', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerEmails: ['owner1@example.com'] });
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(sendNewInquiryNotification).toHaveBeenCalledTimes(1);
+    const arg = (sendNewInquiryNotification as jest.Mock).mock.calls[0][0];
+    expect(arg.facilityEmail).toBe('owner1@example.com');
+    expect(arg.facilityName).toBe('リラクサロン ABC');
+    expect(arg.inquirerName).toBe(validInquiry.name);
+    expect(arg.inquirerEmail).toBe(validInquiry.email);
+    expect(arg.inquirerPhone).toBe(validInquiry.phone);
+    expect(arg.message).toBe(validInquiry.message);
+  });
+
+  test('phone未指定の問い合わせ → 通知の inquirerPhone は null', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerEmails: ['owner1@example.com'] });
+    const { phone, ...rest } = validInquiry;
+    void phone;
+    await POST(makeRequest(rest) as any);
+    const arg = (sendNewInquiryNotification as jest.Mock).mock.calls[0][0];
+    expect(arg.inquirerPhone).toBeNull();
+  });
+
+  test('複数オーナー → 重複を除いた全員にメール通知が送られる（/api/bookingと同じ全オーナー通知パターン）', async () => {
+    setupDefaultMocks({
+      ownerUserIds: ['owner-1', 'owner-2'],
+      ownerEmails: ['owner1@example.com', 'owner2@example.com', 'owner1@example.com'], // 重複含む
+    });
+    await POST(makeRequest(validInquiry) as any);
+    expect(sendNewInquiryNotification).toHaveBeenCalledTimes(2);
+    const sentEmails = (sendNewInquiryNotification as jest.Mock).mock.calls.map((c) => c[0].facilityEmail).sort();
+    expect(sentEmails).toEqual(['owner1@example.com', 'owner2@example.com']);
+  });
+
+  test('オーナー0件 → 通知は送られない（保存自体は200のまま）', async () => {
+    setupDefaultMocks({ ownerUserIds: [], ownerEmails: [] });
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(sendNewInquiryNotification).not.toHaveBeenCalled();
+  });
+
+  test('email が null のオーナーは送信対象から除外される', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerEmails: [null] });
+    await POST(makeRequest(validInquiry) as any);
+    expect(sendNewInquiryNotification).not.toHaveBeenCalled();
+  });
+
+  test('facility_members クエリが data:null を返しても例外にならず通知スキップ（?? [] フォールバック）', async () => {
+    setupDefaultMocks({ ownerRowsDataNull: true });
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(sendNewInquiryNotification).not.toHaveBeenCalled();
+  });
+
+  test('profiles クエリが data:null を返しても例外にならず通知スキップ（?? [] フォールバック）', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerProfilesDataNull: true });
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(sendNewInquiryNotification).not.toHaveBeenCalled();
+  });
+
+  test('通知送信が false を返す（失敗）→ 保存は200のまま、失敗は無音にせず可視化する', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerEmails: ['owner1@example.com'] });
+    (sendNewInquiryNotification as jest.Mock).mockResolvedValue(false);
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'inquiry-email-owner');
+    expect(alertCaughtError).toHaveBeenCalledWith('inquiry-email-owner', expect.any(Error), '/api/inquiry');
+  });
+
+  test('通知送信が例外を投げる → catchされ保存は200のまま、失敗は可視化される', async () => {
+    setupDefaultMocks({ ownerUserIds: ['owner-1'], ownerEmails: ['owner1@example.com'] });
+    (sendNewInquiryNotification as jest.Mock).mockRejectedValue(new Error('network down'));
+    const res = await POST(makeRequest(validInquiry) as any);
+    expect(res.status).toBe(200);
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'inquiry-email-owner');
+    expect(alertCaughtError).toHaveBeenCalledWith('inquiry-email-owner', expect.any(Error), '/api/inquiry');
+  });
 });

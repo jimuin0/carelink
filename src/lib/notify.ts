@@ -27,7 +27,11 @@ function adminUrlFor(type: NotifyPayload['type']): string {
     case 'facility':
       return `${base}/admin/registrations`;
     case 'facility_inquiry':
-      return `${base}/admin/inquiries`;
+      // 【2026年7月10日 恒久根治】/admin/inquiries は contacts テーブル（運営宛の全社横断
+      // 問い合わせ・platformAdmin専用）を表示するページで、facility_inquiries とは別物。
+      // 従来この「管理画面で開く」ボタンは常に facility_inquiries を一切表示しない誤った
+      // リンク先を指しており、クリックしても該当の問い合わせに到達できなかった。
+      return `${base}/admin/facility-inquiries`;
   }
 }
 

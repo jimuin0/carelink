@@ -341,6 +341,45 @@ export async function sendNewReviewNotification(data: {
   }, 'new_review_notification');
 }
 
+/**
+ * 新規問い合わせ通知（施設向け）。
+ * 【2026年7月10日 恒久根治】施設ページの問い合わせフォーム(InquiryForm.tsx)は
+ * facility_inquiries へ保存されるが、従来オーナー宛メール通知が存在せず、参照できる管理画面
+ * (admin/facility-inquiries)も存在しなかった（問い合わせが実質誰にも届かない構造的欠陥）。
+ * Slack通知(type=facility_inquiry)は既に存在するが、施設オーナーが必ずSlackを見ているとは
+ * 限らないため、確実に届く経路としてメール通知を新設する。
+ */
+export async function sendNewInquiryNotification(data: {
+  facilityEmail: string;
+  facilityName: string;
+  inquirerName: string;
+  inquirerEmail: string;
+  inquirerPhone?: string | null;
+  message: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  const name = esc(data.inquirerName);
+  const email = esc(data.inquirerEmail);
+  const phone = data.inquirerPhone ? esc(data.inquirerPhone) : null;
+  const message = esc(data.message);
+  return safeSend(resend, {
+    from: FROM,
+    to: data.facilityEmail,
+    subject: escSubject(`【CareLink】新しいお問い合わせが届きました - ${data.inquirerName}様`),
+    html: wrapHtml(`
+      <p>${esc(data.facilityName)}宛に新しいお問い合わせが届きました。管理画面から確認・返信してください。</p>
+      <table style="width:100%;border-collapse:collapse;margin:16px 0;">
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;width:120px;">お名前</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">メール</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${email}</td></tr>
+        ${phone ? `<tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">電話</td><td style="padding:8px 12px;border:1px solid #e2e8f0;">${phone}</td></tr>` : ''}
+        <tr><td style="padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;font-weight:600;">お問い合わせ内容</td><td style="padding:8px 12px;border:1px solid #e2e8f0;white-space:pre-wrap;">${message}</td></tr>
+      </table>
+      <p style="text-align:center;margin-top:24px;"><a href="${SITE_URL}/admin/facility-inquiries" style="display:inline-block;background:#0ea5e9;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:600;">管理画面で確認する</a></p>
+    `),
+  }, 'new_inquiry_notification');
+}
+
 /** 新規予約通知（施設向け） */
 export async function sendNewBookingNotification(data: BookingEmailData & { facilityEmail: string }): Promise<boolean> {
   const resend = getResend();
