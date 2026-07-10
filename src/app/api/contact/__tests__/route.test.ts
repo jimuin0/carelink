@@ -20,10 +20,12 @@ jest.mock('@supabase/supabase-js');
 // Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない）。
 // server-to-server fetch は CSRF で 403 になるため fetch 経由をやめた回帰の検証。
 jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
+jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { sendNotify } from '@/lib/notify';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;
@@ -43,9 +45,11 @@ function setupDefaultMocks(insertSucceeds: boolean = true) {
   });
 
   (sendNotify as jest.Mock).mockResolvedValue({ ok: true, ts: '123.456' });
+  (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  process.env.RECAPTCHA_SECRET_KEY = 'test-secret-key';
 }
 
 beforeEach(() => {
@@ -243,6 +247,7 @@ describe('POST /api/contact', () => {
         inquiry_type: 'support',
         message: 'I need help with something',
         phone: '09012345678',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -258,6 +263,7 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'support',
         message: 'Help needed',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -278,6 +284,7 @@ describe('POST /api/contact', () => {
         inquiry_type: 'support',
         message: 'Help',
         phone: '09012345678',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -308,6 +315,7 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'support',
         message: 'Help',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -321,6 +329,7 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'support',
         message: 'Help needed',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -337,6 +346,7 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'support',
         message: 'Help',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -353,6 +363,7 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'support',
         message: 'Help',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -368,6 +379,7 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'support',
         message: 'Help',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
@@ -423,9 +435,76 @@ describe('POST /api/contact', () => {
         email: 'test@example.com',
         inquiry_type: 'x'.repeat(101),
         message: 'Help',
+        recaptcha_token: 'valid-token',
       }) as any
     );
 
     expect(res.status).toBe(400);
+  });
+
+  // review.ts と同一パターンの reCAPTCHA fail-closed 検証（監査・contact.ts未配線の恒久根治）。
+  describe('reCAPTCHA', () => {
+    test('secret設定済み + token欠如 → 403（fail-closed）・verifyRecaptchaは呼ばれない', async () => {
+      (verifyRecaptcha as jest.Mock).mockClear();
+
+      const res = await POST(
+        makeRequest({
+          name: 'Test',
+          email: 'test@example.com',
+          inquiry_type: 'support',
+          message: 'Help',
+        }) as any
+      );
+
+      expect(res.status).toBe(403);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
+    });
+
+    test('verifyRecaptcha が success:false → 403', async () => {
+      (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: false });
+
+      const res = await POST(
+        makeRequest({
+          name: 'Test',
+          email: 'test@example.com',
+          inquiry_type: 'support',
+          message: 'Help',
+          recaptcha_token: 'bad-token',
+        }) as any
+      );
+
+      expect(res.status).toBe(403);
+    });
+
+    test('verifyRecaptcha に action=contact, minScore=0.4 で呼ばれる', async () => {
+      await POST(
+        makeRequest({
+          name: 'Test',
+          email: 'test@example.com',
+          inquiry_type: 'support',
+          message: 'Help',
+          recaptcha_token: 'valid-token',
+        }) as any
+      );
+
+      expect(verifyRecaptcha).toHaveBeenCalledWith('valid-token', 'contact', 0.4);
+    });
+
+    test('RECAPTCHA_SECRET_KEY 未設定 → 検証スキップで200（開発環境互換）', async () => {
+      delete process.env.RECAPTCHA_SECRET_KEY;
+      (verifyRecaptcha as jest.Mock).mockClear();
+
+      const res = await POST(
+        makeRequest({
+          name: 'Test',
+          email: 'test@example.com',
+          inquiry_type: 'support',
+          message: 'Help',
+        }) as any
+      );
+
+      expect(res.status).toBe(200);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
+    });
   });
 });

@@ -11,6 +11,7 @@ import { withRoute } from '@/lib/with-route';
 import { sendNotify } from '@/lib/notify';
 import { contactSchema } from '@/lib/validations-contact';
 import { zodErrorResponse } from '@/lib/api-validation';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +20,19 @@ export const POST = withRoute(async (request) => {
   const parsed = contactSchema.safeParse(body);
   if (!parsed.success) {
     return zodErrorResponse(parsed.error);
+  }
+
+  // reCAPTCHA v3 検証（fail-closed: secret設定時=本番はtoken必須）。
+  // review.ts と非対称に reCAPTCHA が未配線だったため、無認証で叩ける本エンドポイントが
+  // Bot対策の抜け道になっていた（contacts テーブル汚染・Slack通知の連続発火）。同一パターンで揃える。
+  if (process.env.RECAPTCHA_SECRET_KEY) {
+    if (!parsed.data.recaptcha_token) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+    const captcha = await verifyRecaptcha(parsed.data.recaptcha_token, 'contact', 0.4);
+    if (!captcha.success) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
   }
 
   const supabase = createClient(

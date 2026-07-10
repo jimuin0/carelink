@@ -13,6 +13,14 @@ jest.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }));
 
+// このページは送信前に getRecaptchaToken を呼ぶ。テスト環境（jest.setup.js）は
+// NEXT_PUBLIC_RECAPTCHA_SITE_KEY を設定するため、モックしないと本物の
+// loadRecaptchaScript が <script> の onload を待って jsdom で永久にハングする
+// （symptoms/page.test.tsx と同じ既知の地雷）。
+jest.mock('@/lib/recaptcha-client', () => ({
+  getRecaptchaToken: jest.fn().mockResolvedValue(null),
+}));
+
 beforeEach(() => {
   Array.from(mockSearchParams.keys()).forEach((k) => mockSearchParams.delete(k));
 });
@@ -79,4 +87,60 @@ test('確認ダイアログの確定ボタンを連打しても /api/contact へ
 
   await waitFor(() => expect(screen.getByText('送信が完了しました')).toBeInTheDocument());
   expect(fetchMock).toHaveBeenCalledTimes(1);
+});
+
+// reCAPTCHA token 未配線の恒久根治（review.ts と非対称だった穴を閉じる）の回帰防止。
+// getRecaptchaToken が実トークンを返した場合、送信body に recaptcha_token として含める。
+test('getRecaptchaToken がトークンを返す → 送信bodyに recaptcha_token を含める', async () => {
+  const { getRecaptchaToken } = jest.requireMock('@/lib/recaptcha-client') as {
+    getRecaptchaToken: jest.Mock;
+  };
+  getRecaptchaToken.mockResolvedValueOnce('real-token-123');
+
+  const fetchMock = jest.fn(() =>
+    Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response)
+  );
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  render(<ContactPage />);
+
+  fireEvent.change(screen.getByLabelText(/お名前/), { target: { value: '山田太郎' } });
+  fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: 'test@example.com' } });
+  fireEvent.change(screen.getByLabelText(/お問い合わせ種別/), { target: { value: 'その他' } });
+  fireEvent.change(screen.getByLabelText(/内容/), { target: { value: 'テスト内容です。' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+
+  fireEvent.click(screen.getByRole('button', { name: '送信する' }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+
+  await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  const [, options] = fetchMock.mock.calls[0];
+  const body = JSON.parse((options as RequestInit).body as string);
+  expect(body.recaptcha_token).toBe('real-token-123');
+});
+
+// fetch が !ok を返す（サーバ側400/403/500等）場合、エラートーストを表示する回帰防止。
+test('送信APIがエラーレスポンス → エラーメッセージをトーストで表示する', async () => {
+  const fetchMock = jest.fn(() =>
+    Promise.resolve({
+      ok: false,
+      json: () => Promise.resolve({ error: 'Bot検知: 時間をおいて再度お試しください' }),
+    } as Response)
+  );
+  global.fetch = fetchMock as unknown as typeof fetch;
+
+  render(<ContactPage />);
+
+  fireEvent.change(screen.getByLabelText(/お名前/), { target: { value: '山田太郎' } });
+  fireEvent.change(screen.getByLabelText(/メールアドレス/), { target: { value: 'test@example.com' } });
+  fireEvent.change(screen.getByLabelText(/お問い合わせ種別/), { target: { value: 'その他' } });
+  fireEvent.change(screen.getByLabelText(/内容/), { target: { value: 'テスト内容です。' } });
+  fireEvent.click(screen.getByRole('checkbox'));
+
+  fireEvent.click(screen.getByRole('button', { name: '送信する' }));
+  const dialog = await screen.findByRole('dialog');
+  fireEvent.click(within(dialog).getByRole('button', { name: '送信する' }));
+
+  await waitFor(() => expect(screen.getByText('Bot検知: 時間をおいて再度お試しください')).toBeInTheDocument());
 });
