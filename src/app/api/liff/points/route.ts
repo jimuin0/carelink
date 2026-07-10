@@ -55,21 +55,36 @@ export async function GET(req: NextRequest) {
   const userId = profile.id;
 
   // 表示用の履歴は直近50件に制限する（一覧描画コストの抑制）。
-  const { data: logs } = await admin
+  // 【2026年7月10日 恒久根治】以下2クエリとも error を検査せず null→空配列/0にフォールバック
+  // していたため、DB障害時も「ポイント履歴なし・残高0」と偽装表示していた（実際に残高がある
+  // 客が「ポイントが消えた」と誤認する金銭的信頼性リスク）。error を検査し、真の失敗は500で
+  // 可視化する（残高を誤って0と表示するより、エラーとして知らせる方が安全）。
+  const { data: logs, error: logsError } = await admin
     .from('user_points')
     .select('id, points, reason, created_at')
     .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(50);
 
+  if (logsError) {
+    alertCaughtError('liff-points', logsError, '/api/liff/points');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+
   // 残高(total)は【全履歴の合計】で算出する。直近50件だけの合計を残高にすると、履歴が51件以上ある
   // ユーザーで残高が実際とずれ、Web版マイページ(mypage/points は .limit なしで全件合計)と食い違う。
   // user_points は残高カラムを持たない純台帳のため、全 points 列を取得して合算する
   // （booking/route.ts の残高算出と同じ全件合計方式に統一）。
-  const { data: allPoints } = await admin
+  const { data: allPoints, error: allPointsError } = await admin
     .from('user_points')
     .select('points')
     .eq('user_id', userId);
+
+  if (allPointsError) {
+    alertCaughtError('liff-points', allPointsError, '/api/liff/points');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+
   const total = (allPoints ?? []).reduce((sum, row) => sum + (row.points ?? 0), 0);
 
   return NextResponse.json({ logs: logs ?? [], total });

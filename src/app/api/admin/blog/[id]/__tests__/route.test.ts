@@ -69,11 +69,13 @@ function updateFacilityChain(data: unknown, error: unknown = null) {
   };
 }
 
-function deleteFacilityChain(error: unknown = null) {
+function deleteFacilityChain(error: unknown = null, data: unknown = [{ id: 'blog-1' }]) {
   return {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+        }),
       }),
     }),
   };
@@ -170,6 +172,15 @@ test('DELETE: DB削除失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(deleteFacilityChain({ message: 'DB error' }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+// 【2026年7月10日 恒久根治の回帰】他施設のIDを指定した0件削除が「成功」と偽装されない
+// ことを検証する（phantom success の再発防止）。
+test('DELETE: 0件削除（他施設のID等）→ 404（成功と偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(deleteFacilityChain(null, []));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: 正常削除 → 200 ok:true', async () => {

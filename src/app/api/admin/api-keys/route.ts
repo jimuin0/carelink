@@ -104,10 +104,14 @@ export async function GET(request: NextRequest) {
   if (!mem) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 });
 
   const admin = createServiceRoleClient();
-  const { data } = await admin.from('api_keys')
+  // 【2026年7月10日 恒久根治】error を検査せず常に成功として空配列にフォールバックしていたため、
+  // DB障害時も「APIキー0件」と偽装表示していた。error を明示的に検査し、真の失敗は500で可視化する。
+  const { data, error } = await admin.from('api_keys')
     .select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at')
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false });
+
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
 
   return NextResponse.json(data ?? []);
 }

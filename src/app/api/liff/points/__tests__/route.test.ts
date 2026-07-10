@@ -27,18 +27,18 @@ import { GET } from '../route';
 //   (2) 残高(total)用: select('points').eq()  ← 全件（.order/.limit なし・直接 await）
 // mock は select の引数で 2 経路を分岐させる。allData を渡すと (2) はそれを、無ければ logsData を返す
 // （＝残高は全履歴合計で算出されるという F9 の仕様を検証可能にする）。
-function userPointsMock(logsData: unknown[], allData?: unknown[]) {
+function userPointsMock(logsData: unknown[], allData?: unknown[], logsError: unknown = null, allError: unknown = null) {
   return {
     select: jest.fn((cols: string) => {
       if (cols === 'points') {
         // 残高用（全件）
-        return { eq: jest.fn().mockResolvedValue({ data: allData ?? logsData }) };
+        return { eq: jest.fn().mockResolvedValue({ data: allError ? null : (allData ?? logsData), error: allError }) };
       }
       // 履歴用（直近50件）
       return {
         eq: jest.fn().mockReturnValue({
           order: jest.fn().mockReturnValue({
-            limit: jest.fn().mockResolvedValue({ data: logsData }),
+            limit: jest.fn().mockResolvedValue({ data: logsError ? null : logsData, error: logsError }),
           }),
         }),
       };
@@ -173,6 +173,37 @@ describe('GET /api/liff/points', () => {
     expect(Array.isArray(json.logs)).toBe(true);
     expect(json.logs.length).toBeGreaterThan(0);
     expect(typeof json.total).toBe('number');
+  });
+
+  // 【2026年7月10日 恒久根治の回帰】DB障害時に「ポイント履歴なし・残高0」と偽装表示せず、
+  // 真の失敗として500を返すことを検証する（実際に残高がある客が「消えた」と誤認する
+  // 金銭的信頼性リスクの再発防止）。履歴クエリ・残高クエリ双方を検証する。
+  test('履歴取得: DB障害（error発生）→ 500（履歴なし・残高0と偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }) }) }) };
+        }
+        if (table === 'user_points') return userPointsMock([], undefined, { message: 'DB error' });
+      }),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('残高取得: DB障害（error発生）→ 500（残高0と偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-789' } }) }) }) };
+        }
+        if (table === 'user_points') return userPointsMock([], undefined, null, { message: 'DB error' });
+      }),
+    });
+    const res = await GET(makeRequest('valid-token') as any);
+    expect(res.status).toBe(500);
   });
 
   test('aggregates points total correctly', async () => {

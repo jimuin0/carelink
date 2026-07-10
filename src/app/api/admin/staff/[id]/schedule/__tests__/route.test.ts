@@ -77,6 +77,12 @@ function chain(readResult: Res = { data: null, error: null }, terminals: { inser
     const d: Record<string, unknown> = {};
     d.eq = jest.fn(() => d);
     d.then = (res: (v: Res) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(terminals.delete ?? { error: null }).then(res, rej);
+    // .delete().eq(...).eq(...).select() 経路（削除件数検証の恒久修正）用。
+    // terminals.delete に data 未指定なら1件削除された想定でデフォルト値を返す。
+    d.select = jest.fn(() => {
+      const t = terminals.delete ?? { error: null };
+      return Promise.resolve({ data: t.error ? null : (t.data ?? [{ id: 'x' }]), error: t.error ?? null });
+    });
     return d;
   });
   return self;
@@ -90,20 +96,21 @@ type AdminCfg = {
   insertErr?: unknown;             // staff_schedules insert error (PUT)
   upsertErr?: unknown;             // schedule_overrides upsert error (POST)
   overrideDeleteErr?: unknown;     // schedule_overrides delete error (DELETE)
+  overrideDeleteData?: unknown;    // schedule_overrides delete後 .select() の data（DELETE件数検証用）
   upsertSpy?: (row: unknown) => void;
 };
 
 function setupAdmin(cfg: AdminCfg = {}) {
   const {
     staff = { id: STAFF_UUID }, bookings = [], overrides = [],
-    schedDeleteErr = null, insertErr = null, upsertErr = null, overrideDeleteErr = null, upsertSpy,
+    schedDeleteErr = null, insertErr = null, upsertErr = null, overrideDeleteErr = null, overrideDeleteData, upsertSpy,
   } = cfg;
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'staff_profiles') return chain({ data: staff, error: null });
     if (table === 'bookings') return chain({ data: bookings, error: null });
     if (table === 'staff_schedules') return chain({ data: null, error: null }, { delete: { error: schedDeleteErr }, insert: { error: insertErr } });
     if (table === 'schedule_overrides') {
-      const c = chain({ data: overrides, error: null }, { upsert: { error: upsertErr }, delete: { error: overrideDeleteErr } });
+      const c = chain({ data: overrides, error: null }, { upsert: { error: upsertErr }, delete: { error: overrideDeleteErr, data: overrideDeleteData } });
       if (upsertSpy) c.upsert = jest.fn((row: unknown) => { upsertSpy(row); return Promise.resolve({ error: upsertErr }); });
       return c;
     }
@@ -344,6 +351,14 @@ test('DELETE: DB失敗 → 500', async () => {
   setupAdmin({ overrideDeleteErr: { message: 'DB error' } });
   const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
   expect(res.status).toBe(500);
+});
+
+// 【2026年7月10日 恒久根治の回帰】他スタッフのoverride_idを指定した0件削除
+// （staff_id不一致）が「成功」と偽装されないことを検証する（phantom success の再発防止）。
+test('DELETE: 0件削除（他スタッフのoverride_id等）→ 404（成功と偽装しない）', async () => {
+  setupAdmin({ overrideDeleteData: [] });
+  const res = await DELETE(makeRequest('DELETE', { override_id: OVERRIDE_UUID }), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: 正常削除 → 200', async () => {

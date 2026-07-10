@@ -88,13 +88,18 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
     const admin = createServiceRoleClient();
-    const { error } = await admin
+    // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、他施設のqa_idを
+    // 指定した0件削除（facility_id不一致）も「成功」と偽装していた（phantom success）。
+    // .select() で削除された行を受け取り、0件なら404を返す。
+    const { data, error } = await admin
       .from('facility_qa')
       .delete()
       .eq('id', parsed.data.qa_id)
-      .eq('facility_id', result.facilityId);
+      .eq('facility_id', result.facilityId)
+      .select();
 
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
 
     void writeAuditLog({
       userId: result.userId,

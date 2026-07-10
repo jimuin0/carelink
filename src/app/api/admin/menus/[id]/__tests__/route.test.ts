@@ -80,11 +80,13 @@ function updateSingleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function deleteSingleChain(error: unknown = null) {
+function deleteSingleChain(error: unknown = null, data: unknown = [{ id: MENU_UUID }]) {
   return {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+        }),
       }),
     }),
   };
@@ -229,7 +231,7 @@ function menusCountSelect(count: number | null) {
 
 test('DELETE: DELETEのWHEREにfacility_idが含まれる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
-  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const innerEq = jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: MENU_UUID }], error: null })) });
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
   const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
   // status=draft なら公開ガードを通り抜け、delete が実行される。
@@ -250,6 +252,19 @@ test('DELETE: DB削除失敗 → 500', async () => {
   );
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+// 【2026年7月10日 恒久根治の回帰】他施設のIDを指定した0件削除（facility_id不一致でWHEREに
+// マッチしない）が「成功」と偽装されないことを検証する（phantom success の再発防止）。
+test('DELETE: 0件削除（他施設のID等）→ 404（成功と偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockImplementation((table: string) =>
+    table === 'facility_profiles' ? statusChain('draft') : deleteSingleChain(null, [])
+  );
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
+  const json = await res.json();
+  expect(json.ok).toBeUndefined();
 });
 
 test('DELETE: 公開中に最後のメニューを削除 → 400（行き止まり防止）', async () => {
@@ -275,7 +290,7 @@ test('DELETE: 公開中でもメニューが複数あれば削除可 → 200', a
   mockAdminFrom.mockImplementation((table: string) =>
     table === 'facility_profiles'
       ? statusChain('published')
-      : { ...menusCountSelect(3), delete: jest.fn(() => ({ eq: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve({ error: null })) })) })) }
+      : { ...menusCountSelect(3), delete: jest.fn(() => ({ eq: jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: MENU_UUID }], error: null })) })) })) })) }
   );
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(200);
