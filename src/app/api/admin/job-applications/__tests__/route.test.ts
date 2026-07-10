@@ -267,6 +267,17 @@ test('GET: applications が null → 200 with []', async () => {
   expect(json.applications).toEqual([]);
 });
 
+// 【2026年7月10日 恒久根治の回帰】DB障害時に「応募0件」と偽装表示せず、
+// 真の失敗として500を返すことを検証する（error握り潰しの再発防止）。
+test('GET: DB障害（error発生）→ 500（応募0件と偽装しない）', async () => {
+  mockAdminFrom.mockImplementation((table: string) => {
+    if (table === 'facility_members') return membersChain([FACILITY_UUID]);
+    return listChain(null as unknown as unknown[], { message: 'DB error' });
+  });
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
+});
+
 test('POST: 不正JSONボディ → 400', async () => {
   const req = new NextRequest('http://localhost/api/admin/job-applications', {
     method: 'POST',

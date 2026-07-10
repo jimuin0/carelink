@@ -136,13 +136,18 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     }
   }
 
-  const { error } = await admin
+  // 【2026年7月10日 恒久根治】削除件数(affected rows)を検証せず常に { ok: true } を返していたため、
+  // 他施設のIDを指定した0件削除（facility_id不一致でWHEREにマッチしない）も「成功」と偽装していた
+  // （phantom success）。.select() で削除された行を受け取り、0件なら404を返す。
+  const { data, error } = await admin
     .from('facility_menus')
     .delete()
     .eq('id', params.id)
-    .eq('facility_id', ctx.facilityId);
+    .eq('facility_id', ctx.facilityId)
+    .select();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: ctx.userId,

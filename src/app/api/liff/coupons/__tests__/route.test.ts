@@ -297,6 +297,82 @@ describe('GET /api/liff/coupons', () => {
     expect(alertCaughtError).toHaveBeenCalledWith('liff-coupons', expect.any(Error), '/api/liff/coupons');
   });
 
+  // 【2026年7月10日 恒久根治の回帰】DB障害時に「クーポンなし」と偽装表示せず、
+  // 真の失敗として500を返すことを検証する（error握り潰しの再発防止）。3クエリ全てを検証する。
+  test('pastBookings取得: DB障害（error発生）→ 500（クーポンなしと偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
+        }
+        if (table === 'bookings') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }) }) }) };
+        }
+        return {};
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('favorites取得: DB障害（error発生）→ 500（クーポンなしと偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
+        }
+        if (table === 'bookings') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [], error: null }) }) }) };
+        }
+        if (table === 'favorites') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }) }) };
+        }
+        return {};
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('coupons取得: DB障害（error発生）→ 500（クーポンなしと偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ single: jest.fn().mockResolvedValue({ data: { id: 'user-123' } }) }) }) };
+        }
+        if (table === 'bookings') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ in: jest.fn().mockResolvedValue({ data: [{ facility_id: 'fac-1' }], error: null }) }) }) };
+        }
+        if (table === 'favorites') {
+          return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [], error: null }) }) };
+        }
+        if (table === 'coupons') {
+          return {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                in: jest.fn().mockReturnValue({
+                  or: jest.fn().mockReturnValue({
+                    or: jest.fn().mockReturnValue({
+                      order: jest.fn().mockReturnValue({
+                        limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          };
+        }
+        return {};
+      }),
+    });
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
   test('coupons が null → ?? [] フォールバック', async () => {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
     createServiceRoleClient.mockReturnValue({

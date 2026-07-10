@@ -8,6 +8,7 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyLineAccessToken } from '@/lib/line';
+import { alertCaughtError } from '@/lib/alert';
 
 export async function GET(req: NextRequest) {
   try {
@@ -68,26 +69,39 @@ export async function GET(req: NextRequest) {
     return { ...rest, menu_name: m?.name ?? null };
   };
 
+  // 【2026年7月10日 恒久根治】error を検査せず null/空配列にフォールバックしていたため、
+  // DB障害時も「予約なし」と偽装表示していた。.maybeSingle()/error検査で真の失敗と
+  // 「該当行なし」を区別し、真の失敗は500で可視化する。
   if (bookingId) {
-    const { data: booking } = await admin
+    const { data: booking, error } = await admin
       .from('bookings')
       .select(SELECT)
       .eq('id', bookingId)
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
+    if (error) {
+      alertCaughtError('liff-bookings', error, '/api/liff/bookings');
+      return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+    }
     return NextResponse.json({ booking: booking ? flatten(booking as RawBooking) : null });
   }
 
-  const { data: bookings } = await admin
+  const { data: bookings, error } = await admin
     .from('bookings')
     .select(SELECT)
     .eq('user_id', userId)
     .order('booking_date', { ascending: false })
     .limit(20);
 
+  if (error) {
+    alertCaughtError('liff-bookings', error, '/api/liff/bookings');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+
   return NextResponse.json({ bookings: (bookings ?? []).map((b) => flatten(b as RawBooking)) });
   } catch (e) {
     console.error('[liff/bookings] unexpected error:', e);
+    alertCaughtError('liff-bookings', e, '/api/liff/bookings');
     return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
   }
 }

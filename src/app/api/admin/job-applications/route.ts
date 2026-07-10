@@ -29,14 +29,18 @@ export async function GET(req: NextRequest) {
   if (facilityIds.length === 0) return NextResponse.json({ error: 'No facility' }, { status: 403 });
 
   const admin = createServiceRoleClient();
-  const { data: applications } = await admin
+  // 【2026年7月10日 恒久根治】error を検査せず常に成功として空配列にフォールバックしていたため、
+  // DB障害時も「応募0件」と偽装表示していた。error を明示的に検査し、真の失敗は500で可視化する。
+  const { data: applications, error } = await admin
     .from('job_applications')
     .select('*, job_postings(title)')
     .in('facility_id', facilityIds)
     .order('created_at', { ascending: false })
     .limit(200);
 
-  return NextResponse.json({ applications: applications || [] });
+  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  return NextResponse.json({ applications: applications ?? [] });
 }
 
 // Public POST: submit application

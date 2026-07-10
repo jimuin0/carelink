@@ -69,10 +69,12 @@ function updateSingle(data: unknown, error: unknown = null) {
   };
 }
 
-function deleteEq(error: unknown = null) {
+function deleteEq(error: unknown = null, data: unknown = [{ id: 'post-1' }]) {
   return {
     delete: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+      }),
     }),
   };
 }
@@ -163,6 +165,15 @@ test('DELETE: DB失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(deleteEq({ message: 'DB error' }));
   const res = await DELETE(makeDeleteRequest(), makeProps());
   expect(res.status).toBe(500);
+});
+
+// 【2026年7月10日 恒久根治の回帰】存在しないIDの削除試行（0件削除）が「成功」と偽装されない
+// ことを検証する（phantom success の再発防止）。
+test('DELETE: 0件削除（存在しないID）→ 404（成功と偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(deleteEq(null, []));
+  const res = await DELETE(makeDeleteRequest(), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: 正常削除 → 200', async () => {

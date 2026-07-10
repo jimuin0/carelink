@@ -60,11 +60,11 @@ function memberChain(data: unknown) {
   };
 }
 
-function adminListChain(data: unknown) {
+function adminListChain(data: unknown, error: unknown = null) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
-    order: jest.fn(() => Promise.resolve({ data, error: null })),
+    order: jest.fn(() => Promise.resolve({ data, error })),
   };
 }
 
@@ -177,6 +177,15 @@ test('GET: 管理者 → 200 key一覧（key_hashなし）', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(Array.isArray(json)).toBe(true);
+});
+
+// 【2026年7月10日 恒久根治の回帰】DB障害時に「APIキー0件」と偽装表示せず、
+// 真の失敗として500を返すことを検証する（error握り潰しの再発防止）。
+test('GET: DB障害（error発生）→ 500（APIキー0件と偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'admin' }));
+  mockAdminFrom.mockReturnValue(adminListChain(null, { message: 'DB error' }));
+  const res = await GET(makeGetRequest());
+  expect(res.status).toBe(500);
 });
 
 test('POST: CSRF エラー → 403', async () => {

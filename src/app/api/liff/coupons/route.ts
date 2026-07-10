@@ -65,19 +65,32 @@ export async function GET(req: NextRequest) {
   // ユーザーが予約関係のある施設ID（占有集合＝pending/confirmed/arrived/completed）。
   // 以前は ['confirmed','completed'] で arrived（来店中）/ pending（申込中）を取りこぼし、
   // その施設のクーポンが表示されなかった。
-  const { data: pastBookings } = await admin
+  // 【2026年7月10日 恒久根治】以下3クエリとも error を検査せず空配列にフォールバックしていた
+  // ため、DB障害時に「対象施設なし」「クーポンなし」と偽装表示していた（実際は本人が使える
+  // クーポンがあっても消えて見える）。全クエリで error を検査し、真の失敗は500で可視化する。
+  const { data: pastBookings, error: pastBookingsError } = await admin
     .from('bookings')
     .select('facility_id')
     .eq('user_id', userId)
     .in('status', SLOT_OCCUPYING_STATUSES);
 
+  if (pastBookingsError) {
+    alertCaughtError('liff-coupons', pastBookingsError, '/api/liff/coupons');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
+
   const facilityIds = Array.from(new Set((pastBookings ?? []).map((b) => b.facility_id)));
 
   // お気に入り施設IDも取得
-  const { data: favorites } = await admin
+  const { data: favorites, error: favoritesError } = await admin
     .from('favorites')
     .select('facility_id')
     .eq('user_id', userId);
+
+  if (favoritesError) {
+    alertCaughtError('liff-coupons', favoritesError, '/api/liff/coupons');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 
   const favIds = (favorites ?? []).map((f) => f.facility_id);
   const allFacilityIds = Array.from(new Set([...facilityIds, ...favIds]));
@@ -86,7 +99,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ coupons: [] });
   }
 
-  const { data: coupons } = await admin
+  const { data: coupons, error: couponsError } = await admin
     .from('coupons')
     .select('id, name, description, discount_type, discount_value, special_price, valid_until, coupon_type, facility_profiles(name)')
     .eq('is_active', true)
@@ -95,6 +108,11 @@ export async function GET(req: NextRequest) {
     .or(`valid_until.is.null,valid_until.gte.${now}`)
     .order('valid_until', { ascending: true, nullsFirst: false })
     .limit(30);
+
+  if (couponsError) {
+    alertCaughtError('liff-coupons', couponsError, '/api/liff/coupons');
+    return NextResponse.json({ error: 'Internal Server Error' }, { status: 500 });
+  }
 
   return NextResponse.json({ coupons: coupons ?? [] });
   } catch (e) {

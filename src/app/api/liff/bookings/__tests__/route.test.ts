@@ -32,6 +32,7 @@ function createChainableMock(resolveValue: any) {
     order: jest.fn(),
     limit: jest.fn(),
     single: jest.fn(),
+    maybeSingle: jest.fn(),
     select: jest.fn(),
   };
 
@@ -39,6 +40,7 @@ function createChainableMock(resolveValue: any) {
   chainable.order.mockReturnValue(chainable);
   chainable.limit.mockResolvedValue(resolveValue);
   chainable.single.mockResolvedValue(resolveValue);
+  chainable.maybeSingle.mockResolvedValue(resolveValue);
   chainable.select.mockReturnValue(chainable);
 
   return chainable;
@@ -280,6 +282,34 @@ describe('GET /api/liff/bookings', () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json.error).toBe('Invalid booking_id');
+  });
+
+  // 【2026年7月10日 恒久根治の回帰】DB障害時に「予約なし」と偽装表示せず、
+  // 真の失敗として500を返すことを検証する（error握り潰しの再発防止）。
+  test('bookings一覧: DB障害（error発生）→ 500（予約なしと偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
+        return createChainableMock({ data: null, error: { message: 'DB error' } });
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+  });
+
+  test('単体booking取得: DB障害（error発生）→ 500（未発見と偽装しない）', async () => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'profiles') return createChainableMock({ data: { id: 'db-user-123' }, error: null });
+        return createChainableMock({ data: null, error: { message: 'DB error' } });
+      }),
+    });
+
+    const res = await GET(makeRequest(BOOKING_UUID) as any);
+    expect(res.status).toBe(500);
   });
 
   test('unexpected error → 500', async () => {

@@ -62,11 +62,13 @@ function updateEqEq(error: unknown = null) {
   };
 }
 
-function deleteEqEq(error: unknown = null) {
+function deleteEqEq(error: unknown = null, data: unknown = [{ id: QA_UUID }]) {
   return {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+        }),
       }),
     }),
   };
@@ -159,6 +161,15 @@ test('POST: delete, DB失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(deleteEqEq({ message: 'DB error' }));
   const res = await POST(makeRequest({ qa_id: QA_UUID }, 'delete'));
   expect(res.status).toBe(500);
+});
+
+// 【2026年7月10日 恒久根治の回帰】他施設のqa_idを指定した0件削除が「成功」と偽装されない
+// ことを検証する（phantom success の再発防止）。
+test('POST: delete, 0件削除（他施設のqa_id等）→ 404（成功と偽装しない）', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(deleteEqEq(null, []));
+  const res = await POST(makeRequest({ qa_id: QA_UUID }, 'delete'));
+  expect(res.status).toBe(404);
 });
 
 test('POST: delete, 正常 → 200', async () => {

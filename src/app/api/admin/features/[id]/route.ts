@@ -82,9 +82,13 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const userId = user.id;
 
   const admin = createServiceRoleClient();
-  const { error } = await admin.from('feature_articles').delete().eq('id', params.id);
+  // 【2026年7月10日 恒久根治】削除件数を検証せず常に成功を返していたため、存在しないIDの
+  // 削除試行（0件削除）も「成功」と偽装していた（phantom success）。.select() で削除された
+  // 行を受け取り、0件なら404を返す。
+  const { data, error } = await admin.from('feature_articles').delete().eq('id', params.id).select();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });
 
   const { ua } = getRequestContext(request);
   void writeAuditLog({
