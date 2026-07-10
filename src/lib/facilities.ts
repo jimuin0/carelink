@@ -56,20 +56,29 @@ export async function searchFacilities(params: SearchParams) {
 
   if (isGeoSearch) {
     // Use PostGIS ST_DWithin via RPC for server-side GPS search
+    // 【2026年7月10日 恒久根治】keyword/features は RPC が該当列（features・description・
+    // nearest_station）を返さないため以前は JS 側で再現できず、GPS 検索でのみ黙って無視
+    // されていた（非GPS検索は効くのに GPS 検索だと keyword/features 指定が絞り込みに反映
+    // されない確定欠陥）。RPC 側(search_facilities_nearby)を拡張し DB で絞り込むよう根治
+    // （migration 20260710000001）。ワイルドカードエスケープは非GPS分岐と同じ方針。
+    const escapedKeyword = params.keyword
+      ? params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&')
+      : null;
     const { data, error } = await supabase.rpc('search_facilities_nearby', {
       user_lat: params.lat,
       user_lng: params.lng,
       radius_km: 10,
       type_filter: params.type || null,
       limit_count: 500,
+      keyword_filter: escapedKeyword,
+      features_filter: params.features && params.features.length > 0 ? params.features : null,
     });
     const all = (data || []) as unknown as (FacilityCardData & { distance_km: number })[];
-    // GPS 検索は RPC が type_filter しか受けないため、非 GPS 検索で query に付与していた
-    // prefecture/city/rating_min/price_min/price_max が黙って無視されていた（フィルタ指定が効かない）。
-    // RPC の返却列に含まれる項目は取得後に同じ意味で絞り込む（非 GPS の .eq/.gte/.lte と一致：
-    // 非 GPS 側は null 値を gte/lte が除外するため、ここでも null は除外して挙動を揃える）。
-    // features / keyword は RPC が該当列（features・description・nearest_station）を返さないため
-    // JS では無損失に再現できず、RPC 拡張（DB 側フィルタ）で対応する（別途 migration）。
+    // GPS 検索は RPC が type_filter/keyword_filter/features_filter 以外を受けないため、
+    // 非 GPS 検索で query に付与していた prefecture/city/rating_min/price_min/price_max が
+    // 黙って無視されていた（フィルタ指定が効かない）。RPC の返却列に含まれる項目は
+    // 取得後に同じ意味で絞り込む（非 GPS の .eq/.gte/.lte と一致：非 GPS 側は null 値を
+    // gte/lte が除外するため、ここでも null は除外して挙動を揃える）。
     const filtered = all.filter((f) => {
       if (params.prefecture && f.prefecture !== params.prefecture) return false;
       if (params.city && f.city !== params.city) return false;
