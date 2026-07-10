@@ -157,6 +157,23 @@ describe('GET /api/recommendations', () => {
     expect(Array.isArray(json.recommendations)).toBe(true);
   });
 
+  // 従来は例外が無捕捉のまま Route Handler をクラッシュさせ、Slack通知されない監視の穴
+  // だった（他ルート共通の catch+alert 契約からの逸脱）。予期しないDBエラー等でも
+  // クラッシュせず空配列で継続応答することを保証する回帰テスト。
+  test('DB クエリが例外を投げても 200 + 空配列で継続応答する', async () => {
+    mockGetUser.mockRejectedValue(new Error('unexpected auth failure'));
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.recommendations).toEqual([]);
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[recommendations] Error:', expect.any(Error));
+
+    consoleErrorSpy.mockRestore();
+  });
+
   test('limit defaults to 6', async () => {
     const res = await GET(makeRequest() as any);
 

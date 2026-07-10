@@ -16,6 +16,7 @@ export const contactSchema = z.object({
   phone: phoneField(),
   inquiry_type: z.string().min(1, 'お問い合わせ種別を選択してください').max(100),
   message: z.string().trim().min(1, '内容を入力してください').max(5000, '5000文字以内で入力してください'),
+  recaptcha_token: z.string().optional(),
 });
 
 export type ContactFormData = z.infer<typeof contactSchema>;
