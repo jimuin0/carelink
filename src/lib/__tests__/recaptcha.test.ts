@@ -5,12 +5,16 @@
  * Covers: verifyRecaptcha - all branches
  */
 
+jest.mock('@/lib/alert', () => ({ postAlert: jest.fn() }));
+
 import { verifyRecaptcha } from '../recaptcha';
+import { postAlert } from '@/lib/alert';
 
 const SECRET = 'test-secret-key';
 
 beforeEach(() => {
   jest.restoreAllMocks();
+  (postAlert as jest.Mock).mockClear();
   delete process.env.RECAPTCHA_SECRET_KEY;
 });
 
@@ -74,15 +78,27 @@ describe('verifyRecaptcha', () => {
     expect(result.success).toBe(true);
   });
 
-  test('no secret key in production → warn log emitted', async () => {
+  test('no secret key in production → warn log + Slack alert emitted（無音の設定ミス防止・恒久根治の回帰）', async () => {
     const originalEnv = process.env.NODE_ENV;
     Object.defineProperty(process.env, 'NODE_ENV', { value: 'production', configurable: true });
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation();
     const result = await verifyRecaptcha('tok', 'booking');
     expect(result).toEqual({ success: true, reason: 'no_secret_key' });
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('RECAPTCHA_SECRET_KEY'));
+    expect(warnSpy).toHaveBeenCalledWith('[recaptcha:secret-missing]', expect.stringContaining('RECAPTCHA_SECRET_KEY'));
+    expect(postAlert).toHaveBeenCalledWith(expect.objectContaining({
+      level: 'error',
+      route: 'recaptcha:secret-missing',
+      message: expect.stringContaining('booking'),
+    }));
     warnSpy.mockRestore();
     Object.defineProperty(process.env, 'NODE_ENV', { value: originalEnv, configurable: true });
+  });
+
+  // 【2026年7月10日 恒久根治の回帰】開発・テスト環境では従来通り無音（Slack投稿しない）を固定する。
+  test('no secret key in non-production（test）→ postAlert は呼ばれない', async () => {
+    const result = await verifyRecaptcha('tok', 'booking');
+    expect(result).toEqual({ success: true, reason: 'no_secret_key' });
+    expect(postAlert).not.toHaveBeenCalled();
   });
 
   test('fetch throws → returns success=false with reason=verify_error', async () => {
