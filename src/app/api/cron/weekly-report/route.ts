@@ -40,7 +40,7 @@ async function sendWeeklyReports(
   rows: Array<Record<string, number | string | null>>,
   start: string,
   end: string,
-): Promise<{ sent: number; failed: number }> {
+): Promise<{ sent: number; failed: number; skipped: number; optedOut: number }> {
   const byFacility = new Map<string, Sums>();
   for (const r of rows) {
     const id = r.facility_id as string;
@@ -93,12 +93,14 @@ async function sendWeeklyReports(
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
+  let optedOutCount = 0;
   for (const [facilityId, sums] of byFacility) {
-    if (optedOutSet.has(facilityId)) continue;
+    if (optedOutSet.has(facilityId)) { optedOutCount++; continue; }
     const ownerUserId = ownerByFacility.get(facilityId);
-    if (!ownerUserId) continue;
+    if (!ownerUserId) { skipped++; continue; }
     const email = emailByUserId.get(ownerUserId);
-    if (!email) continue;
+    if (!email) { skipped++; continue; }
     const facilityName = nameByFacility.get(facilityId);
 
     // M-1: 送信前に (job, facility, 週期間) を claim して二重送信を防ぐ。GitHub Actions cron.yml と
@@ -109,8 +111,12 @@ async function sendWeeklyReports(
       .from('cron_report_sends')
       .insert({ job: 'weekly-report', facility_id: facilityId, period_key: periodKey });
     if (claimErr) {
+      // 23505 は正常な二重発火の抑止（別 run が既に送信済み）で実害ゼロのためカウント対象外。
+      // 23505 以外は本来送るべきだったのに技術的失敗で送れなかったケースのため failed に計上する
+      // （従来は無音で送達失敗率が見えなかった）。
       if (claimErr.code !== '23505') {
         console.error('[weekly-report] claim insert failed', { facilityId, period: periodKey, err: claimErr });
+        failed++;
       }
       continue;
     }
@@ -137,7 +143,7 @@ async function sendWeeklyReports(
       if (relErr) console.error('[weekly-report] claim release failed — mail may be permanently skipped', { facilityId, period: periodKey, err: relErr });
     }
   }
-  return { sent, failed };
+  return { sent, failed, skipped, optedOut: optedOutCount };
 }
 
 export async function GET(request: Request) {
@@ -165,16 +171,23 @@ export async function GET(request: Request) {
 
     let emailsSent = 0;
     let deliveryFailures = 0;
+    let emailsSkipped = 0;
+    let optedOut = 0;
     if (rows && rows.length > 0) {
       const r = await sendWeeklyReports(supabase, rows as Array<Record<string, number | string | null>>, start, end);
       emailsSent = r.sent;
       deliveryFailures = r.failed;
+      emailsSkipped = r.skipped;
+      optedOut = r.optedOut;
     }
 
-    await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: 0, meta: { start, end } });
+    // skipped は「オーナー不在・メールアドレス未設定・claim失敗」で本来送るべきだったのに
+    // 送れなかった件数（従来は無音でカウントされておらず観測不能だった）。opt-out（施設が
+    // 明示的にOFF）は意図的な正常動作のため skipped とは別に optedOut として可視化する。
+    await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: emailsSkipped, meta: { start, end, optedOut } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('weekly-report', deliveryFailures, { emailsSent });
-    return NextResponse.json({ emailsSent, start, end });
+    return NextResponse.json({ emailsSent, start, end, emailsSkipped, optedOut });
   } catch (e) {
     console.error('[weekly-report] Error:', e);
     await logCronRun('weekly-report', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
