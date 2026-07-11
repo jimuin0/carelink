@@ -25,7 +25,7 @@ export const maxDuration = 60;
 async function sendDailySummaryEmails(
   supabase: ReturnType<typeof createServiceRoleClient>,
   dateStr: string,
-): Promise<{ sent: number; failed: number }> {
+): Promise<{ sent: number; failed: number; skipped: number }> {
   const { data: optedIn, error: optedInErr } = await supabase
     .from('facility_notification_settings')
     .select('facility_id')
@@ -34,9 +34,9 @@ async function sendDailySummaryEmails(
   // skip される（設定 ON なのに届かない silent miss）。error を可視化して原因を追える様にする。
   if (optedInErr) {
     console.error('[daily-summary] facility_notification_settings fetch failed', { err: optedInErr });
-    return { sent: 0, failed: 0 };
+    return { sent: 0, failed: 0, skipped: 0 };
   }
-  if (!optedIn || optedIn.length === 0) return { sent: 0, failed: 0 };
+  if (!optedIn || optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0 };
   const facilityIds = (optedIn as { facility_id: string }[]).map((r) => r.facility_id);
 
   const { data: summaries, error: summariesErr } = await supabase
@@ -47,9 +47,9 @@ async function sendDailySummaryEmails(
   // 同上：daily_revenue_summary の取得失敗を「サマリ 0 件」と区別できず無音 skip するのを防ぐ。
   if (summariesErr) {
     console.error('[daily-summary] daily_revenue_summary fetch failed', { err: summariesErr, date: dateStr });
-    return { sent: 0, failed: 0 };
+    return { sent: 0, failed: 0, skipped: 0 };
   }
-  if (!summaries || summaries.length === 0) return { sent: 0, failed: 0 };
+  if (!summaries || summaries.length === 0) return { sent: 0, failed: 0, skipped: 0 };
 
   // 監査P2: 従来は施設ごとにfacility_members→profiles→facility_profilesの3クエリを
   // ループ内で直列発行していた(O(N))。施設数増加でVercel関数のmaxDuration(60s)を超えて
@@ -77,12 +77,13 @@ async function sendDailySummaryEmails(
 
   let sent = 0;
   let failed = 0;
+  let skipped = 0;
   for (const s of summaries as Array<Record<string, number | string | null>>) {
     const facilityId = s.facility_id as string;
     const ownerUserId = ownerByFacility.get(facilityId);
-    if (!ownerUserId) continue;
+    if (!ownerUserId) { skipped++; continue; }
     const email = emailByUserId.get(ownerUserId);
-    if (!email) continue;
+    if (!email) { skipped++; continue; }
     const facilityName = nameByFacility.get(facilityId);
 
     // M-1: 送信前に (job, facility, 日付) を claim して二重送信を防ぐ。GitHub Actions cron.yml と
@@ -94,9 +95,12 @@ async function sendDailySummaryEmails(
       .insert({ job: 'daily-summary', facility_id: facilityId, period_key: dateStr });
     if (claimErr) {
       // 23505 は正常な二重発火の抑止（別 run が既に送信）。それ以外の error も二重送信を避けるため
-      // 送らずスキップし、23505 以外だけ可視化する。
+      // 送らずスキップし、23505 以外だけ可視化する。23505 は「既に送信済み」で実害ゼロなので
+      // skipped/failed どちらにもカウントしない。23505 以外は本来送るべきだったのに技術的失敗で
+      // 送れなかったケースのため failed としてカウントする（従来は無音で送達失敗率が見えなかった）。
       if (claimErr.code !== '23505') {
         console.error('[daily-summary] claim insert failed', { facilityId, date: dateStr, err: claimErr });
+        failed++;
       }
       continue;
     }
@@ -122,7 +126,7 @@ async function sendDailySummaryEmails(
       if (relErr) console.error('[daily-summary] claim release failed — mail may be permanently skipped', { facilityId, date: dateStr, err: relErr });
     }
   }
-  return { sent, failed };
+  return { sent, failed, skipped };
 }
 
 export async function GET(request: Request) {
@@ -157,18 +161,24 @@ export async function GET(request: Request) {
     // 旧実装は集計のみでメール送信が無く、設定トグルが効かない飾りだった。
     let emailsSent = 0;
     let deliveryFailures = 0;
+    let emailsSkipped = 0;
     try {
       const r = await sendDailySummaryEmails(supabase, dateStr);
       emailsSent = r.sent;
       deliveryFailures = r.failed;
+      emailsSkipped = r.skipped;
     } catch (e) {
       console.error('[daily-summary] summary email batch failed', e);
     }
 
-    await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent } });
+    // processed/skipped は aggregate_daily_revenue RPC（施設単位の集計）の文脈の値で、
+    // 個別スキップという概念がないため常に0が正しい。メール送信側のスキップ件数
+    // （オーナー不在・メールアドレス未設定）は emailsSkipped として別途可視化する
+    // （従来はここが常に無音でカウントされておらず、観測不能だった）。
+    await logCronRun('daily-summary', 'success', startedAt, { processed: count, skipped: 0, meta: { date: dateStr, emailsSent, emailsSkipped } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('daily-summary', deliveryFailures, { emailsSent });
-    return NextResponse.json({ processed: count, skipped: 0, date: dateStr, emailsSent });
+    return NextResponse.json({ processed: count, skipped: 0, date: dateStr, emailsSent, emailsSkipped });
   } catch (e) {
     console.error('[daily-summary] Error:', e);
     await logCronRun('daily-summary', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });

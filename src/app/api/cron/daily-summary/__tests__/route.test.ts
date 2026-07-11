@@ -13,11 +13,13 @@ jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/cron-auth');
 jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/email', () => ({ sendDailySummaryEmail: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertDeliveryFailures: jest.fn() }));
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { sendDailySummaryEmail } from '@/lib/email';
+import { alertDeliveryFailures } from '@/lib/alert';
 import { GET } from '../route';
 
 const mockRpc = jest.fn();
@@ -160,7 +162,7 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     }));
   });
 
-  test('M-1: 二重発火で claim が 23505 → その run は送信しない（冪等）', async () => {
+  test('M-1: 二重発火で claim が 23505 → その run は送信しない（冪等・emailsSkippedにもdeliveryFailuresにも計上しない）', async () => {
     setupEmailFrom({
       optedIn: [{ facility_id: 'f-1' }],
       summaries: [{ facility_id: 'f-1', total_revenue: 12000, booking_count: 5 }],
@@ -170,10 +172,11 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     const json = await res.json();
     expect(res.status).toBe(200);
     expect(json.emailsSent).toBe(0);
+    expect(json.emailsSkipped).toBe(0);
     expect(sendDailySummaryEmail).not.toHaveBeenCalled();
   });
 
-  test('M-1: claim insert が 23505 以外の error → 送信せずスキップ＋error ログ', async () => {
+  test('M-1: claim insert が 23505 以外の error → 送信せずerrorログ＋alertDeliveryFailuresへ計上（監査: 従来は無音で送達失敗率が見えなかった）', async () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     setupEmailFrom({
       optedIn: [{ facility_id: 'f-1' }],
@@ -184,11 +187,13 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     const json = await res.json();
     expect(res.status).toBe(200);
     expect(json.emailsSent).toBe(0);
-    expect(sendDailySummaryEmail).not.toHaveBeenCalled();
     expect(errSpy).toHaveBeenCalledWith(
       expect.stringContaining('[daily-summary] claim insert failed'),
       expect.any(Object),
     );
+    // 23505以外のclaim失敗はfailedとして計上され、alertDeliveryFailuresへ渡される
+    // （監査: 従来はconsole.errorのみで無音、run単位の送達失敗率が運用から見えなかった）。
+    expect(alertDeliveryFailures).toHaveBeenCalledWith('daily-summary', 1, expect.anything());
     errSpy.mockRestore();
   });
 
@@ -262,17 +267,19 @@ describe('日次売上サマリーメール（email_daily_summary）', () => {
     expect(sendDailySummaryEmail).not.toHaveBeenCalled();
   });
 
-  test('オーナー不在 → その施設はスキップ', async () => {
+  test('オーナー不在 → その施設はスキップ（emailsSkippedに計上・監査: 従来は無音でカウント漏れだった）', async () => {
     setupEmailFrom({ optedIn: [{ facility_id: 'f-1' }], summaries: [{ facility_id: 'f-1', total_revenue: 1 }], owner: null });
     const json = await (await GET(makeRequest())).json();
     expect(json.emailsSent).toBe(0);
+    expect(json.emailsSkipped).toBe(1);
     expect(sendDailySummaryEmail).not.toHaveBeenCalled();
   });
 
-  test('オーナーのメール未登録 → スキップ', async () => {
+  test('オーナーのメール未登録 → スキップ（emailsSkippedに計上）', async () => {
     setupEmailFrom({ optedIn: [{ facility_id: 'f-1' }], summaries: [{ facility_id: 'f-1', total_revenue: 1 }], prof: { email: null } });
     const json = await (await GET(makeRequest())).json();
     expect(json.emailsSent).toBe(0);
+    expect(json.emailsSkipped).toBe(1);
     expect(sendDailySummaryEmail).not.toHaveBeenCalled();
   });
 
