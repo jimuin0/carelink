@@ -156,7 +156,7 @@ export default function Footer() {
               <dt>運営</dt>
               <dd>神原良祐（HALグループ）</dd>
               <dt>所在地</dt>
-              <dd>大阪府堺市</dd>
+              <dd>大阪府豊中市</dd>
               <dt>事業内容</dt>
               <dd>美容・医療・福祉施設の検索・予約サービス</dd>
               <dt>お問い合わせ</dt>

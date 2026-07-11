@@ -117,7 +117,7 @@ export default async function RootLayout({
                 },
                 address: {
                   "@type": "PostalAddress",
-                  addressLocality: "堺市",
+                  addressLocality: "豊中市",
                   addressRegion: "大阪府",
                   addressCountry: "JP",
                 },
