@@ -67,7 +67,7 @@ function updateChain(data: unknown, error: unknown = null) {
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data, error })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
           }),
         }),
       }),
@@ -145,7 +145,7 @@ test('is_active=false（休止）指定 → 200 かつ更新に is_active が含
   mockAdminFrom.mockReturnValue({
     update: jest.fn((fields: Record<string, unknown>) => {
       updateArgs = fields;
-      return { eq: () => ({ eq: () => ({ select: () => ({ single: () => Promise.resolve({ data: { id: STAFF_UUID, name: 'test', is_active: false }, error: null }) }) }) }) };
+      return { eq: () => ({ eq: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: STAFF_UUID, name: 'test', is_active: false }, error: null }) }) }) }) };
     }),
   });
   const res = await PATCH(makeRequest({ name: 'test', is_active: false }), makeProps());
@@ -171,7 +171,7 @@ test('UPDATEのWHEREにfacility_idが含まれる', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
   const innerEq = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
-      single: jest.fn(() => Promise.resolve({ data: { id: STAFF_UUID, name: 'updated' }, error: null })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { id: STAFF_UUID, name: 'updated' }, error: null })),
     }),
   });
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });

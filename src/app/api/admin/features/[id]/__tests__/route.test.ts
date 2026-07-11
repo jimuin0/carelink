@@ -43,12 +43,13 @@ function makeProps(id = FEATURE_UUID) {
   return { params: Promise.resolve({ id }) };
 }
 
+// mutation は .select().maybeSingle()（0行=存在しないid を not found として扱う根治）。
 function updateChain(data: unknown, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data, error })),
+          maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
         }),
       }),
     }),

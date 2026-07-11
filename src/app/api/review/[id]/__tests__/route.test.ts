@@ -54,14 +54,17 @@ function validBody() {
   };
 }
 
+// ルートは .select().maybeSingle() を使う（0行=他人/存在しないレビュー を not found として扱い、
+// PGRST116→500 化を防ぐ根治）。モックも maybeSingle を終端にする。maybeSingle の0行は現実に
+// { data: null, error: null } を返すため、not found テスト（data:null,error:null→404）は現実的。
 function updateChain(data: unknown, error: unknown = null) {
-  const eq2 = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data, error })) }) });
+  const eq2 = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data, error })) }) });
   const eq1 = jest.fn().mockReturnValue({ eq: eq2 });
   return { update: jest.fn().mockReturnValue({ eq: eq1 }), _eq1: eq1, _eq2: eq2 };
 }
 
 function deleteChain(data: unknown, error: unknown = null) {
-  const eq2 = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data, error })) }) });
+  const eq2 = jest.fn().mockReturnValue({ select: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data, error })) }) });
   const eq1 = jest.fn().mockReturnValue({ eq: eq2 });
   return { delete: jest.fn().mockReturnValue({ eq: eq1 }), _eq1: eq1, _eq2: eq2 };
 }

@@ -62,7 +62,11 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .eq('id', params.id)
     .eq('facility_id', auth.facilityId)
     .select()
-    .single();
+    // .maybeSingle(): 該当0行（他施設の顧客/存在しないid/同時削除）は正常結果でありDBエラーではない。
+    // getAdminInfo は facility メンバーシップのみ検証し顧客idの存在は未検証のため0行は頻出パス。
+    // .single() だと0行→PGRST116→下の if(error) が先に発火し 404 が到達不能（500に化ける）。
+    // 23505（重複メール）は制約エラーとして maybeSingle でも error に入るため 409 判定は維持される。
+    .maybeSingle();
 
   if (error) {
     if (error.code === '23505') {
@@ -108,7 +112,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('id', params.id)
     .eq('facility_id', auth.facilityId)
     .select()
-    .single();
+    // .maybeSingle(): 0行（他施設の顧客/存在しないid）を not found として扱うため。
+    // .single() だと PGRST116 で if(error)→500 が先に発火し 404 分岐が到達不能になる。
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '顧客が見つかりません' }, { status: 404 });

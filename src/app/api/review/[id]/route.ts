@@ -82,7 +82,12 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .eq('id', params.id)
     .eq('user_id', user.id)
     .select('id')
-    .single();
+    // .maybeSingle(): 該当0行（他人のレビュー/存在しないid）は正常な結果であり DB エラーではない。
+    // .single() だと0行時に PGRST116 エラーを返し、下の if(error)→500 が先に発火して
+    // if(!data)→404 が到達不能になる（本人でない編集が「404 見つかりません」でなく
+    // 「500 サーバーエラー」に化ける・404分岐がデッドコード化）。maybeSingle で0行を
+    // data:null/error:null に正規化し、error は真の DB 障害のみ、!data は not found に割り当てる。
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'レビューが見つかりません' }, { status: 404 });
@@ -114,7 +119,9 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('id', params.id)
     .eq('user_id', user.id)
     .select('id')
-    .single();
+    // .maybeSingle(): 0行（他人のレビュー/存在しないid）を not found として扱うため。
+    // .single() だと PGRST116 で if(error)→500 が先に発火し 404 分岐が到達不能になる。
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'レビューが見つかりません' }, { status: 404 });
