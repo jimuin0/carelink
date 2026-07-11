@@ -1,0 +1,21 @@
+-- migration 20260710000002 で追加した uq_user_points_birthday は、実は完全な重複だった。
+--
+-- 【事実確認・2026年7月11日、本番実データで確定】
+-- migration 20260420000013_user_points_birthday_unique.sql が既に
+--   CREATE UNIQUE INDEX IF NOT EXISTS idx_user_points_birthday_year
+--     ON user_points(user_id, reason) WHERE reason LIKE 'birthday_%';
+-- を本番に適用済みだった（uq_user_points_birthday と定義が完全一致）。
+--
+-- 【誤判定の原因】
+-- 20260710000002 のコメントは「get_public_constraints RPC で id 主キーのみと実データ確認済み」
+-- としていたが、同 RPC は pg_constraint ベースの introspection であり、CREATE UNIQUE INDEX
+-- （テーブル制約ではなく単体インデックス）を検出できない盲点があった。本番へ実際に重複INSERTを
+-- 行う動作確認（REST経由）で初めて idx_user_points_birthday_year が既に機能していることが判明した。
+--
+-- 【対応】
+-- uq_user_points_birthday を DROP する。誕生日ポイントの TOCTOU 保護は
+-- idx_user_points_birthday_year が既に単独で提供しており、機能面の後退はない
+-- （同一定義のインデックスが1本になるだけ）。口コミポイント側の uq_user_points_review は
+-- 既存 migration に重複がないことを確認済みの正規追加のため対象外。
+
+DROP INDEX IF EXISTS uq_user_points_birthday;
