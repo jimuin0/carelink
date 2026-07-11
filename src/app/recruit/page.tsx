@@ -10,6 +10,7 @@ import StepIndicator from '@/components/StepIndicator';
 import Toast from '@/components/Toast';
 import Spinner from '@/components/Spinner';
 import { formatPhone } from '@/lib/validations';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 const phoneRegex = /^[\d-]+$/;
 
@@ -59,6 +60,7 @@ export default function RecruitPage() {
   async function onSubmit(data: FormValues) {
     setSubmitting(true);
     try {
+      const recaptchaToken = await getRecaptchaToken('salons');
       const res = await fetch('/api/salons', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -73,6 +75,7 @@ export default function RecruitPage() {
           address: data.address || null,
           website: data.website || null,
           pr_text: data.description || null,
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
       if (!res.ok) throw new Error('registration failed');

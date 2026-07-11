@@ -14,6 +14,7 @@ import { compressImage } from '@/lib/image-compress';
 import { rollbackUploadedSalonPhotos } from '@/lib/salon-photo-rollback';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 const stepSchemas = [salonStep1Schema, salonStep2Schema, salonStep3Schema];
 const stepLabels = ['基本情報', '詳細情報', 'PR情報'];
@@ -144,6 +145,7 @@ export default function RegisterPage() {
         })
       );
       const photoUrls = uploadResults.filter((u): u is string => !!u);
+      const recaptchaToken = await getRecaptchaToken('salons');
 
       const res = await fetch('/api/salons', {
         method: 'POST',
@@ -173,6 +175,7 @@ export default function RegisterPage() {
           photo_url: photoUrls[0] || null,
           photo_urls: photoUrls,
           desired_start_date: data.desired_start_date || null,
+          ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
       if (!res.ok) throw new Error('registration failed');

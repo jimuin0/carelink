@@ -9,6 +9,7 @@ import { alertCaughtError } from '@/lib/alert';
 import { withRoute } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 
 export const dynamic = 'force-dynamic';
 
@@ -57,6 +58,7 @@ const salonInsertSchema = z.object({
   photo_url: z.string().max(2000).optional().nullable(),
   photo_urls: z.array(z.string().max(2000)).max(7).optional(),
   desired_start_date: z.string().max(50).optional().nullable(),
+  recaptcha_token: z.string().optional(),
 });
 
 // GET（匿名・認証なし）で返してよい公開安全カラムのみ。
@@ -80,6 +82,20 @@ export const POST = withRoute(async (request) => {
     return NextResponse.json({ error: '入力内容が不正です' }, { status: 400 });
   }
   const d = parsed.data;
+
+  // reCAPTCHA v3 検証（fail-closed: secret設定時=本番はtoken必須）。
+  // 施設掲載登録は氏名・電話・メール等の実データを伴う無認証公開フォームのため、
+  // review.ts/contact.ts と同一パターンでBot対策を配線する（未配線だと分散IPからの
+  // 自動投入でsalonsテーブル汚染・登録者への誤通知が発生し得た）。
+  if (process.env.RECAPTCHA_SECRET_KEY) {
+    if (!d.recaptcha_token) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+    const captcha = await verifyRecaptcha(d.recaptcha_token, 'salons', 0.4);
+    if (!captcha.success) {
+      return NextResponse.json({ error: 'Bot検知: 時間をおいて再度お試しください' }, { status: 403 });
+    }
+  }
 
   // 写真URLの出所検証（自Storage公開URL以外は拒否）
   const photoUrls = (d.photo_urls ?? []).filter((u) => u.length > 0);
