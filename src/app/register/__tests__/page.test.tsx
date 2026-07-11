@@ -13,6 +13,14 @@ jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
+// このページは送信前に getRecaptchaToken を呼ぶ。テスト環境（jest.setup.js）は
+// NEXT_PUBLIC_RECAPTCHA_SITE_KEY を設定するため、モックしないと本物の
+// loadRecaptchaScript が <script> の onload を待って jsdom で永久にハングする
+// （symptoms/page.test.tsx・contact/page.test.tsx と同じ既知の地雷）。
+jest.mock('@/lib/recaptcha-client', () => ({
+  getRecaptchaToken: jest.fn().mockResolvedValue(null),
+}));
+
 afterEach(() => {
   jest.restoreAllMocks();
   pushMock.mockClear();

@@ -17,9 +17,11 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(),
 }));
 jest.mock('@supabase/supabase-js');
+jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
+import { verifyRecaptcha } from '@/lib/recaptcha';
 import { POST } from '../route';
 
 const STORAGE_PREFIX =
@@ -44,8 +46,11 @@ function setupDefaultMocks(opts: { insertError?: boolean; noData?: boolean } = {
     from: jest.fn().mockReturnValue({ insert: mockInsert }),
   });
 
+  (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
+  process.env.RECAPTCHA_SECRET_KEY = 'test-secret-key';
 }
 
 beforeEach(() => {
@@ -77,6 +82,7 @@ const validFull = {
   photo_url: `${STORAGE_PREFIX}salons/uuid/exterior.jpg`,
   photo_urls: [`${STORAGE_PREFIX}salons/uuid/exterior.jpg`],
   desired_start_date: 'immediately',
+  recaptcha_token: 'valid-token',
 };
 
 const validMinimal = {
@@ -90,6 +96,7 @@ const validMinimal = {
   address: null,
   website: null,
   pr_text: null,
+  recaptcha_token: 'valid-token',
 };
 
 function makeRequest(body: unknown, ip = '192.168.1.1') {
@@ -274,5 +281,48 @@ describe('POST /api/salons', () => {
     createClient.mockImplementation(() => { throw new Error('boom'); });
     const res = await POST(makeRequest(validFull) as any);
     expect(res.status).toBe(500);
+  });
+
+  // review.ts/contact.ts と同一パターンの reCAPTCHA fail-closed 検証
+  // （監査・salons.ts未配線の恒久根治の回帰防止）。
+  describe('reCAPTCHA', () => {
+    test('secret設定済み + token欠如 → 403（fail-closed）・verifyRecaptchaは呼ばれない', async () => {
+      (verifyRecaptcha as jest.Mock).mockClear();
+      const { recaptcha_token, ...rest } = validFull;
+      void recaptcha_token;
+
+      const res = await POST(makeRequest(rest) as any);
+
+      expect(res.status).toBe(403);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    test('verifyRecaptcha が success:false → 403', async () => {
+      (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: false });
+
+      const res = await POST(makeRequest(validFull) as any);
+
+      expect(res.status).toBe(403);
+      expect(mockInsert).not.toHaveBeenCalled();
+    });
+
+    test('verifyRecaptcha に action=salons, minScore=0.4 で呼ばれる', async () => {
+      await POST(makeRequest(validFull) as any);
+
+      expect(verifyRecaptcha).toHaveBeenCalledWith('valid-token', 'salons', 0.4);
+    });
+
+    test('RECAPTCHA_SECRET_KEY 未設定 → 検証スキップで200（開発環境互換）', async () => {
+      delete process.env.RECAPTCHA_SECRET_KEY;
+      (verifyRecaptcha as jest.Mock).mockClear();
+      const { recaptcha_token, ...rest } = validFull;
+      void recaptcha_token;
+
+      const res = await POST(makeRequest(rest) as any);
+
+      expect(res.status).toBe(200);
+      expect(verifyRecaptcha).not.toHaveBeenCalled();
+    });
   });
 });
