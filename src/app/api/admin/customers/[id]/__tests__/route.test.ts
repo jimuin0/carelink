@@ -60,12 +60,14 @@ function memberSingle(data: unknown) {
   };
 }
 
+// mutation は .select().maybeSingle()（0行=他施設/存在しない顧客 を not found として扱う根治）。
+// maybeSingle の0行は現実に { data: null, error: null } のため not found テストは現実的。
 function updateSingle(data: unknown, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
-      single: jest.fn(() => Promise.resolve({ data, error })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
     }),
   };
 }
@@ -75,7 +77,7 @@ function deleteSingle(data: unknown, error: unknown = null) {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnThis(),
       select: jest.fn().mockReturnThis(),
-      single: jest.fn(() => Promise.resolve({ data, error })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
     }),
   };
 }

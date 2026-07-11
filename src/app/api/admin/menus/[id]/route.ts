@@ -80,7 +80,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .eq('id', params.id)
     .eq('facility_id', ctx.facilityId)
     .select()
-    .single();
+    // .maybeSingle(): 該当0行（他施設のメニュー/存在しないid）を not found として扱う。.single() だと
+    // 0行→PGRST116で if(error)→500 が先に発火し if(!data)→404 が到達不能になる（500に化ける）。
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });

@@ -55,13 +55,14 @@ function memberSingle(data: unknown) {
   };
 }
 
+// mutation は .select().maybeSingle()（0行=他施設/存在しない記事 を not found として扱う根治）。
 function updateFacilityChain(data: unknown, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data, error })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
           }),
         }),
       }),

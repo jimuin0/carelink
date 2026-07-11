@@ -64,7 +64,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     .update(updatePayload)
     .eq('id', params.id)
     .select()
-    .single();
+    // .maybeSingle(): 該当0行（存在しないid）を not found として扱う。.single() だと0行→PGRST116で
+    // 下の if(error)→500 が先に発火し if(!data)→404 が到達不能になる（404がデッドコード・500に化ける）。
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: '記事が見つかりません' }, { status: 404 });

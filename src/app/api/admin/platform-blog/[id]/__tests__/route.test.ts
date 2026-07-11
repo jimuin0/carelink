@@ -57,12 +57,13 @@ function profileSingle(isAdmin: boolean) {
   };
 }
 
+// mutation は .select().maybeSingle()（0行=存在しないid を not found として扱う根治）。
 function updateSingle(data: unknown, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data, error })),
+          maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
         }),
       }),
     }),
@@ -233,7 +234,7 @@ test('PATCH: is_published=true → published_at が設定される', async () =>
     update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
       eq: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
+          maybeSingle: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
         }),
       }),
     };}),
@@ -250,7 +251,7 @@ test('PATCH: is_published=false → published_at が null', async () => {
     update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
       eq: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
+          maybeSingle: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
         }),
       }),
     };}),
@@ -266,7 +267,7 @@ test('PATCH: is_published 未指定 → published_at 設定なし', async () => 
     update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
       eq: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
+          maybeSingle: jest.fn(() => Promise.resolve({ data: { id: POST_UUID }, error: null })),
         }),
       }),
     };}),
