@@ -85,7 +85,12 @@ export async function GET(request: Request) {
           // catch → scheduleRetry へ回して再送キューに戻す（発症前予防）。
           const ok = await sendLineText(job.target_id, job.payload.message as string);
           if (!ok) throw new Error('line_push failed after all retries');
-        } else if (job.webhook_type === 'email' && resend) {
+        } else if (job.webhook_type === 'email') {
+          // RESEND_API_KEY 未設定（resend=null）でメールを送れない場合、旧実装は
+          // この分岐に入らず下で status='success' に倒し、メールを一切送らずに配信済み扱い＝
+          // サイレントデータロスだった。未設定は一過性事象（キー復旧で送れる）なので throw して
+          // catch → scheduleRetry で再送キューに戻す（成功に倒さない）。
+          if (!resend) throw new Error('email skipped: RESEND_API_KEY not configured');
           const p = job.payload as { to: string; subject: string; html: string; from?: string };
           await resend.emails.send({
             from: p.from || process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
@@ -93,6 +98,12 @@ export async function GET(request: Request) {
             subject: p.subject,
             html: p.html,
           });
+        } else {
+          // 未知の webhook_type（例: line_multicast はハンドラ未実装）は、旧実装ではどの分岐にも
+          // 入らず status='success' に倒れ「送信していないのに配信済み」＝サイレントデータロスだった。
+          // ハンドラ不在は本来デプロイで解消される事象のため throw して scheduleRetry で保持し、
+          // max_attempts 消化後に failed(dead-letter) へ落とす（無音で成功にしない）。
+          throw new Error(`unsupported webhook_type: ${String(job.webhook_type)}`);
         }
 
         // 成功。配信（メール/LINE）は冪等でないため、ここで status='success' に確実に倒さないと

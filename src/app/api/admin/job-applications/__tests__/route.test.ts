@@ -77,10 +77,13 @@ function listChain(data: unknown[], error: unknown = null) {
 }
 
 // POST: both admin calls use job_applications table (use callNum)
+// 重複チェックは job_posting_id 有り→.eq()／無し(一般応募)→.is() で終端する。
+// 両分岐を同一チェーンで受けられるよう .eq()/.is() とも mockReturnThis で連結可能にする。
 function dupCheckChain(existing: unknown[]) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    is: jest.fn().mockReturnThis(),
     limit: jest.fn(() => Promise.resolve({ data: existing, error: null })),
   };
 }
@@ -171,6 +174,17 @@ test('POST: 重複応募 → 409', async () => {
   mockAdminFrom.mockReturnValue(dupCheckChain([{ id: 'existing-app' }]));
   const res = await POST(makePostRequest(validPostBody()));
   expect(res.status).toBe(409);
+});
+
+test('POST: 一般応募(job_posting_id 無し)の重複は .is(null) で判定し 409', async () => {
+  // 回帰: 旧実装は .eq('job_posting_id', null)（=eq.null）で NULL 行に一致せず重複を素通りさせていた。
+  // 一般応募の重複を .is('job_posting_id', null) で正しく検知することを固定する。
+  const chain = dupCheckChain([{ id: 'existing-general-app' }]);
+  mockAdminFrom.mockReturnValue(chain);
+  const res = await POST(makePostRequest(validPostBody())); // job_posting_id 無し
+  expect(res.status).toBe(409);
+  expect(chain.is).toHaveBeenCalledWith('job_posting_id', null);
+  expect(chain.eq).not.toHaveBeenCalledWith('job_posting_id', expect.anything());
 });
 
 test('POST: DB挿入失敗 → 500', async () => {
