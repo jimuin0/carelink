@@ -58,13 +58,20 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
 
   const admin = createServiceRoleClient();
-  const { error } = await admin
+  // .select() で更新行を受け取り 0 行なら 404。旧実装は .select() が無く、存在しない id への
+  // 更新も 0 行更新のまま { success:true } を返し、実在しない登録に対して「承認」の監査ログを
+  // 残していた（phantom success）。実際に更新された行だけを成功・監査対象とする。
+  const { data, error } = await admin
     .from('salons')
     .update({ status: parsed.data.status })
-    .eq('id', params.id);
+    .eq('id', params.id)
+    .select('id');
 
   if (error) {
     return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+  }
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: '登録が見つかりません' }, { status: 404 });
   }
 
   const { ua } = getRequestContext(request);

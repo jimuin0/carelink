@@ -66,7 +66,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
 
   const admin = createServiceRoleClient();
   // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
-  const { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
+  // .maybeSingle(): verify と update の間に削除される TOCTOU 等で該当0行になった場合、.single() だと
+  // PGRST116 error が先に発火し if(error)→500 になり下の 404 分岐が到達不能になる（PR#465 と同型）。
+  const { data, error } = await admin.from('coupons').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });

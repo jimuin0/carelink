@@ -81,6 +81,7 @@ function buildUpdateChain(data: unknown, error: unknown = null) {
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
             single: jest.fn(() => Promise.resolve({ data, error })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
           }),
         }),
       }),
@@ -143,6 +144,7 @@ test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
   const innerEq = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
       single: jest.fn(() => Promise.resolve({ data: { id: PLAN_UUID }, error: null })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { id: PLAN_UUID }, error: null })),
     }),
   });
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });

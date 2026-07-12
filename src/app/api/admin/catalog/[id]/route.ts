@@ -56,7 +56,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   const { name, ...rest } = parsed.data;
   const updateValues = { ...rest, ...(name !== undefined ? { title: name } : {}) };
 
-  const { data, error } = await admin.from('treatment_catalogs').update(updateValues).eq('id', params.id).eq('facility_id', facilityId).select().single();
+  // .maybeSingle(): verify と update の間に削除される TOCTOU 等で該当0行になった場合、.single() だと
+  // PGRST116 error が先に発火し if(error)→500 になり下の 404 分岐が到達不能になる（PR#465 と同型）。
+  const { data, error } = await admin.from('treatment_catalogs').update(updateValues).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!data) return NextResponse.json({ error: 'カタログが見つかりません' }, { status: 404 });
 

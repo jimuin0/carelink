@@ -292,6 +292,7 @@ test('PATCH: CAS競合 → 409', async () => {
           eq: jest.fn().mockReturnValue({
             select: jest.fn().mockReturnValue({
               single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
             }),
           }),
         }),
@@ -315,6 +316,7 @@ test('PATCH: 正常使用 → 200', async () => {
             eq: jest.fn().mockReturnValue({
               select: jest.fn().mockReturnValue({
                 single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
+                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
               }),
             }),
           }),
@@ -478,6 +480,7 @@ test('PATCH: service_packages が null (facilityId なし) で本人なら通過
             eq: jest.fn().mockReturnValue({
               select: jest.fn().mockReturnValue({
                 single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
+                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
               }),
             }),
           }),
@@ -503,6 +506,7 @@ test('PATCH: expires_at が null → 期限チェックをスキップして通�
             eq: jest.fn().mockReturnValue({
               select: jest.fn().mockReturnValue({
                 single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
+                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
               }),
             }),
           }),
@@ -527,6 +531,7 @@ test('PATCH: CAS 更新 DB エラー → 500', async () => {
           eq: jest.fn().mockReturnValue({
             select: jest.fn().mockReturnValue({
               single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
             }),
           }),
         }),
@@ -551,6 +556,7 @@ test('PATCH: ログ挿入失敗 → console.error だが 200 を返す', async (
             eq: jest.fn().mockReturnValue({
               select: jest.fn().mockReturnValue({
                 single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
+                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
               }),
             }),
           }),
@@ -592,6 +598,7 @@ test('PATCH: booking_id 付きで正常使用 → 200', async () => {
             eq: jest.fn().mockReturnValue({
               select: jest.fn().mockReturnValue({
                 single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
+                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
               }),
             }),
           }),

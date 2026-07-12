@@ -219,7 +219,7 @@ export async function PATCH(request: NextRequest) {
     .eq('id', parsed.data.user_package_id)
     .eq('sessions_remaining', userPkg.sessions_remaining)
     .select()
-    .single();
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (!updated) return NextResponse.json({ error: '残り回数がありません（同時更新が発生しました）' }, { status: 409 });

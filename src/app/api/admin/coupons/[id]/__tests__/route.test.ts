@@ -71,7 +71,7 @@ function buildUpdateOrDeleteChain(error: unknown = null) {
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: COUPON_UUID }, error })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data: { id: COUPON_UUID }, error })),
           }),
         }),
       }),
@@ -140,7 +140,7 @@ test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
   let adminCallNum = 0;
   const secondEq = jest.fn().mockReturnValue({
     select: jest.fn().mockReturnValue({
-      single: jest.fn(() => Promise.resolve({ data: { id: COUPON_UUID }, error: null })),
+      maybeSingle: jest.fn(() => Promise.resolve({ data: { id: COUPON_UUID }, error: null })),
     }),
   });
   const firstEq = jest.fn().mockReturnValue({ eq: secondEq });
@@ -169,7 +169,7 @@ test('PATCH: DB更新失敗 → 500', async () => {
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
             }),
           }),
         }),
@@ -335,7 +335,7 @@ test('PATCH: data null → 404', async () => {
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
             }),
           }),
         }),

@@ -67,9 +67,9 @@ function setupOwnership() {
 }
 
 function baseUpdateChain(error: unknown = null) {
-  // route: .update().eq('id').eq('facility_id').select().single()
+  // route: .update().eq('id').eq('facility_id').select().maybeSingle()
   const singleMock = jest.fn(() => Promise.resolve({ data: { id: PKG_UUID }, error }));
-  const selectAfterEq = jest.fn().mockReturnValue({ single: singleMock });
+  const selectAfterEq = jest.fn().mockReturnValue({ maybeSingle: singleMock });
   const innerEq = jest.fn().mockReturnValue({ select: selectAfterEq });
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq, select: selectAfterEq });
   return {
@@ -130,7 +130,7 @@ test('PATCH: UPDATEのWHEREにfacility_idが含まれる', async () => {
   const updateMock = jest.fn();
   const firstEq = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
-      select: jest.fn().mockReturnValue({ single: jest.fn(() => Promise.resolve({ data: { id: PKG_UUID, name: 'updated' }, error: null })) }),
+      select: jest.fn().mockReturnValue({ maybeSingle: jest.fn(() => Promise.resolve({ data: { id: PKG_UUID, name: 'updated' }, error: null })) }),
     }),
   });
   updateMock.mockReturnValue({ eq: firstEq });
@@ -300,7 +300,7 @@ test('PATCH: DB更新失敗 → 500', async () => {
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
             }),
           }),
         }),
@@ -310,6 +310,28 @@ test('PATCH: DB更新失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('PATCH: 更新0行 (verify後にTOCTOU削除) → 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
+            }),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { name: 'x' }), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: 不正な JSON body → 400', async () => {

@@ -52,11 +52,15 @@ function memberSingle(data: unknown) {
   };
 }
 
-function updateEqEq(error: unknown = null) {
+// update().eq().eq().select('id') → { data, error }。存在行の更新は data に1件、
+// 0 行更新（他施設/存在しない qa_id）は data=[] を返し route は 404。
+function updateEqEq(error: unknown = null, data: unknown = [{ id: QA_UUID }]) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+        }),
       }),
     }),
   };
@@ -128,6 +132,13 @@ test('POST: answer 正常 → 200', async () => {
   expect(json.ok).toBe(true);
 });
 
+test('POST: answer, 存在しない qa_id (0行更新) → 404', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEqEq(null, []));
+  const res = await POST(makeRequest({ qa_id: QA_UUID, answer: 'テスト回答' }));
+  expect(res.status).toBe(404);
+});
+
 test('POST: toggle-public, qa_id 不正 → 400', async () => {
   mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
   const res = await POST(makeRequest({ qa_id: 'bad', is_public: true }, 'toggle-public'));
@@ -154,6 +165,13 @@ test('POST: toggle-public, 正常 → 200', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.ok).toBe(true);
+});
+
+test('POST: toggle-public, 存在しない qa_id (0行更新) → 404', async () => {
+  mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateEqEq(null, []));
+  const res = await POST(makeRequest({ qa_id: QA_UUID, is_public: false }, 'toggle-public'));
+  expect(res.status).toBe(404);
 });
 
 test('POST: delete, DB失敗 → 500', async () => {

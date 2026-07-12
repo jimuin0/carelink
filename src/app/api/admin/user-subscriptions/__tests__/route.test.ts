@@ -299,6 +299,7 @@ test('PATCH: ステータス変更 active→cancelled（解約・許可遷移）
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
             single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'cancelled' }, error: null })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'cancelled' }, error: null })),
           }),
         }),
       }),
@@ -319,6 +320,7 @@ test('PATCH: ステータス変更 cancelled→active（誤解約の復活・許
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
             single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
           }),
         }),
       }),
@@ -363,6 +365,7 @@ test('PATCH: ステータス変更DB失敗 → 500', async () => {
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
             single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
           }),
         }),
       }),
