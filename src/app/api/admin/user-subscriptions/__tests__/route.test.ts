@@ -375,6 +375,30 @@ test('PATCH: ステータス変更DB失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('PATCH: ステータス変更で更新0行（verify後にTOCTOU削除）→ 404', async () => {
+  // .maybeSingle() が error なし・data null（0行）を返すケース。verify で存在確認した後に
+  // 別リクエストで削除される TOCTOU 等で発生。.single() だと PGRST116→500 に化けるため
+  // .maybeSingle()＋!data で 404 を返す。この 404 分岐の回帰防止。
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain({ facility_id: FACILITY_UUID, status: 'active' });
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  const res = await PATCH(makePatchRequest({ subscription_id: SUB_UUID, status: 'paused' }));
+  expect(res.status).toBe(404);
+});
+
 // ─── PATCH: session use path（RPC 集約後）──────────────────────────────────────
 
 test('PATCH: サブスクが active でない → 400（pre-check・RPC到達せず）', async () => {
