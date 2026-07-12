@@ -71,9 +71,13 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     if (!menu) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
   }
 
-  const { data, error } = await admin.from('service_packages').update(parsed.data).eq('id', params.id).eq('facility_id', auth.facilityId).select().single();
+  // .maybeSingle(): verify と update の間に削除される TOCTOU 等で該当0行になった場合、.single() だと
+  // PGRST116 error が先に発火し if(error)→500 になり 404 分岐が到達不能になる（catalog/coupons/
+  // subscription-plans の同型 [id] ルートと統一）。
+  const { data, error } = await admin.from('service_packages').update(parsed.data).eq('id', params.id).eq('facility_id', auth.facilityId).select().maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data) return NextResponse.json({ error: 'パッケージが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: auth.userId,

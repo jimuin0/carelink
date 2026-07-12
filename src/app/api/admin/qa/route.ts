@@ -62,13 +62,17 @@ export async function POST(request: NextRequest) {
     if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
     const admin = createServiceRoleClient();
-    const { error } = await admin
+    // .select() で更新行を受け取り 0 件なら 404。旧実装は件数を検証せず、他施設/存在しない qa_id への
+    // 0 件更新も「成功」と偽装し監査ログを残していた（delete 分岐と同型の phantom success）。
+    const { data, error } = await admin
       .from('facility_qa')
       .update({ is_public: parsed.data.is_public })
       .eq('id', parsed.data.qa_id)
-      .eq('facility_id', result.facilityId);
+      .eq('facility_id', result.facilityId)
+      .select('id');
 
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
 
     void writeAuditLog({
       userId: result.userId,
@@ -118,7 +122,8 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です', details: parsed.error.flatten() }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { error } = await admin
+  // .select() で更新行を受け取り 0 件なら 404（他施設/存在しない qa_id への phantom success 防止）。
+  const { data, error } = await admin
     .from('facility_qa')
     .update({
       answer: parsed.data.answer,
@@ -127,9 +132,11 @@ export async function POST(request: NextRequest) {
       status: 'answered',
     })
     .eq('id', parsed.data.qa_id)
-    .eq('facility_id', result.facilityId);
+    .eq('facility_id', result.facilityId)
+    .select('id');
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: '質問が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: result.userId,

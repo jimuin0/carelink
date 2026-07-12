@@ -57,9 +57,10 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   if (!parsed.success) return NextResponse.json({ error: 'リクエストが不正です' }, { status: 400 });
 
   const admin = createServiceRoleClient();
-  const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().single();
+  const { data, error } = await admin.from('subscription_plans').update(parsed.data).eq('id', params.id).eq('facility_id', facilityId).select().maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data) return NextResponse.json({ error: 'プランが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: user.id,

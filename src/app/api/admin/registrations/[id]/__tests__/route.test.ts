@@ -54,10 +54,14 @@ function profileChain(isAdmin: boolean) {
   };
 }
 
-function updateChain(error: unknown = null) {
+// update().eq().select('id') → { data, error }。存在する行の更新は data に1件返る。
+// 0 行更新（存在しない id）は data=[] を返し、route は 404 を返す。
+function updateChain(error: unknown = null, data: unknown = [{ id: SALON_UUID }]) {
   return {
     update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.resolve({ data, error })),
+      }),
     }),
   };
 }
@@ -104,6 +108,17 @@ test('PATCH: DB更新失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(updateChain({ message: 'DB error' }));
   const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('PATCH: 存在しない登録 (0行更新) → 404', async () => {
+  mockAnonFrom.mockReturnValue(profileChain(true));
+  mockAdminFrom.mockReturnValue(updateChain(null, []));
+  const { writeAuditLog } = require('@/lib/audit-logger');
+  const res = await PATCH(makeRequest({ status: 'approved' }), makeProps());
+  expect(res.status).toBe(404);
+  // phantom success 防止: 実在しない登録に対して承認の監査ログを残さない
+  await new Promise(r => setTimeout(r, 10));
+  expect(writeAuditLog).not.toHaveBeenCalled();
 });
 
 test('PATCH: approved → 200 success:true', async () => {

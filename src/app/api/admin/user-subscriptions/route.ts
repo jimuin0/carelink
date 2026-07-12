@@ -185,8 +185,9 @@ export async function PATCH(request: NextRequest) {
     const { data, error } = await admin.from('user_subscriptions')
       .update({ status: statusParsed.data.status })
       .eq('id', statusParsed.data.subscription_id)
-      .select().single();
+      .select().maybeSingle();
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
     const { ip: sip, ua: sua } = getRequestContext(request);
     void writeAuditLog({
