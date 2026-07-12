@@ -409,7 +409,9 @@ describe('GET /api/cron/webhook-retry', () => {
     expect(call[0].processed_at).toBeDefined();
   });
 
-  test('unknown webhook_type → success without sending', async () => {
+  test('unknown webhook_type → scheduleRetry (not silent success)', async () => {
+    // ハンドラ未実装の webhook_type（例: line_multicast）を「送信していないのに配信済み」＝
+    // status='success' に倒すのはサイレントデータロス。scheduleRetry で保持し success には倒さない。
     mockJobsSelect = jest.fn().mockResolvedValue({
       data: [{
         id: 'jx',
@@ -445,10 +447,17 @@ describe('GET /api/cron/webhook-retry', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
-    expect(mockSuccessUpdate).toHaveBeenCalled();
+    // 未配信なので success には倒さず、再送キューへ回す。
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('jx', 1, expect.stringContaining('unsupported webhook_type'));
+    const json = await res.json();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
   });
 
-  test('email webhook with resend null → success update without send', async () => {
+  test('email webhook with resend null → scheduleRetry (not silent success)', async () => {
+    // RESEND_API_KEY 未設定でメールを送れない場合、旧実装は送らずに success へ倒しメールを消失させていた。
+    // キー復旧で送れる一過性事象なので scheduleRetry で保持し success には倒さない。
     delete process.env.RESEND_API_KEY;
     mockJobsSelect = jest.fn().mockResolvedValue({
       data: [{
@@ -485,8 +494,11 @@ describe('GET /api/cron/webhook-retry', () => {
 
     const res = await GET(makeRequest() as any);
     expect(res.status).toBe(200);
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(scheduleRetry).toHaveBeenCalledWith('je', 1, expect.stringContaining('RESEND_API_KEY not configured'));
     const json = await res.json();
-    expect(json.processed).toBeGreaterThan(0);
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(1);
   });
 
   test('email payload with explicit from → uses payload.from', async () => {
