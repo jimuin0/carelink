@@ -68,13 +68,19 @@ export async function POST(req: NextRequest) {
   const admin = createServiceRoleClient();
 
   // Check if already applied
-  const { data: existing } = await admin
+  // job_posting_id が未指定（一般応募）のとき .eq('job_posting_id', null) は PostgREST 上
+  // `job_posting_id=eq.null` に翻訳され SQL の NULL 行に一致しない（col = NULL は常に偽）。
+  // その結果、一般応募の重複チェックが常にすり抜け二重応募を許してしまうため、
+  // null のときは .is() で IS NULL 判定に切り替える。
+  let dupQuery = admin
     .from('job_applications')
     .select('id')
     .eq('facility_id', facility_id)
-    .eq('applicant_email', applicant_email)
-    .eq('job_posting_id', job_posting_id || null)
-    .limit(1);
+    .eq('applicant_email', applicant_email);
+  dupQuery = job_posting_id
+    ? dupQuery.eq('job_posting_id', job_posting_id)
+    : dupQuery.is('job_posting_id', null);
+  const { data: existing } = await dupQuery.limit(1);
 
   if (existing && existing.length > 0) {
     return NextResponse.json({ error: 'Already applied' }, { status: 409 });
