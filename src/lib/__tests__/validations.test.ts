@@ -82,6 +82,20 @@ describe('customerSchema', () => {
     expect(result.success).toBe(true);
     if (result.success) expect(result.data.name).toBe('山田太郎');
   });
+
+  // 【生年月日の実在日検証・回帰防止】形式(regex)だけでは 2026-02-30 等の不在日が通り、DATE 列が
+  // 拒否して 500 になる（booking_date と同型の欠陥）。isValidIsoDate で実在日まで検証し 400 で弾く。
+  test('生年月日が実在しない暦日（2026-02-30）はエラー', () => {
+    expect(customerSchema.safeParse({ ...validData, birthday: '2026-02-30' }).success).toBe(false);
+  });
+
+  test('生年月日が実在する日付は通過する', () => {
+    expect(customerSchema.safeParse({ ...validData, birthday: '1990-05-15' }).success).toBe(true);
+  });
+
+  test('生年月日が空文字はフォーム未入力として通過する（保存時 null 化）', () => {
+    expect(customerSchema.safeParse({ ...validData, birthday: '' }).success).toBe(true);
+  });
 });
 
 describe('salonStep2Schema', () => {
