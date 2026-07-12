@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { phoneField } from './phone';
+import { isValidIsoDate } from './date-utils';
 
 // 顧客マスターの入力スキーマ。name のみ必須、他は任意。
 // email / birthday は「空文字」も許容し、保存時に null へ正規化する（フォーム未入力の素通し）。
@@ -11,7 +12,13 @@ export const customerSchema = z.object({
   name_kana: z.string().max(50, '50文字以内で入力してください').optional().nullable(),
   email: z.string().email('正しいメールアドレスを入力してください').max(254).optional().nullable().or(z.literal('')),
   phone: phoneField(),
-  birthday: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, '生年月日を正しく入力してください').optional().nullable().or(z.literal('')),
+  // 形式(regex)だけでは 2026-02-30 等の不在日が通り、DATE 列が拒否して 500 になる（booking の
+  // booking_date と同型の欠陥）。isValidIsoDate で実在日まで検証し、明確な 400 で弾く。
+  // 空文字はフォーム未入力の素通し（保存時 null 化）のため refine 前に .or(z.literal('')) で許容。
+  birthday: z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, '生年月日を正しく入力してください')
+    .refine((d) => isValidIsoDate(d), '生年月日を正しく入力してください')
+    .optional().nullable().or(z.literal('')),
   gender: z.enum(['male', 'female', 'other']).optional().nullable(),
   notes: z.string().max(2000, '2000文字以内で入力してください').optional().nullable(),
 });
