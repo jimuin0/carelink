@@ -174,6 +174,21 @@ test('PATCH: DB更新失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('PATCH: 更新0行（verify後にTOCTOU削除）→ 404', async () => {
+  // .maybeSingle() が error なし・data null（0行）を返すケース。verifyAdmin で存在確認した後に
+  // 別リクエストで削除される TOCTOU 等で発生。.single() だと PGRST116→500 に化けるため
+  // .maybeSingle()＋!data で 404 を返す。この 404 分岐の回帰防止。
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
+    return buildUpdateChain(null, null);
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest('PATCH', { name: 'test' }), makeProps());
+  expect(res.status).toBe(404);
+});
+
 // ─── DELETE: active subscribers → soft deactivate ────────────────────────────
 
 test('DELETE: 契約中ユーザーあり → soft deactivate (200)', async () => {
