@@ -1,7 +1,8 @@
 /**
  * @jest-environment node
  *
- * calculateBookingPrice / parseDateString（BookingFlow の純粋関数・TZ非依存）の回帰テスト。
+ * calculateBookingPrice / parseDateString / availabilitySymbol（BookingFlow の純粋関数・
+ * TZ非依存）の回帰テスト。
  *
  * 【2026年7月8日 実データで確定した恒久根治】
  * 1. calculateBookingPrice: 無料メニュー(price=0)でも指名スタッフの nomination_fee を加算する
@@ -10,8 +11,10 @@
  * 2. parseDateString: UTCより時刻が遅れるタイムゾーンでも日付が繰り下がらないことを固定する
  *    （旧実装は new Date(dateStr) の直接パース→ローカルgetterで、そのようなタイムゾーンでは
  *    1日ずれた月/日/曜日を表示していた）。
+ * 3. availabilitySymbol: HPB形式の週×時間マトリクスで、空きスタッフ数から◎○△×を決める
+ *    境界値（0/1/2/3+）と、特定スタッフ指名時に件数によらず○/×の二値になることを固定する。
  */
-import { calculateBookingPrice, parseDateString } from '../BookingFlow';
+import { calculateBookingPrice, parseDateString, availabilitySymbol } from '../BookingFlow';
 import type { FacilityMenu, Coupon, StaffProfile } from '@/types';
 
 function menu(price: number | null): FacilityMenu {
@@ -108,5 +111,47 @@ describe('parseDateString', () => {
     getDateSpy.mockRestore();
     getMonthSpy.mockRestore();
     getDaySpy.mockRestore();
+  });
+});
+
+describe('availabilitySymbol', () => {
+  describe('指名なし（specific=false）: 空きスタッフ数で◎○△×を判定', () => {
+    test('count=0 → ×（不可）', () => {
+      expect(availabilitySymbol(0, false)).toEqual({ symbol: '×', available: false });
+    });
+
+    test('count=undefined（スロット無し）→ ×（不可・0と同じ扱い）', () => {
+      expect(availabilitySymbol(undefined, false)).toEqual({ symbol: '×', available: false });
+    });
+
+    test('count=1 → △（残少）', () => {
+      expect(availabilitySymbol(1, false)).toEqual({ symbol: '△', available: true });
+    });
+
+    test('count=2 → ○（空きあり）', () => {
+      expect(availabilitySymbol(2, false)).toEqual({ symbol: '○', available: true });
+    });
+
+    test('count=3 → ◎（空き十分・境界値）', () => {
+      expect(availabilitySymbol(3, false)).toEqual({ symbol: '◎', available: true });
+    });
+
+    test('count=4（3超）→ ◎のまま（上限クランプではなく閾値以上は全て◎）', () => {
+      expect(availabilitySymbol(4, false)).toEqual({ symbol: '◎', available: true });
+    });
+  });
+
+  describe('特定スタッフ指名（specific=true）: 件数によらず○/×の二値', () => {
+    test('count=0 → ×', () => {
+      expect(availabilitySymbol(0, true)).toEqual({ symbol: '×', available: false });
+    });
+
+    test('count=1 → ○（指名なしなら△になる件数でも、指名時は○固定）', () => {
+      expect(availabilitySymbol(1, true)).toEqual({ symbol: '○', available: true });
+    });
+
+    test('count=3 → ○のまま（◎にはならない・指名は常に1名分の判定）', () => {
+      expect(availabilitySymbol(3, true)).toEqual({ symbol: '○', available: true });
+    });
   });
 });

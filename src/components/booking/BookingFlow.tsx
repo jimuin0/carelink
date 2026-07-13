@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 
-type Step = 'menu' | 'staff' | 'datetime' | 'confirm';
+type Step = 'menu' | 'datetime' | 'confirm';
 
 /**
  * 予約フォームの合計金額を計算する純粋関数（TZ非依存の日付計算と同様、テスト容易化のため分離）。
@@ -56,6 +56,25 @@ export function parseDateString(dateStr: string): { month: number; day: number; 
   return { month, day, dayOfWeek };
 }
 
+const DAY_NAMES = ['日', '月', '火', '水', '木', '金', '土'];
+
+/**
+ * 空きスタッフ数から HPB 形式の空き記号を決める純粋関数。
+ * - 指名なし（specific=false）: 空きスタッフが多いほど ◎(3+)/○(2)/△(1)、0 は満（×）。
+ * - 特定スタッフ指名（specific=true）: そのスタッフが空いていれば ○、いなければ ×。
+ * count が undefined（その時間帯にスロット無し）は満扱い。
+ */
+export function availabilitySymbol(
+  count: number | undefined,
+  specific: boolean,
+): { symbol: '◎' | '○' | '△' | '×'; available: boolean } {
+  if (!count || count <= 0) return { symbol: '×', available: false };
+  if (specific) return { symbol: '○', available: true };
+  if (count >= 3) return { symbol: '◎', available: true };
+  if (count === 2) return { symbol: '○', available: true };
+  return { symbol: '△', available: true };
+}
+
 interface Props {
   facility: { id: string; slug: string; name: string };
   staff: StaffProfile[];
@@ -66,9 +85,17 @@ interface Props {
   initialStaffId?: string;
 }
 
+const WEEK_SIZE = 7;
+/** 時間帯セル1件分の空き情報（count=空きスタッフ数、slot=予約に使う代表スロット）。 */
+type Cell = { count: number; slot: AvailableSlot };
+/** date -> ("HH:MM" -> Cell) の週マトリクス。 */
+type WeekMatrix = Record<string, Record<string, Cell>>;
+
 export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
+  // メニュー/クーポンのタブ（HPB風にクーポンを主役に置く。クーポンがあれば初期表示をクーポンに）。
+  const [menuTab, setMenuTab] = useState<'coupon' | 'menu'>(coupons.length > 0 ? 'coupon' : 'menu');
   // 再予約リンクで渡された ID を menus/staff から解決して初期選択する（該当なしは無選択にフォールバック）。
   // これをしないと「同じ内容で再予約」のクエリが無視され、毎回ゼロから選び直しになる（A-6）。
   const [selectedMenus, setSelectedMenus] = useState<FacilityMenu[]>(
@@ -80,8 +107,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
-  const [slots, setSlots] = useState<AvailableSlot[]>([]);
-  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [matrix, setMatrix] = useState<WeekMatrix>({});
+  const [matrixLoading, setMatrixLoading] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -178,7 +206,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       setUsePoints(draft.usePoints);
       setPointsToUse(draft.pointsToUse);
       // 日時ステップへ（枠は在庫鮮度のため再取得・再選択させる）。
-      setStep(draft.selectedDate ? 'datetime' : 'staff');
+      setStep(draft.selectedDate ? 'datetime' : 'menu');
     } catch {
       // 破損データは無視して通常フローを続行。
     }
@@ -187,48 +215,88 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
   const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
 
-  // Fetch available slots when date changes
+  // Generate date options (next 60 days)
+  // 【2026年7月8日 恒久根治】旧実装はブラウザのローカル時計(new Date())を基準に日付を生成して
+  // いたが、サーバー側の検証(src/lib/validations-booking.ts の getTodayString/getMaxDateString)
+  // はJST(UTC+9)固定で「今日」を計算する。JST以外のタイムゾーンで閲覧するユーザー（海外在住・
+  // 海外出張中・PCの時計設定がUTC等）では、クライアントが選択可能として提示した日付の一部が
+  // サーバー側の「過去の日付は指定できません」バリデーションで拒否されたり、選択した日付が
+  // 1日ずれる可能性があった。サーバーと同一のJSTシフトロジックで日付を生成し基準を一致させる。
+  const dateOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => {
+    const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    jstNow.setUTCDate(jstNow.getUTCDate() + i + 1);
+    const year = jstNow.getUTCFullYear();
+    const month = String(jstNow.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(jstNow.getUTCDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }), []);
+
+  const maxWeekOffset = Math.max(0, Math.ceil(dateOptions.length / WEEK_SIZE) - 1);
+  const visibleDates = useMemo(
+    () => dateOptions.slice(weekOffset * WEEK_SIZE, weekOffset * WEEK_SIZE + WEEK_SIZE),
+    [dateOptions, weekOffset],
+  );
+  const visibleKey = visibleDates.join(',');
+
+  // 週×時間の空き状況（◎○△×）を組み立てる。表示中の7日について /api/slots を並列取得し、
+  // 各時間帯に「空いているスタッフ数」を数える（指名なしは全スタッフ、指名時は当該1名）。
+  // 旧実装の「日付を1つ選ぶ→その日の時間ボタン一覧」を、HPB形式の週マトリクスに置き換える。
   useEffect(() => {
-    if (!selectedDate || selectedMenus.length === 0) return;
+    if (step !== 'datetime') return;
+    if (selectedMenus.length === 0) return;
     if (selectedStaff === null && staff.length === 0) return;
     const controller = new AbortController();
-    setSlotsLoading(true);
-    setSlots([]);
-    setSelectedSlot(null);
+    setMatrixLoading(true);
 
-    if (selectedStaff) {
-      fetch(`/api/slots?facilityId=${facility.id}&staffId=${selectedStaff.id}&date=${selectedDate}&duration=${totalDuration}`, {
-        signal: controller.signal,
-      })
-        .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
-        .then((data) => { if (!controller.signal.aborted) setSlots(data.slots ?? []); })
-        .catch((err) => { if (err.name !== 'AbortError') setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); })
-        .finally(() => { if (!controller.signal.aborted) setSlotsLoading(false); });
-    } else {
-      Promise.all(
-        staff.map((s) =>
-          fetch(`/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${selectedDate}&duration=${totalDuration}`, {
-            signal: controller.signal,
-          }).then((r) => { if (!r.ok) throw new Error(); return r.json(); }).catch(() => ({ slots: [] }))
-        )
-      ).then((results) => {
-        if (controller.signal.aborted) return;
-        const merged = new Map<string, AvailableSlot>();
-        results.forEach((r, i) => {
-          (r.slots ?? []).forEach((slot: AvailableSlot) => {
-            if (!merged.has(slot.slot_start)) {
-              // 最初に見つかったスタッフのスロットを採用（staff_id保持）
-              merged.set(slot.slot_start, { ...slot, staff_id: staff[i]?.id });
+    const targetStaff = selectedStaff ? [selectedStaff] : staff;
+    Promise.all(visibleDates.map(async (date) => {
+      const perTime = new Map<string, Cell>();
+      await Promise.all(targetStaff.map(async (s) => {
+        try {
+          const r = await fetch(
+            `/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${date}&duration=${totalDuration}`,
+            { signal: controller.signal },
+          );
+          if (!r.ok) return;
+          const data = await r.json();
+          (data.slots ?? []).forEach((slot: AvailableSlot) => {
+            const t = slot.slot_start.slice(0, 5);
+            const existing = perTime.get(t);
+            if (existing) {
+              existing.count += 1;
+            } else {
+              // 最初に見つかったスタッフのスロットを代表として保持（staff_id付き）。
+              perTime.set(t, { count: 1, slot: { ...slot, staff_id: s.id } });
             }
           });
-        });
-        setSlots(Array.from(merged.values()).sort((a, b) => a.slot_start.localeCompare(b.slot_start)));
-      }).catch((err) => { if (err.name !== 'AbortError') setToast({ type: 'error', message: '空き枠の取得に失敗しました' }); })
-        .finally(() => { if (!controller.signal.aborted) setSlotsLoading(false); });
-    }
+        } catch {
+          // 個別スタッフ/日付の失敗は握らず、その分を空きなし扱いにして週全体は表示する。
+        }
+      }));
+      return [date, Object.fromEntries(perTime)] as [string, Record<string, Cell>];
+    }))
+      .then((entries) => {
+        if (controller.signal.aborted) return;
+        setMatrix(Object.fromEntries(entries));
+      })
+      .catch((err) => {
+        if (err?.name !== 'AbortError') setToast({ type: 'error', message: '空き状況の取得に失敗しました' });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setMatrixLoading(false);
+      });
 
     return () => controller.abort();
-  }, [selectedDate, selectedStaff, selectedMenus, facility.id, totalDuration, staff]);
+    // visibleKey で表示週を、selectedStaff で指名を、totalDuration でメニュー変更を検知する。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, visibleKey, selectedStaff, totalDuration, facility.id]);
+
+  // マトリクスの行（時間帯）＝表示週で1度でも空きがあった開始時刻の和集合（昇順）。
+  const rowTimes = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(matrix).forEach((day) => Object.keys(day).forEach((t) => set.add(t)));
+    return Array.from(set).sort();
+  }, [matrix]);
 
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
   const [availablePoints, setAvailablePoints] = useState(0);
@@ -330,29 +398,23 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMenus, selectedCoupon, selectedStaff, availablePoints]);
 
-  // Generate date options (next 60 days)
-  // 【2026年7月8日 恒久根治】旧実装はブラウザのローカル時計(new Date())を基準に日付を生成して
-  // いたが、サーバー側の検証(src/lib/validations-booking.ts の getTodayString/getMaxDateString)
-  // はJST(UTC+9)固定で「今日」を計算する。JST以外のタイムゾーンで閲覧するユーザー（海外在住・
-  // 海外出張中・PCの時計設定がUTC等）では、クライアントが選択可能として提示した日付の一部が
-  // サーバー側の「過去の日付は指定できません」バリデーションで拒否されたり、選択した日付が
-  // 1日ずれる可能性があった。サーバーと同一のJSTシフトロジックで日付を生成し基準を一致させる。
-  const dateOptions = Array.from({ length: 60 }, (_, i) => {
-    const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
-    jstNow.setUTCDate(jstNow.getUTCDate() + i + 1);
-    const year = jstNow.getUTCFullYear();
-    const month = String(jstNow.getUTCMonth() + 1).padStart(2, '0');
-    const day = String(jstNow.getUTCDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  });
+  // 指名スタッフ（フィルタ）を切り替えたら、選択済みの日時をクリアする。指名なしで選んだ枠が
+  // 特定スタッフでは空いていないことがあり、鮮度不明な選択を確認画面へ持ち越さないため。
+  function changeStaffFilter(next: StaffProfile | null) {
+    setSelectedStaff(next);
+    setSelectedDate('');
+    setSelectedSlot(null);
+  }
+
+  const menuTotal = selectedMenus.reduce((s, m) => s + (m.price || 0), 0);
 
   const steps: { key: Step; label: string }[] = [
-    { key: 'menu', label: 'メニュー' },
-    { key: 'staff', label: 'スタッフ' },
+    { key: 'menu', label: 'メニュー・クーポン' },
     { key: 'datetime', label: '日時' },
     { key: 'confirm', label: '確認・予約' },
   ];
   const currentIndex = steps.findIndex((s) => s.key === step);
+  const specificStaff = selectedStaff !== null;
 
   return (
     <div>
@@ -373,207 +435,315 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         ))}
       </div>
 
-      {/* Step 1: Menu (multi-select + coupon) */}
+      {/* Step 1: Menu + Coupon (HPB風タブ) */}
       {step === 'menu' && (
-        <div className="space-y-3">
-          <h2 className="font-bold">メニューを選択<span className="text-xs font-normal text-gray-400 ml-2">（複数選択可）</span></h2>
-          {menus.length === 0 && (
-            <div className="bg-white rounded-xl p-8 text-center">
-              <p className="text-gray-400">メニューが登録されていません</p>
-              <p className="text-xs text-gray-400 mt-2">施設にお問い合わせください</p>
-            </div>
-          )}
-          {menus.map((menu) => {
-            const isSelected = selectedMenus.some((m) => m.id === menu.id);
-            return (
-              <button
-                type="button"
-                key={menu.id}
-                onClick={() => {
-                  setSelectedMenus((prev) =>
-                    isSelected ? prev.filter((m) => m.id !== menu.id) : [...prev, menu]
-                  );
-                }}
-                className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                  isSelected ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-primary bg-primary' : 'border-gray-300'}`}>
-                    {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
-                  </div>
-                  <div>
-                    <p className="font-bold text-sm">{menu.name}</p>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                      {menu.price !== null && <span>¥{menu.price.toLocaleString()}</span>}
-                      {menu.duration_minutes && <span>{menu.duration_minutes}分</span>}
-                    </div>
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-
-          {/* Coupon selection */}
-          {coupons.length > 0 && (
-            <div className="mt-4">
-              <h3 className="font-bold text-sm mb-2">クーポンを使う</h3>
-              <div className="space-y-2">
-                <button
-                  type="button"
-                  onClick={() => setSelectedCoupon(null)}
-                  className={`w-full text-left p-3 rounded-xl border text-sm ${
-                    !selectedCoupon ? 'border-primary bg-sky-50' : 'border-gray-200'
-                  }`}
-                >
-                  クーポンなし
-                </button>
-                {coupons.map((coupon) => (
-                  <button
-                    type="button"
-                    key={coupon.id}
-                    onClick={() => setSelectedCoupon(coupon)}
-                    className={`w-full text-left p-3 rounded-xl border text-sm ${
-                      selectedCoupon?.id === coupon.id ? 'border-primary bg-sky-50' : 'border-gray-200'
-                    }`}
-                  >
-                    <p className="font-bold">{coupon.name}</p>
-                    {coupon.description && <p className="text-xs text-gray-500">{coupon.description}</p>}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {selectedMenus.length > 0 && (
-            <div className="pt-2 border-t space-y-2">
-              <div className="text-sm text-gray-600">
-                <span className="font-bold">{selectedMenus.length}件選択中</span>
-                <span className="ml-3">合計 ¥{selectedMenus.reduce((s, m) => s + (m.price || 0), 0).toLocaleString()}</span>
-                <span className="ml-3">{selectedMenus.reduce((s, m) => s + (m.duration_minutes || 60), 0)}分</span>
-              </div>
-              <button type="button" onClick={() => setStep('staff')} className="btn-primary w-full !py-3">
-                次へ（スタッフ選択）
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Step 2: Staff */}
-      {step === 'staff' && (
-        <div className="space-y-3">
-          <h2 className="font-bold">スタッフを選択</h2>
-          <button
-            type="button"
-            onClick={() => { setSelectedStaff(null); setStep('datetime'); }}
-            className="w-full text-left p-4 rounded-xl border border-sky-300 bg-sky-50 transition-colors hover:bg-sky-100"
-          >
-            <p className="font-bold text-sm text-sky-700">指名なし（おまかせ）</p>
-            <p className="text-xs text-gray-500">空いているスタッフが対応します</p>
-          </button>
-          {staff.map((s) => (
+        <div className="space-y-4">
+          {/* タブ切替（クーポン主役） */}
+          <div className="flex rounded-xl bg-gray-100 p-1 text-sm font-bold">
             <button
               type="button"
-              key={s.id}
-              onClick={() => { setSelectedStaff(s); setStep('datetime'); }}
-              className="w-full text-left p-4 rounded-xl border border-gray-200 hover:border-sky-300"
+              onClick={() => setMenuTab('coupon')}
+              className={`flex-1 py-2 rounded-lg transition-colors ${
+                menuTab === 'coupon' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'
+              }`}
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-bold text-sm">{s.name}</p>
-                  {s.position && <p className="text-xs text-gray-500">{s.position}</p>}
-                </div>
-                {s.nomination_fee > 0 && (
-                  <span className="text-xs text-sky-600 font-medium">指名料 ¥{s.nomination_fee.toLocaleString()}</span>
-                )}
-              </div>
+              クーポン{coupons.length > 0 && <span className="ml-1 text-xs">({coupons.length})</span>}
             </button>
-          ))}
-          <button type="button" onClick={() => setStep('menu')} className="text-sm text-gray-500 hover:underline">
-            戻る
-          </button>
-        </div>
-      )}
-
-      {/* Step 3: DateTime (date + time combined) */}
-      {step === 'datetime' && (
-        <div className="space-y-4">
-          <h2 className="font-bold">日時を選択</h2>
-
-          {/* Date grid */}
-          <div>
-            <p className="text-xs text-gray-500 mb-2">日付を選択してください</p>
-            <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
-              {dateOptions.map((date) => {
-                const { month, day, dayOfWeek } = parseDateString(date);
-                const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-                const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-                const isActive = selectedDate === date;
-                return (
-                  <button
-                    type="button"
-                    key={date}
-                    onClick={() => setSelectedDate(date)}
-                    className={`min-h-[44px] flex flex-col items-center justify-center p-2 rounded-lg border text-center transition-colors ${
-                      isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
-                    }`}
-                  >
-                    <p className="text-micro text-gray-400">{month}/{day}</p>
-                    <p className={`text-xs font-bold ${isWeekend ? 'text-red-500' : ''}`}>
-                      {dayNames[dayOfWeek]}
-                    </p>
-                  </button>
-                );
-              })}
-            </div>
+            <button
+              type="button"
+              onClick={() => setMenuTab('menu')}
+              className={`flex-1 py-2 rounded-lg transition-colors ${
+                menuTab === 'menu' ? 'bg-white text-primary shadow-sm' : 'text-gray-500'
+              }`}
+            >
+              メニューから選ぶ
+            </button>
           </div>
 
-          {/* Time slots (shown when date is selected) */}
-          {selectedDate && (
-            <div>
-              <p className="text-xs text-gray-500 mb-2">
-                {(() => {
-                  const { month, day, dayOfWeek } = parseDateString(selectedDate);
-                  const dayNames = ['日', '月', '火', '水', '木', '金', '土'];
-                  return `${month}/${day}（${dayNames[dayOfWeek]}）の空き時間`;
-                })()}
-              </p>
-              {slotsLoading ? (
-                <div className="text-center py-6">
-                  <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-                </div>
-              ) : slots.length === 0 ? (
-                <div className="bg-gray-50 rounded-xl p-4 text-center">
-                  <p className="text-gray-400 text-sm">この日は予約可能な時間帯がありません</p>
-                  <p className="text-xs text-gray-400 mt-1">別の日付をお選びください</p>
+          {/* クーポンパネル */}
+          {menuTab === 'coupon' && (
+            <div className="space-y-2">
+              {coupons.length === 0 ? (
+                <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                  <p className="text-gray-400 text-sm">現在利用できるクーポンはありません</p>
+                  <button type="button" onClick={() => setMenuTab('menu')} className="text-primary text-sm font-bold mt-2 hover:underline">
+                    メニューから選ぶ →
+                  </button>
                 </div>
               ) : (
-                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2" role="listbox" aria-label="空き時間">
-                  {slots.map((slot) => {
-                    const isActive = selectedSlot?.slot_start === slot.slot_start;
+                <>
+                  {coupons.map((coupon) => {
+                    const isSelected = selectedCoupon?.id === coupon.id;
+                    const label =
+                      coupon.discount_type === 'percentage' && coupon.discount_value
+                        ? `${coupon.discount_value}% OFF`
+                        : coupon.discount_type === 'fixed' && coupon.discount_value
+                        ? `¥${coupon.discount_value.toLocaleString()} OFF`
+                        : coupon.discount_type === 'special_price' && coupon.special_price !== null
+                        ? `¥${coupon.special_price.toLocaleString()}`
+                        : null;
                     return (
                       <button
                         type="button"
-                        key={slot.slot_start}
-                        role="option"
-                        aria-selected={isActive}
-                        onClick={() => setSelectedSlot(slot)}
-                        className={`min-h-[44px] flex items-center justify-center p-2.5 rounded-xl border text-center transition-colors ${
-                          isActive ? 'border-primary bg-sky-50 ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
+                        key={coupon.id}
+                        onClick={() => setSelectedCoupon(isSelected ? null : coupon)}
+                        className={`w-full text-left rounded-xl border transition-colors overflow-hidden ${
+                          isSelected ? 'border-primary ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                         }`}
                       >
-                        <p className="font-bold text-sm">{slot.slot_start.slice(0, 5)}</p>
+                        <div className="flex">
+                          <div className={`w-1.5 shrink-0 ${isSelected ? 'bg-primary' : 'bg-red-400'}`} />
+                          <div className="p-4 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="font-bold text-sm">{coupon.name}</p>
+                              {label && (
+                                <span className="shrink-0 text-xs font-bold text-red-500 bg-red-50 rounded-full px-2 py-0.5">
+                                  {label}
+                                </span>
+                              )}
+                            </div>
+                            {coupon.description && <p className="text-xs text-gray-500 mt-1">{coupon.description}</p>}
+                            {isSelected && (
+                              <p className="text-xs text-primary font-bold mt-2">✓ 選択中</p>
+                            )}
+                          </div>
+                        </div>
                       </button>
                     );
                   })}
-                </div>
+                  <p className="text-xs text-gray-400 pt-1">
+                    ※ クーポン適用には対象メニューの選択が必要です。「メニューから選ぶ」で施術内容をお選びください。
+                  </p>
+                </>
               )}
             </div>
           )}
 
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setStep('staff')} className="text-sm text-gray-500 hover:underline">
+          {/* メニューパネル */}
+          {menuTab === 'menu' && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">施術メニューを選択（複数選択可）</p>
+              {menus.length === 0 && (
+                <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+                  <p className="text-gray-400">メニューが登録されていません</p>
+                  <p className="text-xs text-gray-400 mt-2">施設にお問い合わせください</p>
+                </div>
+              )}
+              {menus.map((menu) => {
+                const isSelected = selectedMenus.some((m) => m.id === menu.id);
+                return (
+                  <button
+                    type="button"
+                    key={menu.id}
+                    onClick={() => {
+                      setSelectedMenus((prev) =>
+                        isSelected ? prev.filter((m) => m.id !== menu.id) : [...prev, menu]
+                      );
+                    }}
+                    className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                      isSelected ? 'border-primary bg-sky-50' : 'border-gray-200 hover:border-sky-300'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-5 h-5 rounded border-2 flex items-center justify-center shrink-0 ${isSelected ? 'border-primary bg-primary' : 'border-gray-300'}`}>
+                        {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
+                      </div>
+                      <div className="flex-1">
+                        <p className="font-bold text-sm">{menu.name}</p>
+                        {menu.description && <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{menu.description}</p>}
+                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+                          {menu.price !== null && <span className="text-red-500 font-bold">¥{menu.price.toLocaleString()}</span>}
+                          {menu.duration_minutes && <span>{menu.duration_minutes}分</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 選択サマリ + 次へ */}
+          <div className="pt-2 border-t space-y-2">
+            {selectedCoupon && (
+              <div className="text-sm flex items-center justify-between">
+                <span className="text-gray-500">クーポン</span>
+                <span className="font-bold text-red-500">{selectedCoupon.name}</span>
+              </div>
+            )}
+            <div className="text-sm text-gray-600 flex flex-wrap items-center gap-x-3">
+              {selectedMenus.length > 0 ? (
+                <>
+                  <span className="font-bold">{selectedMenus.length}件選択中</span>
+                  <span>合計 ¥{menuTotal.toLocaleString()}</span>
+                  <span>{selectedMenus.reduce((s, m) => s + (m.duration_minutes || 60), 0)}分</span>
+                </>
+              ) : (
+                <span className="text-gray-400">メニューを1つ以上選択してください</span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={selectedMenus.length === 0}
+              onClick={() => setStep('datetime')}
+              className="btn-primary w-full !py-3 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              次へ（日時を選ぶ）
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Step 2: DateTime — HPB風の週×時間 空き状況カレンダー */}
+      {step === 'datetime' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h2 className="font-bold">日時を選択</h2>
+            {/* 空き記号の凡例 */}
+            <div className="flex items-center gap-2 text-micro text-gray-400">
+              <span>◎ 空き十分</span><span>○ 空きあり</span><span>△ 残少</span><span>× 満</span>
+            </div>
+          </div>
+
+          {/* スタッフ指名フィルタ（HPBはカレンダー上でスタイリストを絞り込む） */}
+          {staff.length > 0 && (
+            <div>
+              <label htmlFor="staff-filter" className="text-xs text-gray-500">スタッフ指名</label>
+              <select
+                id="staff-filter"
+                value={selectedStaff?.id ?? ''}
+                onChange={(e) => {
+                  const s = staff.find((x) => x.id === e.target.value) ?? null;
+                  changeStaffFilter(s);
+                }}
+                className="form-input mt-1"
+              >
+                <option value="">指名なし（おまかせ）</option>
+                {staff.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}{s.nomination_fee > 0 ? `（指名料 ¥${s.nomination_fee.toLocaleString()}）` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {/* 週送り */}
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              disabled={weekOffset === 0}
+              onClick={() => setWeekOffset((w) => Math.max(0, w - 1))}
+              className="text-sm text-primary font-bold disabled:text-gray-300 disabled:cursor-not-allowed px-2 py-1"
+            >
+              ‹ 前の7日
+            </button>
+            <span className="text-xs text-gray-500">
+              {visibleDates.length > 0 && (() => {
+                const a = parseDateString(visibleDates[0]);
+                const b = parseDateString(visibleDates[visibleDates.length - 1]);
+                return `${a.month}/${a.day} 〜 ${b.month}/${b.day}`;
+              })()}
+            </span>
+            <button
+              type="button"
+              disabled={weekOffset >= maxWeekOffset}
+              onClick={() => setWeekOffset((w) => Math.min(maxWeekOffset, w + 1))}
+              className="text-sm text-primary font-bold disabled:text-gray-300 disabled:cursor-not-allowed px-2 py-1"
+            >
+              次の7日 ›
+            </button>
+          </div>
+
+          {/* 空き状況マトリクス */}
+          <div className="overflow-x-auto -mx-4 px-4">
+            <table className="w-full border-collapse text-center select-none">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 bg-gray-50 z-10 w-12" />
+                  {visibleDates.map((date) => {
+                    const { month, day, dayOfWeek } = parseDateString(date);
+                    const isSun = dayOfWeek === 0;
+                    const isSat = dayOfWeek === 6;
+                    return (
+                      <th key={date} className="py-1 px-0.5 min-w-[40px]">
+                        <div className="text-micro text-gray-400">{month}/{day}</div>
+                        <div className={`text-xs font-bold ${isSun ? 'text-red-500' : isSat ? 'text-sky-500' : 'text-gray-600'}`}>
+                          {DAY_NAMES[dayOfWeek]}
+                        </div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {matrixLoading ? (
+                  <tr>
+                    <td colSpan={visibleDates.length + 1} className="py-10">
+                      <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+                    </td>
+                  </tr>
+                ) : rowTimes.length === 0 ? (
+                  <tr>
+                    <td colSpan={visibleDates.length + 1} className="py-10 text-sm text-gray-400">
+                      この期間は予約可能な時間帯がありません。別の週をお選びください。
+                    </td>
+                  </tr>
+                ) : (
+                  rowTimes.map((time) => (
+                    <tr key={time} className="border-t border-gray-100">
+                      <td className="sticky left-0 bg-white z-10 text-xs font-bold text-gray-500 py-1 pr-1 whitespace-nowrap">
+                        {time}
+                      </td>
+                      {visibleDates.map((date) => {
+                        const cell = matrix[date]?.[time];
+                        const { symbol, available } = availabilitySymbol(cell?.count, specificStaff);
+                        const isActive = selectedDate === date && selectedSlot?.slot_start?.slice(0, 5) === time;
+                        const d = parseDateString(date);
+                        return (
+                          <td key={date} className="p-0.5">
+                            <button
+                              type="button"
+                              disabled={!available}
+                              aria-label={`${d.month}/${d.day} ${time} ${available ? '予約可' : '満席'}`}
+                              onClick={() => {
+                                if (!cell) return;
+                                setSelectedDate(date);
+                                setSelectedSlot(cell.slot);
+                              }}
+                              className={`w-full min-h-[40px] rounded-md text-base font-bold transition-colors ${
+                                !available
+                                  ? 'text-gray-300 cursor-not-allowed'
+                                  : isActive
+                                  ? 'bg-primary text-white'
+                                  : 'text-primary hover:bg-sky-50'
+                              }`}
+                            >
+                              {symbol}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* 選択中の日時 + 次へ */}
+          {selectedSlot && selectedDate && (
+            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 text-sm">
+              <span className="text-gray-500">選択中：</span>
+              <span className="font-bold ml-1">
+                {(() => { const d = parseDateString(selectedDate); return `${d.month}/${d.day}（${DAY_NAMES[d.dayOfWeek]}）`; })()}
+                {' '}{selectedSlot.slot_start.slice(0, 5)}〜{selectedSlot.slot_end.slice(0, 5)}
+              </span>
+            </div>
+          )}
+
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={() => setStep('menu')} className="text-sm text-gray-500 hover:underline px-2">
               戻る
             </button>
             {selectedSlot && (
@@ -585,7 +755,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
         </div>
       )}
 
-      {/* Step 4: Confirm (info + summary + submit combined) */}
+      {/* Step 3: Confirm (info + summary + submit) */}
       {step === 'confirm' && (
         <div className="space-y-4">
           <h2 className="font-bold">予約内容の確認・お客様情報</h2>
@@ -602,14 +772,17 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 <span className="text-gray-500">{m.price !== null ? `¥${m.price.toLocaleString()}` : ''}</span>
               </div>
             ))}
-            {selectedStaff && (
-              <div className="flex justify-between">
-                <span className="text-gray-500">スタッフ</span>
-                <span className="font-medium">{selectedStaff.name}
-                  {selectedStaff.nomination_fee > 0 && <span className="text-xs text-gray-400 ml-1">(+¥{selectedStaff.nomination_fee.toLocaleString()})</span>}
-                </span>
-              </div>
-            )}
+            <div className="flex justify-between">
+              <span className="text-gray-500">スタッフ</span>
+              <span className="font-medium">
+                {selectedStaff ? (
+                  <>
+                    {selectedStaff.name}
+                    {selectedStaff.nomination_fee > 0 && <span className="text-xs text-gray-400 ml-1">(+¥{selectedStaff.nomination_fee.toLocaleString()})</span>}
+                  </>
+                ) : '指名なし（おまかせ）'}
+              </span>
+            </div>
             {selectedCoupon && (
               <div className="flex justify-between">
                 <span className="text-gray-500">クーポン</span>
@@ -618,12 +791,14 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             )}
             <div className="flex justify-between">
               <span className="text-gray-500">日時</span>
-              <span className="font-medium">{selectedDate} {selectedSlot?.slot_start.slice(0, 5)}〜{selectedSlot?.slot_end.slice(0, 5)}</span>
+              <span className="font-medium">
+                {(() => { const d = parseDateString(selectedDate); return `${d.month}/${d.day}（${DAY_NAMES[d.dayOfWeek]}）`; })()}
+                {' '}{selectedSlot?.slot_start.slice(0, 5)}〜{selectedSlot?.slot_end.slice(0, 5)}
+              </span>
             </div>
             {(() => {
               const finalPrice = calculatePrice();
               if (finalPrice === null) return null;
-              const menuTotal = selectedMenus.reduce((s, m) => s + (m.price || 0), 0);
               const hasCouponDiscount = selectedCoupon && menuTotal > finalPrice;
               return (
                 <div className="border-t border-sky-200 pt-2 mt-2 space-y-1">
@@ -642,48 +817,54 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             })()}
           </div>
 
-          {/* Customer info form */}
+          {/* Customer info form（例示はラベルに統合＝入力ヒント） */}
           <div className="space-y-3">
             <h3 className="font-bold text-sm">お客様情報</h3>
             <div>
-              <label htmlFor="booking-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
+              <label htmlFor="booking-name" className="form-label">
+                お名前 <span className="text-red-500">*</span>
+                <span className="text-gray-400 font-normal text-xs ml-2">例：山田 太郎</span>
+              </label>
               <input
                 id="booking-name"
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 className="form-input"
-                placeholder="山田 太郎"
                 aria-required="true"
                 maxLength={50}
               />
             </div>
             <div>
-              <label htmlFor="booking-email" className="form-label">メールアドレス <span className="text-red-500">*</span></label>
+              <label htmlFor="booking-email" className="form-label">
+                メールアドレス <span className="text-red-500">*</span>
+                <span className="text-gray-400 font-normal text-xs ml-2">例：example@email.com</span>
+              </label>
               <input
                 id="booking-email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 type="email"
                 className="form-input"
-                placeholder="example@email.com"
                 aria-required="true"
                 maxLength={254}
               />
             </div>
             <div>
-              <label htmlFor="booking-phone" className="form-label">電話番号</label>
+              <label htmlFor="booking-phone" className="form-label">
+                電話番号
+                <span className="text-gray-400 font-normal text-xs ml-2">例：090-1234-5678</span>
+              </label>
               <input
                 id="booking-phone"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 type="tel"
                 className="form-input"
-                placeholder="090-1234-5678"
                 maxLength={20}
               />
             </div>
             <div>
-              <label htmlFor="booking-note" className="form-label">備考</label>
+              <label htmlFor="booking-note" className="form-label">ご要望・備考</label>
               <textarea
                 id="booking-note"
                 value={note}
@@ -691,8 +872,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 className="form-input"
                 rows={3}
                 maxLength={500}
-                placeholder="ご要望があればご記入ください"
               />
+              <p className="text-xs text-gray-400 mt-1">ご要望があればご記入ください</p>
             </div>
           </div>
 
@@ -742,7 +923,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
           )}
 
           <div className="flex gap-3">
-            <button type="button" onClick={() => setStep('datetime')} className="text-sm text-gray-500 hover:underline">
+            <button type="button" onClick={() => setStep('datetime')} className="text-sm text-gray-500 hover:underline px-2">
               戻る
             </button>
             <button
