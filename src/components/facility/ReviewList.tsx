@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import type { FacilityReview } from '@/types';
 import StarRating from './StarRating';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
@@ -35,6 +35,7 @@ const AXES: { key: keyof FacilityReview; label: string }[] = [
 
 export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
   const router = useRouter();
+  const pathname = usePathname();
   const [repliesMap, setRepliesMap] = useState<Record<string, ReviewReply[]>>({});
   const [helpfulMap, setHelpfulMap] = useState<Record<string, number>>({});
   const [myHelpful, setMyHelpful] = useState<Set<string>>(new Set());
@@ -43,6 +44,7 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
   const [reportingId, setReportingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirmReportId, setConfirmReportId] = useState<string | null>(null);
+  const [showLoginPrompt, setShowLoginPrompt] = useState(false);
 
   useEffect(() => {
     if (reviews.length === 0) return;
@@ -130,8 +132,16 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
     setHelpfulLoading(null);
   };
 
-  const handleReport = (reviewId: string) => {
+  const handleReport = async (reviewId: string) => {
     if (reportingId || reportedSet.has(reviewId)) return;
+    // 通報は要ログイン（2026年7月15日 HPB 準拠・神原さん確定）。未ログインは
+    // 通報確認ダイアログでなくログイン誘導ダイアログを出す。
+    const supabase = createBrowserSupabaseClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setShowLoginPrompt(true);
+      return;
+    }
     setConfirmReportId(reviewId);
   };
 
@@ -149,6 +159,10 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
       if (res.ok) {
         setReportedSet((prev) => new Set(prev).add(reviewId));
         setToast({ type: 'success', message: '通報しました。ご協力ありがとうございます。' });
+      } else if (res.status === 401) {
+        // セッション失効等でクリック時チェックをすり抜けたケースの保険。
+        setToast({ type: 'error', message: '通報にはログインが必要です。ログインしてからもう一度お試しください。' });
+        setShowLoginPrompt(true);
       } else {
         const body = await res.json().catch(() => null);
         setToast({ type: 'error', message: body?.error || '通報に失敗しました' });
@@ -272,6 +286,18 @@ export default function ReviewList({ reviews }: { reviews: FacilityReview[] }) {
         cancelLabel="キャンセル"
         onConfirm={executeReport}
         onCancel={() => setConfirmReportId(null)}
+      />
+      <ConfirmDialog
+        open={showLoginPrompt}
+        title="ログインが必要です"
+        message="通報にはログインが必要です。ログインしてからもう一度お試しください。"
+        confirmLabel="ログインする"
+        cancelLabel="キャンセル"
+        onConfirm={() => {
+          setShowLoginPrompt(false);
+          router.push(`/auth/login?redirect=${encodeURIComponent(pathname)}`);
+        }}
+        onCancel={() => setShowLoginPrompt(false)}
       />
     </div>
   );
