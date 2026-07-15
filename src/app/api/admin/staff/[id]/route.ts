@@ -15,6 +15,7 @@ const staffUpdateSchema = z.object({
   specialties: z.array(z.string().max(50)).max(20).optional(),
   years_experience: z.number().int().min(0).max(99).optional().nullable(),
   instagram_url: z.string().url().max(200).optional().nullable().or(z.literal('')),
+  nomination_fee: z.number().int().min(0).max(99999).optional(),
   line_works_channel_id: z.string().max(50).optional().nullable(),
   line_works_notify_all: z.boolean().optional(),
   // 在籍/休止（false=休止）。退職者を物理削除せず休止にして公開ページ・予約枠・指名から外す。
@@ -70,6 +71,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     specialties: parsed.data.specialties ?? [],
     years_experience: parsed.data.years_experience ?? null,
     instagram_url: parsed.data.instagram_url || null,
+    nomination_fee: parsed.data.nomination_fee ?? 0,
     line_works_channel_id: parsed.data.line_works_channel_id ?? null,
     line_works_notify_all: parsed.data.line_works_notify_all ?? false,
     updated_at: new Date().toISOString(),
@@ -95,7 +97,7 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     action: 'update',
     tableName: 'staff_profiles',
     recordId: params.id,
-    newValues: { name: parsed.data.name, position: parsed.data.position ?? null },
+    newValues: { name: parsed.data.name, position: parsed.data.position ?? null, nomination_fee: parsed.data.nomination_fee ?? 0 },
     ipAddress: ip,
     userAgent: ua,
   });
