@@ -87,112 +87,109 @@ export async function POST(request: Request) {
 
   // Server-side price calculation (do not trust client total_price)
   // Use menu_ids for multi-menu total; fall back to menu_id for single-menu.
-  let serverTotalPrice: number | null = null;
-  const menuIdsToPrice = parsed.data.menu_ids && parsed.data.menu_ids.length > 0
+  // メニューは bookingSchema の refine で必須化済み（無メニュー予約は parse 時点で 400）。よって
+  // menuIdsToPrice は常に非空で、serverTotalPrice は常に数値になる（null 価格前提の分岐は持たない）。
+  // menu_ids が非空ならそれを使い、無ければ menu_id を単一要素にする。zod の refine で
+  // 「menu_id か menu_ids のいずれか必須」が保証されるため、menu_ids が空のときは menu_id が
+  // 必ず非 null になる（両方欠落は parse 時点で 400 済み・ここには到達しない）。
+  const menuIdsToPrice: string[] = parsed.data.menu_ids && parsed.data.menu_ids.length > 0
     ? parsed.data.menu_ids
-    : parsed.data.menu_id ? [parsed.data.menu_id] : [];
+    : [parsed.data.menu_id!];
 
-  if (menuIdsToPrice.length > 0) {
-    const { data: menuRows } = await supabase
-      .from('facility_menus')
-      .select('id, price')
-      .in('id', menuIdsToPrice)
+  const { data: menuRows } = await supabase
+    .from('facility_menus')
+    .select('id, price')
+    .in('id', menuIdsToPrice)
+    .eq('facility_id', parsed.data.facility_id)
+    // 非公開(is_published=false)メニューは予約不可。見つからない扱いになり下の allValid で 400。
+    .or('is_published.is.null,is_published.eq.true');
+
+  // Only count menus that actually belong to this facility (prevent foreign-facility injection)
+  const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
+  const allValid = menuIdsToPrice.every((id) => validIds.has(id));
+  if (!allValid) {
+    return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
+  }
+
+  // menuRows が null の場合は上の validIds チェックで 400 返却済みのため非 null が保証される
+  const menuTotal = menuRows!.reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
+  let serverTotalPrice: number = menuTotal;
+
+  // Apply coupon discount if provided
+  if (parsed.data.coupon_id) {
+    const nowIso = new Date().toISOString();
+    const { data: coupon } = await supabase
+      .from('coupons')
+      .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
+      .eq('id', parsed.data.coupon_id)
       .eq('facility_id', parsed.data.facility_id)
-      // 非公開(is_published=false)メニューは予約不可。見つからない扱いになり下の allValid で 400。
-      .or('is_published.is.null,is_published.eq.true');
-
-    // Only count menus that actually belong to this facility (prevent foreign-facility injection)
-    const validIds = new Set((menuRows ?? []).map((r: { id: string }) => r.id));
-    const allValid = menuIdsToPrice.every((id) => validIds.has(id));
-    if (!allValid) {
-      return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
+      .single();
+    // Validate coupon is active and within its validity window server-side
+    const couponValid = coupon &&
+      coupon.is_active === true &&
+      (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
+      (coupon.valid_until == null || coupon.valid_until >= nowIso);
+    if (couponValid) {
+      // クーポン×メニュー適合チェック（金銭経路の穴の恒久予防・2026年7月15日追加）。
+      // coupon_menus に行が無いクーポンは全メニュー適用（本番は現在全クーポン0行のため、
+      // ここでの挙動変化はゼロ＝発症前予防）。行がある場合はそのクーポンは対象メニュー限定で、
+      // 選択中のメニュー(menuIdsToPrice)のいずれかが対象に含まれることを要求する。含まれない
+      // 場合や取得自体が失敗した場合は無言で割引を適用せず fail-closed（400/500）で拒否する。
+      const { data: couponMenuRows, error: couponMenuErr } = await supabase
+        .from('coupon_menus')
+        .select('menu_id')
+        .eq('coupon_id', parsed.data.coupon_id);
+      if (couponMenuErr) {
+        return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+      }
+      // 【2026年7月15日 HPB準拠仕様】coupon_menus に行があるクーポンは「対象メニューにのみ」
+      // 効く（対象外メニューは定価のまま加算）。行が無いクーポンは従来どおり全メニュー適用。
+      // 計算そのものは calculateCouponDiscountedTotal（src/lib/coupon-pricing.ts）に一本化し、
+      // クライアント(BookingFlow)とサーバーでドリフトしないようにする（サーバーが権威）。
+      let allowedMenuIds: string[] | undefined;
+      if (couponMenuRows && couponMenuRows.length > 0) {
+        allowedMenuIds = couponMenuRows.map((r: { menu_id: string }) => r.menu_id);
+        const allowedSet = new Set(allowedMenuIds);
+        const hasMatchingMenu = menuIdsToPrice.some((id) => allowedSet.has(id));
+        if (!hasMatchingMenu) {
+          return NextResponse.json({ error: 'クーポンの対象メニューが選択されていません' }, { status: 400 });
+        }
+      }
+      // special_price 型は専用列 special_price に実額が入る（discount_value は null）。
+      // 旧実装は discount_value を読み serverTotalPrice=null となり金額/売上/会計/ポイントが
+      // 全壊していた。special_price が数値の時のみ採用（万一 null の場合はメニュー定価を維持し
+      // NULL 伝播を防ぐ）＝ calculateCouponDiscountedTotal 内で担保。
+      serverTotalPrice = calculateCouponDiscountedTotal(menuRows!, coupon, allowedMenuIds);
+    } else {
+      // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
+      return NextResponse.json({ error: 'クーポンが無効または期限切れです' }, { status: 400 });
+    }
+  }
+  // Add nomination fee if staff is designated
+  if (parsed.data.staff_id) {
+    const { data: staffRow } = await supabase
+      .from('staff_profiles')
+      .select('nomination_fee')
+      .eq('id', parsed.data.staff_id)
+      .eq('facility_id', parsed.data.facility_id)
+      .maybeSingle();
+    if (staffRow?.nomination_fee) {
+      serverTotalPrice += staffRow.nomination_fee;
     }
 
-    // menuRows が null の場合は上の validIds チェックで 400 返却済みのため非 null が保証される
-    const menuTotal = menuRows!.reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
-    // Use a dummy menuRow shape for the rest of the pricing logic
-    const menuRow = { price: menuTotal };
-    /* istanbul ignore else */
-    if (menuRow) {
-      serverTotalPrice = menuRow.price;
-      // Apply coupon discount if provided
-      if (parsed.data.coupon_id) {
-        const nowIso = new Date().toISOString();
-        const { data: coupon } = await supabase
-          .from('coupons')
-          .select('discount_type, discount_value, special_price, is_active, valid_from, valid_until')
-          .eq('id', parsed.data.coupon_id)
-          .eq('facility_id', parsed.data.facility_id)
-          .single();
-        // Validate coupon is active and within its validity window server-side
-        const couponValid = coupon &&
-          coupon.is_active === true &&
-          (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
-          (coupon.valid_until == null || coupon.valid_until >= nowIso);
-        if (couponValid && serverTotalPrice != null) {
-          // クーポン×メニュー適合チェック（金銭経路の穴の恒久予防・2026年7月15日追加）。
-          // coupon_menus に行が無いクーポンは全メニュー適用（本番は現在全クーポン0行のため、
-          // ここでの挙動変化はゼロ＝発症前予防）。行がある場合はそのクーポンは対象メニュー限定で、
-          // 選択中のメニュー(menuIdsToPrice)のいずれかが対象に含まれることを要求する。含まれない
-          // 場合や取得自体が失敗した場合は無言で割引を適用せず fail-closed（400/500）で拒否する。
-          const { data: couponMenuRows, error: couponMenuErr } = await supabase
-            .from('coupon_menus')
-            .select('menu_id')
-            .eq('coupon_id', parsed.data.coupon_id);
-          if (couponMenuErr) {
-            return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
-          }
-          // 【2026年7月15日 HPB準拠仕様】coupon_menus に行があるクーポンは「対象メニューにのみ」
-          // 効く（対象外メニューは定価のまま加算）。行が無いクーポンは従来どおり全メニュー適用。
-          // 計算そのものは calculateCouponDiscountedTotal（src/lib/coupon-pricing.ts）に一本化し、
-          // クライアント(BookingFlow)とサーバーでドリフトしないようにする（サーバーが権威）。
-          let allowedMenuIds: string[] | undefined;
-          if (couponMenuRows && couponMenuRows.length > 0) {
-            allowedMenuIds = couponMenuRows.map((r: { menu_id: string }) => r.menu_id);
-            const allowedSet = new Set(allowedMenuIds);
-            const hasMatchingMenu = menuIdsToPrice.some((id) => allowedSet.has(id));
-            if (!hasMatchingMenu) {
-              return NextResponse.json({ error: 'クーポンの対象メニューが選択されていません' }, { status: 400 });
-            }
-          }
-          // special_price 型は専用列 special_price に実額が入る（discount_value は null）。
-          // 旧実装は discount_value を読み serverTotalPrice=null となり金額/売上/会計/ポイントが
-          // 全壊していた。special_price が数値の時のみ採用（万一 null の場合はメニュー定価を維持し
-          // NULL 伝播を防ぐ）＝ calculateCouponDiscountedTotal 内で担保。
-          serverTotalPrice = calculateCouponDiscountedTotal(menuRows!, coupon, allowedMenuIds);
-        } else {
-          // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
-          // serverTotalPrice は menuRow.price で必ず数値のため null ケースは到達不可
-          return NextResponse.json({ error: 'クーポンが無効または期限切れです' }, { status: 400 });
-        }
-      }
-      // Add nomination fee if staff is designated
-      if (parsed.data.staff_id) {
-        const { data: staffRow } = await supabase
-          .from('staff_profiles')
-          .select('nomination_fee')
-          .eq('id', parsed.data.staff_id)
-          .eq('facility_id', parsed.data.facility_id)
-          .maybeSingle();
-        if (staffRow?.nomination_fee && serverTotalPrice != null) {
-          serverTotalPrice += staffRow.nomination_fee;
-        }
-
-        // メニュー担当スタッフ制(menu_staff・HPB準拠・2026年7月15日導入・本番0行のため挙動変化
-        // ゼロで段階導入)。行があるメニューは担当スタッフのみ予約可能・行が無いメニューは従来どおり
-        // 全スタッフ対応。クエリ失敗は無言で予約を通さずfail-closed（500）で拒否する。
-        const { data: menuStaffRows, error: menuStaffErr } = await supabase
-          .from('menu_staff')
-          .select('menu_id, staff_id')
-          .in('menu_id', menuIdsToPrice);
-        if (menuStaffErr) {
-          return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-        }
-        const menuStaffMap = buildMenuStaffMap(menuStaffRows ?? []);
-        if (!isStaffCompatibleWithMenus(menuStaffMap, menuIdsToPrice, parsed.data.staff_id)) {
-          return NextResponse.json({ error: '指名されたスタッフは選択したメニューを担当していません' }, { status: 400 });
-        }
-      }
+    // メニュー担当スタッフ制(menu_staff・HPB準拠・2026年7月15日導入・本番0行のため挙動変化
+    // ゼロで段階導入)。行があるメニューは担当スタッフのみ予約可能・行が無いメニューは従来どおり
+    // 全スタッフ対応。クエリ失敗は無言で予約を通さずfail-closed（500）で拒否する。
+    const { data: menuStaffRows, error: menuStaffErr } = await supabase
+      .from('menu_staff')
+      .select('menu_id, staff_id')
+      .in('menu_id', menuIdsToPrice);
+    if (menuStaffErr) {
+      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
+    const menuStaffMap = buildMenuStaffMap(menuStaffRows ?? []);
+    if (!isStaffCompatibleWithMenus(menuStaffMap, menuIdsToPrice, parsed.data.staff_id)) {
+      return NextResponse.json({ error: '指名されたスタッフは選択したメニューを担当していません' }, { status: 400 });
     }
   }
 
@@ -203,14 +200,8 @@ export async function POST(request: Request) {
   }
   // 価格を超えるポイントは利用できない（クライアントが価格変更後の stale な points_used を送ると、
   // 請求は Math.max(0,...) で 0 に丸まる一方ポイントは full 控除され、超過分が消失する＝金銭損失）。
-  // 権威的なサーバ計算価格でクランプする。
-  // メニュー未指定等で serverTotalPrice が不明な場合は価格上限でクランプできず、要求ポイントが
-  // そのまま控除されると null 価格（=実質 0 円）の予約に対してポイントが消失する（金銭損失）。
-  // 権威的価格が無いままポイント利用は許可しない（fail-closed）。
-  if (requestedPoints > 0 && serverTotalPrice == null) {
-    return NextResponse.json({ error: 'この予約ではポイントを利用できません' }, { status: 400 });
-  }
-  const pointsUsed = serverTotalPrice != null ? Math.min(requestedPoints, serverTotalPrice) : 0;
+  // メニュー必須化により serverTotalPrice は常に権威的な数値のため、その価格でクランプする。
+  const pointsUsed = Math.min(requestedPoints, serverTotalPrice);
   // Snapshot current balance for CAS (compare-and-swap) check later
   let pointsBalanceSnapshot = 0;
   if (pointsUsed > 0 && user) {
@@ -222,7 +213,7 @@ export async function POST(request: Request) {
   }
 
   // ポイント値引き反映
-  const finalPrice = serverTotalPrice != null && pointsUsed > 0
+  const finalPrice = pointsUsed > 0
     ? Math.max(0, serverTotalPrice - pointsUsed)
     : serverTotalPrice;
 
@@ -259,7 +250,7 @@ export async function POST(request: Request) {
     p_email: /* istanbul ignore next */ parsed.data.email ?? null,
     p_phone: parsed.data.phone ?? null,
     p_note: parsed.data.note ?? null,
-    p_total_price: finalPrice ?? null,
+    p_total_price: finalPrice,
     p_points_used: pointsUsed,
     p_status: bookingStatus,
   });
@@ -396,7 +387,7 @@ export async function POST(request: Request) {
       endTime: parsed.data.end_time,
       menuName: menuResult.data?.name,
       staffName: staffResult.data?.name,
-      totalPrice: finalPrice ?? undefined,
+      totalPrice: finalPrice,
       bookingId: newBookingId,
     };
 

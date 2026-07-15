@@ -55,6 +55,18 @@ export const bookingSchema = z.object({
   note: z.string().max(500, '備考は500文字以内で入力してください').optional().nullable(),
   total_price: z.number().min(0).max(9999999).nullable(),
   points_used: z.number().int().min(0).max(9999999).optional(),
-});
+})
+  // メニュー必須（無メニュー予約の禁止・2026年7月15日 恒久予防）。UI(BookingFlow)は常に1件以上の
+  // メニュー選択を強制するが、schema 上 menu_id は nullable・menu_ids は optional なため、PostgREST や
+  // curl で /api/booking を直接叩くと menu_id/menu_ids を双方未指定にできる。その場合サーバー側の価格
+  // 計算・指名料加算・menu_staff 担当制チェックが丸ごとスキップされ、serverTotalPrice=null の予約が
+  // 生成される（指名料の取りこぼし・担当外スタッフの予約成立・null 価格予約）。ここで入口(zod)の関所
+  // として「menu_id か menu_ids のいずれか必須」を強制し、無メニュー予約を parse 時点で 400 拒否する
+  // （症状経路の個別塞ぎではなく、無メニュー状態自体を発生させない真の予防）。この保証により route 側の
+  // serverTotalPrice は常に数値となり、null 価格前提の分岐を持たずに済む。
+  .refine(
+    (d) => d.menu_id != null || (Array.isArray(d.menu_ids) && d.menu_ids.length > 0),
+    { message: 'メニューを選択してください', path: ['menu_id'] },
+  );
 
 export type BookingFormData = z.infer<typeof bookingSchema>;
