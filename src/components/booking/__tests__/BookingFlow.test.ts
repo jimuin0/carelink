@@ -14,7 +14,7 @@
  * 3. availabilitySymbol: HPB形式の週×時間マトリクスで、空きスタッフ数から◎○△×を決める
  *    境界値（0/1/2/3+）と、特定スタッフ指名時に件数によらず○/×の二値になることを固定する。
  */
-import { calculateBookingPrice, parseDateString, availabilitySymbol } from '../BookingFlow';
+import { calculateBookingPrice, parseDateString, availabilitySymbol, isCouponMenuCompatible } from '../BookingFlow';
 import type { FacilityMenu, Coupon, StaffProfile } from '@/types';
 
 function menu(price: number | null): FacilityMenu {
@@ -153,5 +153,33 @@ describe('availabilitySymbol', () => {
     test('count=3 → ○のまま（◎にはならない・指名は常に1名分の判定）', () => {
       expect(availabilitySymbol(3, true)).toEqual({ symbol: '○', available: true });
     });
+  });
+});
+
+/**
+ * 【2026年7月15日 恒久予防】クーポン×メニュー適合制約の純粋関数。
+ * サーバー(src/app/api/booking/route.ts)の coupon_menus 適合チェックと同一の意味論を
+ * クライアントでも検証する（disabled/警告表示のロジックが依拠する核心判定）。
+ */
+describe('isCouponMenuCompatible', () => {
+  test('allowedMenuIds が undefined（coupon_menusに行が無い）→ 常に適合', () => {
+    expect(isCouponMenuCompatible(undefined, [])).toBe(true);
+    expect(isCouponMenuCompatible(undefined, ['m1'])).toBe(true);
+  });
+
+  test('allowedMenuIds が空配列（0行と同義）→ 常に適合', () => {
+    expect(isCouponMenuCompatible([], ['m1'])).toBe(true);
+  });
+
+  test('allowedMenuIds があるがメニュー未選択（selectedMenuIds=[]）→ まだ不適合と決め付けず適合扱い', () => {
+    expect(isCouponMenuCompatible(['m1', 'm2'], [])).toBe(true);
+  });
+
+  test('選択中メニューの少なくとも1件が対象に含まれる → 適合', () => {
+    expect(isCouponMenuCompatible(['m1', 'm2'], ['m3', 'm1'])).toBe(true);
+  });
+
+  test('選択中メニューがどれも対象に含まれない → 不適合', () => {
+    expect(isCouponMenuCompatible(['m1', 'm2'], ['m3', 'm4'])).toBe(false);
   });
 });

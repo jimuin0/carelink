@@ -1,0 +1,159 @@
+/**
+ * @jest-environment jsdom
+ *
+ * 【2026年7月15日 恒久予防】クーポン×メニュー適合制約(coupon_menus)のUI回帰テスト。
+ * サーバー(src/app/api/booking/route.ts)の意味論＝「coupon_menusに行があるクーポンは対象メニュー
+ * 限定・行が無い(0行)クーポンは全メニュー適用」と同一の判定を、UIでも disabled・警告として反映する。
+ * couponMenuMap は page.tsx（サーバーコンポーネント）が getCouponMenus 経由で渡す想定のprop。
+ */
+import '@testing-library/jest-dom';
+import { render, screen, fireEvent } from '@testing-library/react';
+import BookingFlow from '../BookingFlow';
+import type { FacilityMenu, Coupon } from '@/types';
+
+jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
+jest.mock('@/lib/supabase-browser', () => ({
+  createBrowserSupabaseClient: () => ({
+    auth: { getUser: () => Promise.resolve({ data: { user: null } }) },
+    from: () => ({ select: () => ({ eq: () => Promise.resolve({ data: [] }) }) }),
+  }),
+}));
+
+const FACILITY = { id: 'fac-1', slug: 'test-salon', name: 'テストサロン' };
+
+function menu(id: string, name: string): FacilityMenu {
+  return {
+    id, facility_id: 'fac-1', category: 'カテゴリ', name, description: null,
+    price: 5000, price_note: null, duration_minutes: 60, photo_url: null, is_featured: false, sort_order: 0,
+  } as FacilityMenu;
+}
+
+function coupon(id: string, name: string): Coupon {
+  return {
+    id, facility_id: 'fac-1', name, description: null, coupon_type: 'all',
+    discount_type: 'fixed', discount_value: 1000, special_price: null,
+    valid_from: null, valid_until: null, is_active: true, sort_order: 0, created_at: '2026-01-01T00:00:00Z',
+  } as Coupon;
+}
+
+const MENU_A = menu('menu-a', 'カット');
+const MENU_B = menu('menu-b', 'カラー');
+const RESTRICTED_COUPON = coupon('coupon-1', 'カット限定クーポン');
+const UNRESTRICTED_COUPON = coupon('coupon-2', '全メニュークーポン');
+
+beforeEach(() => {
+  jest.clearAllMocks();
+});
+
+describe('クーポン×メニュー適合制約(coupon_menus)のUI', () => {
+  test('couponMenuMap にキーが無いクーポン(0行)は対象メニュー表記が無く、常に選択できる', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[UNRESTRICTED_COUPON]}
+        couponMenuMap={{}}
+      />
+    );
+    await screen.findByText('全メニュークーポン');
+    expect(screen.queryByText(/対象メニュー：/)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    fireEvent.click(await screen.findByText('カラー'));
+    fireEvent.click(screen.getByText('クーポン'));
+
+    const couponButton = (await screen.findByText('全メニュークーポン')).closest('button')!;
+    expect(couponButton).not.toBeDisabled();
+    fireEvent.click(couponButton);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+  });
+
+  test('対象メニュー限定クーポンに対象メニュー名が表示される', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    await screen.findByText('カット限定クーポン');
+    expect(screen.getByText(/対象メニュー：カット/)).toBeInTheDocument();
+  });
+
+  test('対象メニュー限定クーポン＋適合するメニュー選択中 → 選択可能', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    // 対象メニュー(カット)を先に選択
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    fireEvent.click(await screen.findByText('カット'));
+    fireEvent.click(screen.getByText('クーポン'));
+
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    expect(couponButton).not.toBeDisabled();
+    fireEvent.click(couponButton);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+  });
+
+  test('対象メニュー限定クーポン＋非適合メニュー選択中 → 選択不可(disabled)かつ警告文言表示', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    // 対象外メニュー(カラー)を先に選択
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    fireEvent.click(await screen.findByText('カラー'));
+    fireEvent.click(screen.getByText('クーポン'));
+
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    expect(couponButton).toBeDisabled();
+    expect(screen.getByText(/選択中のメニューでは利用できません/)).toBeInTheDocument();
+
+    // disabled のためクリックしても選択状態にならない
+    fireEvent.click(couponButton);
+    expect(screen.queryByText('✓ 選択中')).not.toBeInTheDocument();
+  });
+
+  test('クーポン選択後にメニューを対象外に変更すると自動解除され警告トーストが出る', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    // まず対象メニュー(カット)を選んでクーポンを選択
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    fireEvent.click(await screen.findByText('カット'));
+    fireEvent.click(screen.getByText('クーポン'));
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+
+    // メニューをカット→カラーへ変更（対象外化）
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    fireEvent.click(screen.getByText('カット')); // 選択解除
+    fireEvent.click(screen.getByText('カラー')); // 対象外メニューを選択
+
+    // クーポン選択が自動解除され警告トーストが表示される
+    expect(await screen.findByText(/クーポンの選択を解除しました/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText('クーポン'));
+    expect(screen.queryByText('✓ 選択中')).not.toBeInTheDocument();
+  });
+});

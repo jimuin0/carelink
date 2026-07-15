@@ -154,6 +154,20 @@ function menuPriceChain(price: number) {
   return chain;
 }
 
+// 共有: クーポン対象メニュー(coupon_menus) の取得結果 chain。
+// select('menu_id').eq('coupon_id', ...) を直接 await する形（.single() 無し・複数行）。
+// rows=[] は「対象メニュー限定なし(0行)」＝全メニュー適用（本番の現状デフォルト）。
+// errorObj を渡すとクエリ失敗（fail-closed 500）を再現できる。
+function couponMenusChain(rows: { menu_id: string }[] | null, errorObj: { message: string } | null = null) {
+  const result = { data: rows, error: errorObj };
+  const chain: Record<string, unknown> = {};
+  const handler = jest.fn(() => chain);
+  chain.select = handler;
+  chain.eq = handler;
+  chain.then = Promise.resolve(result).then.bind(Promise.resolve(result));
+  return chain;
+}
+
 describe('POST /api/booking', () => {
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -519,9 +533,10 @@ describe('POST /api/booking', () => {
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (table === 'coupons') return couponsChain;          // coupon 検証（callNum 3）
-      if (callNum === 4) return balanceChain;
-      if (callNum === 5) return nullChain;                   // facility auto-confirm
-      if (table === 'user_points' && callNum === 6) return deductionChain; // 控除 insert（error）
+      if (table === 'coupon_menus') return couponMenusChain([]); // 対象メニューチェック（callNum 4・0行→全メニュー適用）
+      if (callNum === 5) return balanceChain;
+      if (callNum === 6) return nullChain;                   // facility auto-confirm
+      if (table === 'user_points' && callNum === 7) return deductionChain; // 控除 insert（error）
       if (table === 'bookings') return bookingRbChain;       // ロールバック
       if (table === 'coupon_redemptions') return couponDelChain; // クーポン解放
       return nullChain;
@@ -597,7 +612,8 @@ describe('POST /api/booking', () => {
     // 1: conflict check (bookings)
     // 2: facility_menus price lookup → price: 10000
     // 3: coupons discount lookup → 20% off → 8000
-    // 4: facility_profiles (auto-confirm)
+    // 4: coupon_menus 対象メニューチェック（0行=全メニュー適用）
+    // 5: facility_profiles (auto-confirm)
     // rpc: create_booking_atomic with total_price: 8000
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
@@ -616,11 +632,12 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;  // conflict check
       if (callNum === 2) return menuChain;      // facility_menus lookup
       if (callNum === 3) return couponChain;    // coupons discount lookup
+      if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;                         // facility_profiles + notification lookups
     });
 
@@ -656,11 +673,12 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return couponChain;
+      if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
 
@@ -694,11 +712,12 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return couponChain;
+      if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
 
@@ -812,11 +831,12 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return couponChain;
+      if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
 
@@ -851,11 +871,12 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return couponChain;
+      if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
 
@@ -866,6 +887,130 @@ describe('POST /api/booking', () => {
       'create_booking_atomic',
       expect.objectContaining({ p_total_price: 3000 })
     );
+  });
+
+  // 【2026年7月15日 恒久予防】クーポン×メニュー適合制約（coupon_menus）の全分岐。
+  // 意味論＝coupon_menus に行があるクーポンは対象メニュー限定・行が無い(0行)クーポンは全メニュー適用。
+  // 本番は現状全クーポン0行のため、上の既存5テスト（0行→通る）に加えて、行あり適合／行あり不適合／
+  // クエリ失敗の3ケースをここで検証する。
+  describe('クーポン×メニュー適合制約(coupon_menus)', () => {
+    test('coupon_menusに行あり・選択メニューが対象に含まれる→通る（200・割引適用）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const menuId = '323e4567-e89b-12d3-a456-426614174000';
+      const otherMenuId = '523e4567-e89b-12d3-a456-426614174000';
+      const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+      const conflictChain = fluent(null);
+      conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+      const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const couponChain = fluent({ data: { discount_type: 'fixed', discount_value: 1000, is_active: true, valid_from: null, valid_until: null }, error: null });
+      const nullChain = fluent({ data: null });
+
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return couponChain;
+        // 対象メニューは otherMenuId と menuId の2件。選択中の menuId が含まれるため通る。
+        if (table === 'coupon_menus') return couponMenusChain([{ menu_id: otherMenuId }, { menu_id: menuId }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(mockRpc).toHaveBeenCalledWith(
+        'create_booking_atomic',
+        expect.objectContaining({ p_total_price: 9000, p_coupon_id: couponId })
+      );
+    });
+
+    test('coupon_menusに行あり・選択メニューが対象外→400（割引を適用せずfail-closed）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const menuId = '323e4567-e89b-12d3-a456-426614174000';
+      const allowedMenuId = '623e4567-e89b-12d3-a456-426614174000';
+      const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+      const conflictChain = fluent(null);
+      conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+      const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const couponChain = fluent({ data: { discount_type: 'fixed', discount_value: 1000, is_active: true, valid_from: null, valid_until: null }, error: null });
+      const nullChain = fluent({ data: null });
+
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return couponChain;
+        // 対象メニューは allowedMenuId のみ。選択中の menuId は含まれないため拒否。
+        if (table === 'coupon_menus') return couponMenusChain([{ menu_id: allowedMenuId }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toContain('対象メニュー');
+      // 割引未適用のまま予約が作られてはいけない（金銭損失防止）→ RPC 自体に到達しない。
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    test('coupon_menus取得がエラー→500（無言で割引適用せずfail-closed）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const menuId = '323e4567-e89b-12d3-a456-426614174000';
+      const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+      const conflictChain = fluent(null);
+      conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+      const menuResult = { data: [{ id: menuId, price: 10000 }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const couponChain = fluent({ data: { discount_type: 'fixed', discount_value: 1000, is_active: true, valid_from: null, valid_until: null }, error: null });
+      const nullChain = fluent({ data: null });
+
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return couponChain;
+        if (table === 'coupon_menus') return couponMenusChain(null, { message: 'db error' });
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, coupon_id: couponId, total_price: 1 }));
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toContain('クーポン');
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
   });
 
   test('無効クーポン→400', async () => {
@@ -2467,11 +2612,12 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return couponChain;
+      if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
 
