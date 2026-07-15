@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
+import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -83,6 +84,8 @@ interface Props {
   /** 再予約リンク(?menu_id=&staff_id=)からの事前選択。前回と同じメニュー/スタッフを初期選択する。 */
   initialMenuId?: string;
   initialStaffId?: string;
+  /** 施設のキャンセルポリシー（未設定施設は null。確認画面にグレースフルに非表示になる）。 */
+  cancelPolicy?: CancelPolicy | null;
 }
 
 const WEEK_SIZE = 7;
@@ -90,8 +93,37 @@ const WEEK_SIZE = 7;
 type Cell = { count: number; slot: AvailableSlot };
 /** date -> ("HH:MM" -> Cell) の週マトリクス。 */
 type WeekMatrix = Record<string, Record<string, Cell>>;
+/** 1スタッフ分の /api/slots 取得結果。取得失敗（非ok・例外）時は null。 */
+export type StaffSlotsResult = { staffId: string; slots: AvailableSlot[] } | null;
 
-export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId }: Props) {
+/**
+ * 1日分の「スタッフ別 空きスロット取得結果」を、時間帯("HH:MM") -> Cell のマップへ決定的に
+ * マージする純粋関数（TZ非依存の日付計算等と同様、テスト容易化・回帰防止のため分離）。
+ * 【2026年7月15日 恒久根治】旧実装は各スタッフの fetch 完了時にその場で直接マージしていたため、
+ * 同一時間帯に複数スタッフの空きがある場合の「代表スロット」（おまかせ＝指名なし時に予約確定へ
+ * 進む対象スタッフ）が、ネットワークの揺らぎによる fetch 完了順という非決定的な要因で決まって
+ * いた。results は呼び出し側で Promise.all(targetStaff.map(...)) の戻り値をそのまま渡す前提
+ * （Promise.all は完了順ではなく入力配列の順序を保証する）。ここで配列の先頭から順に処理する
+ * ことで、常に staff 配列順（サーバーの sort_order）で決定的に代表スタッフが選ばれる。
+ */
+export function mergeStaffSlotsForDate(results: StaffSlotsResult[]): Record<string, Cell> {
+  const perTime = new Map<string, Cell>();
+  results.forEach((result) => {
+    if (!result) return;
+    result.slots.forEach((slot) => {
+      const t = slot.slot_start.slice(0, 5);
+      const existing = perTime.get(t);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        perTime.set(t, { count: 1, slot: { ...slot, staff_id: result.staffId } });
+      }
+    });
+  });
+  return Object.fromEntries(perTime);
+}
+
+export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId, cancelPolicy }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
   // メニュー/クーポンのタブ（HPB風にクーポンを主役に置く。クーポンがあれば初期表示をクーポンに）。
@@ -110,6 +142,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   const [weekOffset, setWeekOffset] = useState(0);
   const [matrix, setMatrix] = useState<WeekMatrix>({});
   const [matrixLoading, setMatrixLoading] = useState(false);
+  // 【2026年7月15日 恒久根治】/api/slots の失敗（非ok・例外）を「空きなし」に偽装せず、
+  // 満席表示と明確に区別されたエラーUIを出すためのフラグ。1件でも失敗があれば true にする
+  // （AbortError＝effect クリーンアップによる意図的な中断は失敗として扱わない）。
+  const [matrixError, setMatrixError] = useState(false);
+  // 再試行ボタンから effect を強制再実行させるためのカウンタ（依存配列に含める）。
+  const [matrixRetryTick, setMatrixRetryTick] = useState(0);
   const [customerName, setCustomerName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
@@ -215,16 +253,21 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
   const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
 
-  // Generate date options (next 60 days)
+  // Generate date options (today + next 59 days = 60 days)
   // 【2026年7月8日 恒久根治】旧実装はブラウザのローカル時計(new Date())を基準に日付を生成して
   // いたが、サーバー側の検証(src/lib/validations-booking.ts の getTodayString/getMaxDateString)
   // はJST(UTC+9)固定で「今日」を計算する。JST以外のタイムゾーンで閲覧するユーザー（海外在住・
   // 海外出張中・PCの時計設定がUTC等）では、クライアントが選択可能として提示した日付の一部が
   // サーバー側の「過去の日付は指定できません」バリデーションで拒否されたり、選択した日付が
   // 1日ずれる可能性があった。サーバーと同一のJSTシフトロジックで日付を生成し基準を一致させる。
+  // 【2026年7月15日 恒久根治】旧実装は `i + 1` で常に翌日始まりだった。サーバー側
+  // (validations-booking.ts の getTodayString、/api/slots の AV-3 過去時刻除外)は当日予約を
+  // 許可しているのに、UI側だけが当日をカレンダーから除外し到達不能にしていた（HPB等の実サービスは
+  // 当日予約を前面に出す）。`i`（当日始まり）に変更し、当日は過去時刻分のみ /api/slots が
+  // 自動的に除外するため UI 側で別途過去時刻フィルタは不要。
   const dateOptions = useMemo(() => Array.from({ length: 60 }, (_, i) => {
     const jstNow = new Date(Date.now() + 9 * 60 * 60 * 1000);
-    jstNow.setUTCDate(jstNow.getUTCDate() + i + 1);
+    jstNow.setUTCDate(jstNow.getUTCDate() + i);
     const year = jstNow.getUTCFullYear();
     const month = String(jstNow.getUTCMonth() + 1).padStart(2, '0');
     const day = String(jstNow.getUTCDate()).padStart(2, '0');
@@ -241,46 +284,66 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   // 週×時間の空き状況（◎○△×）を組み立てる。表示中の7日について /api/slots を並列取得し、
   // 各時間帯に「空いているスタッフ数」を数える（指名なしは全スタッフ、指名時は当該1名）。
   // 旧実装の「日付を1つ選ぶ→その日の時間ボタン一覧」を、HPB形式の週マトリクスに置き換える。
+  //
+  // 【2026年7月15日 恒久根治・defect1】/api/slots の失敗（!r.ok・例外）を握り潰して「空きなし」と
+  // 同一視していたが、/api/slots 側（route.ts）は「取得失敗を空き枠なしに偽装しない」設計思想
+  // （RPCエラーは500で返し、Sentry+Slackで顕在化させる）。クライアントがそれを再び握り潰すと、
+  // 障害発生時に顧客には単なる「満席」に見えてしまう（実際は復旧すれば予約できるはずの枠が見えない）。
+  // 1件でも失敗（非ok・AbortError以外の例外）があれば matrixError を立て、満席とは明確に区別した
+  // エラーUI＋再試行ボタンを出す。AbortError（effect クリーンアップによる意図的中断）は失敗として
+  // 扱わない。
+  //
+  // 【2026年7月15日 恒久根治・defect8】旧実装は各スタッフの fetch を並列実行しつつ、完了した順に
+  // その場で perTime へ書き込んでいたため、同じ時間帯に複数スタッフの空きがある場合の「代表スロット」
+  // が fetch 完了タイミング（ネットワークの揺らぎ）に左右される非決定的な選出になっていた
+  // （= 表示のたびに代表スタッフが変わりうる）。fetch 自体は並列実行して速度を維持しつつ、
+  // 結果のマージは Promise.all が返す配列（= targetStaff の入力順と同じ順序で並ぶ。Promise.all は
+  // 完了順ではなく入力順を保証する）を使って行うことで、常に staff 配列順（サーバーの sort_order）
+  // で決定的に代表スタッフを選ぶ。
   useEffect(() => {
     if (step !== 'datetime') return;
     if (selectedMenus.length === 0) return;
     if (selectedStaff === null && staff.length === 0) return;
     const controller = new AbortController();
     setMatrixLoading(true);
+    setMatrixError(false);
 
     const targetStaff = selectedStaff ? [selectedStaff] : staff;
+    let hadFailure = false;
+
     Promise.all(visibleDates.map(async (date) => {
-      const perTime = new Map<string, Cell>();
-      await Promise.all(targetStaff.map(async (s) => {
+      const results = await Promise.all(targetStaff.map(async (s) => {
         try {
           const r = await fetch(
             `/api/slots?facilityId=${facility.id}&staffId=${s.id}&date=${date}&duration=${totalDuration}`,
             { signal: controller.signal },
           );
-          if (!r.ok) return;
+          if (!r.ok) {
+            hadFailure = true;
+            return null;
+          }
           const data = await r.json();
-          (data.slots ?? []).forEach((slot: AvailableSlot) => {
-            const t = slot.slot_start.slice(0, 5);
-            const existing = perTime.get(t);
-            if (existing) {
-              existing.count += 1;
-            } else {
-              // 最初に見つかったスタッフのスロットを代表として保持（staff_id付き）。
-              perTime.set(t, { count: 1, slot: { ...slot, staff_id: s.id } });
-            }
-          });
-        } catch {
-          // 個別スタッフ/日付の失敗は握らず、その分を空きなし扱いにして週全体は表示する。
+          return { staffId: s.id, slots: (data.slots ?? []) as AvailableSlot[] };
+        } catch (err) {
+          if ((err as { name?: string })?.name !== 'AbortError') hadFailure = true;
+          return null;
         }
       }));
-      return [date, Object.fromEntries(perTime)] as [string, Record<string, Cell>];
+
+      // targetStaff と同じ順序（= staff 配列順）でマージする。これにより代表スロットの選出は
+      // fetch の完了タイミングに依存せず、常に同じスタッフが優先される。
+      return [date, mergeStaffSlotsForDate(results)] as [string, Record<string, Cell>];
     }))
       .then((entries) => {
         if (controller.signal.aborted) return;
         setMatrix(Object.fromEntries(entries));
+        setMatrixError(hadFailure);
       })
       .catch((err) => {
-        if (err?.name !== 'AbortError') setToast({ type: 'error', message: '空き状況の取得に失敗しました' });
+        if (err?.name !== 'AbortError') {
+          setMatrixError(true);
+          setToast({ type: 'error', message: '空き状況の取得に失敗しました' });
+        }
       })
       .finally(() => {
         if (!controller.signal.aborted) setMatrixLoading(false);
@@ -288,8 +351,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
     return () => controller.abort();
     // visibleKey で表示週を、selectedStaff で指名を、totalDuration でメニュー変更を検知する。
+    // matrixRetryTick は再試行ボタンから effect を強制再実行させるためだけの依存。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, visibleKey, selectedStaff, totalDuration, facility.id]);
+  }, [step, visibleKey, selectedStaff, totalDuration, facility.id, matrixRetryTick]);
 
   // マトリクスの行（時間帯）＝表示週で1度でも空きがあった開始時刻の和集合（昇順）。
   const rowTimes = useMemo(() => {
@@ -605,6 +669,26 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
             </div>
           </div>
 
+          {/* 【2026年7月15日 defect5】選択中の内容サマリ（HPBの「選択中の内容」相当）。
+              日時選択に集中している間もメニュー・スタッフ・合計金額・所要時間を常時視認できるようにする。 */}
+          <div className="bg-gray-50 rounded-xl border border-gray-200 p-3 text-xs text-gray-600">
+            <p className="font-bold text-gray-700 mb-1">選択中の内容</p>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {selectedCoupon && <span className="text-red-500 font-bold">{selectedCoupon.name}</span>}
+              {selectedMenus.map((m) => (
+                <span key={m.id}>{m.name}</span>
+              ))}
+              <span>{totalDuration}分</span>
+              <span>{selectedStaff ? `${selectedStaff.name} 指名` : '指名なし（おまかせ）'}</span>
+              {(() => {
+                const price = calculatePrice();
+                return price !== null ? (
+                  <span className="font-bold text-gray-800">合計 ¥{price.toLocaleString()}</span>
+                ) : null;
+              })()}
+            </div>
+          </div>
+
           {/* スタッフ指名フィルタ（HPBはカレンダー上でスタイリストを絞り込む） */}
           {staff.length > 0 && (
             <div>
@@ -625,6 +709,21 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+
+          {/* 【2026年7月15日 defect1】/api/slots の取得失敗（満席とは別の障害）を明確に区別して通知する。
+              満席表示（× のみ・「予約可能な時間帯がありません」）に埋もれさせない。 */}
+          {matrixError && !matrixLoading && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-600 flex items-center justify-between gap-2 flex-wrap" role="alert">
+              <span>空き状況を取得できませんでした。通信状況をご確認のうえ再度お試しください。</span>
+              <button
+                type="button"
+                onClick={() => setMatrixRetryTick((t) => t + 1)}
+                className="text-red-600 font-bold underline shrink-0"
+              >
+                再試行
+              </button>
             </div>
           )}
 
@@ -665,8 +764,12 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     const { month, day, dayOfWeek } = parseDateString(date);
                     const isSun = dayOfWeek === 0;
                     const isSat = dayOfWeek === 6;
+                    // 【2026年7月15日】当日(dateOptions[0])はHPB同様「本日」で強調し、
+                    // 当日予約がカレンダー上で目立つようにする（当日を隠さない・defect2の一環）。
+                    const isToday = date === dateOptions[0];
                     return (
-                      <th key={date} className="py-1 px-0.5 min-w-[40px]">
+                      <th key={date} className="py-1 px-0.5 min-w-[44px]">
+                        {isToday && <div className="text-micro font-bold text-primary">本日</div>}
                         <div className="text-micro text-gray-400">{month}/{day}</div>
                         <div className={`text-xs font-bold ${isSun ? 'text-red-500' : isSat ? 'text-sky-500' : 'text-gray-600'}`}>
                           {DAY_NAMES[dayOfWeek]}
@@ -686,7 +789,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 ) : rowTimes.length === 0 ? (
                   <tr>
                     <td colSpan={visibleDates.length + 1} className="py-10 text-sm text-gray-400">
-                      この期間は予約可能な時間帯がありません。別の週をお選びください。
+                      {/* matrixError 時は「満席」ではなく「取得不可（不明）」であることを明示する
+                          （上のエラーバナーで再試行を促すため、ここでは満席と誤読させない文言に限定）。 */}
+                      {matrixError
+                        ? '空き状況を確認できませんでした。'
+                        : 'この期間は予約可能な時間帯がありません。別の週をお選びください。'}
                     </td>
                   </tr>
                 ) : (
@@ -711,7 +818,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                                 setSelectedDate(date);
                                 setSelectedSlot(cell.slot);
                               }}
-                              className={`w-full min-h-[40px] rounded-md text-base font-bold transition-colors ${
+                              className={`w-full min-h-[44px] rounded-md text-base font-bold transition-colors ${
                                 !available
                                   ? 'text-gray-300 cursor-not-allowed'
                                   : isActive
@@ -919,6 +1026,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               >
                 ログインする
               </a>
+            </div>
+          )}
+
+          {/* 【2026年7月15日 defect4】キャンセルポリシー（施設が設定している場合のみ表示・
+              未設定施設ではグレースフルに非表示）。予約確定ボタンの直前に表示する。 */}
+          {cancelPolicy && (
+            <div className="bg-gray-50 border border-gray-200 rounded-xl p-3 text-xs text-gray-600 space-y-1">
+              <p className="font-bold text-gray-700">キャンセルポリシー</p>
+              <p>{describeCancelPolicy(cancelPolicy)}</p>
+              {cancelPolicy.policy_text && (
+                <p className="whitespace-pre-wrap">{cancelPolicy.policy_text}</p>
+              )}
             </div>
           )}
 
