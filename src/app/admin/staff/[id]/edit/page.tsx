@@ -9,6 +9,8 @@ import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
 
+type MenuOption = { id: string; name: string; price: number | null };
+
 export default function EditStaffPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const router = useRouter();
@@ -22,6 +24,9 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   const [lineWorksChannelId, setLineWorksChannelId] = useState('');
   const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const [isActive, setIsActive] = useState(true);
+  // 【2026年7月15日 HPB準拠仕様】担当メニュー(menu_staff)。未選択＝全メニュー対応（担当制なし）。
+  const [menuOptions, setMenuOptions] = useState<MenuOption[]>([]);
+  const [menuIds, setMenuIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -53,8 +58,24 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         setLineWorksNotifyAll(data.line_works_notify_all || false);
         setIsActive(data.is_active ?? true);
       }
+
+      // 担当メニューの現在値(menu_staff)と選択肢(自施設の facility_menus)。ここが取得できないまま
+      // 保存すると menu_ids: [] が送信され、既存の担当メニュー設定を意図せず解除（全スタッフ対応化）
+      // してしまうため、失敗は loadError に倒してフォームを描画しない（クーポン編集#479と同じ設計思想）。
+      const [{ data: msRows, error: msError }, { data: menus, error: menusError }] = await Promise.all([
+        supabase.from('menu_staff').select('menu_id').eq('staff_id', params.id),
+        supabase.from('facility_menus').select('id, name, price').eq('facility_id', membership.facility_id).order('sort_order'),
+      ]);
+      if (msError || menusError) { setLoadError(true); setLoading(false); return; }
+      setMenuIds((msRows ?? []).map((r: { menu_id: string }) => r.menu_id));
+      setMenuOptions((menus ?? []) as MenuOption[]);
       setLoading(false);
   }, [params.id]);
+
+  const toggleMenu = (menuId: string) => {
+    setDirty(true);
+    setMenuIds((prev) => (prev.includes(menuId) ? prev.filter((id) => id !== menuId) : [...prev, menuId]));
+  };
 
   useEffect(() => {
     load().catch(() => { setLoadError(true); setLoading(false); });
@@ -79,6 +100,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
           line_works_channel_id: lineWorksChannelId || null,
           line_works_notify_all: lineWorksNotifyAll,
           is_active: isActive,
+          menu_ids: menuIds,
         }),
       });
 
@@ -142,6 +164,30 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         <div>
           <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
           <SbInput id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} maxLength={200} />
+        </div>
+
+        <div className="border-t pt-4">
+          <span className="form-label">担当メニュー（HPB準拠・複数選択可）</span>
+          <p className="text-xs text-gray-400 mb-2">
+            選択したメニューは、このスタッフのみが施術・指名を受けられます（担当制）。未選択のメニューは全スタッフが対応します。
+          </p>
+          {menuOptions.length === 0 ? (
+            <p className="text-xs text-gray-400 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
+          ) : (
+            <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+              {menuOptions.map((menu) => (
+                <label key={menu.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={menuIds.includes(menu.id)}
+                    onChange={() => toggleMenu(menu.id)}
+                  />
+                  <span className="flex-1">{menu.name}</span>
+                  {menu.price !== null && <span className="text-xs text-gray-500">¥{menu.price.toLocaleString()}</span>}
+                </label>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="border-t pt-4">

@@ -4,7 +4,7 @@ jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom }),
 }));
 
-import { getStaffByFacility, getStaffBySlug, getStaffPhotos } from '../staff';
+import { getStaffByFacility, getStaffBySlug, getStaffPhotos, getMenuStaffByMenuIds } from '../staff';
 
 beforeEach(() => {
   mockFrom.mockReset();
@@ -17,6 +17,15 @@ function fluent(resolvedValue: unknown) {
   self.eq = handler;
   self.order = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
+  return self;
+}
+
+// getMenuStaffByMenuIds は select('*').in('menu_id', ...) を直接 await する（.order/.single なし）。
+// 終端の .in が Promise を返すチェーンを組む。
+function menuStaffFluent(resolvedValue: unknown) {
+  const self: Record<string, jest.Mock> = {};
+  self.select = jest.fn(() => self);
+  self.in = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
 }
 
@@ -131,6 +140,31 @@ describe('getStaffBySlug — deep tests', () => {
     mockFrom.mockReturnValue(fluent({ data: staff }));
     const result = await getStaffBySlug('fac-1', 'sato');
     expect(result?.slug).toBe('sato');
+  });
+});
+
+describe('getMenuStaffByMenuIds（担当メニュー行取得・2026年7月15日）', () => {
+  test('menuIds が空配列 → 問い合わせせず [] を返す（早期return）', async () => {
+    const result = await getMenuStaffByMenuIds([]);
+    expect(result).toEqual([]);
+    expect(mockFrom).not.toHaveBeenCalled();
+  });
+
+  test('menuIds が非空 → menu_staff を menu_id で in 絞込して行を返す', async () => {
+    const rows = [{ id: 'ms-1', menu_id: 'm-1', staff_id: 's-1' }];
+    const chain = menuStaffFluent({ data: rows });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getMenuStaffByMenuIds(['m-1', 'm-2']);
+    expect(result).toEqual(rows);
+    expect(mockFrom).toHaveBeenCalledWith('menu_staff');
+    expect(chain.in).toHaveBeenCalledWith('menu_id', ['m-1', 'm-2']);
+  });
+
+  test('data が null → 空配列（?? [] フォールバック）', async () => {
+    mockFrom.mockReturnValue(menuStaffFluent({ data: null }));
+    const result = await getMenuStaffByMenuIds(['m-1']);
+    expect(result).toEqual([]);
   });
 });
 

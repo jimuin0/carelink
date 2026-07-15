@@ -7,6 +7,7 @@ import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
+import { isStaffCompatibleWithMenus, filterEligibleStaff } from '@/lib/menu-staff';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -107,6 +108,12 @@ interface Props {
    * こちらはUX上の事前ガード）。キーが無いクーポンは全メニュー適用（本番の現状デフォルト）。
    */
   couponMenuMap?: Record<string, string[]>;
+  /**
+   * メニューID → 担当スタッフID配列（menu_staffに行があるメニューのみキーを持つ）。
+   * 【2026年7月15日 HPB準拠仕様】coupon_menus と同型の意味論＝キーが無いメニューは全スタッフ対応
+   * （本番の現状デフォルト）。指名候補の絞込・自動解除・おまかせ時の空き集計対象の絞込に使う。
+   */
+  menuStaffMap?: Record<string, string[]>;
 }
 
 const WEEK_SIZE = 7;
@@ -144,7 +151,7 @@ export function mergeStaffSlotsForDate(results: StaffSlotsResult[]): Record<stri
   return Object.fromEntries(perTime);
 }
 
-export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId, cancelPolicy, couponMenuMap = {} }: Props) {
+export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId, cancelPolicy, couponMenuMap = {}, menuStaffMap = {} }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
   // メニュー/クーポンのタブ（HPB風にクーポンを主役に置く。クーポンがあれば初期表示をクーポンに）。
@@ -277,6 +284,16 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
   const totalDuration = selectedMenus.reduce((sum, m) => sum + (m.duration_minutes || 60), 0);
 
+  // 【2026年7月15日 HPB準拠仕様】メニュー担当スタッフ制(menu_staff)。選択中メニューを全て担当
+  // できるスタッフのみを候補にする（担当制メニューの担当外スタッフは指名候補・おまかせ集計の
+  // 対象から外す）。selectedMenus が空（メニュー未選択）の間は絞り込まず全員を候補にする。
+  const selectedMenuIds = useMemo(() => selectedMenus.map((m) => m.id), [selectedMenus]);
+  const eligibleStaff = useMemo(
+    () => filterEligibleStaff(staff, menuStaffMap, selectedMenuIds),
+    [staff, menuStaffMap, selectedMenuIds],
+  );
+  const eligibleStaffKey = eligibleStaff.map((s) => s.id).join(',');
+
   // Generate date options (today + next 59 days = 60 days)
   // 【2026年7月8日 恒久根治】旧実装はブラウザのローカル時計(new Date())を基準に日付を生成して
   // いたが、サーバー側の検証(src/lib/validations-booking.ts の getTodayString/getMaxDateString)
@@ -327,12 +344,15 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   useEffect(() => {
     if (step !== 'datetime') return;
     if (selectedMenus.length === 0) return;
-    if (selectedStaff === null && staff.length === 0) return;
+    if (selectedStaff === null && eligibleStaff.length === 0) return;
     const controller = new AbortController();
     setMatrixLoading(true);
     setMatrixError(false);
 
-    const targetStaff = selectedStaff ? [selectedStaff] : staff;
+    // おまかせ（指名なし）の集計対象は「選択中メニューを担当できるスタッフ」に絞る（menu_staff）。
+    // 担当外スタッフの空きを◎/○/△に数えてしまうと、実際には施術できないスタッフの枠が
+    // 「空きあり」と誤表示される（金銭ではないが予約可否の誤表示という重大UX不整合）。
+    const targetStaff = selectedStaff ? [selectedStaff] : eligibleStaff;
     let hadFailure = false;
 
     Promise.all(visibleDates.map(async (date) => {
@@ -375,9 +395,11 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
     return () => controller.abort();
     // visibleKey で表示週を、selectedStaff で指名を、totalDuration でメニュー変更を検知する。
+    // eligibleStaffKey は menu_staff による「おまかせ」集計対象の絞込結果が変わった時（メニュー
+    // 変更で担当可否が変わったが所要時間(totalDuration)がたまたま同じ場合等）にも再取得させるための依存。
     // matrixRetryTick は再試行ボタンから effect を強制再実行させるためだけの依存。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, visibleKey, selectedStaff, totalDuration, facility.id, matrixRetryTick]);
+  }, [step, visibleKey, selectedStaff, totalDuration, facility.id, matrixRetryTick, eligibleStaffKey]);
 
   // マトリクスの行（時間帯）＝表示週で1度でも空きがあった開始時刻の和集合（昇順）。
   const rowTimes = useMemo(() => {
@@ -491,6 +513,23 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMenus]);
+
+  // 【2026年7月15日 HPB準拠仕様・恒久予防】メニュー担当スタッフ制(menu_staff)。選択中クーポンの
+  // 自動解除(上のeffect)と同型のUX＝指名中スタッフが、メニュー選択の変更により選択中メニューの
+  // いずれかの担当外になった場合、指名を自動解除し警告する。サーバー(/api/booking)は同じ判定を
+  // fail-closed（無言で予約を通さない・400）で最終防御するが、ここではその手前でユーザーに
+  // 気づかせる（担当外スタッフのまま気づかず予約を試みて確認画面の直前で弾かれるのを防ぐ）。
+  // 日時選択もクリアする（担当外化で無効になったスタッフの枠選択を持ち越さない＝changeStaffFilterと同じ後処理）。
+  useEffect(() => {
+    if (!selectedStaff) return;
+    if (!isStaffCompatibleWithMenus(menuStaffMap, selectedMenuIds, selectedStaff.id)) {
+      setSelectedStaff(null);
+      setSelectedDate('');
+      setSelectedSlot(null);
+      setToast({ type: 'error', message: '選択したメニューは指名中のスタッフの対象外のため、指名を解除しました' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMenuIds]);
 
   // メニュー/クーポン変更で価格が下がった場合に、設定済み pointsToUse を価格・残高でクランプし直す。
   // これを怠ると「お支払い金額」が負表示になり、価格を超える points_used を送ってしまう（サーバ側でも
@@ -821,11 +860,17 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                 className="form-input mt-1"
               >
                 <option value="">指名なし（おまかせ）</option>
-                {staff.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}{s.nomination_fee > 0 ? `（指名料 ¥${s.nomination_fee.toLocaleString()}）` : ''}
-                  </option>
-                ))}
+                {staff.map((s) => {
+                  // 【2026年7月15日 HPB準拠仕様】担当制メニュー(menu_staff)の担当外スタッフは
+                  // 選択不可(disabled)にし、選択中メニュー対象外であることを明示する（完全非表示にすると
+                  // 「そもそも在籍しないスタッフ」との区別がつかなくなるため disabled 表示を採用）。
+                  const eligible = isStaffCompatibleWithMenus(menuStaffMap, selectedMenuIds, s.id);
+                  return (
+                    <option key={s.id} value={s.id} disabled={!eligible}>
+                      {s.name}{s.nomination_fee > 0 ? `（指名料 ¥${s.nomination_fee.toLocaleString()}）` : ''}{!eligible ? '（選択中メニュー対象外）' : ''}
+                    </option>
+                  );
+                })}
               </select>
             </div>
           )}

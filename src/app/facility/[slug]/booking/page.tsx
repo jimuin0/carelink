@@ -1,8 +1,9 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { getFacilityBySlug, getFacilityMenus, getFacilityCancelPolicy } from '@/lib/facilities';
-import { getStaffByFacility } from '@/lib/staff';
+import { getStaffByFacility, getMenuStaffByMenuIds } from '@/lib/staff';
 import { getCouponsByFacility, getCouponMenus } from '@/lib/coupons';
+import { buildMenuStaffMap } from '@/lib/menu-staff';
 import BookingFlow from '@/components/booking/BookingFlow';
 
 interface Props {
@@ -48,6 +49,13 @@ export default async function BookingPage(props: Props) {
     if (rows.length > 0) couponMenuMap[c.id] = rows.map((r) => r.menu_id);
   }));
 
+  // メニュー担当スタッフ制(menu_staff・2026年7月15日追加)。coupon_menus と同型の意味論＝
+  // 行があるメニューは担当スタッフ限定・行が無いメニューは全スタッフ対応（本番は現状全メニュー
+  // 0行のため挙動変化ゼロ）。menuId -> 担当スタッフID配列 のマップを BookingFlow へ渡し、
+  // 指名候補の絞込・自動解除・おまかせ時の空き集計対象の絞込に使う。
+  const menuStaffRows = await getMenuStaffByMenuIds(menus.map((m) => m.id));
+  const menuStaffMap = buildMenuStaffMap(menuStaffRows);
+
   return (
     <div className="bg-gray-50 min-h-screen">
       <div className="max-w-2xl mx-auto px-4 py-8">
@@ -63,6 +71,7 @@ export default async function BookingPage(props: Props) {
           initialStaffId={searchParams.staff_id}
           cancelPolicy={cancelPolicy}
           couponMenuMap={couponMenuMap}
+          menuStaffMap={menuStaffMap}
         />
       </div>
     </div>
