@@ -2,13 +2,18 @@
  * @jest-environment node
  *
  * Tests for POST /api/report
+ *
+ * 【2026年7月15日 要ログイン化】HPB 準拠・通報は会員前提（神原さん確定）。
+ * withRoute(requireAuth: true) に統一。未認証は 401 で遮断し、匿名通報は許可しない。
+ *
  * Key assertions:
  *   - CSRF check required
  *   - Rate limiting (5 req/min per IP)
+ *   - Auth required (unauthenticated → 401, handler/DB not reached)
  *   - Schema validation (target_type, target_id UUID, reason enum, detail max 500)
- *   - Optional auth (anonymous reports allowed)
+ *   - Authenticated report records user_id
  *   - Duplicate report prevention (23505 handling)
- *   - IP logging for anonymous reports
+ *   - IP logging alongside user_id
  */
 
 jest.mock('@/lib/rate-limit', () => ({
@@ -31,7 +36,7 @@ let mockGetUser: jest.Mock;
 let mockInsert: jest.Mock;
 
 function setupDefaultMocks(
-  hasUser: boolean = false,
+  hasUser: boolean = true,
   insertSucceeds: boolean = true
 ) {
   mockGetUser = jest.fn().mockResolvedValue({
@@ -42,7 +47,8 @@ function setupDefaultMocks(
     error: insertSucceeds ? null : { code: 'db-error' },
   });
 
-  // 認証判定のみ anon SSR クライアント（createServerClient）
+  // 認証判定のみ anon SSR クライアント（createServerClient・withRoute 内部の
+  // createServerSupabaseAuthClient 経由で使われる）
   const { createServerClient } = require('@supabase/ssr');
   createServerClient.mockReturnValue({
     auth: { getUser: mockGetUser },
@@ -59,6 +65,7 @@ function setupDefaultMocks(
   const { cookies } = require('next/headers');
   cookies.mockResolvedValue({
     getAll: jest.fn(() => []),
+    set: jest.fn(),
   });
 }
 
@@ -109,6 +116,27 @@ describe('POST /api/report', () => {
     const res = await POST(makeRequest(validReport) as any);
 
     expect(res.status).toBe(429);
+  });
+
+  test('unauthenticated → 401（通報は要ログイン・HPB準拠）', async () => {
+    setupDefaultMocks(false);
+
+    const res = await POST(makeRequest(validReport) as any);
+
+    expect(res.status).toBe(401);
+    // 未認証時はハンドラ本体（DB insert）に到達しない
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('unauthenticated → DB へは一切書き込まれない', async () => {
+    setupDefaultMocks(false);
+
+    await POST(makeRequest(validReport) as any);
+
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    // requireAuth で 401 遮断された場合、service_role クライアントの生成自体も
+    // ハンドラ本体側で行われるため呼ばれない（withRoute が呼ぶのは認証前）
+    expect((createServiceRoleClient as jest.Mock).mock.calls.length).toBe(0);
   });
 
   test('missing target_type → 400', async () => {
@@ -193,7 +221,7 @@ describe('POST /api/report', () => {
     expect(res.status).toBe(400);
   });
 
-  test('valid report → 200 with success', async () => {
+  test('valid report (authenticated) → 200 with success', async () => {
     const res = await POST(makeRequest(validReport) as any);
 
     expect(res.status).toBe(200);
@@ -255,16 +283,7 @@ describe('POST /api/report', () => {
     }
   });
 
-  test('anonymous report (no auth) → includes null user_id', async () => {
-    setupDefaultMocks(false);
-
-    await POST(makeRequest(validReport) as any);
-
-    const insertCall = mockInsert.mock.calls[0];
-    expect(insertCall[0].reporter_user_id).toBeNull();
-  });
-
-  test('authenticated report → includes user_id', async () => {
+  test('authenticated report → includes user_id（通報者の追跡性）', async () => {
     setupDefaultMocks(true);
 
     await POST(makeRequest(validReport) as any);
@@ -281,7 +300,7 @@ describe('POST /api/report', () => {
   });
 
   test('duplicate report (unique constraint 23505) → 409', async () => {
-    setupDefaultMocks(false, false);
+    setupDefaultMocks(true, false);
     mockInsert.mockResolvedValueOnce({
       error: { code: '23505', message: 'Unique constraint violation' },
     });
@@ -292,7 +311,7 @@ describe('POST /api/report', () => {
   });
 
   test('other DB error → 500', async () => {
-    setupDefaultMocks(false, false);
+    setupDefaultMocks(true, false);
     mockInsert.mockResolvedValueOnce({
       error: { code: 'some-other-error', message: 'Some error' },
     });
