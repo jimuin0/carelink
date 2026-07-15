@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
+import Toast from '@/components/Toast';
 
 interface QAItem {
   id: string;
@@ -22,6 +23,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const loadQA = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -65,7 +67,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
       setSubmitted(true);
       setTimeout(() => setSubmitted(false), 4000);
     } catch {
-      // silent
+      setToast({ type: 'error', message: '質問の送信に失敗しました。もう一度お試しください。' });
     } finally {
       setSubmitting(false);
     }
@@ -87,6 +89,7 @@ export default function QASection({ facilityId }: { facilityId: string }) {
 
   return (
     <div className="space-y-6">
+      {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
       {/* Question Form (logged in users only) */}
       {userId && (
         <div className="bg-sky-50 rounded-xl p-4">

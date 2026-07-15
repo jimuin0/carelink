@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useLiff } from '@/hooks/useLiff';
+import { discountText, couponTypeLabel } from '@/lib/coupon-display';
 
 type Coupon = {
   id: string;
@@ -36,19 +37,6 @@ function LiffNotLinked() {
       </div>
     </div>
   );
-}
-
-function discountText(coupon: Coupon): string {
-  if (coupon.discount_type === 'percent' && coupon.discount_value) {
-    return `${coupon.discount_value}%OFF`;
-  }
-  if (coupon.discount_type === 'fixed' && coupon.discount_value) {
-    return `¥${coupon.discount_value.toLocaleString()}OFF`;
-  }
-  if (coupon.discount_type === 'special' && coupon.special_price) {
-    return `¥${coupon.special_price.toLocaleString()}`;
-  }
-  return '特別割引';
 }
 
 export default function LiffCouponsPage() {
@@ -91,12 +79,8 @@ export default function LiffCouponsPage() {
           {coupons.map((c) => (
             <div key={c.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
               <div className="bg-gradient-to-r from-pink-500 to-rose-500 px-4 py-3 flex items-center justify-between">
-                <span className="text-white font-bold text-lg">{discountText(c)}</span>
-                <span className="text-white/80 text-xs">
-                  {c.coupon_type === 'new_customer' ? '新規限定' :
-                   c.coupon_type === 'repeat' ? 'リピーター' :
-                   c.coupon_type === 'limited' ? '期間限定' : '全員'}
-                </span>
+                <span className="text-white font-bold text-lg">{discountText(c, '特別割引')}</span>
+                <span className="text-white/80 text-xs">{couponTypeLabel(c.coupon_type)}</span>
               </div>
               <div className="px-4 py-3">
                 <p className="text-sm font-bold text-gray-900">{c.name}</p>

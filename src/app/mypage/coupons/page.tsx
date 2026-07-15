@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
+import { discountText } from '@/lib/coupon-display';
 
 export const metadata: Metadata = {
   // mypage/layout の title.template '%s | マイページ | CareLink' が自動付与するため、ここではページ名のみ（二重化防止）。
@@ -49,16 +50,6 @@ export default async function CouponNotebookPage() {
     }
   }
 
-  const formatDiscount = (c: typeof coupons[0]) => {
-    if (c.discount_type === 'special_price' && c.special_price !== null)
-      return `¥${c.special_price.toLocaleString()}`;
-    if (c.discount_type === 'percentage' && c.discount_value !== null)
-      return `${c.discount_value}%OFF`;
-    if (c.discount_type === 'fixed' && c.discount_value !== null)
-      return `¥${c.discount_value.toLocaleString()}OFF`;
-    return '';
-  };
-
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl shadow-sm p-6">
@@ -88,7 +79,7 @@ export default async function CouponNotebookPage() {
                     </p>
                   )}
                 </div>
-                <span className="text-lg font-bold text-red-500 shrink-0">{formatDiscount(coupon)}</span>
+                <span className="text-lg font-bold text-red-500 shrink-0">{discountText(coupon)}</span>
               </div>
             </div>
           ))}

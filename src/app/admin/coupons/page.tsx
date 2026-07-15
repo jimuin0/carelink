@@ -1,6 +1,7 @@
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { getCouponsByFacility } from '@/lib/coupons';
+import { discountText } from '@/lib/coupon-display';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import CouponBadge from '@/components/facility/CouponBadge';
@@ -70,14 +71,8 @@ export default async function AdminCouponsPage() {
                   {coupon.description && <p className="text-sm text-gray-500 mt-1">{coupon.description}</p>}
                 </div>
                 <div className="text-right">
-                  {coupon.discount_type === 'fixed' && coupon.discount_value && (
-                    <p className="font-bold text-red-500">¥{coupon.discount_value.toLocaleString()}OFF</p>
-                  )}
-                  {coupon.discount_type === 'percentage' && coupon.discount_value && (
-                    <p className="font-bold text-red-500">{coupon.discount_value}%OFF</p>
-                  )}
-                  {coupon.discount_type === 'special_price' && coupon.special_price !== null && (
-                    <p className="font-bold text-red-500">¥{coupon.special_price.toLocaleString()}</p>
+                  {discountText(coupon) && (
+                    <p className="font-bold text-red-500">{discountText(coupon)}</p>
                   )}
                 </div>
               </div>

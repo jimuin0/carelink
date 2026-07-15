@@ -1,18 +1,6 @@
 import type { Coupon } from '@/types';
 import CouponBadge from './CouponBadge';
-
-function formatDiscount(coupon: Coupon): string {
-  if (coupon.discount_type === 'special_price' && coupon.special_price !== null) {
-    return `¥${coupon.special_price.toLocaleString()}`;
-  }
-  if (coupon.discount_type === 'percentage' && coupon.discount_value !== null) {
-    return `${coupon.discount_value}%OFF`;
-  }
-  if (coupon.discount_type === 'fixed' && coupon.discount_value !== null) {
-    return `¥${coupon.discount_value.toLocaleString()}OFF`;
-  }
-  return '';
-}
+import { discountText } from '@/lib/coupon-display';
 
 function computeDiscountedPrice(coupon: Coupon, menuPrice: number): number | null {
   if (coupon.discount_type === 'special_price' && coupon.special_price !== null) return coupon.special_price;
@@ -22,7 +10,7 @@ function computeDiscountedPrice(coupon: Coupon, menuPrice: number): number | nul
 }
 
 export default function CouponCard({ coupon, menuPrice }: { coupon: Coupon; menuPrice?: number | null }) {
-  const discount = formatDiscount(coupon);
+  const discount = discountText(coupon);
   const discountedPrice = menuPrice ? computeDiscountedPrice(coupon, menuPrice) : null;
 
   return (
