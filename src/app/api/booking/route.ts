@@ -128,6 +128,25 @@ export async function POST(request: Request) {
           (coupon.valid_from == null || coupon.valid_from <= nowIso) &&
           (coupon.valid_until == null || coupon.valid_until >= nowIso);
         if (couponValid && serverTotalPrice != null) {
+          // クーポン×メニュー適合チェック（金銭経路の穴の恒久予防・2026年7月15日追加）。
+          // coupon_menus に行が無いクーポンは全メニュー適用（本番は現在全クーポン0行のため、
+          // ここでの挙動変化はゼロ＝発症前予防）。行がある場合はそのクーポンは対象メニュー限定で、
+          // 選択中のメニュー(menuIdsToPrice)のいずれかが対象に含まれることを要求する。含まれない
+          // 場合や取得自体が失敗した場合は無言で割引を適用せず fail-closed（400/500）で拒否する。
+          const { data: couponMenuRows, error: couponMenuErr } = await supabase
+            .from('coupon_menus')
+            .select('menu_id')
+            .eq('coupon_id', parsed.data.coupon_id);
+          if (couponMenuErr) {
+            return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
+          }
+          if (couponMenuRows && couponMenuRows.length > 0) {
+            const allowedMenuIds = new Set(couponMenuRows.map((r: { menu_id: string }) => r.menu_id));
+            const hasMatchingMenu = menuIdsToPrice.some((id) => allowedMenuIds.has(id));
+            if (!hasMatchingMenu) {
+              return NextResponse.json({ error: 'クーポンの対象メニューが選択されていません' }, { status: 400 });
+            }
+          }
           if (coupon.discount_type === 'percentage') {
             serverTotalPrice = Math.max(0, Math.round(serverTotalPrice * (1 - coupon.discount_value / 100)));
           } else if (coupon.discount_type === 'fixed') {

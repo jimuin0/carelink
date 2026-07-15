@@ -76,6 +76,23 @@ export function availabilitySymbol(
   return { symbol: '△', available: true };
 }
 
+/**
+ * クーポンの対象メニュー制約(coupon_menus)と選択中メニューの適合を判定する純粋関数。
+ * 【2026年7月15日 恒久予防】サーバー(src/app/api/booking/route.ts)のクーポン×メニュー適合
+ * チェックと同一の意味論＝coupon_menusに行がある(allowedMenuIdsが空でない)クーポンは対象メニュー
+ * 限定・行が無い(allowedMenuIdsが未定義/空)クーポンは全メニュー適用。
+ * selectedMenuIds が空（メニュー未選択）は「まだ不適合と決め付けない」ため適合扱いにする
+ * （クーポンを先に選ぶ導線＝menuTab初期表示がクーポン、を妨げないため）。
+ */
+export function isCouponMenuCompatible(
+  allowedMenuIds: string[] | undefined,
+  selectedMenuIds: string[],
+): boolean {
+  if (!allowedMenuIds || allowedMenuIds.length === 0) return true;
+  if (selectedMenuIds.length === 0) return true;
+  return selectedMenuIds.some((id) => allowedMenuIds.includes(id));
+}
+
 interface Props {
   facility: { id: string; slug: string; name: string };
   staff: StaffProfile[];
@@ -86,6 +103,13 @@ interface Props {
   initialStaffId?: string;
   /** 施設のキャンセルポリシー（未設定施設は null。確認画面にグレースフルに非表示になる）。 */
   cancelPolicy?: CancelPolicy | null;
+  /**
+   * クーポンID → 対象メニューID配列（coupon_menusに行があるクーポンのみキーを持つ）。
+   * 【2026年7月15日 恒久予防】サーバー(src/app/api/booking/route.ts)のクーポン×メニュー適合
+   * チェックと同一の意味論をクライアントでも先回りして案内する（サーバーはfail-closedの最終防波堤・
+   * こちらはUX上の事前ガード）。キーが無いクーポンは全メニュー適用（本番の現状デフォルト）。
+   */
+  couponMenuMap?: Record<string, string[]>;
 }
 
 const WEEK_SIZE = 7;
@@ -123,7 +147,7 @@ export function mergeStaffSlotsForDate(results: StaffSlotsResult[]): Record<stri
   return Object.fromEntries(perTime);
 }
 
-export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId, cancelPolicy }: Props) {
+export default function BookingFlow({ facility, staff, menus, coupons, initialMenuId, initialStaffId, cancelPolicy, couponMenuMap = {} }: Props) {
   const router = useRouter();
   const [step, setStep] = useState<Step>('menu');
   // メニュー/クーポンのタブ（HPB風にクーポンを主役に置く。クーポンがあれば初期表示をクーポンに）。
@@ -452,6 +476,20 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
 
   const calculatePrice = () => calculateBookingPrice(selectedMenus, selectedCoupon, selectedStaff);
 
+  // 【2026年7月15日 恒久予防】選択中クーポンが対象メニュー限定で、メニュー選択の変更により
+  // 選択中メニューがその対象から外れた場合、クーポン選択を自動解除し警告する。サーバー
+  // (/api/booking)は同じ適合チェックを fail-closed（無言で割引を適用しない・400）で最終防御
+  // するが、ここではその手前でユーザーに気づかせる（黙って高い金額のまま予約されるのを防ぐ）。
+  useEffect(() => {
+    if (!selectedCoupon) return;
+    const allowedMenuIds = couponMenuMap[selectedCoupon.id];
+    if (!isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id))) {
+      setSelectedCoupon(null);
+      setToast({ type: 'error', message: '選択したメニューはこのクーポンの対象外のため、クーポンの選択を解除しました' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMenus]);
+
   // メニュー/クーポン変更で価格が下がった場合に、設定済み pointsToUse を価格・残高でクランプし直す。
   // これを怠ると「お支払い金額」が負表示になり、価格を超える points_used を送ってしまう（サーバ側でも
   // クランプするが、表示の不整合と過剰送信を入口で防ぐ）。増加方向には触れない（手動利用を妨げない）。
@@ -546,17 +584,33 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                         : coupon.discount_type === 'special_price' && coupon.special_price !== null
                         ? `¥${coupon.special_price.toLocaleString()}`
                         : null;
+                    // 【2026年7月15日 恒久予防】クーポン×メニュー適合制約。coupon_menus に行がある
+                    // （＝couponMenuMap にキーを持つ）クーポンは対象メニュー限定。選択中メニューが
+                    // 1件以上あり、かつどれも対象に含まれない場合は選択不可にする（サーバーの
+                    // fail-closed 400 と同一の意味論をUXで先回りする）。
+                    const allowedMenuIds = couponMenuMap[coupon.id];
+                    const isMenuRestricted = !!allowedMenuIds && allowedMenuIds.length > 0;
+                    const isIncompatible = isMenuRestricted && !isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id));
+                    const targetMenuNames = isMenuRestricted
+                      ? allowedMenuIds!
+                          .map((id) => menus.find((m) => m.id === id)?.name)
+                          .filter((n): n is string => !!n)
+                      : [];
                     return (
                       <button
                         type="button"
                         key={coupon.id}
-                        onClick={() => setSelectedCoupon(isSelected ? null : coupon)}
+                        disabled={isIncompatible}
+                        aria-disabled={isIncompatible}
+                        onClick={() => { if (isIncompatible) return; setSelectedCoupon(isSelected ? null : coupon); }}
                         className={`w-full text-left rounded-xl border transition-colors overflow-hidden ${
-                          isSelected ? 'border-primary ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
+                          isIncompatible
+                            ? 'border-gray-200 opacity-50 cursor-not-allowed'
+                            : isSelected ? 'border-primary ring-2 ring-sky-200' : 'border-gray-200 hover:border-sky-300'
                         }`}
                       >
                         <div className="flex">
-                          <div className={`w-1.5 shrink-0 ${isSelected ? 'bg-primary' : 'bg-red-400'}`} />
+                          <div className={`w-1.5 shrink-0 ${isSelected && !isIncompatible ? 'bg-primary' : 'bg-red-400'}`} />
                           <div className="p-4 flex-1">
                             <div className="flex items-start justify-between gap-2">
                               <p className="font-bold text-sm">{coupon.name}</p>
@@ -567,7 +621,13 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                               )}
                             </div>
                             {coupon.description && <p className="text-xs text-gray-500 mt-1">{coupon.description}</p>}
-                            {isSelected && (
+                            {isMenuRestricted && targetMenuNames.length > 0 && (
+                              <p className={`text-xs mt-1 ${isIncompatible ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
+                                対象メニュー：{targetMenuNames.join('、')}
+                                {isIncompatible && '（選択中のメニューでは利用できません）'}
+                              </p>
+                            )}
+                            {isSelected && !isIncompatible && (
                               <p className="text-xs text-primary font-bold mt-2">✓ 選択中</p>
                             )}
                           </div>
@@ -576,7 +636,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                     );
                   })}
                   <p className="text-xs text-gray-400 pt-1">
-                    ※ クーポン適用には対象メニューの選択が必要です。「メニューから選ぶ」で施術内容をお選びください。
+                    ※ クーポンには対象メニューが限定されているものがあります。対象外のメニューでは選択できません。「メニューから選ぶ」で施術内容をお選びください。
                   </p>
                 </>
               )}
