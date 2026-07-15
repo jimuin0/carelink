@@ -9,6 +9,7 @@ import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { formatApiErrorMessage } from '@/lib/api-error-message';
 
 type MenuOption = { id: string; name: string; price: number | null };
 
@@ -90,19 +91,21 @@ export default function CouponEditPage() {
       return;
     }
 
-    // Client-side pre-validation
+    // Client-side pre-validation（サーバー zod＝src/lib/coupon-validation.ts の相互必須と同一の
+    // 範囲・文言。旧文言「0以上で入力してください」はサーバーの1以上必須とずれており、0を入れると
+    // クライアントを通過した後にサーバー 400 になる矛盾があった）
     const dv = discountType !== 'special_price' && discountValue ? parseInt(discountValue) : null;
     const sp = discountType === 'special_price' && specialPrice ? parseInt(specialPrice) : null;
-    if (dv !== null && dv < 0) {
-      setToast({ type: 'error', message: '割引額は0以上で入力してください' });
+    if (discountType === 'fixed' && (dv === null || dv < 1 || dv > 100000)) {
+      setToast({ type: 'error', message: '定額割引は1円〜100,000円の範囲で入力してください' });
       return;
     }
-    if (discountType === 'percentage' && dv !== null && dv > 100) {
-      setToast({ type: 'error', message: '割合割引は0〜100%で入力してください' });
+    if (discountType === 'percentage' && (dv === null || dv < 1 || dv > 100)) {
+      setToast({ type: 'error', message: '割合割引は1%〜100%の範囲で入力してください' });
       return;
     }
-    if (sp !== null && sp < 0) {
-      setToast({ type: 'error', message: '特別価格は0以上で入力してください' });
+    if (discountType === 'special_price' && (sp === null || sp < 1)) {
+      setToast({ type: 'error', message: '特別価格は1円以上で入力してください' });
       return;
     }
 
@@ -127,7 +130,9 @@ export default function CouponEditPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setToast({ type: 'error', message: err.error ?? '保存に失敗しました' });
+        // 400 の zod details（具体メッセージ）を優先表示。汎用「リクエストが不正です」だけだと
+        // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
+        setToast({ type: 'error', message: formatApiErrorMessage(err, '保存に失敗しました') });
       } else {
         setDirty(false);
         setToast({ type: 'success', message: '保存しました' });
@@ -207,12 +212,12 @@ export default function CouponEditPage() {
         {discountType !== 'special_price' ? (
           <div>
             <label htmlFor="discount-val" className="form-label">
-              割引値{discountType === 'fixed' ? '（円）' : '（%）※0〜100'}
+              割引値{discountType === 'fixed' ? '（円）' : '（%）※1〜100'}
             </label>
             <SbInput
               id="discount-val"
               type="number"
-              min={0}
+              min={1}
               max={discountType === 'percentage' ? 100 : 100000}
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
@@ -224,7 +229,7 @@ export default function CouponEditPage() {
             <SbInput
               id="special-price"
               type="number"
-              min={0}
+              min={1}
               value={specialPrice}
               onChange={(e) => setSpecialPrice(e.target.value)}
             />

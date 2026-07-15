@@ -158,6 +158,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     initialStaffId ? (staff.find((s) => s.id === initialStaffId) ?? null) : null
   );
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
+  // 「（自動選択済み）」表示・自動選択トーストを【実際に自動追加が発生した時のみ】出すための
+  // 状態（どのクーポンの自動追加が発生したか）。詳細は handleCouponSelect のコメント参照。
+  const [autoSelectedCouponId, setAutoSelectedCouponId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -483,6 +486,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     const allowedMenuIds = couponMenuMap[selectedCoupon.id];
     if (!isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id))) {
       setSelectedCoupon(null);
+      setAutoSelectedCouponId(null);
       setToast({ type: 'error', message: '選択したメニューはこのクーポンの対象外のため、クーポンの選択を解除しました' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -522,13 +526,18 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
    * 自動で selectedMenus に追加する（既に選択済みのメニューはそのまま維持＝マージ。対象+対象外
    * 混在の予約を妨げない）。対象未設定クーポン（allowedMenuIds が空/undefined）は従来どおり
    * 手動選択のみで、ここでは selectedMenus に触れない。
+   * 「（自動選択済み）」ラベルとトーストは【実際に自動追加が発生した時のみ】出す
+   * （対象メニューを既にユーザーが選択済みの場合、追加0件なのに「自動選択済み」と表示するのは
+   * 事実と異なるため）。autoSelectedCouponId でどのクーポンの自動追加が発生したかを保持する。
    */
   function handleCouponSelect(coupon: Coupon, allowedMenuIds: string[] | undefined, isSelected: boolean) {
     if (isSelected) {
       setSelectedCoupon(null);
+      setAutoSelectedCouponId(null);
       return;
     }
     setSelectedCoupon(coupon);
+    setAutoSelectedCouponId(null);
     const isMenuRestricted = !!allowedMenuIds && allowedMenuIds.length > 0;
     if (!isMenuRestricted) return;
 
@@ -537,12 +546,19 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
       .filter((m): m is FacilityMenu => !!m);
     if (targetMenus.length === 0) return;
 
+    // クリック時点の選択状態から「実際に追加されるメニュー」を判定する（追加0件なら自動選択の
+    // 表示・通知は一切出さない）。state 更新自体は prev ベースのマージで安全に行う。
+    const existingIds = new Set(selectedMenus.map((m) => m.id));
+    const additions = targetMenus.filter((m) => !existingIds.has(m.id));
+    if (additions.length === 0) return;
+
     setSelectedMenus((prev) => {
-      const existingIds = new Set(prev.map((m) => m.id));
-      const additions = targetMenus.filter((m) => !existingIds.has(m.id));
-      return additions.length > 0 ? [...prev, ...additions] : prev;
+      const prevIds = new Set(prev.map((m) => m.id));
+      const adds = targetMenus.filter((m) => !prevIds.has(m.id));
+      return adds.length > 0 ? [...prev, ...adds] : prev;
     });
-    const names = targetMenus.map((m) => m.name).join('、');
+    setAutoSelectedCouponId(coupon.id);
+    const names = additions.map((m) => m.name).join('、');
     setToast({ type: 'success', message: `「${coupon.name}」の対象メニュー（${names}）を自動選択しました` });
   }
 
@@ -653,8 +669,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                               <p className={`text-xs mt-1 ${isIncompatible ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
                                 対象メニュー：{targetMenuNames.join('、')}
                                 {isIncompatible && '（選択中のメニューでは利用できません）'}
-                                {/* HPB準拠UX：クーポン選択で対象メニューが自動選択されたことを明示する */}
-                                {isSelected && !isIncompatible && '（自動選択済み）'}
+                                {/* HPB準拠UX：クーポン選択で対象メニューの自動追加が【実際に発生した】
+                                    時のみ明示する（既に選択済みで追加0件の場合は表示しない） */}
+                                {isSelected && !isIncompatible && autoSelectedCouponId === coupon.id && '（自動選択済み）'}
                               </p>
                             )}
                             {isSelected && !isIncompatible && (

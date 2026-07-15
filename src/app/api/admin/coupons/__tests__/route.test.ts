@@ -16,6 +16,8 @@ jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
   getRequestContext: jest.fn(() => ({ ip: '127.0.0.1', ua: 'test' })),
 }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
@@ -424,6 +426,28 @@ describe('POST: target_menu_ids（対象メニュー限定の保存）', () => {
     const res = await POST(makePostRequest(validPostBody({ target_menu_ids: [MENU_UUID_1] })));
     expect(res.status).toBe(500);
     expect(rollbackDelete).toHaveBeenCalled();
+  });
+
+  test('三重失敗（insert失敗+削除失敗+無効化も失敗）→ Sentry+Slack通知＋明示メッセージの500（無音再現の根治）', async () => {
+    mockAnonFrom.mockReturnValue(memberSingle({ facility_id: FACILITY_UUID }));
+    const rollbackDelete = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'delete failed' } })) });
+    const deactivateUpdate = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'deactivate failed' } })) });
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') return facilityMenusChain([{ id: MENU_UUID_1 }]);
+      if (table === 'coupon_menus') return { insert: jest.fn(() => Promise.resolve({ error: { message: 'insert failed' } })) };
+      return { ...insertSingle({ id: 'new-coupon-id' }), delete: rollbackDelete, update: deactivateUpdate };
+    });
+    const { safeCaptureException } = require('@/lib/safe');
+    const { alertCaughtError } = require('@/lib/alert');
+    const res = await POST(makePostRequest(validPostBody({ target_menu_ids: [MENU_UUID_1] })));
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    // 汎用メッセージではなく「無効化できなかった・至急確認」を明示する（管理者が気づける）
+    expect(json.error).toContain('無効化できませんでした');
+    expect(json.error).toContain('至急');
+    // 無音にしない＝Sentry+Slack の両方へ通知
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'admin-coupons-create-rollback');
+    expect(alertCaughtError).toHaveBeenCalledWith('admin-coupons-create-rollback', expect.any(Error), '/api/admin/coupons');
   });
 
   test('coupon_menus insert 失敗＋ロールバック削除も失敗 → is_active=false へ無効化して 500', async () => {

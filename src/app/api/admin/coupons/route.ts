@@ -8,6 +8,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -122,10 +124,23 @@ export async function POST(request: NextRequest) {
     if (cmError) {
       const { error: rollbackErr } = await admin.from('coupons').delete().eq('id', data.id);
       if (rollbackErr) {
-        // ロールバック削除も失敗＝限定なしクーポンが残存する最悪ケース。無効化で金銭事故を防ぐ
-        // （これも失敗した場合は 500 応答により管理者が再操作する前提。作成APIのためこの時点で
-        // 予約に使われている可能性はない）。
-        await admin.from('coupons').update({ is_active: false }).eq('id', data.id);
+        // ロールバック削除も失敗＝限定なしクーポンが残存する最悪ケース。無効化で金銭事故を防ぐ。
+        const { error: deactivateErr } = await admin.from('coupons').update({ is_active: false }).eq('id', data.id);
+        if (deactivateErr) {
+          // 三重失敗（coupon_menus insert 失敗→ロールバック削除失敗→無効化失敗）＝
+          // 「対象メニュー限定なし（全メニュー適用）のまま is_active=true」のクーポンが残存する
+          // 金銭事故状態。無音にせず Sentry＋Slack で顕在化し、レスポンスにも明示する
+          // （旧実装は無効化の成否未チェックで、三重失敗時に防いだはずの事故が無音再現していた）。
+          const tripleFailure = new Error(
+            `coupon create rollback triple-failure: coupon_id=${data.id} が全メニュー適用のまま有効で残存の可能性 ` +
+            `(insert: ${cmError.message} / delete: ${rollbackErr.message} / deactivate: ${deactivateErr.message})`
+          );
+          safeCaptureException(tripleFailure, 'admin-coupons-create-rollback');
+          alertCaughtError('admin-coupons-create-rollback', tripleFailure, '/api/admin/coupons');
+          return NextResponse.json({
+            error: '対象メニューの保存に失敗し、クーポンを無効化できませんでした。作成されたクーポンが全メニュー適用のまま有効になっている可能性があります。至急クーポン一覧を確認し、該当クーポンを無効化してください。',
+          }, { status: 500 });
+        }
       }
       return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     }

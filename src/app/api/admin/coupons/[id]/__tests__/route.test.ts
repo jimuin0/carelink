@@ -12,6 +12,8 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
 const COUPON_UUID = '11111111-1111-1111-1111-111111111111';
@@ -670,6 +672,35 @@ describe('PATCH: target_menu_ids（対象メニュー限定の同期）', () => 
     const res = await PATCH(makeRequest('PATCH', { name: 'x', target_menu_ids: [MENU_UUID_1] }), makeProps());
     expect(res.status).toBe(500);
     expect(deactivateUpdate).toHaveBeenCalledWith({ is_active: false });
+  });
+
+  test('二重失敗（insert失敗+無効化も失敗）→ Sentry+Slack通知＋明示メッセージの500（無音再現の根治）', async () => {
+    const cmDelete = jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) });
+    const cmInsert = jest.fn(() => Promise.resolve({ error: { message: 'insert failed' } }));
+    const deactivateEq = jest.fn(() => Promise.resolve({ error: { message: 'deactivate failed' } }));
+    const deactivateUpdate = jest.fn().mockReturnValue({ eq: deactivateEq });
+    let couponsCallNum = 0;
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') return facilityMenusChain([{ id: MENU_UUID_1 }]);
+      if (table === 'coupon_menus') return { delete: cmDelete, insert: cmInsert };
+      couponsCallNum++;
+      if (couponsCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+      if (couponsCallNum === 2) return updateChain();
+      return { update: deactivateUpdate };
+    });
+    mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+
+    const { safeCaptureException } = require('@/lib/safe');
+    const { alertCaughtError } = require('@/lib/alert');
+    const res = await PATCH(makeRequest('PATCH', { name: 'x', target_menu_ids: [MENU_UUID_1] }), makeProps());
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    // 汎用メッセージではなく「無効化できなかった・至急確認」を明示する（管理者が気づける）
+    expect(json.error).toContain('無効化できませんでした');
+    expect(json.error).toContain('至急');
+    // 無音にしない＝Sentry+Slack の両方へ通知
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'admin-coupons-update-sync');
+    expect(alertCaughtError).toHaveBeenCalledWith('admin-coupons-update-sync', expect.any(Error), '/api/admin/coupons/[id]');
   });
 
   test('監査ログに target_menu_ids が記録される', async () => {

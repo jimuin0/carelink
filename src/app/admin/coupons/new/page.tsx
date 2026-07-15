@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+import { formatApiErrorMessage } from '@/lib/api-error-message';
 
 type MenuOption = { id: string; name: string; price: number | null };
 
@@ -66,19 +67,21 @@ export default function NewCouponPage() {
       return;
     }
 
-    // Client-side pre-validation
+    // Client-side pre-validation（サーバー zod＝src/lib/coupon-validation.ts の相互必須と同一の
+    // 範囲・文言。旧文言「0以上で入力してください」はサーバーの1以上必須とずれており、0を入れると
+    // クライアントを通過した後にサーバー 400 になる矛盾があった）
     const dv = discountValue ? parseInt(discountValue) : null;
     const sp = specialPrice ? parseInt(specialPrice) : null;
-    if (dv !== null && dv < 0) {
-      setToast({ type: 'error', message: '割引額は0以上で入力してください' });
+    if (discountType === 'fixed' && (dv === null || dv < 1 || dv > 100000)) {
+      setToast({ type: 'error', message: '定額割引は1円〜100,000円の範囲で入力してください' });
       return;
     }
-    if (discountType === 'percentage' && dv !== null && dv > 100) {
-      setToast({ type: 'error', message: '割合割引は0〜100%で入力してください' });
+    if (discountType === 'percentage' && (dv === null || dv < 1 || dv > 100)) {
+      setToast({ type: 'error', message: '割合割引は1%〜100%の範囲で入力してください' });
       return;
     }
-    if (sp !== null && sp < 0) {
-      setToast({ type: 'error', message: '特別価格は0以上で入力してください' });
+    if (discountType === 'special_price' && (sp === null || sp < 1)) {
+      setToast({ type: 'error', message: '特別価格は1円以上で入力してください' });
       return;
     }
 
@@ -115,7 +118,9 @@ export default function NewCouponPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setToast({ type: 'error', message: err.error ?? '作成に失敗しました' });
+        // 400 の zod details（具体メッセージ）を優先表示。汎用「リクエストが不正です」だけだと
+        // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
+        setToast({ type: 'error', message: formatApiErrorMessage(err, '作成に失敗しました') });
       } else {
         router.push('/admin/coupons');
       }
@@ -161,12 +166,12 @@ export default function NewCouponPage() {
         {discountType !== 'special_price' ? (
           <div>
             <label htmlFor="coupon-value" className="form-label">
-              割引額{discountType === 'percentage' ? '(%) ※0〜100' : '(円)'}
+              割引額{discountType === 'percentage' ? '(%) ※1〜100' : '(円)'}
             </label>
             <SbInput
               id="coupon-value"
               type="number"
-              min={0}
+              min={1}
               max={discountType === 'percentage' ? 100 : 100000}
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
@@ -178,7 +183,7 @@ export default function NewCouponPage() {
             <SbInput
               id="coupon-special"
               type="number"
-              min={0}
+              min={1}
               value={specialPrice}
               onChange={(e) => setSpecialPrice(e.target.value)}
             />

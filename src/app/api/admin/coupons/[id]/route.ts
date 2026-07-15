@@ -8,6 +8,8 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { validateCouponDiscountFields, normalizeCouponDiscountFields } from '@/lib/coupon-validation';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 const VALID_COUPON_TYPES = ['all', 'new_customer', 'repeat', 'limited_time'] as const;
 const VALID_DISCOUNT_TYPES = ['fixed', 'percentage', 'special_price'] as const;
@@ -121,7 +123,22 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
         // delete 済み・insert 失敗＝対象メニュー限定が消えて「全メニュー適用」になった状態で
         // 残ると金銭事故（例：1メニュー限定の特別価格が全メニューに効く）。fail-closed として
         // クーポンを無効化してから 500 を返す（管理者が保存し直せば復旧する）。
-        await admin.from('coupons').update({ is_active: false }).eq('id', params.id);
+        const { error: deactivateErr } = await admin.from('coupons').update({ is_active: false }).eq('id', params.id);
+        if (deactivateErr) {
+          // 二重失敗（insert 失敗→無効化失敗）＝「対象メニュー限定が消えて全メニュー適用のまま
+          // is_active=true」のクーポンが残存する金銭事故状態。無音にせず Sentry＋Slack で顕在化し、
+          // レスポンスにも明示する（旧実装は無効化の成否未チェックで、二重失敗時に防いだはずの
+          // 事故が無音再現していた）。
+          const doubleFailure = new Error(
+            `coupon update sync double-failure: coupon_id=${params.id} が全メニュー適用のまま有効で残存の可能性 ` +
+            `(insert: ${insErr.message} / deactivate: ${deactivateErr.message})`
+          );
+          safeCaptureException(doubleFailure, 'admin-coupons-update-sync');
+          alertCaughtError('admin-coupons-update-sync', doubleFailure, '/api/admin/coupons/[id]');
+          return NextResponse.json({
+            error: '対象メニューの保存に失敗し、クーポンを無効化できませんでした。このクーポンが全メニュー適用のまま有効になっている可能性があります。至急このクーポンの状態を確認し、対象メニューを設定し直すか無効化してください。',
+          }, { status: 500 });
+        }
         return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
       }
     }
