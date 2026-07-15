@@ -14,6 +14,7 @@ import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
+import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 
 export const dynamic = 'force-dynamic';
 
@@ -140,25 +141,24 @@ export async function POST(request: Request) {
           if (couponMenuErr) {
             return NextResponse.json({ error: 'クーポンの確認に失敗しました' }, { status: 500 });
           }
+          // 【2026年7月15日 HPB準拠仕様】coupon_menus に行があるクーポンは「対象メニューにのみ」
+          // 効く（対象外メニューは定価のまま加算）。行が無いクーポンは従来どおり全メニュー適用。
+          // 計算そのものは calculateCouponDiscountedTotal（src/lib/coupon-pricing.ts）に一本化し、
+          // クライアント(BookingFlow)とサーバーでドリフトしないようにする（サーバーが権威）。
+          let allowedMenuIds: string[] | undefined;
           if (couponMenuRows && couponMenuRows.length > 0) {
-            const allowedMenuIds = new Set(couponMenuRows.map((r: { menu_id: string }) => r.menu_id));
-            const hasMatchingMenu = menuIdsToPrice.some((id) => allowedMenuIds.has(id));
+            allowedMenuIds = couponMenuRows.map((r: { menu_id: string }) => r.menu_id);
+            const allowedSet = new Set(allowedMenuIds);
+            const hasMatchingMenu = menuIdsToPrice.some((id) => allowedSet.has(id));
             if (!hasMatchingMenu) {
               return NextResponse.json({ error: 'クーポンの対象メニューが選択されていません' }, { status: 400 });
             }
           }
-          if (coupon.discount_type === 'percentage') {
-            serverTotalPrice = Math.max(0, Math.round(serverTotalPrice * (1 - coupon.discount_value / 100)));
-          } else if (coupon.discount_type === 'fixed') {
-            serverTotalPrice = Math.max(0, serverTotalPrice - coupon.discount_value);
-          } else if (coupon.discount_type === 'special_price') {
-            // special_price 型は専用列 special_price に実額が入る（discount_value は null）。
-            // 旧実装は discount_value を読み serverTotalPrice=null となり金額/売上/会計/ポイントが全壊していた。
-            // special_price が数値の時のみ採用（万一 null の場合はメニュー定価を維持し NULL 伝播を防ぐ）。
-            if (typeof coupon.special_price === 'number') {
-              serverTotalPrice = coupon.special_price;
-            }
-          }
+          // special_price 型は専用列 special_price に実額が入る（discount_value は null）。
+          // 旧実装は discount_value を読み serverTotalPrice=null となり金額/売上/会計/ポイントが
+          // 全壊していた。special_price が数値の時のみ採用（万一 null の場合はメニュー定価を維持し
+          // NULL 伝播を防ぐ）＝ calculateCouponDiscountedTotal 内で担保。
+          serverTotalPrice = calculateCouponDiscountedTotal(menuRows!, coupon, allowedMenuIds);
         } else {
           // coupon_id 設定済み（このブロック内は常に真）かつ couponValid = false → 無効クーポン
           // serverTotalPrice は menuRow.price で必ず数値のため null ケースは到達不可

@@ -75,6 +75,44 @@ describe('calculateBookingPrice', () => {
   });
 });
 
+// 【2026年7月15日 HPB準拠仕様】クーポンは対象メニュー小計にのみ効く（対象外は定価加算）。
+// 計算は src/lib/coupon-pricing.ts の calculateCouponDiscountedTotal（SSOT）に一本化されており、
+// ここではクライアント表示額がサーバー（/api/booking の同名関数呼び出し）と同一の実額になる
+// ことを、サーバー側テスト（src/app/api/booking/__tests__/route.test.ts の混在ケース）と
+// 同じ数値で固定する（表示額とサーバー請求額の一致＝ドリフト検知）。
+describe('calculateBookingPrice（対象メニュー限定クーポン・allowedMenuIds）', () => {
+  function menuWithId(id: string, price: number): FacilityMenu {
+    return { ...menu(price), id } as FacilityMenu;
+  }
+  const target = menuWithId('menu-target', 10000);
+  const other = menuWithId('menu-other', 2000);
+
+  test('fixed：対象(10000)+対象外(2000)混在 → 対象のみ1000円引き＝11000（サーバーテストと同値）', () => {
+    const coupon = { discount_type: 'fixed', discount_value: 1000, special_price: null } as Coupon;
+    expect(calculateBookingPrice([target, other], coupon, null, ['menu-target'])).toBe(11000);
+  });
+
+  test('percentage：対象(10000)+対象外(2000)混在 → 対象のみ20%引き＝10000（旧ANY-match全額方式なら9600になり非等価・サーバーテストと同値）', () => {
+    const coupon = { discount_type: 'percentage', discount_value: 20, special_price: null } as Coupon;
+    expect(calculateBookingPrice([target, other], coupon, null, ['menu-target'])).toBe(10000);
+  });
+
+  test('special_price：対象(10000)+対象外(2000)混在 → 対象小計を5000に置換＝7000（サーバーテストと同値）', () => {
+    const coupon = { discount_type: 'special_price', discount_value: null, special_price: 5000 } as Coupon;
+    expect(calculateBookingPrice([target, other], coupon, null, ['menu-target'])).toBe(7000);
+  });
+
+  test('allowedMenuIds 未指定（行なしクーポン）→ 従来どおり全メニュー合計に適用（後方互換）', () => {
+    const coupon = { discount_type: 'percentage', discount_value: 20, special_price: null } as Coupon;
+    expect(calculateBookingPrice([target, other], coupon, null)).toBe(9600); // (10000+2000)*0.8
+  });
+
+  test('対象メニュー限定＋指名料 → 対象のみ割引の後に指名料を加算', () => {
+    const coupon = { discount_type: 'fixed', discount_value: 1000, special_price: null } as Coupon;
+    expect(calculateBookingPrice([target, other], coupon, staff(1500), ['menu-target'])).toBe(12500); // 11000+1500
+  });
+});
+
 describe('parseDateString', () => {
   test('通常の日付を年月日文字列から正しく解釈する', () => {
     // 2026-07-09 は木曜日

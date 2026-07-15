@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
+
+type MenuOption = { id: string; name: string; price: number | null };
 
 export default function NewCouponPage() {
   const router = useRouter();
@@ -16,8 +18,46 @@ export default function NewCouponPage() {
   const [specialPrice, setSpecialPrice] = useState('');
   const [validFrom, setValidFrom] = useState('');
   const [validUntil, setValidUntil] = useState('');
+  // 【2026年7月15日 HPB準拠仕様】対象メニュー限定（coupon_menus）。未選択＝全メニュー適用。
+  const [menuOptions, setMenuOptions] = useState<MenuOption[]>([]);
+  const [targetMenuIds, setTargetMenuIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // 対象メニュー選択肢のロード（自施設の facility_menus）。取得失敗は「メニューなし」に
+  // 偽装せずエラーメッセージを明示する（作成自体＝全メニュー適用クーポンは妨げない）。
+  const [menuLoadError, setMenuLoadError] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const supabase = createBrowserSupabaseClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data: membership, error: memError } = await supabase
+          .from('facility_members')
+          .select('facility_id')
+          .eq('user_id', user.id)
+          .limit(1)
+          .single();
+        if (memError || !membership) { setMenuLoadError(true); return; }
+        const { data: menus, error: menusError } = await supabase
+          .from('facility_menus')
+          .select('id, name, price')
+          .eq('facility_id', membership.facility_id)
+          .order('sort_order');
+        if (menusError) { setMenuLoadError(true); return; }
+        setMenuOptions((menus ?? []) as MenuOption[]);
+      } catch {
+        setMenuLoadError(true);
+      }
+    })();
+  }, []);
+
+  const toggleTargetMenu = (menuId: string) => {
+    setTargetMenuIds((prev) =>
+      prev.includes(menuId) ? prev.filter((id) => id !== menuId) : [...prev, menuId]
+    );
+  };
 
   const handleCreate = async () => {
     if (saving) return;
@@ -69,6 +109,7 @@ export default function NewCouponPage() {
           special_price: discountType === 'special_price' ? sp : null,
           valid_from: validFrom || null,
           valid_until: validUntil || null,
+          target_menu_ids: targetMenuIds,
         }),
       });
 
@@ -143,6 +184,31 @@ export default function NewCouponPage() {
             />
           </div>
         )}
+        <div>
+          <span className="form-label">対象メニュー（HPB準拠・複数選択可）</span>
+          <p className="text-xs text-gray-400 mb-2">
+            選択したメニューにのみクーポンが適用されます（対象外メニューは定価）。未選択の場合は全メニューに適用されます。
+          </p>
+          {menuLoadError ? (
+            <p className="text-xs text-red-500 border border-red-200 rounded-lg p-3">メニューの読み込みに失敗しました。対象メニューを設定する場合はページを再読み込みしてください。</p>
+          ) : menuOptions.length === 0 ? (
+            <p className="text-xs text-gray-400 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
+          ) : (
+            <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+              {menuOptions.map((menu) => (
+                <label key={menu.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={targetMenuIds.includes(menu.id)}
+                    onChange={() => toggleTargetMenu(menu.id)}
+                  />
+                  <span className="flex-1">{menu.name}</span>
+                  {menu.price !== null && <span className="text-xs text-gray-500">¥{menu.price.toLocaleString()}</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="coupon-from" className="form-label">有効期限（開始）</label>
