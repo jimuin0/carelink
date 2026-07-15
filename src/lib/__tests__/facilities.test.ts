@@ -29,6 +29,7 @@ import {
   getFeaturedFacilities,
   getNearbyFacilities,
   getAvailableFacilityIds,
+  getFacilityCancelPolicy,
 } from '../facilities';
 
 const { cachedFetch } = require('../redis');
@@ -56,6 +57,7 @@ function fluent(resolvedValue: unknown) {
   self.range = jest.fn(() => Promise.resolve(resolvedValue));
   self.limit = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
+  self.maybeSingle = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
 }
 
@@ -244,6 +246,44 @@ describe('getFacilityMenus', () => {
     const result = await getFacilityMenus('fac-1');
     expect(result.menus).toEqual(menus);
     expect(mockFrom).toHaveBeenCalledWith('facility_menus');
+  });
+});
+
+describe('getFacilityCancelPolicy（2026年7月15日 追加・予約確認画面のキャンセルポリシー表示用）', () => {
+  test('行が存在すればポリシーを返す', async () => {
+    const policy = { free_cancel_hours: 24, late_cancel_rate: 50, no_show_rate: 100, policy_text: '注意事項' };
+    const chain = fluent({ data: policy, error: null });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getFacilityCancelPolicy('fac-1');
+    expect(result).toEqual(policy);
+    expect(mockFrom).toHaveBeenCalledWith('facility_cancel_policies');
+  });
+
+  test('未設定施設（行が存在しない・data=null）は null を返す（グレースフルに非表示）', async () => {
+    const chain = fluent({ data: null, error: null });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getFacilityCancelPolicy('fac-1');
+    expect(result).toBeNull();
+  });
+
+  test('取得失敗（error）でも例外を投げず null を返す（表示専用の付加情報のため予約フローをブロックしない）', async () => {
+    const chain = fluent({ data: null, error: new Error('db down') });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getFacilityCancelPolicy('fac-1');
+    expect(result).toBeNull();
+  });
+
+  test('error が真かつ data が非null（本来ありえないPostgREST応答だが防御的にnullを返す）', async () => {
+    // 実際のSupabase応答では error と data が同時に真になることは無いが、
+    // 「error があれば data の有無に関わらず null」という契約自体を固定するための境界テスト。
+    const chain = fluent({ data: { free_cancel_hours: 24, late_cancel_rate: 50 }, error: new Error('db down') });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getFacilityCancelPolicy('fac-1');
+    expect(result).toBeNull();
   });
 });
 

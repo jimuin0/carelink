@@ -4,6 +4,7 @@ import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityR
 import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
 import { SLOT_OCCUPYING_STATUSES } from './booking-status';
+import type { CancelPolicy } from './cancel-fee';
 
 const PER_PAGE = 20;
 
@@ -223,6 +224,24 @@ export async function getFacilityReviews(facilityId: string) {
     .eq('facility_id', facilityId)
     .order('created_at', { ascending: false });
   return { reviews: (data || []) as FacilityReview[], error };
+}
+
+/**
+ * 【2026年7月15日 追加】予約確認画面（客向け）にキャンセルポリシーを表示するため、
+ * facility_cancel_policies から施設のポリシーを取得する。未設定施設（行が存在しない）は
+ * null を返し呼び出し側でグレースフルに非表示にする。取得失敗（DBエラー等）も同様に null を
+ * 返し、予約フロー自体をブロックしない（表示専用の付加情報のため）。
+ * RLS: `facility_cancel_policies` は "Public read" ポリシー(USING (true))で anon 読み取り可。
+ */
+export async function getFacilityCancelPolicy(facilityId: string): Promise<CancelPolicy | null> {
+  const supabase = createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from('facility_cancel_policies')
+    .select('free_cancel_hours, late_cancel_rate, no_show_rate, policy_text')
+    .eq('facility_id', facilityId)
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as CancelPolicy;
 }
 
 export async function getSimilarFacilities(facilityId: string, businessType: string, prefecture: string, limit = 4) {

@@ -39,3 +39,17 @@ export function computeCancelFee(
   if (hoursUntilStart >= free || rate <= 0) return { fee: 0, rate, isLate: false };
   return { fee: Math.round((totalPrice * rate) / 100), rate, isLate: true };
 }
+
+/**
+ * 【2026年7月15日 追加】予約確認画面（客向け）にキャンセルポリシーを表示するための説明文を
+ * 生成する純粋関数。free_cancel_hours <= 0（キャンセル不可設定）・late_cancel_rate <= 0
+ * （キャンセル料なし）はそれぞれ文言を分岐し、実在しない「0時間前まで無料」等の不自然な
+ * 表現を避ける。実際のキャンセル料計算（computeCancelFee）とは別に、表示専用の文言生成に限定する。
+ */
+export function describeCancelPolicy(policy: CancelPolicy): string {
+  const free = policy.free_cancel_hours ?? 0;
+  const rate = policy.late_cancel_rate ?? 0;
+  if (rate <= 0) return '予約後のキャンセル料はかかりません。';
+  if (free <= 0) return `キャンセルの場合、施術料金の${rate}%をキャンセル料として承ります。`;
+  return `予約日時の${free}時間前まで無料でキャンセルできます。それ以降のキャンセルは施術料金の${rate}%をキャンセル料として承ります。`;
+}

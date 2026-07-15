@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
-import { getFacilityBySlug, getFacilityMenus } from '@/lib/facilities';
+import { getFacilityBySlug, getFacilityMenus, getFacilityCancelPolicy } from '@/lib/facilities';
 import { getStaffByFacility } from '@/lib/staff';
 import { getCouponsByFacility } from '@/lib/coupons';
 import BookingFlow from '@/components/booking/BookingFlow';
@@ -31,10 +31,11 @@ export default async function BookingPage(props: Props) {
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) notFound();
 
-  const [staff, { menus }, coupons] = await Promise.all([
+  const [staff, { menus }, coupons, cancelPolicy] = await Promise.all([
     getStaffByFacility(facility.id),
     getFacilityMenus(facility.id),
     getCouponsByFacility(facility.id),
+    getFacilityCancelPolicy(facility.id),
   ]);
 
   return (
@@ -50,6 +51,7 @@ export default async function BookingPage(props: Props) {
           coupons={coupons}
           initialMenuId={searchParams.menu_id}
           initialStaffId={searchParams.staff_id}
+          cancelPolicy={cancelPolicy}
         />
       </div>
     </div>
