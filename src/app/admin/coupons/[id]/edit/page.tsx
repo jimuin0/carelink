@@ -9,6 +9,9 @@ import LoadError from '@/components/admin/LoadError';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 import { SbInput, SbPageHeader } from '@/components/admin/SbUi';
 import AdminPageLoading from '@/components/admin/AdminPageLoading';
+import { formatApiErrorMessage } from '@/lib/api-error-message';
+
+type MenuOption = { id: string; name: string; price: number | null };
 
 export default function CouponEditPage() {
   const params = useParams();
@@ -23,6 +26,9 @@ export default function CouponEditPage() {
   const [validFrom, setValidFrom] = useState('');
   const [validUntil, setValidUntil] = useState('');
   const [isActive, setIsActive] = useState(true);
+  // 【2026年7月15日 HPB準拠仕様】対象メニュー限定（coupon_menus）。未選択＝全メニュー適用。
+  const [menuOptions, setMenuOptions] = useState<MenuOption[]>([]);
+  const [targetMenuIds, setTargetMenuIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -53,8 +59,29 @@ export default function CouponEditPage() {
     setValidFrom(data.valid_from || '');
     setValidUntil(data.valid_until || '');
     setIsActive(data.is_active ?? true);
+
+    // 対象メニュー限定の現在値（coupon_menus）と選択肢（自施設の facility_menus）。
+    // ここが取得できないまま保存すると target_menu_ids: [] が送信され、既存の対象メニュー限定を
+    // 意図せず解除（全メニュー適用化）してしまう金銭事故になるため、失敗は loadError に倒して
+    // フォームを描画しない（既存の「空フォーム上書き事故防止」と同じ設計思想）。
+    const [{ data: cmRows, error: cmError }, { data: menus, error: menusError }] = await Promise.all([
+      supabase.from('coupon_menus').select('menu_id').eq('coupon_id', couponId),
+      supabase.from('facility_menus').select('id, name, price').eq('facility_id', data.facility_id).order('sort_order'),
+    ]);
+    if (cmError || menusError) {
+      setLoadError(true); setLoading(false); return;
+    }
+    setTargetMenuIds((cmRows ?? []).map((r: { menu_id: string }) => r.menu_id));
+    setMenuOptions((menus ?? []) as MenuOption[]);
     setLoading(false);
   }, [couponId, router]);
+
+  const toggleTargetMenu = (menuId: string) => {
+    setDirty(true);
+    setTargetMenuIds((prev) =>
+      prev.includes(menuId) ? prev.filter((id) => id !== menuId) : [...prev, menuId]
+    );
+  };
 
   useEffect(() => { loadCoupon().catch(() => { setLoadError(true); setLoading(false); }); }, [loadCoupon]);
 
@@ -64,19 +91,21 @@ export default function CouponEditPage() {
       return;
     }
 
-    // Client-side pre-validation
+    // Client-side pre-validation（サーバー zod＝src/lib/coupon-validation.ts の相互必須と同一の
+    // 範囲・文言。旧文言「0以上で入力してください」はサーバーの1以上必須とずれており、0を入れると
+    // クライアントを通過した後にサーバー 400 になる矛盾があった）
     const dv = discountType !== 'special_price' && discountValue ? parseInt(discountValue) : null;
     const sp = discountType === 'special_price' && specialPrice ? parseInt(specialPrice) : null;
-    if (dv !== null && dv < 0) {
-      setToast({ type: 'error', message: '割引額は0以上で入力してください' });
+    if (discountType === 'fixed' && (dv === null || dv < 1 || dv > 100000)) {
+      setToast({ type: 'error', message: '定額割引は1円〜100,000円の範囲で入力してください' });
       return;
     }
-    if (discountType === 'percentage' && dv !== null && dv > 100) {
-      setToast({ type: 'error', message: '割合割引は0〜100%で入力してください' });
+    if (discountType === 'percentage' && (dv === null || dv < 1 || dv > 100)) {
+      setToast({ type: 'error', message: '割合割引は1%〜100%の範囲で入力してください' });
       return;
     }
-    if (sp !== null && sp < 0) {
-      setToast({ type: 'error', message: '特別価格は0以上で入力してください' });
+    if (discountType === 'special_price' && (sp === null || sp < 1)) {
+      setToast({ type: 'error', message: '特別価格は1円以上で入力してください' });
       return;
     }
 
@@ -95,12 +124,15 @@ export default function CouponEditPage() {
           valid_from: validFrom || null,
           valid_until: validUntil || null,
           is_active: isActive,
+          target_menu_ids: targetMenuIds,
         }),
       });
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        setToast({ type: 'error', message: err.error ?? '保存に失敗しました' });
+        // 400 の zod details（具体メッセージ）を優先表示。汎用「リクエストが不正です」だけだと
+        // 何を直せばよいか分からないため（formatApiErrorMessage が fieldErrors を整形する）
+        setToast({ type: 'error', message: formatApiErrorMessage(err, '保存に失敗しました') });
       } else {
         setDirty(false);
         setToast({ type: 'success', message: '保存しました' });
@@ -180,12 +212,12 @@ export default function CouponEditPage() {
         {discountType !== 'special_price' ? (
           <div>
             <label htmlFor="discount-val" className="form-label">
-              割引値{discountType === 'fixed' ? '（円）' : '（%）※0〜100'}
+              割引値{discountType === 'fixed' ? '（円）' : '（%）※1〜100'}
             </label>
             <SbInput
               id="discount-val"
               type="number"
-              min={0}
+              min={1}
               max={discountType === 'percentage' ? 100 : 100000}
               value={discountValue}
               onChange={(e) => setDiscountValue(e.target.value)}
@@ -197,12 +229,35 @@ export default function CouponEditPage() {
             <SbInput
               id="special-price"
               type="number"
-              min={0}
+              min={1}
               value={specialPrice}
               onChange={(e) => setSpecialPrice(e.target.value)}
             />
           </div>
         )}
+        <div>
+          <span className="form-label">対象メニュー（HPB準拠・複数選択可）</span>
+          <p className="text-xs text-gray-400 mb-2">
+            選択したメニューにのみクーポンが適用されます（対象外メニューは定価）。未選択の場合は全メニューに適用されます。
+          </p>
+          {menuOptions.length === 0 ? (
+            <p className="text-xs text-gray-400 border rounded-lg p-3">選択できるメニューがありません（メニュー未登録）</p>
+          ) : (
+            <div className="border rounded-lg divide-y max-h-64 overflow-y-auto">
+              {menuOptions.map((menu) => (
+                <label key={menu.id} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50">
+                  <input
+                    type="checkbox"
+                    checked={targetMenuIds.includes(menu.id)}
+                    onChange={() => toggleTargetMenu(menu.id)}
+                  />
+                  <span className="flex-1">{menu.name}</span>
+                  {menu.price !== null && <span className="text-xs text-gray-500">¥{menu.price.toLocaleString()}</span>}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-4">
           <div>
             <label htmlFor="valid-from" className="form-label">有効開始日</label>

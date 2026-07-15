@@ -157,3 +157,133 @@ describe('クーポン×メニュー適合制約(coupon_menus)のUI', () => {
     expect(screen.queryByText('✓ 選択中')).not.toBeInTheDocument();
   });
 });
+
+// ─── 【2026年7月15日 HPB準拠仕様】クーポン選択→対象メニュー自動選択 ─────────────
+describe('クーポン選択で対象メニューが自動選択される（HPBの「クーポン=施術が決まる」体験）', () => {
+  test('対象メニュー限定クーポンを選ぶと対象メニューが自動選択され、トーストと「自動選択済み」表示が出る', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    // メニュー未選択のままクーポンを選択
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+
+    // 自動選択の通知トースト
+    expect(await screen.findByText(/対象メニュー（カット）を自動選択しました/)).toBeInTheDocument();
+    // クーポンカードに自動選択済みの明示
+    expect(screen.getByText(/自動選択済み/)).toBeInTheDocument();
+    // サマリに1件選択中（対象メニューが selectedMenus に入った）＋合計は対象メニュー定価
+    expect(screen.getByText('1件選択中')).toBeInTheDocument();
+    expect(screen.getByText('合計 ¥5,000')).toBeInTheDocument();
+  });
+
+  test('自動選択された対象メニューにはメニュー一覧で「クーポン対象」バッジが付く', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+    await screen.findByText(/自動選択しました/);
+
+    // メニュータブへ切替（対象メニューにのみバッジ）
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    expect(await screen.findByText('クーポン対象')).toBeInTheDocument();
+    expect(screen.getByText('1件選択中')).toBeInTheDocument();
+  });
+
+  test('既に別メニューを選択済みでクーポンを選ぶと既存選択は維持される（マージ・対象+対象外混在を妨げない）', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    // 対象外メニュー(カラー)と対象メニュー(カット)を両方選択してからクーポンへ
+    fireEvent.click(screen.getByText('メニューから選ぶ'));
+    fireEvent.click(await screen.findByText('カラー'));
+    fireEvent.click(screen.getByText('カット'));
+    fireEvent.click(screen.getByText('クーポン'));
+
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+
+    // 既存2件が維持される（対象メニューは既に選択済みなので追加0件）
+    expect(screen.getByText('2件選択中')).toBeInTheDocument();
+    expect(screen.getByText('合計 ¥10,000')).toBeInTheDocument();
+    // 【2026年7月15日 追加】自動追加が発生していない（追加0件）ため、「自動選択済み」ラベルも
+    // 自動選択トーストも表示しない（事実と異なる表示をしない）
+    expect(screen.queryByText(/自動選択済み/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/自動選択しました/)).not.toBeInTheDocument();
+  });
+
+  test('対象未設定クーポン（couponMenuMapにキーなし）を選んでもメニューは自動選択されない（従来どおり手動選択）', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[UNRESTRICTED_COUPON]}
+        couponMenuMap={{}}
+      />
+    );
+    const couponButton = (await screen.findByText('全メニュークーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+    // 自動選択は発生しない
+    expect(screen.queryByText(/自動選択しました/)).not.toBeInTheDocument();
+    expect(screen.getByText('メニューを1つ以上選択してください')).toBeInTheDocument();
+  });
+
+  test('対象メニューIDが menus に存在しない（削除済み等）場合は自動選択せずクラッシュもしない', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-deleted'] }}
+      />
+    );
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+    expect(screen.queryByText(/自動選択しました/)).not.toBeInTheDocument();
+    expect(screen.getByText('メニューを1つ以上選択してください')).toBeInTheDocument();
+  });
+
+  test('選択済みクーポンをもう一度クリックすると選択解除される（自動選択済みメニューは残す）', async () => {
+    render(
+      <BookingFlow
+        facility={FACILITY}
+        staff={[]}
+        menus={[MENU_A, MENU_B]}
+        coupons={[RESTRICTED_COUPON]}
+        couponMenuMap={{ 'coupon-1': ['menu-a'] }}
+      />
+    );
+    const couponButton = (await screen.findByText('カット限定クーポン')).closest('button')!;
+    fireEvent.click(couponButton);
+    await screen.findByText(/自動選択しました/);
+    expect(screen.getByText('✓ 選択中')).toBeInTheDocument();
+
+    fireEvent.click(couponButton);
+    expect(screen.queryByText('✓ 選択中')).not.toBeInTheDocument();
+    // メニュー選択は残る（ユーザーが選び直す手間を発生させない）
+    expect(screen.getByText('1件選択中')).toBeInTheDocument();
+  });
+});

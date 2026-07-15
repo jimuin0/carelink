@@ -6,6 +6,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toast from '@/components/Toast';
 import type { StaffProfile, FacilityMenu, Coupon, AvailableSlot } from '@/types';
 import { describeCancelPolicy, type CancelPolicy } from '@/lib/cancel-fee';
+import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 
 type Step = 'menu' | 'datetime' | 'confirm';
 
@@ -18,24 +19,20 @@ type Step = 'menu' | 'datetime' | 'confirm';
  * 正のため差額は生じないが、確認画面の合計金額が非表示になりポイント利用セクションも隠れる=
  * 使えるはずのポイントが使えないUX不整合になる）。menuTotal===0 の早期returnを外し、サーバーと
  * 同一ロジック（クーポン→指名料の順）で計算する。
+ *
+ * 【2026年7月15日 HPB準拠仕様】クーポン割引計算そのものは calculateCouponDiscountedTotal
+ * （src/lib/coupon-pricing.ts）に一本化した。クライアント表示額とサーバー(/api/booking)の
+ * 請求額が別実装でドリフトする事故を構造的に防ぐ（サーバーが権威）。allowedMenuIds は
+ * couponMenuMap[selectedCoupon.id]（coupon_menus に行があるクーポンのみキーを持つ）を渡す。
  */
 export function calculateBookingPrice(
   selectedMenus: FacilityMenu[],
   selectedCoupon: Coupon | null,
   selectedStaff: StaffProfile | null,
+  allowedMenuIds?: string[],
 ): number | null {
   if (selectedMenus.length === 0) return null;
-  const menuTotal = selectedMenus.reduce((sum, m) => sum + (m.price || 0), 0);
-  let price = menuTotal;
-  if (selectedCoupon) {
-    if (selectedCoupon.discount_type === 'fixed' && selectedCoupon.discount_value) {
-      price = Math.max(0, price - selectedCoupon.discount_value);
-    } else if (selectedCoupon.discount_type === 'percentage' && selectedCoupon.discount_value) {
-      price = Math.max(0, Math.round(price * (1 - selectedCoupon.discount_value / 100)));
-    } else if (selectedCoupon.discount_type === 'special_price' && selectedCoupon.special_price !== null) {
-      price = selectedCoupon.special_price;
-    }
-  }
+  let price = calculateCouponDiscountedTotal(selectedMenus, selectedCoupon, allowedMenuIds);
   if (selectedStaff && (selectedStaff.nomination_fee || 0) > 0) {
     price += selectedStaff.nomination_fee || 0;
   }
@@ -161,6 +158,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     initialStaffId ? (staff.find((s) => s.id === initialStaffId) ?? null) : null
   );
   const [selectedCoupon, setSelectedCoupon] = useState<Coupon | null>(null);
+  // 「（自動選択済み）」表示・自動選択トーストを【実際に自動追加が発生した時のみ】出すための
+  // 状態（どのクーポンの自動追加が発生したか）。詳細は handleCouponSelect のコメント参照。
+  const [autoSelectedCouponId, setAutoSelectedCouponId] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedSlot, setSelectedSlot] = useState<AvailableSlot | null>(null);
   const [weekOffset, setWeekOffset] = useState(0);
@@ -474,7 +474,8 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     }
   };
 
-  const calculatePrice = () => calculateBookingPrice(selectedMenus, selectedCoupon, selectedStaff);
+  const calculatePrice = () =>
+    calculateBookingPrice(selectedMenus, selectedCoupon, selectedStaff, selectedCoupon ? couponMenuMap[selectedCoupon.id] : undefined);
 
   // 【2026年7月15日 恒久予防】選択中クーポンが対象メニュー限定で、メニュー選択の変更により
   // 選択中メニューがその対象から外れた場合、クーポン選択を自動解除し警告する。サーバー
@@ -485,6 +486,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
     const allowedMenuIds = couponMenuMap[selectedCoupon.id];
     if (!isCouponMenuCompatible(allowedMenuIds, selectedMenus.map((m) => m.id))) {
       setSelectedCoupon(null);
+      setAutoSelectedCouponId(null);
       setToast({ type: 'error', message: '選択したメニューはこのクーポンの対象外のため、クーポンの選択を解除しました' });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -517,6 +519,48 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
   ];
   const currentIndex = steps.findIndex((s) => s.key === step);
   const specificStaff = selectedStaff !== null;
+
+  /**
+   * クーポン選択時のハンドラ（HPB準拠のUX＝「クーポン=施術が決まる」）。
+   * 【2026年7月15日】coupon_menus に行があるクーポン（対象メニュー限定）を選ぶと、対象メニューを
+   * 自動で selectedMenus に追加する（既に選択済みのメニューはそのまま維持＝マージ。対象+対象外
+   * 混在の予約を妨げない）。対象未設定クーポン（allowedMenuIds が空/undefined）は従来どおり
+   * 手動選択のみで、ここでは selectedMenus に触れない。
+   * 「（自動選択済み）」ラベルとトーストは【実際に自動追加が発生した時のみ】出す
+   * （対象メニューを既にユーザーが選択済みの場合、追加0件なのに「自動選択済み」と表示するのは
+   * 事実と異なるため）。autoSelectedCouponId でどのクーポンの自動追加が発生したかを保持する。
+   */
+  function handleCouponSelect(coupon: Coupon, allowedMenuIds: string[] | undefined, isSelected: boolean) {
+    if (isSelected) {
+      setSelectedCoupon(null);
+      setAutoSelectedCouponId(null);
+      return;
+    }
+    setSelectedCoupon(coupon);
+    setAutoSelectedCouponId(null);
+    const isMenuRestricted = !!allowedMenuIds && allowedMenuIds.length > 0;
+    if (!isMenuRestricted) return;
+
+    const targetMenus = allowedMenuIds!
+      .map((id) => menus.find((m) => m.id === id))
+      .filter((m): m is FacilityMenu => !!m);
+    if (targetMenus.length === 0) return;
+
+    // クリック時点の選択状態から「実際に追加されるメニュー」を判定する（追加0件なら自動選択の
+    // 表示・通知は一切出さない）。state 更新自体は prev ベースのマージで安全に行う。
+    const existingIds = new Set(selectedMenus.map((m) => m.id));
+    const additions = targetMenus.filter((m) => !existingIds.has(m.id));
+    if (additions.length === 0) return;
+
+    setSelectedMenus((prev) => {
+      const prevIds = new Set(prev.map((m) => m.id));
+      const adds = targetMenus.filter((m) => !prevIds.has(m.id));
+      return adds.length > 0 ? [...prev, ...adds] : prev;
+    });
+    setAutoSelectedCouponId(coupon.id);
+    const names = additions.map((m) => m.name).join('、');
+    setToast({ type: 'success', message: `「${coupon.name}」の対象メニュー（${names}）を自動選択しました` });
+  }
 
   return (
     <div>
@@ -602,7 +646,7 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                         key={coupon.id}
                         disabled={isIncompatible}
                         aria-disabled={isIncompatible}
-                        onClick={() => { if (isIncompatible) return; setSelectedCoupon(isSelected ? null : coupon); }}
+                        onClick={() => { if (isIncompatible) return; handleCouponSelect(coupon, allowedMenuIds, isSelected); }}
                         className={`w-full text-left rounded-xl border transition-colors overflow-hidden ${
                           isIncompatible
                             ? 'border-gray-200 opacity-50 cursor-not-allowed'
@@ -625,6 +669,9 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                               <p className={`text-xs mt-1 ${isIncompatible ? 'text-red-500 font-bold' : 'text-gray-400'}`}>
                                 対象メニュー：{targetMenuNames.join('、')}
                                 {isIncompatible && '（選択中のメニューでは利用できません）'}
+                                {/* HPB準拠UX：クーポン選択で対象メニューの自動追加が【実際に発生した】
+                                    時のみ明示する（既に選択済みで追加0件の場合は表示しない） */}
+                                {isSelected && !isIncompatible && autoSelectedCouponId === coupon.id && '（自動選択済み）'}
                               </p>
                             )}
                             {isSelected && !isIncompatible && (
@@ -655,6 +702,10 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
               )}
               {menus.map((menu) => {
                 const isSelected = selectedMenus.some((m) => m.id === menu.id);
+                // HPB準拠UX：選択中クーポンの対象メニュー（自動選択されたメニュー）にバッジを出す。
+                // 対象未設定クーポン（allowedMenuIds が空/undefined）の場合は何も表示しない。
+                const selectedCouponAllowedIds = selectedCoupon ? couponMenuMap[selectedCoupon.id] : undefined;
+                const isCouponTarget = !!selectedCouponAllowedIds && selectedCouponAllowedIds.includes(menu.id);
                 return (
                   <button
                     type="button"
@@ -673,7 +724,14 @@ export default function BookingFlow({ facility, staff, menus, coupons, initialMe
                         {isSelected && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                       </div>
                       <div className="flex-1">
-                        <p className="font-bold text-sm">{menu.name}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="font-bold text-sm">{menu.name}</p>
+                          {isCouponTarget && (
+                            <span className="shrink-0 text-[10px] font-bold text-primary bg-sky-50 border border-sky-200 rounded-full px-1.5 py-0.5">
+                              クーポン対象
+                            </span>
+                          )}
+                        </div>
                         {menu.description && <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">{menu.description}</p>}
                         <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
                           {menu.price !== null && <span className="text-red-500 font-bold">¥{menu.price.toLocaleString()}</span>}

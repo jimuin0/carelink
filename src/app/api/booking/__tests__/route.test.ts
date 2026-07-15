@@ -1013,6 +1013,145 @@ describe('POST /api/booking', () => {
     });
   });
 
+  // 【2026年7月15日 HPB準拠仕様】クーポンは対象メニューにのみ効く（対象外メニューは定価加算）。
+  // src/lib/coupon-pricing.ts の calculateCouponDiscountedTotal をサーバーが権威として呼ぶ。
+  // ここでは対象+対象外混在のケースで「対象分のみ割引」の実額をサーバー請求額で検証する
+  // （純粋関数の全分岐は src/lib/__tests__/coupon-pricing.test.ts で網羅済み）。
+  describe('HPB準拠：対象メニュー限定クーポンは対象小計にのみ適用（混在ケース）', () => {
+    test('fixed：対象メニュー(10000)+対象外メニュー(2000)混在 → 対象分のみ1000円引き(9000)+対象外2000=11000', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const targetMenuId = '323e4567-e89b-12d3-a456-426614174000';
+      const otherMenuId = '523e4567-e89b-12d3-a456-426614174000';
+      const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+      const conflictChain = fluent(null);
+      conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+      const menuResult = { data: [{ id: targetMenuId, price: 10000 }, { id: otherMenuId, price: 2000 }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const couponChain = fluent({ data: { discount_type: 'fixed', discount_value: 1000, is_active: true, valid_from: null, valid_until: null }, error: null });
+      const nullChain = fluent({ data: null });
+
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return couponChain;
+        // 対象メニューは targetMenuId のみ（otherMenuId は対象外）
+        if (table === 'coupon_menus') return couponMenusChain([{ menu_id: targetMenuId }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({
+        ...validBooking, menu_id: null, menu_ids: [targetMenuId, otherMenuId], coupon_id: couponId, total_price: 1,
+      }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      // 対象(10000)-1000=9000 + 対象外(2000)定価 = 11000（旧ANY-match実装なら 12000-1000=11000 と
+      // 偶然一致してしまうため、下の percentage/special_price テストで意味論の違いを明確に検証する）
+      expect(mockRpc).toHaveBeenCalledWith(
+        'create_booking_atomic',
+        expect.objectContaining({ p_total_price: 11000, p_coupon_id: couponId })
+      );
+    });
+
+    test('percentage：対象メニュー(10000)+対象外メニュー(2000)混在 → 対象分のみ20%引き(8000)+対象外2000=10000（旧ANY-match実装なら9600になり非等価）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const targetMenuId = '323e4567-e89b-12d3-a456-426614174000';
+      const otherMenuId = '523e4567-e89b-12d3-a456-426614174000';
+      const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+      const conflictChain = fluent(null);
+      conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+      const menuResult = { data: [{ id: targetMenuId, price: 10000 }, { id: otherMenuId, price: 2000 }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const couponChain = fluent({ data: { discount_type: 'percentage', discount_value: 20, is_active: true, valid_from: null, valid_until: null }, error: null });
+      const nullChain = fluent({ data: null });
+
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return couponChain;
+        if (table === 'coupon_menus') return couponMenusChain([{ menu_id: targetMenuId }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({
+        ...validBooking, menu_id: null, menu_ids: [targetMenuId, otherMenuId], coupon_id: couponId, total_price: 1,
+      }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      // 新方式（対象小計のみ）: 10000*0.8=8000 + 対象外2000 = 10000
+      // 旧ANY-match方式（合計に効く）なら (10000+2000)*0.8=9600 になり、この値と一致しないことで
+      // 「対象分のみ割引」の意味論が実際に効いていることを検証する。
+      expect(mockRpc).toHaveBeenCalledWith(
+        'create_booking_atomic',
+        expect.objectContaining({ p_total_price: 10000, p_coupon_id: couponId })
+      );
+    });
+
+    test('special_price：対象メニュー(10000)+対象外メニュー(2000)混在 → 対象小計を5000に置換+対象外2000=7000', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const targetMenuId = '323e4567-e89b-12d3-a456-426614174000';
+      const otherMenuId = '523e4567-e89b-12d3-a456-426614174000';
+      const couponId = '423e4567-e89b-12d3-a456-426614174000';
+
+      const conflictChain = fluent(null);
+      conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+      const menuResult = { data: [{ id: targetMenuId, price: 10000 }, { id: otherMenuId, price: 2000 }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const couponChain = fluent({ data: { discount_type: 'special_price', discount_value: null, special_price: 5000, is_active: true, valid_from: null, valid_until: null }, error: null });
+      const nullChain = fluent({ data: null });
+
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return couponChain;
+        if (table === 'coupon_menus') return couponMenusChain([{ menu_id: targetMenuId }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({
+        ...validBooking, menu_id: null, menu_ids: [targetMenuId, otherMenuId], coupon_id: couponId, total_price: 1,
+      }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      // 対象(10000)→special_price(5000)に置換 + 対象外(2000)定価 = 7000
+      expect(mockRpc).toHaveBeenCalledWith(
+        'create_booking_atomic',
+        expect.objectContaining({ p_total_price: 7000, p_coupon_id: couponId })
+      );
+    });
+  });
+
   test('無効クーポン→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
