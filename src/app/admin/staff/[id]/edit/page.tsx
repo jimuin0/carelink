@@ -18,6 +18,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
   const [specialties, setSpecialties] = useState('');
   const [yearsExperience, setYearsExperience] = useState('');
   const [instagramUrl, setInstagramUrl] = useState('');
+  const [nominationFee, setNominationFee] = useState('');
   const [lineWorksChannelId, setLineWorksChannelId] = useState('');
   const [lineWorksNotifyAll, setLineWorksNotifyAll] = useState(false);
   const [isActive, setIsActive] = useState(true);
@@ -47,6 +48,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
         setSpecialties((data.specialties || []).join(', '));
         setYearsExperience(data.years_experience?.toString() || '');
         setInstagramUrl(data.instagram_url || '');
+        setNominationFee(data.nomination_fee != null ? data.nomination_fee.toString() : '');
         setLineWorksChannelId(data.line_works_channel_id || '');
         setLineWorksNotifyAll(data.line_works_notify_all || false);
         setIsActive(data.is_active ?? true);
@@ -73,6 +75,7 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
           specialties: specialties ? specialties.split(',').map((s: string) => s.trim()) : [],
           years_experience: yearsExperience ? parseInt(yearsExperience) : null,
           instagram_url: instagramUrl || null,
+          nomination_fee: nominationFee ? parseInt(nominationFee) : 0,
           line_works_channel_id: lineWorksChannelId || null,
           line_works_notify_all: lineWorksNotifyAll,
           is_active: isActive,
@@ -132,9 +135,13 @@ export default function EditStaffPage(props: { params: Promise<{ id: string }> }
             <SbInput id="staff-years" type="number" value={yearsExperience} onChange={(e) => setYearsExperience(e.target.value)} />
           </div>
           <div>
-            <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
-            <SbInput id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} maxLength={200} />
+            <label htmlFor="staff-fee" className="form-label">指名料（円）</label>
+            <SbInput id="staff-fee" type="number" value={nominationFee} onChange={(e) => setNominationFee(e.target.value)} />
           </div>
+        </div>
+        <div>
+          <label htmlFor="staff-instagram" className="form-label">Instagram URL</label>
+          <SbInput id="staff-instagram" value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} maxLength={200} />
         </div>
 
         <div className="border-t pt-4">

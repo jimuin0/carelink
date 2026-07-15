@@ -415,6 +415,7 @@ export default function CustomersManager({
         message="この顧客をマスターから削除します。来店履歴（予約データ）は残ります。よろしいですか？"
         confirmLabel={deleting ? '削除中...' : '削除する'}
         confirmDisabled={deleting}
+        variant="danger"
         onConfirm={handleDelete}
         onCancel={() => { if (!deleting) setDeleteId(null); }}
       />
