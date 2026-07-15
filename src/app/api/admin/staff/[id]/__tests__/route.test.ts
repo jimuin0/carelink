@@ -15,6 +15,8 @@ jest.mock('@/lib/audit-logger', () => ({
   writeAuditLog: jest.fn(),
   getRequestContext: jest.fn(() => ({ ua: 'test', ip: '127.0.0.1' })),
 }));
+jest.mock('@/lib/safe', () => ({ safeCaptureException: jest.fn() }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [] }) }));
 
 const STAFF_UUID = '11111111-1111-1111-1111-111111111111';
@@ -306,4 +308,155 @@ test('レスポンスが { staff: ... } 形式', async () => {
   const res = await PATCH(makeRequest({ name: 'テスト' }), makeProps());
   const json = await res.json();
   expect(json.staff.id).toBe(STAFF_UUID);
+});
+
+// ─── 担当メニュー(menu_staff)同期（2026年7月15日 HPB準拠仕様） ─────────────────
+describe('担当メニュー(menu_staff)同期', () => {
+  // zod4 の z.string().uuid() は RFC のバリアントニブルを検証するため、有効なUUID
+  // （バリアント位が 8/9/a/b）を使う（4444.. 等は variant=4 で invalid になる）。
+  const MENU_A = '423e4567-e89b-12d3-a456-426614174001';
+  const MENU_B = '523e4567-e89b-12d3-a456-426614174002';
+
+  // await 可能な（thenable）クエリ結果を返すチェーン。任意のメソッド呼び出しで自身を返し、
+  // .then で result に解決する。facility_menus 検証・menu_staff delete の両方に使える。
+  function thenableChain(result: unknown) {
+    const chain: Record<string, unknown> = {};
+    const handler = jest.fn(() => chain);
+    chain.select = handler;
+    chain.in = handler;
+    chain.eq = handler;
+    chain.delete = handler;
+    chain.then = Promise.resolve(result).then.bind(Promise.resolve(result));
+    return chain;
+  }
+
+  // 表を切り替える admin.from モックを組む。facility_menus 検証・staff_profiles 更新・
+  // menu_staff delete/insert をそれぞれ差し替えられるようにする。
+  function setupAdmin(opts: {
+    menuValidation?: unknown;
+    staffUpdate?: { data: unknown; error?: unknown };
+    deleteResult?: unknown;
+    insertResult?: unknown;
+    insertSpy?: jest.Mock;
+  }) {
+    const staffUpdate = opts.staffUpdate ?? { data: { id: STAFF_UUID, name: 'test' }, error: null };
+    const insertSpy = opts.insertSpy ?? jest.fn(() => Promise.resolve(opts.insertResult ?? { error: null }));
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') return thenableChain(opts.menuValidation ?? { data: [{ id: MENU_A }, { id: MENU_B }], error: null });
+      if (table === 'staff_profiles') {
+        return {
+          update: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                select: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn(() => Promise.resolve(staffUpdate)),
+                }),
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'menu_staff') {
+        return {
+          delete: jest.fn(() => ({ eq: jest.fn(() => Promise.resolve(opts.deleteResult ?? { error: null })) })),
+          insert: insertSpy,
+        };
+      }
+      return {};
+    });
+    return { insertSpy };
+  }
+
+  test('menu_ids 指定（非空・自施設メニュー）→ 200・delete→insert される', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    const { insertSpy } = setupAdmin({});
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [MENU_A, MENU_B] }), makeProps());
+    expect(res.status).toBe(200);
+    expect(insertSpy).toHaveBeenCalledWith([
+      { menu_id: MENU_A, staff_id: STAFF_UUID },
+      { menu_id: MENU_B, staff_id: STAFF_UUID },
+    ]);
+  });
+
+  test('menu_ids 空配列（担当制解除）→ 200・delete のみ・insert は呼ばれない', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    const { insertSpy } = setupAdmin({});
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [] }), makeProps());
+    expect(res.status).toBe(200);
+    expect(insertSpy).not.toHaveBeenCalled();
+  });
+
+  test('他施設メニューID注入 → 400（fail-closed・staff更新前に弾く）', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    // 検証クエリは MENU_A のみ返す（MENU_B は自施設に無い＝注入）
+    setupAdmin({ menuValidation: { data: [{ id: MENU_A }], error: null } });
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [MENU_A, MENU_B] }), makeProps());
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('担当メニュー');
+  });
+
+  test('facility_menus 検証クエリ失敗 → 500', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    setupAdmin({ menuValidation: { data: null, error: { message: 'db error' } } });
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [MENU_A] }), makeProps());
+    expect(res.status).toBe(500);
+  });
+
+  test('facility_menus 検証が data=null(0件)を返す → 400（?? [] フォールバック・全メニュー不正扱い）', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    setupAdmin({ menuValidation: { data: null, error: null } });
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [MENU_A] }), makeProps());
+    expect(res.status).toBe(400);
+  });
+
+  test('menu_staff delete 失敗 → 500', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    setupAdmin({ deleteResult: { error: { message: 'delete failed' } } });
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [MENU_A] }), makeProps());
+    expect(res.status).toBe(500);
+  });
+
+  test('menu_staff insert 失敗 → 500・Sentry＋Slack顕在化・具体的メッセージ（無音失敗禁止）', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    const { safeCaptureException } = require('@/lib/safe');
+    const { alertCaughtError } = require('@/lib/alert');
+    setupAdmin({
+      insertSpy: jest.fn(() => Promise.resolve({ error: { message: 'insert failed' } })),
+    });
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: [MENU_A] }), makeProps());
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toContain('担当メニューの保存に失敗');
+    expect(safeCaptureException).toHaveBeenCalledWith(expect.any(Error), 'admin-staff-menu-sync');
+    expect(alertCaughtError).toHaveBeenCalledWith('admin-staff-menu-sync', expect.any(Error), '/api/admin/staff/[id]');
+  });
+
+  test('menu_ids 未指定 → menu_staff に一切触れない（従来の編集を壊さない）', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    const menuStaffSpy = jest.fn();
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'menu_staff') { menuStaffSpy(); return { delete: jest.fn(), insert: jest.fn() }; }
+      return {
+        update: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              select: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: STAFF_UUID, name: 'test' }, error: null })),
+              }),
+            }),
+          }),
+        }),
+      };
+    });
+    const res = await PATCH(makeRequest({ name: 'test' }), makeProps());
+    expect(res.status).toBe(200);
+    expect(menuStaffSpy).not.toHaveBeenCalled();
+  });
+
+  test('menu_ids が UUID でない要素を含む → 400', async () => {
+    mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+    const res = await PATCH(makeRequest({ name: 'test', menu_ids: ['not-a-uuid'] }), makeProps());
+    expect(res.status).toBe(400);
+  });
 });

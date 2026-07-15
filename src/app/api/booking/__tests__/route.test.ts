@@ -168,6 +168,20 @@ function couponMenusChain(rows: { menu_id: string }[] | null, errorObj: { messag
   return chain;
 }
 
+// 共有: メニュー担当スタッフ(menu_staff) の取得結果 chain（2026年7月15日追加）。
+// select('menu_id, staff_id').in('menu_id', ...) を直接 await する形（.single() 無し・複数行）。
+// rows=[] は「担当制限定なし(0行)」＝全スタッフ対応（本番の現状デフォルト）。
+// errorObj を渡すとクエリ失敗（fail-closed 500）を再現できる。
+function menuStaffChain(rows: { menu_id: string; staff_id: string }[] | null, errorObj: { message: string } | null = null) {
+  const result = { data: rows, error: errorObj };
+  const chain: Record<string, unknown> = {};
+  const handler = jest.fn(() => chain);
+  chain.select = handler;
+  chain.in = handler;
+  chain.then = Promise.resolve(result).then.bind(Promise.resolve(result));
+  return chain;
+}
+
 describe('POST /api/booking', () => {
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -1013,6 +1027,140 @@ describe('POST /api/booking', () => {
     });
   });
 
+  // 【2026年7月15日 HPB準拠仕様】メニュー担当スタッフ制(menu_staff)の全分岐。
+  // 意味論＝menu_staff に行があるメニューは担当スタッフ限定・行が無い(0行)メニューは全スタッフ対応。
+  // 本番は現状全メニュー0行のため挙動変化ゼロ。行あり適合(通る)／行あり不適合(400)／クエリ失敗(500)／
+  // staff_id なし(チェック自体をスキップ)の各分岐を検証する。判定純関数の全分岐は
+  // src/lib/__tests__/menu-staff.test.ts で網羅済みのため、ここは route の分岐（400/500）に集中する。
+  describe('メニュー担当スタッフ制(menu_staff)', () => {
+    // menu_staff チェックは price 計算後・staff_id がある時のみ実行される。共通の chain 束を作る。
+    function baseChains(price: number) {
+      const conflictChain = fluent(null);
+      const noConflict = Promise.resolve({ data: [] });
+      const chainEnd: Record<string, unknown> = {};
+      chainEnd.eq = jest.fn(() => noConflict);
+      chainEnd.then = noConflict.then.bind(noConflict);
+      conflictChain.gt = jest.fn(() => chainEnd);
+
+      const menuId = '323e4567-e89b-12d3-a456-426614174000';
+      const menuResult = { data: [{ id: menuId, price }], error: null };
+      const menuChain: Record<string, unknown> = {};
+      const menuHandler = jest.fn(() => menuChain);
+      menuChain.select = menuHandler;
+      menuChain.in = menuHandler;
+      menuChain.eq = menuHandler;
+      menuChain.or = menuHandler;
+      menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+      const staffFeeChain = fluent({ data: { nomination_fee: 0 } });
+      const nullChain = fluent({ data: null });
+      return { conflictChain, menuChain, staffFeeChain, nullChain, menuId };
+    }
+
+    test('menu_staffに行あり・指名スタッフが担当に含まれる→通る（200）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const staffId = '223e4567-e89b-12d3-a456-426614174000';
+      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return staffFeeChain;
+        // 担当は当該 staffId と別スタッフの2件。指名 staffId が含まれるため通る。
+        if (table === 'menu_staff') return menuStaffChain([{ menu_id: menuId, staff_id: 'other-staff' }, { menu_id: menuId, staff_id: staffId }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId, total_price: 1 }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_staff_id: staffId }));
+    });
+
+    test('menu_staffに行あり・指名スタッフが担当外→400（fail-closed・RPC未到達）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const staffId = '223e4567-e89b-12d3-a456-426614174000';
+      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return staffFeeChain;
+        // 担当は別スタッフのみ。指名 staffId は含まれないため拒否。
+        if (table === 'menu_staff') return menuStaffChain([{ menu_id: menuId, staff_id: 'only-other-staff' }]);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId, total_price: 1 }));
+      expect(res.status).toBe(400);
+      const json = await res.json();
+      expect(json.error).toContain('担当');
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    test('menu_staff取得がエラー→500（無言で予約を通さずfail-closed・RPC未到達）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const staffId = '223e4567-e89b-12d3-a456-426614174000';
+      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return staffFeeChain;
+        if (table === 'menu_staff') return menuStaffChain(null, { message: 'db error' });
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId, total_price: 1 }));
+      expect(res.status).toBe(500);
+      expect(mockRpc).not.toHaveBeenCalled();
+    });
+
+    test('menu_staff がdata=null(0行相当)→全スタッフ対応として通る（200・?? [] フォールバック）', async () => {
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const staffId = '223e4567-e89b-12d3-a456-426614174000';
+      const { conflictChain, menuChain, staffFeeChain, nullChain, menuId } = baseChains(8000);
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (callNum === 3) return staffFeeChain;
+        // data=null かつ error=null（0行を null で返す環境）→ buildMenuStaffMap(null ?? []) で空マップ扱い。
+        if (table === 'menu_staff') return menuStaffChain(null);
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: staffId, total_price: 1 }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+    });
+
+    test('menu_staffに行あり・指名なし(staff_id null)→担当チェックはスキップし通る（200）', async () => {
+      // staff_id が無ければ担当制の判定対象外（おまかせ）。menu_staff クエリ自体が実行されない。
+      mockGetUser.mockResolvedValue({ data: { user: null } });
+      const { conflictChain, menuChain, nullChain, menuId } = baseChains(8000);
+      const menuStaffSpy = jest.fn(() => menuStaffChain([{ menu_id: menuId, staff_id: 'some-staff' }]));
+      let callNum = 0;
+      mockFrom.mockImplementation((table: string) => {
+        callNum++;
+        if (callNum === 1) return conflictChain;
+        if (callNum === 2) return menuChain;
+        if (table === 'menu_staff') return menuStaffSpy();
+        return nullChain;
+      });
+
+      const res = await POST(makeRequest({ ...validBooking, menu_id: menuId, staff_id: null, total_price: 1 }));
+      const json = await res.json();
+      expect(json.success).toBe(true);
+      // 指名なしのため menu_staff クエリは呼ばれない（担当チェックは staff_id ありの時のみ）。
+      expect(menuStaffSpy).not.toHaveBeenCalled();
+    });
+  });
+
   // 【2026年7月15日 HPB準拠仕様】クーポンは対象メニューにのみ効く（対象外メニューは定価加算）。
   // src/lib/coupon-pricing.ts の calculateCouponDiscountedTotal をサーバーが権威として呼ぶ。
   // ここでは対象+対象外混在のケースで「対象分のみ割引」の実額をサーバー請求額で検証する
@@ -1284,11 +1432,13 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
 
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return staffChain;
+      // メニュー担当スタッフ制(menu_staff)チェック（2026年7月15日追加）。行なし=無制限で通す。
+      if (table === 'menu_staff') return menuStaffChain([]);
       return nullChain;
     });
 
@@ -2706,16 +2856,17 @@ describe('POST /api/booking', () => {
 
     // call order (user=null, menu_id, staff_id):
     // 1: conflict, 2: facility_menus (price), 3: staff_profiles (fee),
-    // 4: facility_profiles (auto-confirm), rpc
-    // notification: 5+, LINE Works staffList at call 9
+    // 4: menu_staff (担当チェック・2026年7月15日追加), 5: facility_profiles (auto-confirm), rpc
+    // notification: 6+, LINE Works staffList at call 10（menu_staff追加により旧9→10に1件シフト）
     let callNum = 0;
-    mockFrom.mockImplementation(() => {
+    mockFrom.mockImplementation((table: string) => {
       callNum++;
       if (callNum === 1) return conflictChain;
       if (callNum === 2) return menuChain;
       if (callNum === 3) return staffFeeChain;
-      if (callNum === 4) return nullChain;
-      if (callNum === 9) return staffListChain;
+      if (table === 'menu_staff') return menuStaffChain([]);
+      if (callNum === 5) return nullChain;
+      if (callNum === 10) return staffListChain;
       return nullChain;
     });
 

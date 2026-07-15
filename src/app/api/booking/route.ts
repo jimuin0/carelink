@@ -15,6 +15,7 @@ import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
+import { buildMenuStaffMap, isStaffCompatibleWithMenus } from '@/lib/menu-staff';
 
 export const dynamic = 'force-dynamic';
 
@@ -175,6 +176,21 @@ export async function POST(request: Request) {
           .maybeSingle();
         if (staffRow?.nomination_fee && serverTotalPrice != null) {
           serverTotalPrice += staffRow.nomination_fee;
+        }
+
+        // メニュー担当スタッフ制(menu_staff・HPB準拠・2026年7月15日導入・本番0行のため挙動変化
+        // ゼロで段階導入)。行があるメニューは担当スタッフのみ予約可能・行が無いメニューは従来どおり
+        // 全スタッフ対応。クエリ失敗は無言で予約を通さずfail-closed（500）で拒否する。
+        const { data: menuStaffRows, error: menuStaffErr } = await supabase
+          .from('menu_staff')
+          .select('menu_id, staff_id')
+          .in('menu_id', menuIdsToPrice);
+        if (menuStaffErr) {
+          return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+        }
+        const menuStaffMap = buildMenuStaffMap(menuStaffRows ?? []);
+        if (!isStaffCompatibleWithMenus(menuStaffMap, menuIdsToPrice, parsed.data.staff_id)) {
+          return NextResponse.json({ error: '指名されたスタッフは選択したメニューを担当していません' }, { status: 400 });
         }
       }
     }
