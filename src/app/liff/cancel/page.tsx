@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import { Suspense } from 'react';
 import { useLiff } from '@/hooks/useLiff';
+import { canCustomerCancelBooking } from '@/lib/booking-status';
 
 type Booking = {
   id: string;
@@ -141,7 +142,7 @@ function CancelContent() {
             </div>
           </div>
 
-          {['pending', 'confirmed'].includes(booking.status) ? (
+          {canCustomerCancelBooking(booking.status) ? (
             <div className="space-y-3">
               <div className="bg-red-50 rounded-xl p-4 text-sm text-red-700">
                 キャンセルすると元に戻せません。キャンセルポリシーによってはキャンセル料が発生する場合があります。

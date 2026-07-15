@@ -32,6 +32,7 @@ import SimilarFacilities from '@/components/facility/SimilarFacilities';
 import NearbyFacilities from '@/components/facility/NearbyFacilities';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
+import { discountText } from '@/lib/coupon-display';
 import type { Facility, FacilityMenu, FacilityPhoto, FacilityReview, StaffProfile, Coupon, TreatmentCatalog } from '@/types';
 import { safeJsonLd } from '@/lib/json-ld';
 
@@ -258,13 +259,7 @@ export default async function FacilityPage(props: Props) {
                       <p className="text-xs font-bold truncate">{coupon.name}</p>
                     </div>
                     <span className="text-sm font-bold text-red-500 shrink-0">
-                      {coupon.discount_type === 'special_price' && coupon.special_price !== null
-                        ? `¥${coupon.special_price.toLocaleString()}`
-                        : coupon.discount_type === 'percentage' && coupon.discount_value !== null
-                        ? `${coupon.discount_value}%OFF`
-                        : coupon.discount_type === 'fixed' && coupon.discount_value !== null
-                        ? `¥${coupon.discount_value.toLocaleString()}OFF`
-                        : ''}
+                      {discountText(coupon)}
                     </span>
                   </div>
                 ))}
