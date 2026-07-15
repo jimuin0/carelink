@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import IntakeForm from '@/components/intake/IntakeForm';
 import Link from 'next/link';
+import Image from 'next/image';
 
 export const revalidate = 0;
 
@@ -68,11 +69,15 @@ export default async function IntakePage({ params, searchParams }: Props) {
         {/* 施設ヘッダー */}
         <div className="flex items-center gap-3 mb-6">
           {facility.main_photo_url && (
-            <img
-              src={facility.main_photo_url}
-              alt={facility.name}
-              className="w-10 h-10 rounded-full object-cover"
-            />
+            <div className="relative w-10 h-10 rounded-full overflow-hidden shrink-0">
+              <Image
+                src={facility.main_photo_url}
+                alt={facility.name}
+                fill
+                sizes="40px"
+                className="object-cover"
+              />
+            </div>
           )}
           <div>
             <p className="text-xs text-gray-400">問診票</p>
