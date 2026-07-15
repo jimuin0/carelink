@@ -46,9 +46,12 @@ const navItems: { href: string; label: string; icon: string; platformAdmin?: boo
   { href: '/admin/facility-inquiries', label: '問い合わせ', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
   { href: '/admin/inquiries', label: '問い合わせ(運営)', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
   { href: '/admin/registrations', label: '施設登録', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z', platformAdmin: true },
-  { href: '/admin/line-richmenu', label: 'LINEリッチメニュー', icon: 'M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2h4a1 1 0 110 2h-1v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6H3a1 1 0 110-2h4zM9 6v10h2V6H9zm4 0v10h2V6h-2z' },
+  // line-richmenu / email-setup はプラットフォーム運営専用の内容（全ユーザー一括リッチメニュー・
+  // carelink-jp.com のSPF/DKIM手順）で、施設オーナーが操作できる項目ではない。newsletters 等と
+  // 同じく platformAdmin: true を付与し、全施設オーナーのナビに出ないようにする。
+  { href: '/admin/line-richmenu', label: 'LINEリッチメニュー', icon: 'M7 4V2a1 1 0 011-1h8a1 1 0 011 1v2h4a1 1 0 110 2h-1v12a2 2 0 01-2 2H6a2 2 0 01-2-2V6H3a1 1 0 110-2h4zM9 6v10h2V6H9zm4 0v10h2V6h-2z', platformAdmin: true },
   { href: '/admin/newsletters', label: 'ニュースレター', icon: 'M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4', platformAdmin: true },
-  { href: '/admin/email-setup', label: 'メール配信設定', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z' },
+  { href: '/admin/email-setup', label: 'メール配信設定', icon: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', platformAdmin: true },
   { href: '/admin/uptime', label: 'Uptime監視', icon: 'M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z' },
   { href: '/admin/cron-monitor', label: 'Cron監視', icon: 'M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z' },
   { href: '/admin/moderation', label: 'モデレーション', icon: 'M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z', platformAdmin: true },
@@ -109,8 +112,11 @@ const navGroups: NavGroup[] = [
     key: 'message', label: 'メッセージ管理',
     items: [
       { href: '/admin/facility-inquiries', label: '問い合わせ' },
-      { href: '/admin/email-setup', label: 'メール配信設定' },
-      { href: '/admin/line-richmenu', label: 'LINEリッチメニュー' },
+      // email-setup / line-richmenu はプラットフォーム運営専用（施設ごとにスコープされた
+      // facility-inquiries とは違い全ユーザー一括操作）。グループ自体は施設オーナーにも
+      // 見せる必要があるため、この2項目のみ item 単位で platformAdmin: true を付与する。
+      { href: '/admin/email-setup', label: 'メール配信設定', platformAdmin: true },
+      { href: '/admin/line-richmenu', label: 'LINEリッチメニュー', platformAdmin: true },
     ],
   },
   {
@@ -214,7 +220,12 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
   const isPlatformAdmin = profile?.is_platform_admin === true;
 
   const visibleNavItems = navItems.filter((item) => !item.platformAdmin || isPlatformAdmin);
-  const visibleNavGroups = navGroups.filter((g) => !g.platformAdmin || isPlatformAdmin);
+  // グループ自体の platformAdmin だけでなく、グループ内の各項目（item.platformAdmin）も
+  // 個別にフィルタする。'message' グループのように施設オーナーにも見せるグループの中に
+  // 運営専用項目（email-setup / line-richmenu）が混在するケースがあるため。
+  const visibleNavGroups = navGroups
+    .filter((g) => !g.platformAdmin || isPlatformAdmin)
+    .map((g) => ({ ...g, items: g.items.filter((item) => !item.platformAdmin || isPlatformAdmin) }));
 
   return (
     <div className="min-h-screen bg-gray-100">
