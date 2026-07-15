@@ -165,6 +165,68 @@ test('years_experience が 100 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+// ─── nomination_fee（指名料・金銭値）バリデーション ──────────────────────────────
+
+test('nomination_fee が 100000 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ name: 'test', nomination_fee: 100000 }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('nomination_fee が 負値(-1) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ name: 'test', nomination_fee: -1 }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('nomination_fee が 非数(文字列) → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makeRequest({ name: 'test', nomination_fee: 'abc' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('nomination_fee が 0 → 200 かつ更新に nomination_fee=0 が含まれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  let updateArgs: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((fields: Record<string, unknown>) => {
+      updateArgs = fields;
+      return { eq: () => ({ eq: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: STAFF_UUID, name: 'test', nomination_fee: 0 }, error: null }) }) }) }) };
+    }),
+  });
+  const res = await PATCH(makeRequest({ name: 'test', nomination_fee: 0 }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateArgs?.nomination_fee).toBe(0);
+});
+
+test('nomination_fee が 99999 → 200 かつ更新に nomination_fee=99999 が含まれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  let updateArgs: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((fields: Record<string, unknown>) => {
+      updateArgs = fields;
+      return { eq: () => ({ eq: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: STAFF_UUID, name: 'test', nomination_fee: 99999 }, error: null }) }) }) }) };
+    }),
+  });
+  const res = await PATCH(makeRequest({ name: 'test', nomination_fee: 99999 }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateArgs?.nomination_fee).toBe(99999);
+});
+
+test('nomination_fee 未指定 → 200 かつ更新に nomination_fee=0（デフォルト）が含まれる', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  let updateArgs: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn((fields: Record<string, unknown>) => {
+      updateArgs = fields;
+      return { eq: () => ({ eq: () => ({ select: () => ({ maybeSingle: () => Promise.resolve({ data: { id: STAFF_UUID, name: 'test' }, error: null }) }) }) }) };
+    }),
+  });
+  const res = await PATCH(makeRequest({ name: 'test' }), makeProps());
+  expect(res.status).toBe(200);
+  expect(updateArgs?.nomination_fee).toBe(0);
+});
+
 // ─── Defence-in-depth: facility_id in WHERE ──────────────────────────────────
 
 test('UPDATEのWHEREにfacility_idが含まれる', async () => {

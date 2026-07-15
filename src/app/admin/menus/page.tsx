@@ -348,6 +348,7 @@ export default function AdminMenusPage() {
         message="このメニューを削除しますか？削除すると元に戻せません。"
         confirmLabel="削除する"
         cancelLabel="キャンセル"
+        variant="danger"
         onConfirm={executeDelete}
         onCancel={() => setConfirmDeleteId(null)}
       />

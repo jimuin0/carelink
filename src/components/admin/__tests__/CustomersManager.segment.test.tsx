@@ -6,7 +6,7 @@
  * あるのに一覧に出ておらず、「上位顧客を一目で見つける」経営判断の入口が欠けていた。
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import CustomersManager, { type MasterCustomer } from '@/components/admin/CustomersManager';
 
 jest.mock('next/navigation', () => ({ useRouter: () => ({ push: jest.fn(), refresh: jest.fn() }) }));
@@ -40,4 +40,14 @@ test('segment=null（未計算）→ セグメント列・累計利用額とも 
 test('未知のsegment値 → バッジ化できず "—" にフォールバック（マッピング漏れでクラッシュしない）', () => {
   render(<CustomersManager facilityId="f1" customers={[customer({ segment: 'unknown_value', total_spent: 100 })]} unregistered={[]} />);
   expect(screen.queryByText('unknown_value')).not.toBeInTheDocument();
+});
+
+// 顧客削除は不可逆操作（来店履歴は残るがマスターからは消える）。誤操作抑止のため
+// 確定ボタンは danger 系（赤）で表示する必要がある（variant="danger" 未指定だと
+// 他の通常操作と見た目が区別できず、削除の危険度が伝わらない）。
+test('削除ボタン押下 → ConfirmDialogの確定ボタンがdanger系（赤）で表示される', () => {
+  render(<CustomersManager facilityId="f1" customers={[customer()]} unregistered={[]} />);
+  fireEvent.click(screen.getByRole('button', { name: '削除' }));
+  const confirmButton = screen.getByRole('button', { name: '削除する' });
+  expect(confirmButton).toHaveClass('bg-red-600');
 });

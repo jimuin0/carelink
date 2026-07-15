@@ -238,6 +238,7 @@ export default function CouponEditPage() {
         title="クーポンを削除"
         message="このクーポンを削除しますか？"
         confirmLabel="削除する"
+        variant="danger"
         onConfirm={doDelete}
         onCancel={() => setConfirmDelete(false)}
       />

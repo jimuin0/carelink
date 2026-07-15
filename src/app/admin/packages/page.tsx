@@ -354,6 +354,7 @@ export default function PackagesPage() {
         title="パッケージを削除"
         message={`「${confirmDeletePkg?.name}」を削除しますか？`}
         confirmLabel="削除する"
+        variant="danger"
         onConfirm={doDelete}
         onCancel={() => { setConfirmDelete(false); setConfirmDeletePkg(null); }}
       />
