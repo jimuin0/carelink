@@ -3,7 +3,8 @@ import { bookingSchema, getTodayString, getMaxDateString } from '../validations-
 const validBooking = {
   facility_id: '550e8400-e29b-41d4-a716-446655440000',
   staff_id: null,
-  menu_id: null,
+  // メニュー必須化（無メニュー予約は refine で 400）に伴い、基準データは有効なメニューを1件持つ。
+  menu_id: '550e8400-e29b-41d4-a716-446655440009',
   coupon_id: null,
   booking_date: '2027-04-01',
   start_time: '10:00',
@@ -99,6 +100,30 @@ describe('bookingSchema', () => {
 
   test('過去日のbooking_dateはエラー', () => {
     const result = bookingSchema.safeParse({ ...validBooking, booking_date: '2020-01-01' });
+    expect(result.success).toBe(false);
+  });
+
+  // メニュー必須化（無メニュー予約の禁止・2026年7月15日）の refine 分岐網羅。
+  test('menu_id も menu_ids も無い（無メニュー予約）→ エラー', () => {
+    const result = bookingSchema.safeParse({ ...validBooking, menu_id: null });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msg = result.error.issues.find((i) => i.path[0] === 'menu_id')?.message;
+      expect(msg).toBe('メニューを選択してください');
+    }
+  });
+
+  test('menu_id が null でも menu_ids に1件あれば通過', () => {
+    const result = bookingSchema.safeParse({
+      ...validBooking,
+      menu_id: null,
+      menu_ids: ['550e8400-e29b-41d4-a716-446655440001'],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  test('menu_id が null かつ menu_ids が空配列 → エラー（無メニュー扱い）', () => {
+    const result = bookingSchema.safeParse({ ...validBooking, menu_id: null, menu_ids: [] });
     expect(result.success).toBe(false);
   });
 });

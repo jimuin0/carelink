@@ -86,10 +86,14 @@ beforeEach(() => {
 
 const FUTURE_DATE = futureBookingDate();
 
+// メニュー必須化（無メニュー予約は bookingSchema の refine で 400）に伴い、汎用の正常系フィクスチャは
+// メニューを1件持つ。無メニュー予約自体を検証するテストは menu_id: null かつ menu_ids なしを明示する。
+const MENU_UUID = '423e4567-e89b-12d3-a456-426614174000';
+
 const validBooking = {
   facility_id: '123e4567-e89b-12d3-a456-426614174000',
   staff_id: null,
-  menu_id: null,
+  menu_id: MENU_UUID,
   coupon_id: null,
   booking_date: FUTURE_DATE,
   start_time: '10:00',
@@ -182,6 +186,28 @@ function menuStaffChain(rows: { menu_id: string; staff_id: string }[] | null, er
   return chain;
 }
 
+// 共有: facility_menus 価格ルックアップの chain（メニュー必須化・2026年7月15日）。
+// route は .select('id, price').in('id', ...).eq('facility_id', ...).or(...) を直接 await するため
+// thenable にする。base validBooking が MENU_UUID を持つので、メニューゲートを通過して下流
+// （競合後の価格計算・RPC・通知など）に到達するテストは call 2 でこの chain を返す。
+function menuLookupChain(price = 5000, id: string = MENU_UUID) {
+  // 価格ルックアップ（.in().eq().or() を直接 await）は配列で解決する。
+  const listResult = { data: [{ id, price }], error: null };
+  // メール/LINE のメニュー名ルックアップ（.eq().eq().single()/.maybeSingle()）は単一行で解決する。
+  // 同じ facility_menus テーブルを table 名ベースで両クエリに使い回せるよう両対応にする。
+  const singleResult = { data: { id, price, name: 'テストメニュー' }, error: null };
+  const chain: Record<string, unknown> = {};
+  const handler = jest.fn(() => chain);
+  chain.select = handler;
+  chain.in = handler;
+  chain.eq = handler;
+  chain.or = handler;
+  chain.then = Promise.resolve(listResult).then.bind(Promise.resolve(listResult));
+  chain.single = jest.fn(() => Promise.resolve(singleResult));
+  chain.maybeSingle = jest.fn(() => Promise.resolve(singleResult));
+  return chain;
+}
+
 describe('POST /api/booking', () => {
   test('正常に予約を作成する', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
@@ -194,6 +220,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain; // conflict check
+      if (callNum === 2) return menuLookupChain(); // facility_menus 価格ルックアップ
       return nullChain;                         // facility_profiles + notification lookups
     });
 
@@ -216,6 +243,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -302,6 +330,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -322,6 +351,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -341,6 +371,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -362,6 +393,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -381,11 +413,11 @@ describe('POST /api/booking', () => {
     const pointsChain = fluent(null);
     pointsChain.eq = jest.fn(() => Promise.resolve({ data: [{ points: 100 }] }));
 
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain; // conflict check
-      return pointsChain;                       // user_points balance (100 < 500 → insufficient)
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'user_points') return pointsChain; // 残高100 < 利用500 → 不足
+      return fluent({ data: null });
     });
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 500 }));
@@ -566,7 +598,10 @@ describe('POST /api/booking', () => {
 
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    mockFrom.mockReturnValue(conflictChain);
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'facility_menus') return menuLookupChain();
+      return conflictChain; // bookings conflict（空）。401 はポイント認証チェックで返る。
+    });
 
     const res = await POST(makeRequest({ ...validBooking, points_used: 100 }));
     expect(res.status).toBe(401);
@@ -817,6 +852,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -1528,32 +1564,27 @@ describe('POST /api/booking', () => {
   // 権威的なサーバ価格が無い（メニュー未指定で serverTotalPrice=null）状態でポイント利用を
   // 要求した場合、価格上限でクランプできず full 控除＝null 価格(=0円)予約に対するポイント消失
   // （金銭損失）になるため fail-closed で 400 を返す。ポイントは一切控除されない。
-  test('メニュー未指定でポイント利用 → 400（ポイントは控除しない）', async () => {
+  test('メニュー未指定（ポイント利用含む）→ 400（無メニュー予約は拒否・ポイント控除も予約作成もしない）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-no-menu-pts' } } });
 
-    const conflictChain = fluent(null);
-    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    const nullChain = fluent({ data: null });
-
-    // user_points への insert が呼ばれたら検知するためのスパイ
+    // user_points への insert が呼ばれたら検知するためのスパイ（無メニューは parse で 400 のため
+    // from() 自体が呼ばれず、控除にも RPC にも到達しないことを保証する）。
     const deductionInsert = jest.fn(() => ({
       select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'should-not-happen' } })) })),
     }));
     const deductionChain: Record<string, unknown> = { insert: deductionInsert };
-
-    let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
       if (table === 'user_points') return deductionChain;
-      return nullChain;
+      const c = fluent(null);
+      c.gt = jest.fn(() => Promise.resolve({ data: [] }));
+      return c;
     });
 
-    // menu_id / menu_ids 共になし → serverTotalPrice=null
+    // menu_id / menu_ids 共になし → bookingSchema の refine で 400（parse 時点で拒否）
     const res = await POST(makeRequest({ ...validBooking, menu_id: null, points_used: 100 }));
     expect(res.status).toBe(400);
     const json = await res.json();
-    expect(json.error).toContain('ポイント');
+    expect(json.error).toContain('メニュー');
     // RPC（予約作成）にもポイント控除 insert にも到達しないこと
     expect(mockRpc).not.toHaveBeenCalled();
     expect(deductionInsert).not.toHaveBeenCalled();
@@ -1621,12 +1652,10 @@ describe('POST /api/booking', () => {
     staffListChain.then = Promise.resolve(staffListResult).then.bind(Promise.resolve(staffListResult));
 
     const nullChain = fluent({ data: null });
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return nullChain;       // facility_profiles auto-confirm
-      if (callNum === 3) return staffListChain;  // staff_profiles LINE Works lookup
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'staff_profiles') return staffListChain; // LINE Works 対象スタッフ取得
       return nullChain;
     });
 
@@ -1658,6 +1687,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -1678,6 +1708,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
     mockRpc.mockResolvedValue({ data: null, error: { message: 'STAFF_NOT_IN_FACILITY: 指定されたスタッフはこの施設に所属していません', code: 'P0001' } });
@@ -1700,6 +1731,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
       return nullChain;
     });
 
@@ -1731,15 +1763,12 @@ describe('POST /api/booking', () => {
     const ownerProfilesChain = fluent(null);
     ownerProfilesChain.then = Promise.resolve(ownerProfilesResult).then.bind(Promise.resolve(ownerProfilesResult));
 
-    let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return nullChain; // facility_profiles (auto-confirm)
-      // email lookups: facility_profiles, facility_menus, staff_profiles, facility_members
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       if (table === 'facility_members') return ownerChain;
       if (table === 'profiles') return ownerProfilesChain;
-      return nullChain;
+      return nullChain; // facility_profiles (auto-confirm / email) 等
     });
 
     mockRpc.mockResolvedValue({ data: 'booking-owner-test', error: null });
@@ -1768,11 +1797,9 @@ describe('POST /api/booking', () => {
     const ownerProfilesChain = fluent(null);
     ownerProfilesChain.then = Promise.resolve(ownerProfilesResult).then.bind(Promise.resolve(ownerProfilesResult));
 
-    let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return nullChain;
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       if (table === 'facility_members') return ownerChain;
       if (table === 'profiles') return ownerProfilesChain;
       return nullChain;
@@ -1804,11 +1831,9 @@ describe('POST /api/booking', () => {
     const ownerProfilesChain = fluent(null);
     ownerProfilesChain.then = Promise.resolve(ownerProfilesNull).then.bind(Promise.resolve(ownerProfilesNull));
 
-    let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return nullChain;
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       if (table === 'facility_members') return ownerChain;
       if (table === 'profiles') return ownerProfilesChain;
       return nullChain;
@@ -1836,19 +1861,11 @@ describe('POST /api/booking', () => {
     // line_user_links → lineLink with line_user_id
     const lineLinkChain = fluent({ data: { line_user_id: 'line-user-abc' } });
 
-    // call order:
-    // 1: conflict check
-    // 2: facility_profiles (auto-confirm)
-    // 3: facility_profiles (email Promise.all)
-    // 4: facility_members (email Promise.all)
-    // 5: line_user_links (LINE notification)
-    // 6: facility_profiles (LINE facility name)
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return lineLinkChain;
-      return nullChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'line_user_links') return lineLinkChain;
+      return nullChain; // facility_profiles (auto-confirm / email / LINE 施設名) 等
     });
 
     const res = await POST(makeRequest(validBooking));
@@ -1871,11 +1888,10 @@ describe('POST /api/booking', () => {
     const nullChain = fluent({ data: null });
     const lineLinkChain = fluent({ data: { line_user_id: 'line-user-fail' } });
 
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return lineLinkChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'line_user_links') return lineLinkChain;
       return nullChain;
     });
 
@@ -1908,6 +1924,7 @@ describe('POST /api/booking', () => {
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       if (table === 'line_user_links') return lineLinkChain;
       if (table === 'staff_profiles') return staffChain;
       return nullChain;
@@ -1939,6 +1956,7 @@ describe('POST /api/booking', () => {
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       if (table === 'line_user_links') return lineLinkChain;
       return nullChain; // staff_profiles も null → staffForLine?.name || '' の右辺
     });
@@ -1980,18 +1998,11 @@ describe('POST /api/booking', () => {
     staffListChain.eq = jest.fn(() => staffListChain);
     staffListChain.not = jest.fn(() => Promise.resolve(staffListResult));
 
-    // call order (user=null, no menu):
-    // 1: conflict check
-    // 2: facility_profiles (auto-confirm)
-    // 3: facility_profiles (email Promise.all)
-    // 4: facility_members (email Promise.all)
-    // 5: staff_profiles (LINE Works staffList)
-    // 6: facility_profiles (LINE Works Promise.all)
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return staffListChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      // LINE Works の担当スタッフ取得は .not('line_works_channel_id', ...) を使う staff_profiles クエリ。
+      if (table === 'staff_profiles') return staffListChain;
       return nullChain;
     });
 
@@ -2011,18 +2022,22 @@ describe('POST /api/booking', () => {
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
     const nullChain = fluent({ data: null });
-    // owner has user_id but profiles returns no email
-    const ownerChain = fluent({ data: { user_id: 'owner-1' } });
-    const noEmailChain = fluent({ data: { email: null } });
+    // オーナーは1人居るが、その profiles の email が null → email フィルタ(filter(Boolean))で
+    // 宛先ゼロになり sendNewBookingNotification は呼ばれない、という分岐を突く。
+    // facility_members / profiles は .in()/.eq() を直接 await するため thenable にする。
+    const ownersResult = { data: [{ user_id: 'owner-1' }] };
+    const ownerChain = fluent(null);
+    ownerChain.then = Promise.resolve(ownersResult).then.bind(Promise.resolve(ownersResult));
+    const noEmailResult = { data: [{ email: null }] };
+    const noEmailChain = fluent(null);
+    noEmailChain.then = Promise.resolve(noEmailResult).then.bind(Promise.resolve(noEmailResult));
 
-    let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return nullChain;    // facility_profiles auto-confirm
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       if (table === 'facility_members') return ownerChain;
       if (table === 'profiles') return noEmailChain;
-      return nullChain;
+      return nullChain; // facility_profiles (auto-confirm / email) 等
     });
 
     mockRpc.mockResolvedValue({ data: 'booking-no-email', error: null });
@@ -2038,16 +2053,13 @@ describe('POST /api/booking', () => {
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
-    // facility_profiles returns booking_auto_confirm: true
-    const facilityChain = fluent({ data: { booking_auto_confirm: true } });
-    const nullChain = fluent({ data: null });
-
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return facilityChain;
-      return nullChain;
+    // table 名ベース（メニュー必須化で from の呼び出し順が変わっても堅牢）。
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      // facility_profiles は booking_auto_confirm: true を返す
+      if (table === 'facility_profiles') return fluent({ data: { booking_auto_confirm: true } });
+      return fluent({ data: null });
     });
 
     const res = await POST(makeRequest(validBooking));
@@ -2070,12 +2082,9 @@ describe('POST /api/booking', () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    mockFrom.mockImplementation(() => fluent({ data: null }));
-    // override call 1
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       return fluent({ data: null });
     });
 
@@ -2090,12 +2099,11 @@ describe('POST /api/booking', () => {
     sendPushToUser.mockReturnValue(Promise.reject(new Error('user push failed')));
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'push-user' } } });
-    let callNum = 0;
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       return fluent({ data: null });
     });
 
@@ -2112,12 +2120,11 @@ describe('POST /api/booking', () => {
       emailDailySummary: false, emailWeeklyReport: true,
     });
     mockGetUser.mockResolvedValue({ data: { user: { id: 'push-user-off' } } });
-    let callNum = 0;
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       return fluent({ data: null });
     });
 
@@ -2177,11 +2184,10 @@ describe('POST /api/booking', () => {
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
 
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return fluent({ data: { line_user_id: 'U_line_err' } });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'line_user_links') return fluent({ data: { line_user_id: 'U_line_err' } });
       return fluent({ data: null });
     });
 
@@ -2202,11 +2208,10 @@ describe('POST /api/booking', () => {
 
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return fluent({ data: { line_user_id: 'U_line_undeliv' } });
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'line_user_links') return fluent({ data: { line_user_id: 'U_line_undeliv' } });
       return fluent({ data: null });
     });
 
@@ -2240,11 +2245,11 @@ describe('POST /api/booking', () => {
       data: [{ id: 'staff-lw', line_works_channel_id: 'ch-lw-rej', line_works_notify_all: true }],
     }));
 
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return staffListChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      // LINE Works の担当スタッフ取得は .not('line_works_channel_id', ...) を使う staff_profiles クエリ。
+      if (table === 'staff_profiles') return staffListChain;
       return fluent({ data: null });
     });
 
@@ -2272,11 +2277,10 @@ describe('POST /api/booking', () => {
     staffListChain.not = jest.fn(() => Promise.resolve({
       data: [{ id: 'staff-lw-false', line_works_channel_id: 'ch-lw-false', line_works_notify_all: true }],
     }));
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return staffListChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'staff_profiles') return staffListChain;
       return fluent({ data: null });
     });
 
@@ -2307,11 +2311,10 @@ describe('POST /api/booking', () => {
     staffListChain.not = jest.fn(() => Promise.resolve({
       data: [{ id: 'staff-lw-true', line_works_channel_id: 'ch-lw-true', line_works_notify_all: true }],
     }));
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return staffListChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'staff_profiles') return staffListChain;
       return fluent({ data: null });
     });
 
@@ -2385,18 +2388,28 @@ describe('POST /api/booking', () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
-    let cc = 0;
-    mockFrom.mockImplementation(() => {
-      cc++;
-      if (cc === 1) return conflictChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
       return fluent({ data: null });
     });
+    // RPC は data=null・error=null（newBookingId が空文字）→ 予約作成失敗として 500 を返す経路。
     mockRpc.mockResolvedValue({ data: null, error: null });
     const res = await POST(makeRequest(validBooking));
     expect(res.status).toBe(500);
   });
 
-  test('menu_id null かつ menu_ids なし → サーバー側価格計算スキップ', async () => {
+  test('menu_id null かつ menu_ids なし → 無メニュー予約は 400（parse 時点で拒否・RPC 未到達）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const res = await POST(makeRequest({ ...validBooking, menu_id: null }));
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain('メニュー');
+    // メニュー必須化：無メニューは bookingSchema の refine で弾かれ、予約作成 RPC には到達しない。
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  test('menu_id null だが menu_ids に1件 → 無メニュー扱いにならず予約成立（200）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
@@ -2404,13 +2417,15 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation(() => {
       callNum++;
       if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain(5000);
       return fluent({ data: null });
     });
-    const res = await POST(makeRequest({ ...validBooking, menu_id: null }));
+    const res = await POST(makeRequest({ ...validBooking, menu_id: null, menu_ids: [MENU_UUID] }));
     expect(res.status).toBe(200);
+    // menu_ids のみでもメニューは指定されているので refine を通り、サーバー価格(5000)で予約成立。
     expect(mockRpc).toHaveBeenCalledWith(
       'create_booking_atomic',
-      expect.objectContaining({ p_total_price: null })
+      expect.objectContaining({ p_total_price: 5000 })
     );
   });
 
@@ -2934,17 +2949,10 @@ describe('POST /api/booking', () => {
     // line_user_links → lineLink exists but line_user_id is null → lineLink?.line_user_id is falsy → skip
     const lineLinkChain = fluent({ data: { line_user_id: null } });
 
-    // call order (user set, no menu):
-    // 1: conflict check
-    // 2: facility_profiles (auto-confirm)
-    // 3: facility_profiles (email Promise.all)
-    // 4: facility_members (email Promise.all)
-    // 5: line_user_links (LINE notification)
-    let callNum = 0;
-    mockFrom.mockImplementation(() => {
-      callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 5) return lineLinkChain;
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'line_user_links') return lineLinkChain;
       return nullChain;
     });
 
@@ -2954,5 +2962,79 @@ describe('POST /api/booking', () => {
     expect(sendLineConfirm).not.toHaveBeenCalled();
 
     delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  // Branch coverage: menu_ids のみ（menu_id=null）予約では、LINE / LINE Works のメニュー名ルックアップ
+  // (parsed.data.menu_id 分岐) の else 側を通る。メニュー必須化後も menu_ids 単独指定は正当なため、
+  // この経路が 200 で完走することを検証する。
+  test('menu_ids のみ（menu_id null）+ LINE + LINE Works → menu_id 分岐の else を通り 200', async () => {
+    const { sendBookingConfirmation: sendLineConfirm } = jest.requireMock('@/lib/line') as { sendBookingConfirmation: jest.Mock };
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock; notifyNewBookingLineWorks: jest.Mock;
+    };
+    sendLineConfirm.mockResolvedValue(true);
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockResolvedValue(true);
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-menuids-only' } } });
+    process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'test-line-token';
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const lineLinkChain = fluent({ data: { line_user_id: 'U_menuids_only' } });
+    const staffListResult = { data: [{ id: 'staff-lw-mids', line_works_channel_id: 'ch-mids', line_works_notify_all: true }] };
+    const staffListChain: Record<string, jest.Mock> = {};
+    staffListChain.select = jest.fn(() => staffListChain);
+    staffListChain.eq = jest.fn(() => staffListChain);
+    staffListChain.not = jest.fn(() => Promise.resolve(staffListResult));
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'staff_profiles') return staffListChain; // LINE Works 対象スタッフ
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest({ ...validBooking, menu_id: null, menu_ids: [MENU_UUID] }));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    // menu_id 不在でも LINE 確認は送られる（メニュー名は空でスキップ）。
+    expect(sendLineConfirm).toHaveBeenCalled();
+    expect(notifyNewBookingLineWorks).toHaveBeenCalledWith('ch-mids', expect.any(Object));
+
+    isLineWorksConfigured.mockReturnValue(false);
+    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
+  });
+
+  // Branch coverage: LINE Works 有効だが対象スタッフが1人も居ない（staffList 空）→ 通知ループに入らず 200。
+  test('LINE Works 有効 + 対象スタッフ0件（staffList 空）→ 通知なしで 200', async () => {
+    const { isLineWorksConfigured, notifyNewBookingLineWorks } = jest.requireMock('@/lib/integrations/line-works') as {
+      isLineWorksConfigured: jest.Mock; notifyNewBookingLineWorks: jest.Mock;
+    };
+    isLineWorksConfigured.mockReturnValue(true);
+    notifyNewBookingLineWorks.mockResolvedValue(true);
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    // staff_profiles.select().eq().not() が空配列を返す → staffList.length===0 → ループに入らない。
+    const emptyStaffChain: Record<string, jest.Mock> = {};
+    emptyStaffChain.select = jest.fn(() => emptyStaffChain);
+    emptyStaffChain.eq = jest.fn(() => emptyStaffChain);
+    emptyStaffChain.not = jest.fn(() => Promise.resolve({ data: [] }));
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'staff_profiles') return emptyStaffChain;
+      return fluent({ data: null });
+    });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(200);
+    await new Promise(r => setTimeout(r, 10));
+    expect(notifyNewBookingLineWorks).not.toHaveBeenCalled();
+
+    isLineWorksConfigured.mockReturnValue(false);
   });
 });
