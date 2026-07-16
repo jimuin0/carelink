@@ -45,31 +45,3 @@ export async function getCouponMenus(couponId: string): Promise<CouponMenu[]> {
     .eq('coupon_id', couponId);
   return (data ?? []) as CouponMenu[];
 }
-
-export async function getCouponsByMenuId(menuId: string): Promise<Coupon[]> {
-  const supabase = createServerSupabaseClient();
-  const { data } = await supabase
-    .from('coupon_menus')
-    .select('coupon_id, coupons(*)')
-    .eq('menu_id', menuId);
-
-  if (!data) return [];
-  return data
-    .flatMap((row: Record<string, unknown>) => {
-      const c = row.coupons;
-      if (!c) return [];
-      // Supabase may return a single object or an array for joined relations
-      return Array.isArray(c) ? (c as Coupon[]) : [c as Coupon];
-    })
-    .filter((c: Coupon) => c?.is_active);
-}
-
-export async function hasCoupons(facilityId: string): Promise<boolean> {
-  const supabase = createServerSupabaseClient();
-  const { count } = await supabase
-    .from('coupons')
-    .select('id', { count: 'exact', head: true })
-    .eq('facility_id', facilityId)
-    .eq('is_active', true);
-  return (count ?? 0) > 0;
-}

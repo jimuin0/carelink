@@ -5,11 +5,18 @@ const PROTECTED_PATHS = ['/mypage', '/admin'];
 
 // 管理者メンバーシップのクッキーキャッシュ
 // キー: _cm_mbr_{userId_first8chars}
-// 値: "{0|1}.{HMAC-SHA256 hex}"  — userId+値をHMACで署名し改ざん防止
-// TTL: 5分（頻繁なDB問い合わせを防ぐ）
+// 値: "{0|1}.{発行時刻epoch秒}.{HMAC-SHA256 hex}"  — userId+値+発行時刻をHMACで署名し改ざん防止
+// TTL: 5分（頻繁なDB問い合わせを防ぐ）。Cookie の maxAge と、署名ペイロード内の発行時刻から
+// 算出する経過時間の両方をこの定数で判定する（SSOT）。ブラウザの maxAge だけに頼ると、
+// 盗まれた Cookie 値をそのまま再送する攻撃（maxAge はブラウザ側の自己申告で検証不可能）に対し
+// 永久に有効なキャッシュとして扱ってしまうため、サーバー側でも発行時刻から独立して期限切れを判定する。
 const MEMBERSHIP_CACHE_TTL_SECONDS = 300;
 
-async function signCacheValue(userId: string, val: '0' | '1'): Promise<string | null> {
+async function signCacheValue(
+  userId: string,
+  val: '0' | '1',
+  issuedAtEpochSec: number = Math.floor(Date.now() / 1000)
+): Promise<string | null> {
   const secret = process.env.ADMIN_COOKIE_SECRET;
   if (!secret) {
     if (process.env.NODE_ENV === 'production') {
@@ -19,26 +26,40 @@ async function signCacheValue(userId: string, val: '0' | '1'): Promise<string | 
   }
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${userId}:${val}`));
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${userId}:${val}:${issuedAtEpochSec}`));
   const sigHex = [...new Uint8Array(sig)].map(b => b.toString(16).padStart(2, '0')).join('');
-  return `${val}.${sigHex}`;
+  return `${val}.${issuedAtEpochSec}.${sigHex}`;
 }
 
-async function verifyCacheValue(userId: string, cookieVal: string): Promise<boolean | null> {
+async function verifyCacheValue(
+  userId: string,
+  cookieVal: string,
+  nowEpochSec: number = Math.floor(Date.now() / 1000)
+): Promise<boolean | null> {
   const secret = process.env.ADMIN_COOKIE_SECRET;
   if (!secret) return null;
-  const dot = cookieVal.indexOf('.');
-  if (dot < 0) return null;
-  const val = cookieVal.slice(0, dot);
-  const sigHex = cookieVal.slice(dot + 1);
+  // 新形式は "{val}.{issuedAt}.{sigHex}" の3パート。旧形式（"{val}.{sigHex}" の2パート）は
+  // ここで自然に不一致となり null（キャッシュmiss扱い）→ DB再確認→新形式で再発行される
+  // （無停止移行）。
+  const parts = cookieVal.split('.');
+  if (parts.length !== 3) return null;
+  const [val, issuedAtRaw, sigHex] = parts;
   if (val !== '0' && val !== '1') return null;
+  if (!/^\d+$/.test(issuedAtRaw)) return null;
+  const issuedAtEpochSec = Number(issuedAtRaw);
+  if (!Number.isSafeInteger(issuedAtEpochSec)) return null;
   try {
     const enc = new TextEncoder();
     const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
     const sigBytes = Uint8Array.from((sigHex.match(/.{2}/g) ?? []).map(h => parseInt(h, 16)));
     if (sigBytes.length !== 32) return null;
-    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(`${userId}:${val}`));
-    return valid ? val === '1' : null;
+    const valid = await crypto.subtle.verify('HMAC', key, sigBytes, enc.encode(`${userId}:${val}:${issuedAtEpochSec}`));
+    if (!valid) return null;
+    // 署名が正当でも、発行時刻から TTL を超過していれば期限切れ（=キャッシュmiss扱い）。
+    // 未来方向（クロックスキュー等で issuedAt > now）も不正な値として扱い null を返す。
+    const ageSec = nowEpochSec - issuedAtEpochSec;
+    if (ageSec < 0 || ageSec > MEMBERSHIP_CACHE_TTL_SECONDS) return null;
+    return val === '1';
   } catch {
     return null;
   }

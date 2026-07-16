@@ -146,7 +146,9 @@ test('PATCH: moderation_queue 更新失敗 → 500', async () => {
     }
     return {
       update: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })),
+        }),
       }),
     };
   });
@@ -170,7 +172,9 @@ test('PATCH: approved → 200 decision:approved', async () => {
     }
     return {
       update: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: null })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: [buildQueueItem({ status: 'approved' })], error: null })),
+        }),
       }),
     };
   });
@@ -178,6 +182,30 @@ test('PATCH: approved → 200 decision:approved', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.decision).toBe('approved');
+});
+
+test('PATCH: moderation_queue 更新が0件（TOCTOU：直前fetch後に対象行が消えた）→ 404', async () => {
+  setupAdmin();
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) {
+      return {
+        select: jest.fn().mockReturnThis(),
+        eq: jest.fn().mockReturnThis(),
+        single: jest.fn(() => Promise.resolve({ data: buildQueueItem(), error: null })),
+      };
+    }
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+        }),
+      }),
+    };
+  });
+  const res = await PATCH(makeRequest({ decision: 'approved' }), makeProps());
+  expect(res.status).toBe(404);
 });
 
 // ─── Rejected review hiding ───────────────────────────────────────────────────
@@ -200,7 +228,9 @@ test('PATCH: rejected + content_type:review → facility_reviews が非表示化
     if (callNum === 2) {
       return {
         update: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })), // queue update success
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [buildQueueItem({ status: 'rejected' })], error: null })), // queue update success
+          }),
         }),
       };
     }
@@ -249,7 +279,9 @@ test('PATCH: rejected + content_type!=review → facility_reviews更新スキッ
     }
     return {
       update: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: null })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: [buildQueueItem({ content_type: 'photo', status: 'rejected' })], error: null })),
+        }),
       }),
     };
   });
@@ -274,7 +306,9 @@ test('PATCH: rejected で review_note 未指定 → デフォルトメッセー�
     if (callNum === 2) {
       return {
         update: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [buildQueueItem({ status: 'rejected' })], error: null })),
+          }),
         }),
       };
     }
@@ -303,7 +337,9 @@ test('PATCH: decision=escalated → audit log action=update', async () => {
     }
     return {
       update: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error: null })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: [buildQueueItem({ status: 'escalated' })], error: null })),
+        }),
       }),
     };
   });

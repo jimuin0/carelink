@@ -23,6 +23,10 @@ export const revalidate = 0;
 
 const DEP_TIMEOUT_MS = 1500;
 
+// 無認証エンドポイントのレスポンスに内部エラー詳細（DB接続文字列の断片・スタックトレース由来の
+// メッセージ等）を露出しない固定文字列。実メッセージは probe() 内で console.error にのみ出す。
+const DEP_FAILURE_MESSAGE = 'dependency check failed';
+
 type DepResult = { ok: boolean; elapsed_ms: number; error?: string; retried?: boolean };
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
@@ -50,10 +54,13 @@ async function probe(label: string, fn: () => Promise<void>): Promise<DepResult>
     await withTimeout(fn(), DEP_TIMEOUT_MS, label);
     return { ok: true, elapsed_ms: Date.now() - start };
   } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    // 実メッセージはサーバーログにのみ出す（無認証エンドポイントへの内部詳細露出を防ぐ）。
+    console.error(`[health] ${label} probe failed:`, message);
     return {
       ok: false,
       elapsed_ms: Date.now() - start,
-      error: e instanceof Error ? e.message : String(e),
+      error: DEP_FAILURE_MESSAGE,
     };
   }
 }
