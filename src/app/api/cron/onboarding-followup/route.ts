@@ -10,6 +10,7 @@ import { createClient } from '@supabase/supabase-js';
 import { sendOnboardingFollowEmail } from '@/lib/email';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -47,17 +48,38 @@ export async function GET(request: Request) {
     const staleAfter = new Date(now.getTime() - STALE_LOOKBACK_MS).toISOString();
     const minAgeBefore = new Date(now.getTime() - MIN_AGE_MS).toISOString();
 
-    const { data: facilities } = await supabase
-      .from('facility_profiles')
-      .select('id, name, status')
-      .gte('created_at', staleAfter)
-      .lte('created_at', minAgeBefore)
-      .neq('status', 'published')       // 公開済みは対象外
-      .is('onboarding_email_sent_at', null) // 未送信のみ
-      .order('created_at', { ascending: true })
-      .limit(CONSIDER_LIMIT);
+    // PostgREST の実 db-max-rows(1000) は .limit(2000) より小さく、常に1000件で
+    // 打ち切られる（バックログが1000件を超える恒久取りこぼし）。review-request と同じ
+    // fetchAllPaged でページングし、真に CONSIDER_LIMIT まで取得する。
+    // 併せて主クエリの error を明示チェックする（旧実装は error を無視しており、一過性障害を
+    // 「0件=skipped(成功)」に偽装しfollowupメールが全停止しても無音だった＝review-request H-2 と同型）。
+    type FacilityRow = { id: string; name: string; status: string };
+    const { rows: facilities, error: facilitiesErr } = await fetchAllPaged<FacilityRow>(
+      async (offset, limit) => {
+        const { data, error } = await supabase
+          .from('facility_profiles')
+          .select('id, name, status')
+          .gte('created_at', staleAfter)
+          .lte('created_at', minAgeBefore)
+          .neq('status', 'published')       // 公開済みは対象外
+          .is('onboarding_email_sent_at', null) // 未送信のみ
+          .order('created_at', { ascending: true })
+          .range(offset, offset + limit - 1);
+        return { data: data as FacilityRow[] | null, error };
+      },
+      { maxRows: CONSIDER_LIMIT },
+    );
 
-    if (!facilities || facilities.length === 0) {
+    if (facilitiesErr) {
+      const msg = facilitiesErr instanceof Error
+        ? facilitiesErr.message
+        : (facilitiesErr as { message?: string })?.message ?? String(facilitiesErr);
+      console.error('[onboarding-followup] facilities query failed', { err: facilitiesErr });
+      await logCronRun('onboarding-followup', 'error', startedAt, { error_msg: msg });
+      return NextResponse.json({ error: 'Internal error' }, { status: 500 });
+    }
+
+    if (facilities.length === 0) {
       await logCronRun('onboarding-followup', 'skipped', startedAt, { processed: 0, skipped: 0 });
       return NextResponse.json({ processed: 0, skipped: 0, status: 'ok', sent: 0 });
     }

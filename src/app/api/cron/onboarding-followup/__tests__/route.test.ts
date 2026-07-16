@@ -51,6 +51,7 @@ function facilitiesUpdate(claimed: any[] = [{ id: 'fac-123' }], releaseError: an
 function buildFrom(opts: any = {}) {
   const {
     facilities = [{ id: 'fac-123', name: 'New Salon', status: 'draft' }],
+    facilitiesErr = null,
     claimed = [{ id: 'fac-123' }],
     releaseError = null,
     menuCount = 0,
@@ -71,8 +72,13 @@ function buildFrom(opts: any = {}) {
 
   return (table: string) => {
     if (table === 'facility_profiles') {
+      // fetchAllPaged により .limit() ではなく .range() でページングされる
+      // （1000件PostgREST上限の恒久取りこぼしを根治した実装に合わせる）。
       const order = orderSpy || jest.fn().mockReturnValue({
-        limit: jest.fn().mockResolvedValue({ data: facilities }),
+        range: jest.fn((from: number, to: number) => Promise.resolve({
+          data: facilitiesErr ? null : facilities.slice(from, to + 1),
+          error: facilitiesErr,
+        })),
       });
       return {
         select: jest.fn().mockReturnValue({
@@ -187,10 +193,44 @@ describe('GET /api/cron/onboarding-followup', () => {
   });
 
   test('applies oldest-first order on created_at', async () => {
-    const orderSpy = jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: [] }) });
+    const orderSpy = jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: [] }) });
     mockFromDelegate.mockImplementation(buildFrom({ facilities: [], orderSpy }));
     await GET(makeRequest() as any);
     expect(orderSpy).toHaveBeenCalledWith('created_at', { ascending: true });
+  });
+
+  // 【恒久根治の回帰防止】旧実装は主クエリの error を無視しており、一過性障害が「0件=skipped
+  // (成功)」に偽装されfollowupメールが無音で全停止していた（review-request H-2 と同型）。
+  test('facilities主クエリがerror → 500（0件=skipped 成功偽装しない）', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({ facilitiesErr: { message: 'db error' } }));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'onboarding-followup', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'db error' }),
+    );
+  });
+
+  // 分岐カバレッジ: error が Error インスタンスの場合は .message を直接使う経路。
+  test('facilities主クエリのerrorがErrorインスタンス → その message を使う', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({ facilitiesErr: new Error('boom instance') }));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'onboarding-followup', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'boom instance' }),
+    );
+  });
+
+  // 分岐カバレッジ: error が Error でも message プロパティ持ちでもない場合は String() フォールバック。
+  test('facilities主クエリのerrorがmessage無し → String() フォールバック', async () => {
+    mockFromDelegate.mockImplementation(buildFrom({ facilitiesErr: 'plain-string-error' }));
+    const res = await GET(makeRequest() as any);
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith(
+      'onboarding-followup', 'error', expect.any(Date),
+      expect.objectContaining({ error_msg: 'plain-string-error' }),
+    );
   });
 
   test('filters facilities not published / email IS NULL', async () => {

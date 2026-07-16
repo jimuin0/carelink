@@ -44,7 +44,9 @@ let mockBookingsUpdate: jest.Mock;
 let mockFacilitiesSelect: jest.Mock;
 let mockLineLinkSelect: jest.Mock;
 
-// Build the bookings SELECT chain: .select().eq().gte().lte().is().order().limit() → { data }
+// Build the bookings SELECT chain: .select().eq().gte().lte().is().order().range(offset, to) → { data }
+// fetchAllPaged により .limit() ではなく .range() でページングされる（1000件PostgREST上限の
+// 恒久取りこぼしを根治した実装に合わせ、offset/to に応じてスライスを返す）。
 function bookingsSelectChain(data: any[]) {
   return jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -52,7 +54,7 @@ function bookingsSelectChain(data: any[]) {
         lte: jest.fn().mockReturnValue({
           is: jest.fn().mockReturnValue({
             order: jest.fn().mockReturnValue({
-              limit: jest.fn().mockResolvedValue({ data }),
+              range: jest.fn((from: number, to: number) => Promise.resolve({ data: data.slice(from, to + 1), error: null })),
             }),
           }),
         }),
@@ -189,7 +191,7 @@ describe('GET /api/cron/review-request', () => {
     (checkCronAuth as jest.Mock).mockReturnValue(null);
     (logCronRun as jest.Mock).mockResolvedValue(undefined);
     const errChain = jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ limit: jest.fn().mockResolvedValue({ data: null, error: { message: 'db error' } }) }) }) }) }) }),
+      eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db error' } }) }) }) }) }) }),
     });
     mockFrom.mockImplementation((table: string) => (table === 'bookings' ? { select: errChain } : {}));
 
@@ -198,6 +200,36 @@ describe('GET /api/cron/review-request', () => {
     expect(res.status).toBe(500);
     // 「0件=skipped(成功)」でなく error として logCronRun されること（他 cron と対称・無音化しない）。
     expect(logCronRun).toHaveBeenCalledWith('review-request', 'error', expect.anything(), expect.objectContaining({ error_msg: 'db error' }));
+  });
+
+  // 分岐カバレッジ: error が Error インスタンスの場合は .message を直接使う経路。
+  test('H-2: bookings主クエリのerrorがErrorインスタンス → その message を使う', async () => {
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+    const errChain = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: null, error: new Error('boom instance') }) }) }) }) }) }),
+    });
+    mockFrom.mockImplementation((table: string) => (table === 'bookings' ? { select: errChain } : {}));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith('review-request', 'error', expect.anything(), expect.objectContaining({ error_msg: 'boom instance' }));
+  });
+
+  // 分岐カバレッジ: error が Error でも message プロパティ持ちでもない場合は String() フォールバック。
+  test('H-2: bookings主クエリのerrorがmessage無し → String() フォールバック', async () => {
+    (checkCronAuth as jest.Mock).mockReturnValue(null);
+    (logCronRun as jest.Mock).mockResolvedValue(undefined);
+    const errChain = jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({ gte: jest.fn().mockReturnValue({ lte: jest.fn().mockReturnValue({ is: jest.fn().mockReturnValue({ order: jest.fn().mockReturnValue({ range: jest.fn().mockResolvedValue({ data: null, error: 'plain-string-error' }) }) }) }) }) }),
+    });
+    mockFrom.mockImplementation((table: string) => (table === 'bookings' ? { select: errChain } : {}));
+
+    const res = await GET(makeRequest() as any);
+
+    expect(res.status).toBe(500);
+    expect(logCronRun).toHaveBeenCalledWith('review-request', 'error', expect.anything(), expect.objectContaining({ error_msg: 'plain-string-error' }));
   });
 
   test('completed bookings found → sends requests', async () => {
@@ -213,7 +245,7 @@ describe('GET /api/cron/review-request', () => {
   test('applies oldest-first order on updated_at', async () => {
     setupDefaultMocks(1);
     const orderSpy = jest.fn().mockReturnValue({
-      limit: jest.fn().mockResolvedValue({ data: [] }),
+      range: jest.fn().mockResolvedValue({ data: [] }),
     });
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') {

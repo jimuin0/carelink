@@ -96,6 +96,7 @@ beforeEach(() => {
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   delete process.env.STRIPE_SECRET_KEY; // dev mode: no Stripe
+  delete process.env.VERCEL_ENV; // 既定は非本番（fail-closed 判定は VERCEL_ENV=production のみ）
 });
 
 // ─── GET ──────────────────────────────────────────────────────────────────────
@@ -212,6 +213,71 @@ test('POST: Stripeなし→devモード→201 checkout_url=null', async () => {
   expect(res.status).toBe(201);
   expect(json.checkout_url).toBeNull();
   expect(json.slot).toBeDefined();
+});
+
+// 【恒久根治・金銭仕様確定 2026年7月16日】真の本番(VERCEL_ENV=production)で STRIPE_SECRET_KEY
+// が未設定の場合、決済なしで広告枠を無料アクティブ化する抜け穴を fail-closed(500) に根治した。
+// 判定源は NODE_ENV ではなく VERCEL_ENV（NODE_ENV は Vercel Preview でも 'production' になり
+// Preview まで巻き込むため）。開発/デモ(VERCEL_ENV≠production)の即時有効化は維持する。
+test('POST: 本番(VERCEL_ENV=production)でSTRIPE_SECRET_KEY未設定 → 500 fail-closed（無料アクティブ化しない）', async () => {
+  const originalVercelEnv = process.env.VERCEL_ENV;
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  process.env.VERCEL_ENV = 'production';
+  try {
+    // テーブル名ベースでディスパッチする（audit_logs への fire-and-forget 書き込みが
+    // featured_slots とは独立に発生するため、callNum の呼び出し順序に依存しない）。
+    const activateSpy = jest.fn();
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return facilityIdChain({ facility_id: FACILITY_UUID });
+      if (table === 'featured_slots') {
+        return {
+          insert: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: SLOT_UUID, slot_type: 'search_top' }, error: null })),
+            }),
+          }),
+          update: jest.fn((payload: unknown) => {
+            activateSpy(payload);
+            return { eq: jest.fn(() => Promise.resolve({ error: null })) };
+          }),
+        };
+      }
+      if (table === 'audit_logs') return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      return {};
+    });
+    const res = await POST(makePostRequest(validPostBody()));
+    const json = await res.json();
+    expect(res.status).toBe(500);
+    expect(json.error).toBeDefined();
+    // is_active を true にする update 呼び出しに到達していないこと（無料化が発生していない）。
+    expect(activateSpy).not.toHaveBeenCalled();
+  } finally {
+    if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = originalVercelEnv;
+  }
+});
+
+// Preview デプロイ(VERCEL_ENV=preview)は開発扱い＝即時アクティブ化を維持する（NODE_ENV
+// ベースだと Preview の NODE_ENV=production で誤って fail-closed になっていた盲点の回帰防止）。
+test('POST: Preview(VERCEL_ENV=preview)でSTRIPE_SECRET_KEY未設定 → 201 即時有効化（fail-closedしない）', async () => {
+  const originalVercelEnv = process.env.VERCEL_ENV;
+  process.env.VERCEL_ENV = 'preview';
+  try {
+    let callNum = 0;
+    mockAdminFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return facilityIdChain({ facility_id: FACILITY_UUID });
+      if (callNum === 2) return insertSingle({ id: SLOT_UUID, slot_type: 'search_top' });
+      return updateEq(null);
+    });
+    const res = await POST(makePostRequest(validPostBody()));
+    const json = await res.json();
+    expect(res.status).toBe(201);
+    expect(json.checkout_url).toBeNull();
+  } finally {
+    if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
+    else process.env.VERCEL_ENV = originalVercelEnv;
+  }
 });
 
 // ─── Additional coverage ──────────────────────────────────────────────────────

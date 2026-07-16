@@ -6,7 +6,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { getFacilityBySlug, getFacilityMenus, getFacilityPhotos, getFacilityReviews } from '@/lib/facilities';
 import { getPrefectureSlug, getBusinessTypeSlug } from '@/lib/seo-constants';
 import { getStaffByFacility } from '@/lib/staff';
-import { getCouponsByFacility } from '@/lib/coupons';
+import { getActiveCouponsByFacility } from '@/lib/coupons';
 import { getCatalogsByFacility } from '@/lib/catalogs';
 import PhotoGallery from '@/components/facility/PhotoGallery';
 import FacilityHeader from '@/components/facility/FacilityHeader';
@@ -96,7 +96,7 @@ export default async function FacilityPage(props: Props) {
     getFacilityPhotos(facility.id),
     getFacilityReviews(facility.id),
     getStaffByFacility(facility.id),
-    getCouponsByFacility(facility.id),
+    getActiveCouponsByFacility(facility.id),
     getCatalogsByFacility(facility.id),
   ]);
   const queryNames = ['menus', 'photos', 'reviews', 'staff', 'coupons', 'catalogs'];

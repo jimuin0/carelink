@@ -13,6 +13,7 @@
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({ cookies: () => ({ getAll: () => [], set: jest.fn() }) }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 const STAFF_UUID    = '11111111-1111-1111-1111-111111111111';
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
@@ -36,6 +37,7 @@ import { NextRequest } from 'next/server';
 import { PUT, POST, DELETE } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
+import { alertCaughtError } from '@/lib/alert';
 
 function makeProps(id = STAFF_UUID) {
   return { params: Promise.resolve({ id }) };
@@ -62,8 +64,14 @@ function memberSingle(data: unknown) {
 }
 
 // 汎用: await でも .single()/.maybeSingle() でも result を返し、insert/upsert/delete も設定可能なチェーン。
+// insert は terminals.insert に配列を渡すと呼び出し順(1回目=本insert・2回目=restore insert)で
+// 別々の結果を返せる(delete→insert 非アトミック根治の復元経路検証用)。単一値なら毎回同じ結果。
 type Res = { data?: unknown; error?: unknown };
-function chain(readResult: Res = { data: null, error: null }, terminals: { insert?: Res; upsert?: Res; delete?: Res } = {}) {
+function chain(
+  readResult: Res = { data: null, error: null },
+  terminals: { insert?: Res | Res[]; upsert?: Res; delete?: Res } = {},
+  opts: { insertSpy?: (rows: unknown) => void } = {},
+) {
   const self: Record<string, unknown> = {};
   for (const m of ['select', 'eq', 'in', 'gte', 'lte', 'lt', 'gt', 'order', 'limit', 'not', 'update']) {
     self[m] = jest.fn(() => self);
@@ -71,7 +79,16 @@ function chain(readResult: Res = { data: null, error: null }, terminals: { inser
   self.single = jest.fn(() => Promise.resolve(readResult));
   self.maybeSingle = jest.fn(() => Promise.resolve(readResult));
   self.then = (res: (v: Res) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(readResult).then(res, rej);
-  self.insert = jest.fn(() => Promise.resolve(terminals.insert ?? { error: null }));
+  let insertCallIdx = 0;
+  self.insert = jest.fn((rows: unknown) => {
+    opts.insertSpy?.(rows);
+    const cfg = terminals.insert;
+    const result: Res = Array.isArray(cfg)
+      ? (cfg[Math.min(insertCallIdx, cfg.length - 1)] ?? { error: null })
+      : (cfg ?? { error: null });
+    insertCallIdx += 1;
+    return Promise.resolve(result);
+  });
   self.upsert = jest.fn(() => Promise.resolve(terminals.upsert ?? { error: null }));
   self.delete = jest.fn(() => {
     const d: Record<string, unknown> = {};
@@ -93,7 +110,10 @@ type AdminCfg = {
   bookings?: unknown[];            // bookings guard read
   overrides?: unknown[];           // schedule_overrides guard read (PUT)
   schedDeleteErr?: unknown;        // staff_schedules delete error (PUT)
-  insertErr?: unknown;             // staff_schedules insert error (PUT)
+  insertErr?: unknown;             // staff_schedules insert error (PUT・全insert共通)
+  insertResults?: { error: unknown }[]; // staff_schedules insert 結果を呼び出し順で指定(本insert→restore insert)
+  existingSchedules?: unknown[];   // PUT の delete 前 select で返す既存スケジュール(復元用退避データ)
+  schedInsertSpy?: (rows: unknown) => void; // staff_schedules.insert に渡された行を検証
   upsertErr?: unknown;             // schedule_overrides upsert error (POST)
   overrideDeleteErr?: unknown;     // schedule_overrides delete error (DELETE)
   overrideDeleteData?: unknown;    // schedule_overrides delete後 .select() の data（DELETE件数検証用）
@@ -103,12 +123,22 @@ type AdminCfg = {
 function setupAdmin(cfg: AdminCfg = {}) {
   const {
     staff = { id: STAFF_UUID }, bookings = [], overrides = [],
-    schedDeleteErr = null, insertErr = null, upsertErr = null, overrideDeleteErr = null, overrideDeleteData, upsertSpy,
+    schedDeleteErr = null, insertErr = null, insertResults, existingSchedules = null, schedInsertSpy,
+    upsertErr = null, overrideDeleteErr = null, overrideDeleteData, upsertSpy,
   } = cfg;
+  // staff_schedules は PUT 内で select(退避)→delete→insert→(失敗時)restore insert と
+  // 複数回 admin.from('staff_schedules') される。呼び出し毎に chain() を作り直すと
+  // insertCallIdx がその都度 0 にリセットされ、insertResults の呼び出し順制御(本insert→
+  // restore insert)が壊れる。同一チェーンを使い回して呼び出し順の状態を1本に保つ。
+  const staffSchedulesChain = chain(
+    { data: existingSchedules, error: null },
+    { delete: { error: schedDeleteErr }, insert: insertResults ?? { error: insertErr } },
+    { insertSpy: schedInsertSpy },
+  );
   mockAdminFrom.mockImplementation((table: string) => {
     if (table === 'staff_profiles') return chain({ data: staff, error: null });
     if (table === 'bookings') return chain({ data: bookings, error: null });
-    if (table === 'staff_schedules') return chain({ data: null, error: null }, { delete: { error: schedDeleteErr }, insert: { error: insertErr } });
+    if (table === 'staff_schedules') return staffSchedulesChain;
     if (table === 'schedule_overrides') {
       const c = chain({ data: overrides, error: null }, { upsert: { error: upsertErr }, delete: { error: overrideDeleteErr, data: overrideDeleteData } });
       if (upsertSpy) c.upsert = jest.fn((row: unknown) => { upsertSpy(row); return Promise.resolve({ error: upsertErr }); });
@@ -197,6 +227,72 @@ test('PUT: insert DBエラー → 500', async () => {
   setupAdmin({ insertErr: { message: 'insert failed' } });
   const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
   expect(res.status).toBe(500);
+});
+
+// 【恒久根治の回帰防止】同じ曜日を複数件送ると zod 段階で拒否する（重複は
+// get_available_slots 側の判定を不定にするため）。
+test('PUT: 同じ曜日が重複 → 400', async () => {
+  const res = await PUT(makeRequest('PUT', {
+    schedules: [
+      { day_of_week: 1, start_time: '09:00', end_time: '18:00' },
+      { day_of_week: 1, start_time: '10:00', end_time: '19:00' },
+    ],
+  }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+// 【恒久根治の回帰防止】delete→insert は非アトミック。insert 失敗時に旧スケジュールが
+// 消えたまま残らないよう、delete 前に退避した既存行で復元を試みる。
+test('PUT: insert失敗時、既存スケジュールを退避データで復元する', async () => {
+  const existing = [{ day_of_week: 2, start_time: '10:00:00', end_time: '12:00:00' }];
+  const insertSpyCalls: unknown[] = [];
+  setupAdmin({
+    existingSchedules: existing,
+    insertResults: [{ error: { message: 'insert failed' } }, { error: null }],
+    schedInsertSpy: (rows) => insertSpyCalls.push(rows),
+  });
+
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+
+  expect(res.status).toBe(500);
+  expect(insertSpyCalls).toHaveLength(2);
+  // 1回目 = 本来の新スケジュール、2回目 = 退避データによる復元
+  expect(insertSpyCalls[1]).toEqual([
+    { staff_id: STAFF_UUID, day_of_week: 2, start_time: '10:00:00', end_time: '12:00:00' },
+  ]);
+});
+
+// 復元自体も失敗した場合は真のデータロスのため Slack へ通知する。
+test('PUT: insert失敗＋復元も失敗 → alertCaughtError で通知', async () => {
+  const existing = [{ day_of_week: 2, start_time: '10:00:00', end_time: '12:00:00' }];
+  setupAdmin({
+    existingSchedules: existing,
+    insertResults: [{ error: { message: 'insert failed' } }, { error: { message: 'restore failed' } }],
+  });
+
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+
+  expect(res.status).toBe(500);
+  expect(alertCaughtError).toHaveBeenCalledWith(
+    'staff-schedule-put:restore-failed',
+    { message: 'restore failed' },
+    `staff:${STAFF_UUID}`,
+  );
+});
+
+// 既存スケジュールが無い(新規スタッフ等)場合は復元対象が無いため insert を1回のみ試みる。
+test('PUT: 既存スケジュール無し＋insert失敗 → 復元は試みない', async () => {
+  const insertSpyCalls: unknown[] = [];
+  setupAdmin({
+    existingSchedules: [],
+    insertErr: { message: 'insert failed' },
+    schedInsertSpy: (rows) => insertSpyCalls.push(rows),
+  });
+
+  const res = await PUT(makeRequest('PUT', VALID_SCHEDULE), makeProps());
+
+  expect(res.status).toBe(500);
+  expect(insertSpyCalls).toHaveLength(1);
 });
 
 test('PUT: 正常更新（空スケジュール）→ 200', async () => {

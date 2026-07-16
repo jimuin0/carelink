@@ -226,6 +226,35 @@ describe('PUT /api/profile', () => {
     expect(res.status).toBe(400);
   });
 
+  // 【回帰防止】形式(regex)だけでは 2026-02-30 等の不在日が通り、DATE 列が拒否して 500 に
+  // なっていた（customerSchema.birthday と同型の欠陥）。isValidIsoDate refine で 400 に根治。
+  test('birth_date が実在しない暦日（2026-02-30）→ 400', async () => {
+    const res = await PUT(makeRequest({
+      ...req,
+      birth_date: '2026-02-30',
+    }) as any);
+
+    expect(res.status).toBe(400);
+  });
+
+  test('birth_date が空文字 → 200（未入力の素通し）', async () => {
+    const res = await PUT(makeRequest({
+      ...req,
+      birth_date: '',
+    }) as any);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('birth_date が実在する暦日（うるう年 2028-02-29）→ 200', async () => {
+    const res = await PUT(makeRequest({
+      ...req,
+      birth_date: '2028-02-29',
+    }) as any);
+
+    expect(res.status).toBe(200);
+  });
+
   test('gender=male → 200', async () => {
     const res = await PUT(makeRequest({
       ...req,

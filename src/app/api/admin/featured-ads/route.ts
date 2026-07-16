@@ -7,6 +7,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
+import { alertCaughtError } from '@/lib/alert';
 
 const PLAN_PRICES: Record<string, number> = {
   search_top: 9800,
@@ -127,7 +128,21 @@ export async function POST(req: NextRequest) {
   // Create Stripe Checkout session for payment
   const stripeKey = process.env.STRIPE_SECRET_KEY;
   if (!stripeKey) {
-    // No Stripe configured: activate immediately (development/demo mode)
+    // 【恒久根治・金銭仕様確定 2026年7月16日】STRIPE_SECRET_KEY 未設定時に決済を経ずに
+    // 広告枠を即アクティブ化していた。本番で env 設定ミスにより STRIPE_SECRET_KEY が
+    // 抜けていると、これが「無料で広告枠が有効化される」抜け穴になる（金銭損失）。
+    // 開発/デモ用途の即時有効化(Stripe未接続でも動作確認できる)自体は残すが、
+    // 真の本番(VERCEL_ENV=production)でのみ fail-closed とし、決済なしの無料化を物理的に防ぐ。
+    // NODE_ENV は Vercel の Preview デプロイでも 'production' になり Preview まで巻き込むため、
+    // Preview を明確に区別できる VERCEL_ENV（alert.ts / instrumentation.ts と同じ env 判定源）で
+    // 判定する。VERCEL_ENV は本番のみ 'production'・Preview は 'preview'・ローカルは undefined。
+    if (process.env.VERCEL_ENV === 'production') {
+      const err = new Error('STRIPE_SECRET_KEY is not set in production - refusing to activate featured slot without payment');
+      console.error('[featured-ads] STRIPE_SECRET_KEY missing in production', { slotId: slot.id });
+      alertCaughtError('featured-ads:stripe-key-missing', err, '/api/admin/featured-ads');
+      return NextResponse.json({ error: '決済設定が未完了のため広告を有効化できません。運営にお問い合わせください。' }, { status: 500 });
+    }
+    // No Stripe configured (development/demo mode): activate immediately.
     const { error: activateErr } = await admin.from('featured_slots').update({ is_active: true }).eq('id', slot.id);
     if (activateErr) {
       console.error('[featured-ads] dev-mode activate failed', { slotId: slot.id, err: activateErr });
