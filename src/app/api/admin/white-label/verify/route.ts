@@ -44,13 +44,25 @@ export async function POST(req: NextRequest) {
     const verified = flatRecords.some((r) => r === config.txt_record);
 
     if (verified) {
-      const { error: verifyUpdateErr } = await admin
+      // 【恒久根治・TOCTOU】DNS解決(待機)の間にドメイン設定が変更され得る。facility_id だけで
+      // update すると、待機中に別ドメイン/別TXTレコードへ差し替えられていても「検証済み」を
+      // 立ててしまう（検証したのは古いドメインの TXT レコード）。update 条件に検証時点の
+      // domain/txt_record を含め、その間に変更されていれば0行（更新されない）にする。
+      const { data: updatedRows, error: verifyUpdateErr } = await admin
         .from('white_label_domains')
         .update({ is_verified: true, verified_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('facility_id', facilityId);
+        .eq('facility_id', facilityId)
+        .eq('domain', config.domain)
+        .eq('txt_record', config.txt_record)
+        .select('facility_id');
       if (verifyUpdateErr) {
         console.error('[white-label/verify] domain verify update failed', { facilityId, err: verifyUpdateErr });
         return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+      }
+      if (!updatedRows || updatedRows.length === 0) {
+        // 待機中にドメイン/TXTレコードが変更された＝検証は無効。古い設定に対する verified=true
+        // を偽って返さず、正直に false（要再検証）を返す。
+        return NextResponse.json({ verified: false, reason: 'Domain configuration changed during verification' });
       }
       void writeAuditLog({
         userId: user.id,

@@ -63,11 +63,16 @@ function facilityIdsChain(facilityIds: string[]) {
   };
 }
 
-function updateChain(error: unknown = null) {
+// update().eq('facility_id',...).eq('domain',...).eq('txt_record',...).select('facility_id')
+// TOCTOU根治後は複数 .eq() を経て最後に .select() で更新行を受け取る形になる。
+// updatedRows 省略時は「error 無し→1行更新」「error 有り→null」を既定値とする。
+function updateChain(error: unknown = null, updatedRows?: unknown[] | null) {
+  const rows = updatedRows !== undefined ? updatedRows : (error ? null : [{ facility_id: FACILITY_UUID }]);
+  const chainObj: Record<string, jest.Mock> = {};
+  chainObj.eq = jest.fn(() => chainObj);
+  chainObj.select = jest.fn(() => Promise.resolve({ data: rows, error }));
   return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
-    }),
+    update: jest.fn(() => chainObj),
   };
 }
 
@@ -81,13 +86,13 @@ beforeEach(() => {
 });
 
 // Helper: setup ownership + domain config chain
-function setupOwnershipAndDomain(updateError: unknown = null) {
+function setupOwnershipAndDomain(updateError: unknown = null, updatedRows?: unknown[] | null) {
   let callNum = 0;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return facilityIdsChain([FACILITY_UUID]); // membership
     if (callNum === 2) return singleChain(DOMAIN_CONFIG); // domain config
-    return updateChain(updateError); // verify update
+    return updateChain(updateError, updatedRows); // verify update
   });
 }
 
@@ -178,6 +183,18 @@ test('DNS検証成功 + DB更新成功 → 200 { verified: true }', async () => 
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.verified).toBe(true);
+});
+
+// ─── TOCTOU: DNS待機中にドメイン/TXTレコードが変更された場合の恒久根治 ─────────
+test('DNS待機中にドメイン設定が変更された(0行更新) → verified:false(古い設定を検証済みと偽らない)', async () => {
+  setupOwnershipAndDomain(null, []); // update matches 0 rows (domain/txt_record changed mid-flight)
+  (dns.resolveTxt as jest.Mock).mockResolvedValue([[DOMAIN_CONFIG.txt_record]]);
+
+  const res = await POST(makeRequest());
+  const json = await res.json();
+  expect(res.status).toBe(200);
+  expect(json.verified).toBe(false);
+  expect(json.reason).toBe('Domain configuration changed during verification');
 });
 
 test('ネストしたTXTレコード配列も正しく照合される', async () => {

@@ -15,6 +15,7 @@ function fluent(resolvedValue: unknown) {
   const handler = jest.fn(() => self);
   self.select = handler;
   self.eq = handler;
+  self.or = handler;
   self.order = jest.fn(() => Promise.resolve(resolvedValue));
   self.single = jest.fn(() => Promise.resolve(resolvedValue));
   return self;
@@ -38,6 +39,19 @@ describe('getCouponsByFacility', () => {
 
     const result = await getCouponsByFacility('fac-1');
     expect(result).toEqual([]);
+  });
+
+  // 【恒久根治の回帰防止】is_active=true のみでは valid_from 未到来／valid_until 経過済みの
+  // 期間外クーポンも表示され、選択すると api/booking のサーバー検証で 400 になっていた
+  // （表示と予約可否の不整合）。api/liff/coupons と同じ期間フィルタを DB クエリに適用する。
+  test('valid_from/valid_until の期間内フィルタをDBクエリに適用する', async () => {
+    const chain = fluent({ data: [] });
+    mockFrom.mockReturnValue(chain);
+
+    await getCouponsByFacility('fac-1');
+
+    expect(chain.or).toHaveBeenCalledWith(expect.stringMatching(/^valid_from\.is\.null,valid_from\.lte\./));
+    expect(chain.or).toHaveBeenCalledWith(expect.stringMatching(/^valid_until\.is\.null,valid_until\.gte\./));
   });
 });
 

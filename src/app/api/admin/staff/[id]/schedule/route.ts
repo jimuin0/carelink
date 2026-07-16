@@ -8,6 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
+import { alertCaughtError } from '@/lib/alert';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -83,7 +84,13 @@ const scheduleSchema = z.object({
     start_time: z.string().regex(TIME_REGEX),
     end_time: z.string().regex(TIME_REGEX),
   })).max(7),
-});
+}).refine(
+  // 【恒久根治】同じ曜日を複数件送っても zod は素通りし、insert 後に day_of_week 単位で
+  // 判定する get_available_slots 側が後勝ち/不定の挙動になる（意図しない曜日の枠が消える）。
+  // 入口で重複を明確な 400 として拒否する。
+  (data) => new Set(data.schedules.map((s) => s.day_of_week)).size === data.schedules.length,
+  { message: '同じ曜日が複数含まれています', path: ['schedules'] },
+);
 
 const overrideSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -173,6 +180,21 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
     }
   }
 
+  // 【恒久根治】delete→insert は非アトミックで、delete 成功後に insert が失敗すると
+  // 旧スケジュールが消えたまま残り予約枠が全滅する（無警告のデータロス）。delete 前に
+  // 既存行を退避しておき、insert 失敗時はその退避データで原状復元する。復元自体が
+  // 失敗した場合は真のデータロスのため Slack へ通知する（fire-and-forget・応答は妨げない）。
+  const { data: existingRows } = await admin
+    .from('staff_schedules')
+    .select('day_of_week, start_time, end_time')
+    .eq('staff_id', params.id);
+  const backupRows = ((existingRows ?? []) as { day_of_week: number; start_time: string; end_time: string }[]).map((r) => ({
+    staff_id: params.id,
+    day_of_week: r.day_of_week,
+    start_time: r.start_time,
+    end_time: r.end_time,
+  }));
+
   // Delete then insert
   const { error: deleteErr } = await admin.from('staff_schedules').delete().eq('staff_id', params.id);
   if (deleteErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
@@ -185,7 +207,15 @@ export async function PUT(request: NextRequest, props: { params: Promise<{ id: s
       end_time: s.end_time,
     }));
     const { error } = await admin.from('staff_schedules').insert(rows);
-    if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (error) {
+      if (backupRows.length > 0) {
+        const { error: restoreErr } = await admin.from('staff_schedules').insert(backupRows);
+        if (restoreErr) {
+          alertCaughtError('staff-schedule-put:restore-failed', restoreErr, `staff:${params.id}`);
+        }
+      }
+      return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
   }
 
   // 予約可用性に直結する重要操作のため監査ログに残す（fire-and-forget）。

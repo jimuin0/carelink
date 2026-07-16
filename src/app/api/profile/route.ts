@@ -4,6 +4,7 @@ import { mutationRateLimit } from '@/lib/rate-limit';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
 import { phoneField } from '@/lib/phone';
+import { isValidIsoDate } from '@/lib/date-utils';
 
 export const dynamic = 'force-dynamic';
 
@@ -15,7 +16,13 @@ const profileSchema = z.object({
   phone: phoneField({ required: true }),
   prefecture: z.string().min(1, '都道府県を選択してください').max(20),
   city: z.string().max(50).nullable().optional(),
-  birth_date: z.string().max(10).nullable().optional(),
+  // 形式(max(10))だけでは 2026-02-30 等の不在日が通り、DATE 列が拒否して 500 になる
+  // （customerSchema.birthday・booking_date と同型の欠陥）。isValidIsoDate は内部で
+  // YYYY-MM-DD の形式(10文字固定)まで検証するため、実在日まで検証し明確な 400 で弾く。
+  // 空文字/未指定はフォーム未入力の素通し（保存時 null 化）。
+  birth_date: z.string()
+    .refine((d) => d === '' || isValidIsoDate(d), '生年月日を正しく入力してください')
+    .nullable().optional(),
   gender: z.enum(['male', 'female', 'other', 'unspecified']).nullable().optional(),
 });
 

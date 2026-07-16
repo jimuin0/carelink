@@ -214,6 +214,46 @@ test('POST: Stripeなし→devモード→201 checkout_url=null', async () => {
   expect(json.slot).toBeDefined();
 });
 
+// 【恒久根治・金銭仕様確定 2026年7月16日】本番(NODE_ENV=production)で STRIPE_SECRET_KEY が
+// 未設定の場合、決済なしで広告枠を無料アクティブ化する抜け穴を fail-closed(500) に根治した。
+// 開発/デモ(NODE_ENV!==production)の即時有効化は維持する（上のテストで確認済み）。
+test('POST: 本番でSTRIPE_SECRET_KEY未設定 → 500 fail-closed（無料アクティブ化しない）', async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  jest.spyOn(console, 'error').mockImplementation(() => {});
+  process.env.NODE_ENV = 'production';
+  try {
+    // テーブル名ベースでディスパッチする（audit_logs への fire-and-forget 書き込みが
+    // featured_slots とは独立に発生するため、callNum の呼び出し順序に依存しない）。
+    const activateSpy = jest.fn();
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return facilityIdChain({ facility_id: FACILITY_UUID });
+      if (table === 'featured_slots') {
+        return {
+          insert: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: SLOT_UUID, slot_type: 'search_top' }, error: null })),
+            }),
+          }),
+          update: jest.fn((payload: unknown) => {
+            activateSpy(payload);
+            return { eq: jest.fn(() => Promise.resolve({ error: null })) };
+          }),
+        };
+      }
+      if (table === 'audit_logs') return { insert: jest.fn().mockResolvedValue({ error: null }) };
+      return {};
+    });
+    const res = await POST(makePostRequest(validPostBody()));
+    const json = await res.json();
+    expect(res.status).toBe(500);
+    expect(json.error).toBeDefined();
+    // is_active を true にする update 呼び出しに到達していないこと（無料化が発生していない）。
+    expect(activateSpy).not.toHaveBeenCalled();
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
+});
+
 // ─── Additional coverage ──────────────────────────────────────────────────────
 
 test('POST: CSRF エラー → 403', async () => {
