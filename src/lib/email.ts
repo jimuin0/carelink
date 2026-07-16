@@ -3,6 +3,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
+import { enqueueWebhook } from '@/lib/webhook-queue';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -142,6 +143,40 @@ const BULK_AGGREGATED_CONTEXTS = new Set([
 ]);
 
 /**
+ * webhook_retry_queue（15分毎の webhook-retry cron）へ自動再送登録する対象 context。
+ *
+ * 対象＝顧客向け・単発（HTTPリクエスト起点の1回送信）で、他に再送手段が存在しない通知のみ。
+ * 上の BULK_AGGREGATED_CONTEXTS（booking_reminder / daily_summary / weekly_report /
+ * onboarding_follow / favorites_digest）は各 cron が claim テーブルで「送達失敗時は claim を
+ * 解放し翌 run で再送する」独自の再送機構を既に持つため、ここに二重で積むと
+ * webhook-retry cron（15分毎）と cron 自身の翌 run 再送が競合し二重配信になり得るため対象外。
+ * 施設オーナー向け（new_review_notification / new_inquiry_notification /
+ * new_booking_notification / booking_cancellation_facility / welcome）も対象外
+ * （今回のスコープ＝顧客向け通知のみ・2026年7月16日 神原さん承認）。
+ */
+const QUEUEABLE_EMAIL_CONTEXTS = new Set([
+  'booking_confirmation',
+  'booking_rescheduled',
+  'time_adjust_request',
+  'booking_confirmed',
+  'booking_cancelled',
+  'booking_status_update',
+]);
+
+/**
+ * Resend send params から webhook_retry_queue の email payload（{to,subject,html,from}）へ変換する。
+ * QUEUEABLE_EMAIL_CONTEXTS の呼び出し元は本ファイル内の send* 関数のみで、いずれも
+ * `{ from, to, subject, html }` を単純な string リテラルで組み立てている（配列 to や省略は無い）ため、
+ * 防御的な型チェックは行わず素直にキャストする（=到達不能な分岐を作らずカバレッジを健全に保つ）。
+ */
+function toQueuePayload(
+  params: Parameters<Resend['emails']['send']>[0]
+): { to: string; subject: string; html: string; from?: string } {
+  const p = params as { to: string; subject: string; html: string; from?: string };
+  return { to: p.to, subject: p.subject, html: p.html, from: p.from };
+}
+
+/**
  * メール送信ラッパー（エラーログ付き）。
  * 戻り値: 送信成功=true / 例外を握り潰した場合=false。
  * 「失敗時は翌 run で再送」する cron（onboarding-followup / favorites-digest）は、この戻り値で
@@ -153,6 +188,13 @@ async function safeSend(resend: Resend, params: Parameters<Resend['emails']['sen
     safeCaptureException(new Error(`resend send failed: ${detail}`), `email:${context}`);
     if (!BULK_AGGREGATED_CONTEXTS.has(context)) {
       postAlert({ level: 'error', message: `メール送信失敗(${context}): ${detail}`, route: `email:${context}`, env: process.env.VERCEL_ENV });
+    }
+    // 送信失敗を webhook_retry_queue に積み、15分毎の webhook-retry cron に自動再送させる
+    // （対象 context のみ・enqueueWebhook 自体は DB 失敗を握り潰す fire-and-forget 契約のため
+    // ここでの失敗が safeSend の false 契約や呼び出し元の挙動へ波及することはない）。
+    if (QUEUEABLE_EMAIL_CONTEXTS.has(context)) {
+      const queuePayload = toQueuePayload(params);
+      void enqueueWebhook({ type: 'email', targetId: queuePayload.to, payload: queuePayload });
     }
     return false;
   };
