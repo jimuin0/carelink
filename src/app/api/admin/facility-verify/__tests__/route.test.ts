@@ -51,10 +51,12 @@ function profileSingle(isAdmin: boolean) {
   };
 }
 
-function updateEq(error: unknown = null) {
+function updateEq(error: unknown = null, data: unknown = [{ id: FACILITY_UUID }]) {
   return {
     update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+      }),
     }),
   };
 }
@@ -108,6 +110,13 @@ test('PATCH: DB失敗 → 500', async () => {
   mockAdminFrom.mockReturnValue(updateEq({ message: 'DB error' }));
   const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: false }));
   expect(res.status).toBe(500);
+});
+
+test('PATCH: 実在しないfacility_id (更新0行) → 404', async () => {
+  mockAnonFrom.mockReturnValue(profileSingle(true));
+  mockAdminFrom.mockReturnValue(updateEq(null, []));
+  const res = await PATCH(makeRequest({ facility_id: FACILITY_UUID, is_verified: true }));
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: 認証付与 (phone) → 200', async () => {

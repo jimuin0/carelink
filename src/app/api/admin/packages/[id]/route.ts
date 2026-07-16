@@ -110,13 +110,26 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   const { count, error: countErr } = await admin.from('user_packages').select('id', { count: 'exact', head: true }).eq('package_id', params.id);
   if (countErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (count && count > 0) {
-    const { error: deactivateErr } = await admin.from('service_packages').update({ is_active: false }).eq('id', params.id).eq('facility_id', auth.facilityId);
+    // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（購入済みユーザー確認後に
+    // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
+    // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
+    const { data: deactivated, error: deactivateErr } = await admin
+      .from('service_packages')
+      .update({ is_active: false })
+      .eq('id', params.id)
+      .eq('facility_id', auth.facilityId)
+      .select();
     if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'パッケージが見つかりません' }, { status: 404 });
     return NextResponse.json({ message: '購入済みユーザーがいるため非公開にしました' });
   }
 
-  const { error } = await admin.from('service_packages').delete().eq('id', params.id).eq('facility_id', auth.facilityId);
+  // 削除件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（購入済みユーザー確認後に
+  // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
+  // 0件なら404を返す。
+  const { data, error } = await admin.from('service_packages').delete().eq('id', params.id).eq('facility_id', auth.facilityId).select();
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: 'パッケージが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: auth.userId,

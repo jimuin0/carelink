@@ -76,7 +76,9 @@ function buildUpdateOrDeleteChain(error: unknown = null) {
     }),
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : [{ id: CATALOG_UUID }], error })),
+        }),
       }),
     }),
   };
@@ -245,7 +247,7 @@ test('DELETE: 他施設のカタログ → 401', async () => {
 
 test('DELETE: DELETEのWHEREにfacility_idが含まれ成功 → 200', async () => {
   let adminCallNum = 0;
-  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const innerEq = jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: CATALOG_UUID }], error: null })) });
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
   const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
 
@@ -272,7 +274,9 @@ test('DELETE: DB削除失敗 → 500', async () => {
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+          }),
         }),
       }),
     };
@@ -280,6 +284,26 @@ test('DELETE: DB削除失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 削除0行 (verify後にTOCTOU削除) → 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    return {
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: CSRFエラー → そのまま返却', async () => {

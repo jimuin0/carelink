@@ -204,7 +204,7 @@ test('DELETE: 購入済みユーザーがいる → 非公開化 → 200', async
     }
     // deactivate update
     return {
-      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: PKG_UUID }], error: null })) }) }) }),
     };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
@@ -228,13 +228,35 @@ test('DELETE: 購入済みユーザーあり・非公開化失敗 → 500', asyn
       };
     }
     return {
-      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }) }),
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })) }) }) }),
     };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
 
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 購入済みユーザーあり・非公開化0行 (verify後にTOCTOU削除) → 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Promise.resolve({ count: 3, error: null })),
+        }),
+      };
+    }
+    return {
+      update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [], error: null })) }) }) }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 // ─── DELETE: hard delete (no purchased users) ─────────────────────────────────
@@ -251,7 +273,7 @@ test('DELETE: 購入ユーザーなし → 完全削除 → 200', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: PKG_UUID }], error: null })) }) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
 
@@ -273,12 +295,32 @@ test('DELETE: 完全削除失敗 → 500', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })) }) }) };
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })) }) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
 
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 完全削除0行 (verify後にTOCTOU削除) → 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue(Promise.resolve({ count: 0, error: null })),
+        }),
+      };
+    }
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [], error: null })) }) }) }) };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
@@ -388,7 +430,7 @@ test('DELETE: count=null → ハード削除', async () => {
         }),
       };
     }
-    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+    return { delete: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: PKG_UUID }], error: null })) }) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
