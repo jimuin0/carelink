@@ -170,6 +170,54 @@ describe('POST /api/ab-test', () => {
     expect(res.status).toBe(200);
     expect((await res.json()).ok).toBe(true);
   });
+
+  // 【2026年7月16日 恒久根治】metadata 無制限だった欠陥の回帰テスト（intake/route.ts の
+  // responses 50000字上限と同水準の防御・キー数上限とJSON文字列化サイズ上限）。
+  test('metadata: キー数上限(20)超過 → silent 200 ok=true・挿入されない', async () => {
+    const oversizedKeys: Record<string, string> = {};
+    for (let i = 0; i < 21; i++) oversizedKeys[`k${i}`] = 'v';
+    const res = await POST(makePostRequest({ ...validEvent, metadata: oversizedKeys }) as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('metadata: JSON文字列化サイズ上限(50000字)超過 → silent 200 ok=true・挿入されない', async () => {
+    const oversizedValue = 'x'.repeat(60_000);
+    const res = await POST(makePostRequest({ ...validEvent, metadata: { big: oversizedValue } }) as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('metadata: 上限内なら従来通り挿入される（回帰・成功経路は変えない）', async () => {
+    const metadata = { source: 'homepage', variant_group: 'A' };
+    const res = await POST(makePostRequest({ ...validEvent, metadata }) as any);
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    expect(mockInsert).toHaveBeenCalledTimes(1);
+    const call = mockInsert.mock.calls[0];
+    expect(call[0].metadata).toEqual(metadata);
+  });
+
+  test('metadata 省略時は従来通り {} で挿入される（回帰）', async () => {
+    const res = await POST(makePostRequest(validEvent) as any);
+    expect(res.status).toBe(200);
+    const call = mockInsert.mock.calls[0];
+    expect(call[0].metadata).toEqual({});
+  });
+
+  // 【2026年7月16日 恒久根治】try/catch欠落だった欠陥の回帰テスト（withRoute標準形と同様に
+  // catch経路を500化しSlack通知する。/api/profile 級の観測不能500の再発防止）。
+  test('POST: 想定外の例外（insert失敗）→ 500 + サーバーエラーJSON', async () => {
+    mockInsert.mockImplementationOnce(() => {
+      throw new Error('db insert failed');
+    });
+    const res = await POST(makePostRequest(validEvent) as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBeDefined();
+  });
 });
 
 describe('GET /api/ab-test', () => {
@@ -339,5 +387,25 @@ describe('GET /api/ab-test', () => {
     });
     const res = await GET(makeGetRequest() as any);
     expect(res.status).toBe(200);
+  });
+
+  // 【2026年7月16日 恒久根治】try/catch欠落だった欠陥の回帰テスト（withRoute標準形と同様に
+  // catch経路を500化しSlack通知する）。
+  test('GET: 想定外の例外（DB取得失敗）→ 500 + サーバーエラーJSON', async () => {
+    setupDefaultMocks(true, true);
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn().mockReturnValue({
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockImplementation(() => {
+            throw new Error('db down');
+          }),
+        }),
+      }),
+    });
+    const res = await GET(makeGetRequest() as any);
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBeDefined();
   });
 });
