@@ -29,6 +29,16 @@ const mockAdminFrom = jest.fn();
 // mockAdminFrom に流す。これにより cookie 分岐の全テストは既定成功の update を自動で受け取り、
 // 各テストの mockAdminFrom オーバーライドに bookings 分岐を足す必要がない。
 const mockBookingsWrite = jest.fn();
+// 2026年7月16日 恒久根治（#483と同型バグ）: オーナー宛キャンセル通知の宛先取得
+// （facility_members・profiles）を service role(createServiceRoleClient)専用の
+// ownerLookupClient に切替えたため、この2テーブルだけ独立モックへ振り分ける。
+// LINE Works/LINE の各テストが持つ mockAdminFrom の個別フォールバック（1段 .eq() までしか
+// チェーンできない簡易チェーン）は、facility_members が要求する
+// .select().eq().eq().limit().single() という2段 .eq() チェーンに対応できず、既存の無関係な
+// テストまで TypeError で汚染してしまう。facility_members/profiles だけ専用モックに分離する
+// ことで、既存の mockAdminFrom オーバーライド（LINE Works の staff_profiles 等）には一切触れず、
+// オーナー通知を検証する3テストだけがこの専用モックを上書きすればよい構成にする。
+const mockOwnerLookupFrom = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
@@ -38,7 +48,12 @@ jest.mock('@supabase/ssr', () => ({
 }));
 jest.mock('@supabase/supabase-js', () => ({
   createClient: jest.fn(() => ({
-    from: (...args: any[]) => (args[0] === 'bookings' ? mockBookingsWrite(...args) : mockAdminFrom(...args)),
+    from: (...args: any[]) => {
+      const table = args[0];
+      if (table === 'bookings') return mockBookingsWrite(...args);
+      if (table === 'facility_members' || table === 'profiles') return mockOwnerLookupFrom(...args);
+      return mockAdminFrom(...args);
+    },
   })),
 }));
 jest.mock('next/headers', () => ({
@@ -70,6 +85,9 @@ beforeEach(() => {
     emailDailySummary: false, emailWeeklyReport: true,
   });
   mockAdminFrom.mockReturnValue(adminReadChain());
+  // 既定はオーナー0行（facility_members が見つからない）＝安全に owner ブロックをスキップする。
+  // オーナー通知を検証するテストのみ mockOwnerLookupFrom.mockImplementation で上書きする。
+  mockOwnerLookupFrom.mockReturnValue(adminReadChain());
   // DB-1: bookings UPDATE は service_role 経由。既定は成功(1行更新)。負例(500/409)は各テストで上書き。
   mockBookingsWrite.mockReturnValue(bookingsUpdateChain({ data: [{ id: 'bk' }], error: null }));
 });
@@ -103,16 +121,23 @@ function bookingsUpdateChain(result: unknown) {
   return { update: jest.fn(() => ({ eq: eq1 })) };
 }
 // service_role 側の通知/読み取り系フォールバック（既存 beforeEach 既定と同一形）。
+// 2026年7月16日 恒久根治（#483と同型バグ）で facility_members/profiles のオーナー取得も
+// service role(mockAdminFrom)経由になったため、select/eq/limit を何段チェーンしても自身を返し、
+// single/maybeSingle/not のどれで終端しても安全に data:null（0行相当）へ解決する汎用チェーンに
+// 拡張した。旧実装（.eq() を1段しかチェーンできない固定形）のままだと、facility_members の
+// select().eq().eq().limit().single() が2段目の .eq() で TypeError になり、オーナー通知を検証
+// しない大多数の既存テストまで無関係に落ちてしまう。
 function adminReadChain() {
-  return {
-    select: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        maybeSingle: jest.fn().mockResolvedValue({ data: null }),
-        not: jest.fn().mockResolvedValue({ data: [] }),
-      }),
-      not: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [] }) }),
-    }),
-  };
+  const chain: Record<string, jest.Mock> = {};
+  const self = jest.fn(() => chain);
+  chain.select = self;
+  chain.eq = self;
+  chain.limit = self;
+  chain.in = self;
+  chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null }));
+  chain.single = jest.fn(() => Promise.resolve({ data: null }));
+  chain.not = jest.fn(() => Promise.resolve({ data: [] }));
+  return chain;
 }
 
 // 正常系のキャンセル通知チェーン（happy path と同一の mockFrom 構成）を共有する。
@@ -787,7 +812,15 @@ describe('POST /api/booking/[id]/cancel', () => {
 
 // ─── 深掘り: オーナーへのキャンセル通知 ──────────────────────────────────────
 
-  test('オーナーメールが存在する場合は顧客に sendBookingCancelled・店に sendBookingCancellationToFacility を呼ぶ', async () => {
+  // 【2026年7月16日 本番実データで確定した根治の回帰防止・#483と同型バグ】facility_members
+  // (RLS: USING(auth.uid()=user_id))・profiles(RLS: USING(auth.uid()=id))を Web/Cookie 経路の
+  // anon クライアント(db)で引くと、キャンセルする顧客自身の auth.uid() でしか行が見えず、
+  // 施設オーナーの行は常に0行になっていた。根治＝この2クエリを service role
+  // （createServiceRoleClient・RLSバイパス）に切替。このテストは facility_members/profiles が
+  // 実際に service role 経由（mockAdminFrom）で行われたことを直接アサートする。テーブル名一致
+  // だけの検証だと anon 経由でも service role 経由でも同じ値を返せてしまい退行を検知できないため、
+  // mockAdminFrom への呼び出し自体を独立してトラッキングして検証する。
+  test('オーナーメールが存在する場合は顧客に sendBookingCancelled・店に sendBookingCancellationToFacility を呼ぶ（オーナー取得はservice role経由）', async () => {
     const { sendBookingCancelled, sendBookingCancellationToFacility } = require('@/lib/email');
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
@@ -809,13 +842,12 @@ describe('POST /api/booking/[id]/cancel', () => {
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
-      if (table === 'facility_members') {
-        // owner found
-        const chain = fluent({ data: { user_id: 'owner-1' } });
-        return chain;
-      }
-      if (table === 'profiles') return fluent({ data: { email: 'owner@example.com' } });
       return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
+      if (table === 'profiles') return fluent({ data: { email: 'owner@example.com' } });
+      return adminReadChain();
     });
 
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
@@ -825,6 +857,11 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(
       expect.objectContaining({ facilityEmail: 'owner@example.com', customerEmail: 'c@example.com' })
     );
+    // 【回帰防止の核心】facility_members / profiles の取得が createServiceRoleClient()（service role）
+    // 経由で行われたことを検証する。anon の db に戻す退行があれば、この2クエリは mockOwnerLookupFrom
+    // を経由しなくなり、以下のアサーションが失敗する。
+    expect(mockOwnerLookupFrom).toHaveBeenCalledWith('facility_members');
+    expect(mockOwnerLookupFrom).toHaveBeenCalledWith('profiles');
   });
 
   test('sendBookingCancelled/sendBookingCancellationToFacility が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
@@ -851,9 +888,12 @@ describe('POST /api/booking/[id]/cancel', () => {
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
       if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
       if (table === 'profiles') return fluent({ data: { email: 'owner@example.com' } });
-      return fluent({ data: null });
+      return adminReadChain();
     });
 
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
@@ -1298,9 +1338,12 @@ describe('POST /api/booking/[id]/cancel', () => {
         return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
       }
       if (table === 'facility_profiles') return fluent({ data: { name: 'Salon Y' } });
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
       if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
       if (table === 'profiles') return fluent({ data: { email: null } });
-      return fluent({ data: null });
+      return adminReadChain();
     });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
     expect(res.status).toBe(200);

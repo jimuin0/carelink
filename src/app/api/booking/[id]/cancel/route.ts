@@ -206,8 +206,15 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       })
     );
 
-    // サロンオーナーにキャンセル通知
-    const { data: owner } = await db
+    // サロンオーナーにキャンセル通知。
+    // facility_members(RLS: USING(auth.uid()=user_id))・profiles(RLS: USING(auth.uid()=id))は、
+    // Web/Cookie 経路(db=anon の SSR クライアント)ではキャンセルする顧客自身の auth.uid() でしか
+    // 行が見えず、施設オーナーの行は常に0行になる（#483と同型の本番バグ・2026年7月16日確定）。
+    // LIFF 経路は db が既に service role のため実害は無かったが、両経路で挙動を統一するため、
+    // この2クエリだけは常に service role（RLSバイパス）で引く。facility_profiles / facility_menus は
+    // 「公開施設は誰でも読める」ポリシーがあるため anon(db)のままで問題ない（越境しない）。
+    const ownerLookupClient = createServiceRoleClient();
+    const { data: owner } = await ownerLookupClient
       .from('facility_members')
       .select('user_id')
       .eq('facility_id', booking.facility_id)
@@ -215,7 +222,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
       .limit(1)
       .single();
     if (owner) {
-      const { data: ownerProfile } = await db.from('profiles').select('email').eq('id', owner.user_id).single();
+      const { data: ownerProfile } = await ownerLookupClient.from('profiles').select('email').eq('id', owner.user_id).single();
       if (ownerProfile?.email) {
         // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
         // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
