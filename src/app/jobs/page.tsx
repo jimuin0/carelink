@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
+import { SHOW_JOBS } from '@/lib/feature-toggles';
 
 export const revalidate = 1800;
 
@@ -37,6 +38,9 @@ export const metadata: Metadata = {
   title: '求人一覧',
   description: '医療・福祉・美容の求人をCareLinkで探す。職種・都道府県で絞り込み可能。',
   alternates: { canonical: `${SITE_URL}/jobs` },
+  // SHOW_JOBS=false の間は検索エンジンへの新規露出のみ止める（直URLアクセス・ページ自体は温存）。
+  // src/lib/feature-toggles.ts 参照・true に戻すだけで復活。
+  ...(SHOW_JOBS ? {} : { robots: { index: false, follow: false } }),
 };
 
 export default async function JobsListPage(props: { searchParams: Promise<SearchParams> }) {

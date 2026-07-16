@@ -84,9 +84,10 @@ describe('signCacheValue', () => {
     expect(result).toBeNull();
   });
 
-  test('決定論的: 同じ引数で2回呼んでも同じ値', async () => {
-    const r1 = await signCacheValue(TEST_USER_A, '1');
-    const r2 = await signCacheValue(TEST_USER_A, '1');
+  test('決定論的: 同じ引数(issuedAt固定)で2回呼んでも同じ値', async () => {
+    // issuedAt を固定しないと Date.now() の秒境界をまたいだ場合に稀にフレークするため明示指定する。
+    const r1 = await signCacheValue(TEST_USER_A, '1', 1_700_000_000);
+    const r2 = await signCacheValue(TEST_USER_A, '1', 1_700_000_000);
     expect(r1).toBe(r2);
   });
 
@@ -94,6 +95,24 @@ describe('signCacheValue', () => {
     const rA = await signCacheValue(TEST_USER_A, '1');
     const rB = await signCacheValue(TEST_USER_B, '1');
     expect(rA).not.toBe(rB);
+  });
+
+  test('値は "{val}.{issuedAt}.{sigHex}" の3パート形式', async () => {
+    const result = await signCacheValue(TEST_USER_A, '1', 1_700_000_000);
+    const parts = result!.split('.');
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toBe('1');
+    expect(parts[1]).toBe('1700000000');
+    expect(parts[2]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  test('issuedAt を省略すると現在時刻(epoch秒)が使われる', async () => {
+    const before = Math.floor(Date.now() / 1000);
+    const result = await signCacheValue(TEST_USER_A, '1');
+    const after = Math.floor(Date.now() / 1000);
+    const issuedAt = Number(result!.split('.')[1]);
+    expect(issuedAt).toBeGreaterThanOrEqual(before);
+    expect(issuedAt).toBeLessThanOrEqual(after);
   });
 });
 
@@ -156,21 +175,66 @@ describe('verifyCacheValue — 認証バイパス防止', () => {
     expect(result).toBeNull();
   });
 
-  test('不正な val (0 でも 1 でもない): null を返す', async () => {
-    // 長さ 64 のダミー hex
+  test('旧形式（"{val}.{sigHex}" の2パート）: null を返す（キャッシュmiss扱い・自然移行）', async () => {
+    // TTL署名導入前の旧Cookie形式。3パート形式にならないため split.length!==3 で弾かれ、
+    // DB再確認→新形式での再発行にフォールバックする（無停止移行）。
     const fakeHex = 'a'.repeat(64);
-    const result = await verifyCacheValue(TEST_USER_A, `2.${fakeHex}`);
+    const result = await verifyCacheValue(TEST_USER_A, `1.${fakeHex}`);
+    expect(result).toBeNull();
+  });
+
+  test('不正な val (0 でも 1 でもない): null を返す', async () => {
+    // 3パート形式（val.issuedAt.sigHex）で val のみ不正な場合
+    const fakeHex = 'a'.repeat(64);
+    const result = await verifyCacheValue(TEST_USER_A, `2.1700000000.${fakeHex}`);
+    expect(result).toBeNull();
+  });
+
+  test('issuedAt が数字以外: null を返す', async () => {
+    const fakeHex = 'a'.repeat(64);
+    const result = await verifyCacheValue(TEST_USER_A, `1.not-a-number.${fakeHex}`);
     expect(result).toBeNull();
   });
 
   test('署名が 32 バイト未満: null を返す', async () => {
     const shortHex = 'ab'.repeat(16); // 16バイト分のhex（32文字）
-    const result = await verifyCacheValue(TEST_USER_A, `1.${shortHex}`);
+    const result = await verifyCacheValue(TEST_USER_A, `1.1700000000.${shortHex}`);
     expect(result).toBeNull();
   });
 
   test('空文字: null を返す', async () => {
     const result = await verifyCacheValue(TEST_USER_A, '');
+    expect(result).toBeNull();
+  });
+
+  // ─── TTL（発行時刻ベースの期限切れ判定） ─────────────────────────────────
+
+  test('TTL内（発行から300秒未満）: 正当な値を返す', async () => {
+    const issuedAt = 1_700_000_000;
+    const signed = await signCacheValue(TEST_USER_A, '1', issuedAt);
+    const result = await verifyCacheValue(TEST_USER_A, signed!, issuedAt + 299);
+    expect(result).toBe(true);
+  });
+
+  test('TTL境界（ちょうど300秒経過）: まだ正当な値を返す', async () => {
+    const issuedAt = 1_700_000_000;
+    const signed = await signCacheValue(TEST_USER_A, '1', issuedAt);
+    const result = await verifyCacheValue(TEST_USER_A, signed!, issuedAt + 300);
+    expect(result).toBe(true);
+  });
+
+  test('TTL超過（301秒経過）: null を返す（盗まれたCookie値の永久有効化を防ぐ）', async () => {
+    const issuedAt = 1_700_000_000;
+    const signed = await signCacheValue(TEST_USER_A, '1', issuedAt);
+    const result = await verifyCacheValue(TEST_USER_A, signed!, issuedAt + 301);
+    expect(result).toBeNull();
+  });
+
+  test('未来方向のissuedAt（クロックスキュー等）: null を返す', async () => {
+    const issuedAt = 1_700_000_000;
+    const signed = await signCacheValue(TEST_USER_A, '1', issuedAt);
+    // now が issuedAt より過去（負のage）→ 不正な値として拒否
+    const result = await verifyCacheValue(TEST_USER_A, signed!, issuedAt - 1);
     expect(result).toBeNull();
   });
 

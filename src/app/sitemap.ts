@@ -4,6 +4,7 @@ import { allPrefectureSlugs, allBusinessTypeSlugs, getPrefectureSlug, getBusines
 import { getAllCitySlugs, getCitySlug } from '@/data/city-slugs';
 import { articles } from '@/data/articles';
 import { SITE_URL } from '@/lib/constants';
+import { SHOW_JOBS } from '@/lib/feature-toggles';
 
 // 完全動的: 環境変数変更/施設追加を即時反映、CDN静的化を完全回避
 export const dynamic = 'force-dynamic';
@@ -148,19 +149,23 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     priority: 0.6,
   }));
 
-  // Jobs (公開施設に紐づくもののみ)
-  const { data: jobs } = await supabase
-    .from('facility_jobs')
-    .select('id, updated_at, facility_profiles!inner(slug, status)')
-    .eq('facility_profiles.status', 'published');
-  const jobPages: MetadataRoute.Sitemap = [
-    { url: `${SITE_URL}/jobs`, lastModified: updated, changeFrequency: 'daily' as const, priority: 0.7 },
-    ...((jobs || []) as Array<{ id: string; updated_at: string | null }>).map((j) => ({
-      url: `${SITE_URL}/jobs/${j.id}`,
-      lastModified: j.updated_at ? new Date(j.updated_at) : updated,
-      changeFrequency: 'weekly' as const,
-      priority: 0.7,
-    })),
-  ];
+  // Jobs (公開施設に紐づくもののみ)。SHOW_JOBS=false の間はローンチ判断により掲載自体をスキップする
+  // （src/lib/feature-toggles.ts 参照・true に戻すだけで復活）。
+  let jobPages: MetadataRoute.Sitemap = [];
+  if (SHOW_JOBS) {
+    const { data: jobs } = await supabase
+      .from('facility_jobs')
+      .select('id, updated_at, facility_profiles!inner(slug, status)')
+      .eq('facility_profiles.status', 'published');
+    jobPages = [
+      { url: `${SITE_URL}/jobs`, lastModified: updated, changeFrequency: 'daily' as const, priority: 0.7 },
+      ...((jobs || []) as Array<{ id: string; updated_at: string | null }>).map((j) => ({
+        url: `${SITE_URL}/jobs/${j.id}`,
+        lastModified: j.updated_at ? new Date(j.updated_at) : updated,
+        changeFrequency: 'weekly' as const,
+        priority: 0.7,
+      })),
+    ];
+  }
   return [...staticPages, ...businessTypeTopPages, ...prefecturePages, ...crossPages, ...cityPages, ...cityTypePages, ...facilityPages, ...featurePages, ...blogPages, ...symptomPages, ...jobPages];
 }

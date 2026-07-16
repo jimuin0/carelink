@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { createServerSupabaseClient } from '@/lib/supabase-server';
 import { SITE_URL } from '@/lib/constants';
 import { safeJsonLd } from '@/lib/json-ld';
+import { SHOW_JOBS } from '@/lib/feature-toggles';
 
 export const revalidate = 3600;
 
@@ -86,6 +87,9 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     title,
     description,
     alternates: { canonical: url },
+    // SHOW_JOBS=false の間は検索エンジンへの新規露出のみ止める（直URLアクセス・ページ自体は温存）。
+    // src/lib/feature-toggles.ts 参照・true に戻すだけで復活。
+    ...(SHOW_JOBS ? {} : { robots: { index: false, follow: false } }),
     openGraph: {
       title,
       description,

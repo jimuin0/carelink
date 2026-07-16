@@ -135,7 +135,8 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     const json = await res.json();
     expect(json.status).toBe('degraded');
     expect(json.deps.cron.ok).toBe(false);
-    expect(json.deps.cron.error).toMatch(/stale/);
+    // レスポンスには内部詳細（何分前か等）を含めず固定文字列のみ返す（無認証エンドポイントの情報露出防止）
+    expect(json.deps.cron.error).toBe('dependency check failed');
   });
 
   test('cron_logs 取得エラー → 200 degraded・deps.cron NG', async () => {
@@ -154,7 +155,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     const json = await res.json();
     expect(json.status).toBe('degraded');
     expect(json.deps.cron.ok).toBe(false);
-    expect(json.deps.cron.error).toMatch(/never run/);
+    expect(json.deps.cron.error).toBe('dependency check failed');
   });
 
   test('cron stale でも critical OK なら 503 にはしない（サイト停止扱いにしない）', async () => {
@@ -346,10 +347,21 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
       if (u.includes('resend.com')) return new Response(null, { status: 503 });
       return new Response(null, { status: 200 });
     }) as unknown as typeof fetch;
-    const res = await GET(makeReq());
-    const json = await res.json();
-    expect(json.deps.resend.ok).toBe(false);
-    expect(json.deps.resend.error).toContain('HTTP 503');
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await GET(makeReq());
+      const json = await res.json();
+      expect(json.deps.resend.ok).toBe(false);
+      // レスポンスは固定文字列のみ（内部詳細=HTTPステータス等は露出しない）
+      expect(json.deps.resend.error).toBe('dependency check failed');
+      // 実詳細はサーバーログにのみ出す
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('resend'),
+        expect.stringContaining('HTTP 503')
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 
   test('Resend 404 → resend OK (key valid even if 404)', async () => {
@@ -394,7 +406,7 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  test('non-Error thrown in probe → String(e) used', async () => {
+  test('non-Error thrown in probe → String(e) logged, generic message in response', async () => {
     process.env.STRIPE_SECRET_KEY = 'sk_test_dummy';
     process.env.RESEND_API_KEY = 're_test_dummy';
     const { createServerSupabaseClient, createServiceRoleClient } = require('@/lib/supabase-server');
@@ -405,9 +417,20 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     createServiceRoleClient.mockReturnValue({
       rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
     });
-    const res = await GET(makeReq());
-    const json = await res.json();
-    expect(json.deps.supabase.ok).toBe(false);
-    expect(json.deps.supabase.error).toBe('string-error');
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const res = await GET(makeReq());
+      const json = await res.json();
+      expect(json.deps.supabase.ok).toBe(false);
+      // レスポンスには固定文字列のみ（内部エラー詳細は露出しない）
+      expect(json.deps.supabase.error).toBe('dependency check failed');
+      // String(e) 変換された実詳細はログにのみ出す
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('supabase'),
+        'string-error'
+      );
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
   });
 });
