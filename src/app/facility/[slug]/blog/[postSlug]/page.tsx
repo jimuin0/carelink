@@ -65,13 +65,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   if (!facility) return {};
   const post = await getBlogPost(facility.id, params.postSlug);
   if (!post) return {};
-  const title = `${post.title} | ${facility.name} | CareLink`;
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、
+  // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
+  const title = `${post.title} | ${facility.name}`;
   const description = post.content.slice(0, 120);
   return {
     title,
     description,
     alternates: { canonical: `/facility/${params.slug}/blog/${params.postSlug}` },
-    openGraph: { title, description, type: 'article' },
+    openGraph: { title: `${title} | CareLink`, description, type: 'article' },
   };
 }
 

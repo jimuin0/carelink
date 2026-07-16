@@ -24,13 +24,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const area = await getAreaBySlug(params.slug);
   if (!area) return {};
-  const title = `${area.name}のサロン・クリニック | CareLink`;
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、
+  // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
+  const title = `${area.name}のサロン・クリニック`;
   const description = `${area.name}エリアの美容・医療・福祉施設を検索。口コミ・メニュー・クーポン情報も掲載。`;
   return {
     title,
     description,
     alternates: { canonical: `/search/area/${params.slug}` },
-    openGraph: { title, description, type: 'website' },
+    openGraph: { title: `${title} | CareLink`, description, type: 'website' },
   };
 }
 

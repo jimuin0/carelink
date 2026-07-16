@@ -16,12 +16,14 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
-  const title = `予約 | ${facility.name} | CareLink`;
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、
+  // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
+  const title = `予約 | ${facility.name}`;
   const description = `${facility.name}のオンライン予約ページ`;
   return {
     title,
     description,
-    openGraph: { title, description },
+    openGraph: { title: `${title} | CareLink`, description },
     robots: { index: false, follow: true },
   };
 }

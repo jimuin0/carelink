@@ -31,13 +31,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   if (!facility) return {};
   const staff = await getStaffBySlug(facility.id, params.staffSlug);
   if (!staff) return {};
-  const title = `${staff.name} | ${facility.name} | CareLink`;
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、
+  // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
+  const title = `${staff.name} | ${facility.name}`;
   const description = `${facility.name}の${staff.position || 'スタッフ'}${staff.name}のプロフィール。${staff.specialties?.length > 0 ? '得意分野: ' + staff.specialties.join('・') : ''}`;
   return {
     title,
     description,
     alternates: { canonical: `/facility/${params.slug}/staff/${params.staffSlug}` },
-    openGraph: { title, description, type: 'profile' },
+    openGraph: { title: `${title} | CareLink`, description, type: 'profile' },
   };
 }
 

@@ -54,9 +54,11 @@ interface Props {
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
-  if (!facility) return { title: 'ページが見つかりません | CareLink' };
+  // ルート layout の title.template '%s | CareLink' が自動付与するため metadata.title には「| CareLink」を付けない（二重化防止）。
+  if (!facility) return { title: 'ページが見つかりません' };
 
-  const title = `${facility.name} | ${facility.business_type} | CareLink`;
+  const title = `${facility.name} | ${facility.business_type}`;
+  const ogTitle = `${title} | CareLink`;
   const description = facility.catch_copy || `${facility.prefecture}${facility.city}の${facility.business_type}「${facility.name}」のメニュー・料金・アクセス情報`;
 
   const url = `${SITE_URL}/facility/${params.slug}`;
@@ -66,7 +68,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     description,
     alternates: { canonical: url },
     openGraph: {
-      title,
+      title: ogTitle,
       description,
       type: 'website',
       url,
@@ -79,7 +81,7 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
     },
     twitter: {
       card: 'summary_large_image',
-      title,
+      title: ogTitle,
       description,
       images: [`${SITE_URL}/api/og?title=${encodeURIComponent(facility.name)}&subtitle=${encodeURIComponent(facility.business_type + ' | ' + facility.prefecture + facility.city)}${facility.rating_avg ? '&rating=' + facility.rating_avg.toFixed(1) : ''}${facility.rating_count ? '&reviews=' + facility.rating_count : ''}`],
     },
