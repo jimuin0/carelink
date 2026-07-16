@@ -4,6 +4,7 @@
  */
 
 import crypto from 'crypto';
+import { enqueueWebhook } from '@/lib/webhook-queue';
 
 const LINE_API_URL = 'https://api.line.me/v2/bot/message/push';
 const LINE_REPLY_URL = 'https://api.line.me/v2/bot/message/reply';
@@ -139,13 +140,36 @@ export async function sendLinePush(
 
 /**
  * テキストメッセージ送信（簡易版）
+ *
+ * opts.enqueueOnFailure=true を渡すと、送信失敗（false）時に webhook_retry_queue へ登録し
+ * 15分毎の webhook-retry cron に自動再送させる。既定は enqueue しない（省略時は従来と完全に
+ * 同一の挙動・戻り値契約）。review-request / birthday-coupon 等の cron から直接呼ぶ経路は
+ * 各 cron 自身が独自の翌 run 再送（claim 解放 / 送達記録テーブル）を既に持つため opts を渡さず
+ * 従来どおり（webhook-retry と二重に積むと二重配信になり得るため意図的に対象外）。
  */
-export async function sendLineText(lineUserId: string, text: string): Promise<boolean> {
-  return sendLinePush(lineUserId, [{ type: 'text', text }]);
+export async function sendLineText(
+  lineUserId: string,
+  text: string,
+  opts?: { enqueueOnFailure?: boolean; facilityId?: string | null }
+): Promise<boolean> {
+  const ok = await sendLinePush(lineUserId, [{ type: 'text', text }]);
+  if (!ok && opts?.enqueueOnFailure) {
+    void enqueueWebhook({
+      type: 'line_push',
+      targetId: lineUserId,
+      payload: { message: text },
+      facilityId: opts.facilityId ?? null,
+    });
+  }
+  return ok;
 }
 
 /**
  * 予約確認通知を送信
+ *
+ * 呼び出し元（booking作成・予約ステータス更新等）は単発のHTTPリクエスト起点の送信で、
+ * cron による翌run再送のような他の再送手段を持たないため、送信失敗時は
+ * webhook_retry_queue へ積んで自動再送する。
  */
 export async function sendBookingConfirmation(
   lineUserId: string,
@@ -159,11 +183,13 @@ export async function sendBookingConfirmation(
 ): Promise<boolean> {
   const staffLine = booking.staffName ? `\n担当: ${booking.staffName}` : '';
   const text = `✅ 予約を受け付けました\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}${staffLine}\n\nご来店をお待ちしております。`;
-  return sendLineText(lineUserId, text);
+  return sendLineText(lineUserId, text, { enqueueOnFailure: true });
 }
 
 /**
  * 予約キャンセル通知を送信
+ *
+ * sendBookingConfirmation 同様、単発送信で他の再送手段が無いため失敗時は自動再送キューへ積む。
  */
 export async function sendBookingCancellation(
   lineUserId: string,
@@ -175,7 +201,7 @@ export async function sendBookingCancellation(
   }
 ): Promise<boolean> {
   const text = `❌ 予約がキャンセルされました\n\n📍 ${booking.facilityName}\n📋 ${booking.menuName}\n📅 ${booking.date} ${booking.time}`;
-  return sendLineText(lineUserId, text);
+  return sendLineText(lineUserId, text, { enqueueOnFailure: true });
 }
 
 /**

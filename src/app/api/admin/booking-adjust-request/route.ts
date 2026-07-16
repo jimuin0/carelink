@@ -137,7 +137,12 @@ export async function POST(request: Request) {
         '上記ご予約のお時間について調整のお願いがございます。',
         'マイページの予約変更、または施設へのご連絡にてご都合をお知らせください。',
       ].join('\n');
-      const ok = await sendLineText(link.line_user_id, text);
+      // 単発のHTTPリクエスト起点送信で他に再送手段が無いため、失敗時は webhook_retry_queue へ
+      // 積んで15分毎の webhook-retry cron に自動再送させる。
+      const ok = await sendLineText(link.line_user_id, text, {
+        enqueueOnFailure: true,
+        facilityId: booking.facility_id,
+      });
       if (!ok) {
         return NextResponse.json({ error: 'LINEの送信に失敗しました。時間をおいて再度お試しください。' }, { status: 502 });
       }

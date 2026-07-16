@@ -269,10 +269,12 @@ test('line 正常系: 購入済み＋連携あり → 施設名・日時入り�
   cfg.entitlements = [{ facility_id: 'fac-1', option_key: 'time_adjust_line' }];
   const res = await POST(makeRequest({ bookingId: BOOKING_UUID, channel: 'line' }));
   expect(res.status).toBe(200);
-  const [lineId, text] = mockSendLineText.mock.calls[0];
+  const [lineId, text, opts] = mockSendLineText.mock.calls[0];
   expect(lineId).toBe('LINE-1');
   expect(text).toContain('テストサロン');
   expect(text).toContain('2026-07-01 10:00');
+  // 単発送信で他に再送手段が無いため、送信失敗時に webhook_retry_queue へ登録するよう opt-in している
+  expect(opts).toEqual({ enqueueOnFailure: true, facilityId: 'fac-1' });
   expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({ newValues: { channel: 'line' } }));
 });
 

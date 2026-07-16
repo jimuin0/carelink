@@ -8,6 +8,12 @@
  */
 
 import crypto from 'crypto';
+
+const mockEnqueueWebhook = jest.fn();
+jest.mock('@/lib/webhook-queue', () => ({
+  enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args),
+}));
+
 import {
   sendLinePush,
   sendLineText,
@@ -27,6 +33,8 @@ beforeEach(() => {
   process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = MOCK_TOKEN;
   process.env.LINE_CHANNEL_SECRET_CARELINK = MOCK_SECRET;
   jest.useFakeTimers();
+  mockEnqueueWebhook.mockReset();
+  mockEnqueueWebhook.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -146,6 +154,41 @@ describe('sendLineText', () => {
     const body = JSON.parse(opts.body);
     expect(body.messages[0]).toEqual({ type: 'text', text: 'Hello' });
   });
+
+  test('opts省略時、送信失敗しても enqueueWebhook は呼ばれない（従来どおりの戻り値契約のみ）', async () => {
+    mockFetchFail(500);
+    const promise = sendLineText('user-1', 'Hello');
+    await jest.runAllTimersAsync();
+    const result = await promise;
+    expect(result).toBe(false);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('opts.enqueueOnFailure=true かつ送信失敗 → enqueueWebhook(type=line_push) を呼ぶ', async () => {
+    mockFetchFail(400); // 4xx即abort=fetch1回で確実にfalse確定
+    const result = await sendLineText('user-2', 'Hi there', { enqueueOnFailure: true });
+    expect(result).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'line_push',
+      targetId: 'user-2',
+      payload: { message: 'Hi there' },
+      facilityId: null,
+    });
+  });
+
+  test('opts.enqueueOnFailure=true かつ facilityId 指定 → payload に反映される', async () => {
+    mockFetchFail(400);
+    await sendLineText('user-3', 'Hi', { enqueueOnFailure: true, facilityId: 'fac-1' });
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith(expect.objectContaining({ facilityId: 'fac-1' }));
+  });
+
+  test('opts.enqueueOnFailure=true でも送信成功なら enqueueWebhook は呼ばれない', async () => {
+    mockFetchOk();
+    const result = await sendLineText('user-4', 'Hi', { enqueueOnFailure: true });
+    expect(result).toBe(true);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
 });
 
 describe('sendBookingConfirmation', () => {
@@ -187,6 +230,30 @@ describe('sendBookingConfirmation', () => {
     const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
     expect(JSON.parse(opts.body).messages[0].text).not.toContain('担当:');
   });
+
+  test('送信失敗 → enqueueWebhook(type=line_push) が呼ばれる（単発送信で他に再送手段が無いため）', async () => {
+    mockFetchFail(400);
+    const result = await sendBookingConfirmation('user-9', {
+      facilityName: 'Salon',
+      menuName: 'Cut',
+      date: '2024-01-15',
+      time: '10:00',
+    });
+    expect(result).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'line_push',
+      targetId: 'user-9',
+    }));
+  });
+
+  test('送信成功 → enqueueWebhook は呼ばれない', async () => {
+    mockFetchOk();
+    await sendBookingConfirmation('user-1', {
+      facilityName: 'Salon', menuName: 'Cut', date: '2024-01-15', time: '10:00',
+    });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
 });
 
 describe('sendBookingCancellation', () => {
@@ -201,6 +268,27 @@ describe('sendBookingCancellation', () => {
     expect(result).toBe(true);
     const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
     expect(JSON.parse(opts.body).messages[0].text).toContain('キャンセル');
+  });
+
+  test('送信失敗 → enqueueWebhook(type=line_push) が呼ばれる（単発送信で他に再送手段が無いため）', async () => {
+    mockFetchFail(400);
+    const result = await sendBookingCancellation('user-9', {
+      facilityName: 'Test Salon', menuName: 'Cut', date: '2024-01-15', time: '10:00',
+    });
+    expect(result).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'line_push',
+      targetId: 'user-9',
+    }));
+  });
+
+  test('送信成功 → enqueueWebhook は呼ばれない', async () => {
+    mockFetchOk();
+    await sendBookingCancellation('user-1', {
+      facilityName: 'Test Salon', menuName: 'Cut', date: '2024-01-15', time: '10:00',
+    });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
   });
 });
 
@@ -267,6 +355,15 @@ describe('sendBookingReminder', () => {
     });
     const [, opts] = (global.fetch as jest.Mock).mock.calls[0];
     expect(JSON.parse(opts.body).messages[0].text).toContain('3日後のご予約リマインド');
+  });
+
+  test('送信失敗しても enqueueWebhook は呼ばれない（booking-reminder cron自前の翌run再送と二重化させないため意図的に対象外）', async () => {
+    mockFetchFail(400);
+    const result = await sendBookingReminder('user-1', {
+      facilityName: 'Salon', menuName: 'Perm', date: '2024-01-15', time: '11:00',
+    });
+    expect(result).toBe(false);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
   });
 });
 
