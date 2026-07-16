@@ -75,9 +75,10 @@ function formatSalary(min: number | null, max: number | null, note: string | nul
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const job = await getJob(params.id);
-  if (!job || !job.facility_profiles) return { title: '求人が見つかりません | CareLink' };
+  // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
+  if (!job || !job.facility_profiles) return { title: '求人が見つかりません' };
   const f = job.facility_profiles;
-  const title = `${job.title} | ${f.name}（${f.prefecture}${f.city}）の求人 | CareLink`;
+  const title = `${job.title} | ${f.name}（${f.prefecture}${f.city}）の求人`;
   const description =
     (job.description || `${f.name}が${job.job_type}（${job.employment_type}）を募集中。${f.prefecture}${f.city}。`).slice(0, 160);
   const url = `${SITE_URL}/jobs/${job.id}`;
