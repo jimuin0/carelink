@@ -85,12 +85,14 @@ function updateEqEq(error: unknown = null) {
   };
 }
 
-// Delete: delete().eq().eq() → Promise
-function deleteEqEq(error: unknown = null) {
+// Delete: delete().eq().eq().select() → Promise（削除件数検証のため .select() で削除行を返す）
+function deleteEqEq(error: unknown = null, data: unknown = [{ id: POST_UUID }]) {
   return {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve(error ? { error, data: null } : { error: null, data })),
+        }),
       }),
     }),
   };
@@ -364,6 +366,18 @@ test('DELETE: DB失敗 → 500', async () => {
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 削除が0件（TOCTOU：直前の存在確認後に別リクエストで削除済み）→ 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
+    return deleteEqEq(null, []);
+  });
+  const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: DB失敗 → 500', async () => {

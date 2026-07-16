@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog } from '@/lib/audit-logger';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 
 const platformBlogSchema = z.object({
   slug: z.string().min(1).max(200).regex(/^[a-z0-9-]+$/, 'スラッグは半角英数字とハイフンのみ使用できます'),
@@ -18,21 +18,6 @@ const platformBlogSchema = z.object({
   is_published: z.boolean().optional(),
 });
 
-async function getAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  // Platform blog is site-wide content — require platform admin only
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  return profile?.is_platform_admin ? user.id : null;
-}
-
 export async function POST(request: NextRequest) {
   const csrfError = checkCsrf(request);
   if (csrfError) return csrfError;
@@ -42,8 +27,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const userId = await getAdminUser();
-  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const adminUser = await requirePlatformAdmin();
+  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const userId = adminUser.id;
 
   const body = await request.json().catch(() => null);
   const parsed = platformBlogSchema.safeParse(body);

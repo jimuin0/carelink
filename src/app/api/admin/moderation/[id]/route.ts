@@ -6,7 +6,6 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
 import { UUID_REGEX } from '@/lib/constants';
@@ -16,6 +15,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -23,20 +23,6 @@ const bodySchema = z.object({
   decision: z.enum(['approved', 'rejected', 'escalated']),
   review_note: z.string().max(500).optional().nullable(),
 });
-
-async function getPlatformAdminUser(): Promise<string | null> {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-
-  return profile?.is_platform_admin ? user.id : null;
-}
 
 export async function PATCH(request: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -53,8 +39,9 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
     return NextResponse.json({ error: '不正なIDです' }, { status: 400 });
   }
 
-  const userId = await getPlatformAdminUser();
-  if (!userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const adminUser = await requirePlatformAdmin();
+  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  const userId = adminUser.id;
 
   const body = await request.json().catch(() => null);
   const parsed = bodySchema.safeParse(body);
@@ -82,17 +69,24 @@ export async function PATCH(request: NextRequest, props: { params: Promise<{ id:
   }
 
   // Update moderation_queue
-  const { error: updateErr } = await admin
+  // 更新件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（直前のfetch後に
+  // 対象行が削除される等）による0件更新も「成功」と偽装していた（phantom success）。
+  // .select() で更新行を受け取り、0件なら404を返す（catalog/[id]等と同型）。
+  const { data: updatedRows, error: updateErr } = await admin
     .from('moderation_queue')
     .update({
       status: decision,
       reviewed_at: new Date().toISOString(),
       review_note: review_note ?? null,
     })
-    .eq('id', params.id);
+    .eq('id', params.id)
+    .select();
 
   if (updateErr) {
     return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+  }
+  if (!updatedRows || updatedRows.length === 0) {
+    return NextResponse.json({ error: '対象が見つかりません' }, { status: 404 });
   }
 
   // 却下の場合: facility_reviews を非表示にする

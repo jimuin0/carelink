@@ -180,13 +180,18 @@ export async function DELETE(req: NextRequest) {
   if (!facilityIds.includes(existingPost.facility_id)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const facilityId = existingPost.facility_id;
 
-  const { error } = await supabase
+  // 削除件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（直前の存在確認後に
+  // 別リクエストで削除される等）による0件削除も「成功」と偽装していた（phantom success）。
+  // .select() で削除行を受け取り、0件なら404を返す（catalog/[id]等と同型）。
+  const { data, error } = await supabase
     .from('gbp_posts')
     .delete()
     .eq('id', id)
-    .eq('facility_id', facilityId);
+    .eq('facility_id', facilityId)
+    .select();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: user.id,
