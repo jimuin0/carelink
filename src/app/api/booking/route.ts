@@ -363,6 +363,13 @@ export async function POST(request: Request) {
 
   // Send email notifications (non-blocking)
   try {
+    // facility_members（RLS: USING(auth.uid()=user_id)）は匿名予約では anon 権限の supabase では
+    // 常に0行（本人の行しか見えない）。同じく profiles（RLS: USING(auth.uid()=id)）も匿名では
+    // 0行。この2クエリだけは service role（RLSバイパス）で引く。facility_profiles / facility_menus
+    // / staff_profiles は「公開施設は誰でも読める」ポリシー（Public read published 等）があるため
+    // anon のままで問題ない（2026年7月16日 本番実データで確定：匿名予約でオーナー通知メールが
+    // 一度も送信されない事故の根治）。
+    const ownerLookupClient = createServiceRoleClient();
     const [facilityResult, menuResult, staffResult, ownerResult] = await Promise.all([
       supabase.from('facility_profiles').select('name, phone').eq('id', parsed.data.facility_id).single(),
       parsed.data.menu_id
@@ -375,7 +382,7 @@ export async function POST(request: Request) {
       // push.ts(sendPushToFacilityOwners) が owner 全員へ送るのと非対称で、複数オーナー運用時に
       // 一部オーナーへ新規予約メールが届かなかった。配列 select なら複数行でも PGRST116 にならず、
       // 全オーナーへ送れる（下でメール宛先を全オーナー化する）。
-      supabase.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner'),
+      ownerLookupClient.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner'),
     ]);
 
     const emailData = {
@@ -417,7 +424,7 @@ export async function POST(request: Request) {
     const ownerRows = (ownerResult.data as { user_id: string }[] | null) ?? [];
     if (ownerRows.length > 0) {
       const ownerUserIds = Array.from(new Set(ownerRows.map((o) => o.user_id).filter(Boolean)));
-      const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);
+      const { data: ownerProfiles } = await ownerLookupClient.from('profiles').select('email').in('id', ownerUserIds);
       const ownerEmails = Array.from(new Set(
         ((ownerProfiles as { email: string | null }[] | null) ?? []).map((p) => p.email).filter(Boolean) as string[]
       ));

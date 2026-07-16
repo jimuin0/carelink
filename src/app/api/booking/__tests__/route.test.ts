@@ -31,6 +31,12 @@ jest.mock('@/lib/notification-settings', () => ({
 const mockGetUser = jest.fn();
 const mockFrom = jest.fn();
 const mockRpc = jest.fn();
+// Service-role client の from() 専用トラッキング用モック。デフォルトは mockFrom へそのまま委譲する
+// （table 名・callNum ベースの既存の mockFrom.mockImplementation をそのまま再利用でき、既存テストの
+// 挙動は一切変えない）。目的は「facility_members / profiles の取得が service role 経由で行われて
+// いるか」を独立して呼び出しトラッキングできるようにすること（2026年7月16日・匿名予約でオーナー
+// 宛新規予約通知メールが届かない本番事故＝anon の RLS で0行になっていた根治の回帰防止用）。
+const mockServiceFrom = jest.fn((table: string) => mockFrom(table));
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({
@@ -39,10 +45,11 @@ jest.mock('@supabase/ssr', () => ({
     rpc: mockRpc,
   }),
 }));
-// Service-role client (createServiceRoleClient) must share mockFrom so CAS tests work.
-// DB-2: create_booking_atomic は service_role クライアント経由で呼ぶため rpc も共有する。
+// Service-role client (createServiceRoleClient) の from は mockServiceFrom（内部で mockFrom に委譲）
+// を使う。委譲のため table 名・callNum ベースの既存 mockFrom.mockImplementation はそのまま機能し、
+// CAS テスト等の既存挙動は変わらない。rpc は従来どおり mockRpc を共有する。
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockFrom, rpc: mockRpc }),
+  createServiceRoleClient: () => ({ from: mockServiceFrom, rpc: mockRpc }),
 }));
 
 jest.mock('@supabase/supabase-js', () => ({
@@ -1778,6 +1785,66 @@ describe('POST /api/booking', () => {
     expect(json.success).toBe(true);
     // 全オーナー(2人)へ new booking 通知メールが送られる（push の owner 全員通知と対称）。
     expect(sendNewBookingNotification).toHaveBeenCalledTimes(2);
+  });
+
+  // 【2026年7月16日 本番実データで確定した根治の回帰防止】匿名（未ログイン）予約で、施設オーナー宛
+  // 新規予約通知メール(sendNewBookingNotification)が一度も送信されない事故が本番で発生した
+  // （2026年7月16日 08:43 の匿名テスト予約で Resend 送信ログは顧客確認メール1通のみ・オーナー通知は
+  // 送信記録すら無し）。原因＝facility_members(RLS: USING(auth.uid()=user_id))・profiles
+  // (RLS: USING(auth.uid()=id)) を匿名権限の supabase（anon）で引いていたため、匿名予約時は常に
+  // 0行になり ownerEmails が空になっていたこと。根治＝この2クエリを service role
+  // （createServiceRoleClient・RLSバイパス）に切替。
+  // このテストは「オーナー取得の2クエリが実際に service role 経由（mockServiceFrom）で行われた」
+  // ことを直接アサートする。table 名一致だけの検証だと、anon 経由でも service role 経由でも
+  // mockFrom は同じ値を返せてしまい退行を検知できないため、mockServiceFrom への呼び出し自体を
+  // 独立してトラッキングして検証する（anon の supabase に戻す退行があればこのアサーションが失敗する）。
+  test('匿名予約(user=null)でもオーナー取得がservice role経由で行われ、新規予約通知メールが送信される', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+
+    const ownerId = 'owner-user-anon-test';
+    const ownerEmail = 'owner-anon-test@example.com';
+
+    function ownerRowsChain(rows: unknown[]) {
+      const result = { data: rows, error: null };
+      const chain: Record<string, unknown> = {};
+      const handler = jest.fn(() => chain);
+      chain.select = handler;
+      chain.eq = handler;
+      chain.in = handler;
+      chain.then = Promise.resolve(result).then.bind(Promise.resolve(result));
+      return chain;
+    }
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) return conflictChain;       // conflict check
+      if (callNum === 2) return menuLookupChain();   // facility_menus 価格ルックアップ
+      if (table === 'facility_members') return ownerRowsChain([{ user_id: ownerId }]);
+      if (table === 'profiles') return ownerRowsChain([{ email: ownerEmail }]);
+      return nullChain;                              // facility_profiles + 通知用メニュー名 lookup
+    });
+
+    const { sendNewBookingNotification } = require('@/lib/email');
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+
+    // オーナー宛メールが実際に送られる（宛先が空になっていない＝匿名予約でもオーナー取得が成功）。
+    expect(sendNewBookingNotification).toHaveBeenCalledWith(
+      expect.objectContaining({ facilityEmail: ownerEmail })
+    );
+
+    // 【回帰防止の核心】facility_members / profiles の取得が createServiceRoleClient()（service role）
+    // 経由で行われたことを検証する。anon の supabase に戻す退行があれば、この2クエリは
+    // mockServiceFrom を経由しなくなり、以下のアサーションが失敗する。
+    expect(mockServiceFrom).toHaveBeenCalledWith('facility_members');
+    expect(mockServiceFrom).toHaveBeenCalledWith('profiles');
   });
 
   test('確認メール・オーナー通知メールが送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
