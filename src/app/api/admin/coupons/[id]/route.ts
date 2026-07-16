@@ -185,8 +185,18 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     .eq('coupon_id', params.id);
   if (countErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   if (count && count > 0) {
-    const { error: deactivateErr } = await admin.from('coupons').update({ is_active: false }).eq('id', params.id).eq('facility_id', facilityId);
+    // 更新件数(affected rows)を検証せず常に成功を返し、監査ログも無条件で書いていたため、
+    // TOCTOU（利用実績カウント確認後に既削除等）による0件更新も「無効化しました」と偽装していた
+    // （phantom success）。.select() で更新行を受け取り、0件なら404（実際に変更が起きた時のみ
+    // 監査ログを書く。ハード削除分岐・catalog/[id]・packages/[id] と同型）。
+    const { data: deactivated, error: deactivateErr } = await admin
+      .from('coupons')
+      .update({ is_active: false })
+      .eq('id', params.id)
+      .eq('facility_id', facilityId)
+      .select();
     if (deactivateErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
 
     void writeAuditLog({
       userId: user.id,

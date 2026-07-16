@@ -210,7 +210,9 @@ test('DELETE: 契約中ユーザーあり → soft deactivate (200)', async () =
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
+          }),
         }),
       }),
     };
@@ -240,7 +242,9 @@ test('DELETE: 契約中ユーザーなし → 正常削除 (200 deleted)', async
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
+          }),
         }),
       }),
     };
@@ -251,6 +255,64 @@ test('DELETE: 契約中ユーザーなし → 正常削除 (200 deleted)', async
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.message).toBe('deleted');
+});
+
+test('DELETE: 契約中ユーザーあり・非公開化0行（verify後にTOCTOU削除）→ 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn(() => Promise.resolve({ count: 3 })),
+          }),
+        }),
+      };
+    }
+    return {
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('DELETE: 契約中ユーザーなし・削除0行（verify後にTOCTOU削除）→ 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return planChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn(() => Promise.resolve({ count: 0 })),
+          }),
+        }),
+      };
+    }
+    return {
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: レートリミット → 429', async () => {
@@ -332,7 +394,9 @@ test('DELETE: count=null → ハード削除 (200 deleted)', async () => {
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [{ id: PLAN_UUID }], error: null })),
+          }),
         }),
       }),
     };
@@ -359,7 +423,9 @@ test('DELETE: 契約中ユーザーあり + deactivate 失敗 → 500', async ()
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'fail' } })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
+          }),
         }),
       }),
     };
@@ -386,7 +452,9 @@ test('DELETE: ハード削除 失敗 → 500', async () => {
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'fail' } })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
+          }),
         }),
       }),
     };
