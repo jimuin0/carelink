@@ -65,13 +65,20 @@ export async function PATCH(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const { error } = await admin
+  // 更新件数(affected rows)を検証せず常に success:true を返していたため、実在しない/既削除の
+  // facility_id を指定しても「成功」と偽装していた（phantom success・実在確認そのものが無かった）。
+  // .select() で更新行を受け取り、0件なら404を返す（customers/[id] 等と同型）。
+  const { data, error } = await admin
     .from('facility_profiles')
     .update(updateData)
-    .eq('id', facility_id);
+    .eq('id', facility_id)
+    .select();
 
   if (error) {
     return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
+  }
+  if (!data || data.length === 0) {
+    return NextResponse.json({ error: '施設が見つかりません' }, { status: 404 });
   }
 
   const { ua } = getRequestContext(request);

@@ -95,7 +95,7 @@ function jobUpdateChain(data: unknown, error: unknown = null) {
       eq: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
           select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data, error })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
           }),
         }),
       }),
@@ -103,11 +103,13 @@ function jobUpdateChain(data: unknown, error: unknown = null) {
   };
 }
 
-function jobDeleteChain(error: unknown = null) {
+function jobDeleteChain(error: unknown = null, data: unknown = [{ id: JOB_UUID }]) {
   return {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : data, error })),
+        }),
       }),
     }),
   };
@@ -214,6 +216,26 @@ test('PATCH: 正常更新 → 200 with job', async () => {
   expect(json.job).toBeDefined();
 });
 
+test('PATCH: 更新0行 (authorize後にTOCTOU削除) → 404', async () => {
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
+    return jobUpdateChain(null, null);
+  });
+  const res = await PATCH(makeRequest('PATCH', validJob()), makeProps());
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: 未認証・不正な employment_type → 401 (認証チェックがzod検証より先＝スキーマ情報を返さない)', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await PATCH(makeRequest('PATCH', { ...validJob(), employment_type: '不明な雇用形態' }), makeProps());
+  expect(res.status).toBe(401);
+  const json = await res.json();
+  expect(json.issues).toBeUndefined();
+});
+
 // ─── DELETE ───────────────────────────────────────────────────────────────────
 
 test('DELETE: 未認証 → 401', async () => {
@@ -241,6 +263,18 @@ test('DELETE: 正常削除 → 200', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.success).toBe(true);
+});
+
+test('DELETE: 削除0行 (authorize後にTOCTOU削除) → 404', async () => {
+  mockAnonFrom.mockImplementation(() => membersChain([{ facility_id: FACILITY_UUID, role: 'owner' }]));
+  let serviceCallNum = 0;
+  mockServiceFrom.mockImplementation(() => {
+    serviceCallNum++;
+    if (serviceCallNum === 1) return jobSelectChain(MOCK_JOB);
+    return jobDeleteChain(null, []);
+  });
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
@@ -282,6 +316,7 @@ test('DELETE: 不正なUUID → 400', async () => {
 });
 
 test('PATCH: 不正な JSON body → 400', async () => {
+  setupAuthorize();
   const req = new Request(`http://localhost/api/admin/jobs/${JOB_UUID}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -340,7 +375,7 @@ test('PATCH: salary_note/description/requirements/benefits 空文字 → null �
         eq: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
             select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: MOCK_JOB, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: MOCK_JOB, error: null })),
             }),
           }),
         }),

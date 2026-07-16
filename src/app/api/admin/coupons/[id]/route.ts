@@ -202,8 +202,12 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   }
 
   // Include facility_id in WHERE as defence-in-depth (CAS guard against stale verifyCouponAdmin read)
-  const { error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId);
+  // 削除件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（利用実績カウント確認後に
+  // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
+  // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
+  const { data, error } = await admin.from('coupons').delete().eq('id', params.id).eq('facility_id', facilityId).select();
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: 'クーポンが見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: user.id,

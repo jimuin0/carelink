@@ -72,15 +72,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       return NextResponse.json({ error: '短時間に多くのリクエストがありました' }, { status: 429 });
     }
 
+    // 【順序修正】認証・権限チェック（authorize）を zod 検証より前に実施する。逆順だと未認証/無権限の
+    // リクエストにも zod のスキーマ情報（issues）を返してしまい、スキーマ形状が漏れる。
+    const result = await authorize(params.id);
+    if ('error' in result) return result.error;
+    const { job, userId } = result;
+
     const body = await request.json().catch(() => null);
     const parsed = jobFormSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: '入力値が不正です', issues: parsed.error.issues }, { status: 400 });
     }
-
-    const result = await authorize(params.id);
-    if ('error' in result) return result.error;
-    const { job, userId } = result;
 
     // DB 書き込みは service role クライアント（facility_jobs の RLS は公開 read のみ・
     // UPDATE/DELETE ポリシーが無いため auth クライアントでは失敗する）
@@ -103,13 +105,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       .eq('id', job.id)
       .eq('facility_id', job.facility_id)
       .select('*')
-      .single();
+      // .maybeSingle(): authorize と update の間に削除される TOCTOU 等で該当0行になった場合、.single()
+      // だと PGRST116 error が先に発火し if(error)→500 になり 404 分岐が到達不能になる（catalog/coupons/
+      // packages/api-keys の同型 [id] ルートと統一）。
+      .maybeSingle();
 
     if (error) {
       safeCaptureException(error, 'admin-jobs-update');
       alertCaughtError('admin-jobs-update', error, '/api/admin/jobs/[id]');
       return NextResponse.json({ error: '更新に失敗しました' }, { status: 500 });
     }
+    if (!data) return NextResponse.json({ error: '求人が見つかりません' }, { status: 404 });
 
     void writeAuditLog({
       userId,
@@ -147,17 +153,22 @@ export async function DELETE(request: Request, props: { params: Promise<{ id: st
     // DB 書き込みは service role クライアント（facility_jobs の RLS は公開 read のみ・
     // DELETE ポリシーが無いため auth クライアントでは失敗する）
     const serviceAdmin = createServiceRoleClient();
-    const { error } = await serviceAdmin
+    // 削除件数(affected rows)を検証せず常に success:true を返していたため、TOCTOU（authorize後に
+    // 既削除等）による0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、
+    // 0件なら404を返す（customers/[id]・menus/[id] と同型）。
+    const { data, error } = await serviceAdmin
       .from('facility_jobs')
       .delete()
       .eq('id', job.id)
-      .eq('facility_id', job.facility_id);
+      .eq('facility_id', job.facility_id)
+      .select();
 
     if (error) {
       safeCaptureException(error, 'admin-jobs-delete');
       alertCaughtError('admin-jobs-delete', error, '/api/admin/jobs/[id]');
       return NextResponse.json({ error: '削除に失敗しました' }, { status: 500 });
     }
+    if (!data || data.length === 0) return NextResponse.json({ error: '求人が見つかりません' }, { status: 404 });
 
     void writeAuditLog({
       userId,
