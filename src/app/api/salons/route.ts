@@ -10,6 +10,7 @@ import { withRoute } from '@/lib/with-route';
 import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { sendNotify } from '@/lib/notify';
 
 export const dynamic = 'force-dynamic';
 
@@ -59,6 +60,15 @@ const salonInsertSchema = z.object({
   photo_urls: z.array(z.string().max(2000)).max(7).optional(),
   desired_start_date: z.string().max(50).optional().nullable(),
   recaptcha_token: z.string().optional(),
+  // 【2026年7月16日 恒久根治・/api/notify 廃止対応】recruit（掲載申し込み・簡易項目）と
+  // register（無料掲載登録・全項目＋写真）の両ページが同一の本エンドポイントへ POST する。
+  // 従来はクライアントが送信成功後に別途 /api/notify を叩き、ページごとに異なる Slack
+  // メッセージ種別（recruit→type:'facility'「施設掲載の申し込み」／register→type:'salon'
+  // 「施設掲載の新規登録」）を選んでいた。/api/notify は認証なしの公開POSTで外部から偽
+  // Slackアラートを送れる構造的脆弱性だったため廃止し、通知はこのサーバー側から直接送る。
+  // サーバーは送信元ページを区別する手段を持たないため、この非永続（DB非保存）フィールドで
+  // どちらの Slack テンプレートを使うかを明示させ、既存の通知内容を1件も欠落させない。
+  source: z.enum(['recruit', 'register']),
 });
 
 // GET（匿名・認証なし）で返してよい公開安全カラムのみ。
@@ -146,6 +156,41 @@ export const POST = withRoute(async (request) => {
       { error: '送信に失敗しました。時間をおいて再度お試しください。' },
       { status: 500 }
     );
+  }
+
+  // Slack通知（fire-and-forget）
+  // server-to-server の HTTP fetch は Origin/Referer を持たず /api/notify の CSRF で 403 になり
+  // 通知が無音欠落する（contact.ts と同型）ため、共有ロジック sendNotify を直接呼ぶ。
+  // d.source で recruit（掲載申し込み）/ register（無料掲載登録）を判定し、従来クライアントが
+  // 送っていたのと同じ Slack メッセージ種別・内容を1件も欠落させず送る。
+  if (d.source === 'register') {
+    sendNotify({
+      type: 'salon',
+      data: {
+        facility_name: d.facility_name,
+        business_type: d.business_type,
+        representative_name: d.representative_name,
+        phone: d.phone,
+        email: d.email,
+        address: d.address || undefined,
+        desired_start_date: d.desired_start_date || undefined,
+      },
+    }).then((r) => {
+      if (!r.ok) console.error('[salons] Slack notification failed', { error: r.error });
+    }).catch((err) => console.error('[salons] Slack notification failed', { err }));
+  } else {
+    sendNotify({
+      type: 'facility',
+      data: {
+        facility_name: d.facility_name,
+        contact_name: d.contact_name,
+        email: d.email,
+        phone: d.phone,
+        business_type: d.business_type,
+      },
+    }).then((r) => {
+      if (!r.ok) console.error('[salons] Slack notification failed', { error: r.error });
+    }).catch((err) => console.error('[salons] Slack notification failed', { err }));
   }
 
   return NextResponse.json({ success: true, id: data.id });

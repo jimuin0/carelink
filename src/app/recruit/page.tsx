@@ -10,7 +10,7 @@ import StepIndicator from '@/components/StepIndicator';
 import Toast from '@/components/Toast';
 import Spinner from '@/components/Spinner';
 import { formatPhone } from '@/lib/validations';
-import { phoneField } from '@/lib/phone';
+import { phoneField, normalizePhone } from '@/lib/phone';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
 // 【2026年7月16日 恒久根治】従来はこのページ固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
@@ -79,6 +79,12 @@ export default function RecruitPage() {
           address: data.address || null,
           website: data.website || null,
           pr_text: data.description || null,
+          // 【2026年7月16日 恒久根治・/api/notify 廃止対応】従来はここで送信成功後に
+          // 認証なしの公開POST /api/notify を別途叩いて Slack 通知していたが、外部から
+          // 偽アラートを送れる構造的脆弱性だったため廃止。/api/salons が保存成功後に
+          // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
+          // このフィールドで伝える（DBには保存されない）。
+          source: 'recruit',
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
@@ -90,21 +96,6 @@ export default function RecruitPage() {
         const errBody: { error?: string } | null = await res.json().catch(() => null);
         throw new Error(errBody?.error || '登録に失敗しました。時間をおいて再度お試しください。');
       }
-
-      fetch('/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'facility',
-          data: {
-            facility_name: data.facility_name,
-            contact_name: data.contact_name,
-            email: data.email,
-            phone: data.phone,
-            business_type: data.business_type,
-          },
-        }),
-      }).catch(() => {});
 
       setDone(true);
     } catch (e: unknown) {
@@ -168,7 +159,11 @@ export default function RecruitPage() {
               </div>
               <div>
                 <label className="form-label">電話番号 *</label>
-                <input {...register('phone')} maxLength={20} className="form-input w-full" value={phoneValue ? formatPhone(phoneValue) : ''} onChange={(e) => setValue('phone', e.target.value.replace(/[^\d-]/g, ''))} />
+                {/* 【2026年7月16日 恒久根治】従来は replace(/[^\d-]/g, '') を先にかけており、
+                    全角数字「０９０」等が即除去され、サーバー側 normalizePhone（NFKC 全角→半角
+                    正規化）が実UIから到達不能だった。normalizePhone を先に通してから絞ることで、
+                    全角入力もサーバーと同じ規則で半角化してから表示・保持する。 */}
+                <input {...register('phone')} maxLength={20} className="form-input w-full" value={phoneValue ? formatPhone(phoneValue) : ''} onChange={(e) => setValue('phone', normalizePhone(e.target.value).replace(/[^\d-]/g, ''))} />
                 {errors.phone && <p className="form-error" role="alert">{errors.phone.message}</p>}
               </div>
             </div>

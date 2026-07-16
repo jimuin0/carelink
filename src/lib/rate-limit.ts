@@ -10,7 +10,7 @@
  *  3. inMemoryRateLimit: ルートが直接呼ぶ場合用（GET 系の軽量制限など）
  *
  * 既存呼び出しシグネチャ互換:
- *  - bookingRateLimit / notifyRateLimit / mutationRateLimit を「設定オブジェクト」として export
+ *  - bookingRateLimit / mutationRateLimit を「設定オブジェクト」として export
  *  - checkRateLimit(config, ip, fallbackLimit, fallbackWindowMs, prefix) — config は記録用のみ
  */
 
@@ -27,12 +27,6 @@ export const bookingRateLimit: RateLimitConfig | null = {
   prefix: 'rl:booking',
   limit: 3,
   windowMs: 5 * 60_000,
-};
-
-export const notifyRateLimit: RateLimitConfig | null = {
-  prefix: 'rl:notify',
-  limit: 5,
-  windowMs: 60_000,
 };
 
 export const mutationRateLimit: RateLimitConfig | null = {

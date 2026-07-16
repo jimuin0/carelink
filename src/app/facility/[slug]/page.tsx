@@ -314,7 +314,7 @@ export default async function FacilityPage(props: Props) {
               {facility.phone}
             </a>
           )}
-          <InquiryForm facilityId={facility.id} facilityName={facility.name} />
+          <InquiryForm facilityId={facility.id} />
         </div>
 
         {/* JSON-LD: LocalBusiness */}

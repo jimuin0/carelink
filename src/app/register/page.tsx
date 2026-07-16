@@ -175,30 +175,17 @@ export default function RegisterPage() {
           photo_url: photoUrls[0] || null,
           photo_urls: photoUrls,
           desired_start_date: data.desired_start_date || null,
+          // 【2026年7月16日 恒久根治・/api/notify 廃止対応】従来はここで送信成功後に
+          // 認証なしの公開POST /api/notify を別途叩いて Slack 通知していたが、外部から
+          // 偽アラートを送れる構造的脆弱性だったため廃止。/api/salons が保存成功後に
+          // サーバー側から直接 Slack 通知を送るため、どちらのテンプレートを使うかを
+          // このフィールドで伝える（DBには保存されない）。
+          source: 'register',
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
       if (!res.ok) throw new Error('registration failed');
       const resBody = await res.json().catch(() => null);
-
-      // Slack notification (fire-and-forget)
-      fetch('/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'salon',
-          data: {
-            facility_name: data.facility_name,
-            business_type: data.business_type,
-            representative_name: data.representative_name,
-            phone: data.phone,
-            email: data.email,
-            address: data.address || undefined,
-            desired_start_date: data.desired_start_date || undefined,
-          },
-        }),
-        signal: AbortSignal.timeout(10000),
-      }).catch(() => {});
 
       setIsDirty(false);
       // 【2026年7月8日 恒久根治】/register/complete はクライアント供給の name/type/area だけを表示
