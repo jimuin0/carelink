@@ -66,8 +66,8 @@ function setupDefaultMocks(
     limit: jest.fn().mockResolvedValue(listResult),
   });
 
-  const { createServerSupabaseClient } = require('@/lib/supabase-server');
-  createServerSupabaseClient.mockReturnValue({
+  const { createServiceRoleClient } = require('@/lib/supabase-server');
+  createServiceRoleClient.mockReturnValue({
     from: jest.fn((table: string) => {
       if (table === 'salons') {
         return {
@@ -272,8 +272,8 @@ describe('GET /api/salons', () => {
   });
 
   test('exception during processing → 500', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    createServerSupabaseClient.mockImplementation(() => {
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockImplementation(() => {
       throw new Error('Connection error');
     });
 
@@ -329,7 +329,7 @@ describe('GET /api/salons', () => {
   });
 
   test('list returns null data but no error → empty array', async () => {
-    const { createServerSupabaseClient } = require('@/lib/supabase-server');
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
     const listChain: any = {};
     Object.assign(listChain, {
       eq: jest.fn().mockReturnValue(listChain),
@@ -337,7 +337,7 @@ describe('GET /api/salons', () => {
       order: jest.fn().mockReturnValue(listChain),
       limit: jest.fn().mockResolvedValue({ data: null, error: null }),
     });
-    createServerSupabaseClient.mockReturnValue({
+    createServiceRoleClient.mockReturnValue({
       from: jest.fn().mockReturnValue({
         select: jest.fn().mockReturnValue({
           eq: jest.fn().mockReturnValue({
