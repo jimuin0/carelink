@@ -146,4 +146,45 @@ describe('/recruit 送信失敗時のエラー表示（サーバーJSON読み取
       expect(screen.getByText('掲載申し込みが完了しました')).toBeInTheDocument();
     });
   });
+
+  // 【2026年7月16日 恒久根治】/api/notify（認証なし公開POST）廃止に伴い、Slack通知は
+  // /api/salons が保存成功後にサーバー側から直接送るよう移行した。/register 由来か
+  // /recruit 由来かをサーバーが区別できるよう source フィールドを送る回帰テスト。
+  test('/api/salons への送信ボディに source: "recruit" が含まれる（サーバー側Slack通知の振り分け用）', async () => {
+    const fetchMock = jest.fn((url: string) => {
+      if (url === '/api/salons') {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, id: 'salon-1' }) } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const { container } = render(<RecruitPage />);
+    await advanceToStep2AndSubmit(container);
+
+    await waitFor(() => expect(screen.getByText('掲載申し込みが完了しました')).toBeInTheDocument());
+
+    const [, options] = fetchMock.mock.calls.find(([url]) => url === '/api/salons')!;
+    const body = JSON.parse((options as RequestInit).body as string);
+    expect(body.source).toBe('recruit');
+  });
+});
+
+describe('/recruit 電話番号入力の全角→半角正規化（onChange・恒久根治）', () => {
+  // 【2026年7月16日 恒久根治】従来 onChange は replace(/[^\d-]/g, '') を先にかけており、
+  // 全角数字「０９０」等が正規化される前に即除去され、サーバー側 normalizePhone
+  // （NFKC 全角→半角）の効果が実UIから到達不能だった。normalizePhone を先に通してから
+  // 絞ることで、全角入力もサーバーと同じ規則で半角化されることを検証する。
+  test('全角数字・全角ハイフンを入力すると半角化されて保持される（旧実装は全角文字が \\d に一致せず即除去され空になっていた）', async () => {
+    const { container } = render(<RecruitPage />);
+    const phoneInput = container.querySelector('[name="phone"]') as HTMLInputElement;
+
+    fireEvent.change(phoneInput, { target: { value: '０９０ー１２３４ー５６７８' } });
+
+    // 旧実装（normalizePhone を通さず replace(/[^\d-]/g, '') を先にかける）だと
+    // 全角数字・全角ハイフンは ASCII \d/- に一致しないため全て除去され '' になっていた。
+    await waitFor(() => {
+      expect(phoneInput.value.replace(/\D/g, '')).toBe('09012345678');
+    });
+  });
 });

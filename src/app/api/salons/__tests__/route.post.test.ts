@@ -9,6 +9,8 @@
  *   - Photo URL provenance restriction (only own Supabase Storage public bucket)
  *   - service_role insert → returns { success, id }
  *   - Insert error / exception → 500
+ *   - Slack通知（fire-and-forget）: source='recruit'→type:'facility' / source='register'→type:'salon'
+ *     （/api/notify 廃止・サーバー側 sendNotify 直接呼び出しへの移行の回帰防止）
  */
 
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
@@ -18,10 +20,13 @@ jest.mock('@/lib/rate-limit', () => ({
 }));
 jest.mock('@supabase/supabase-js');
 jest.mock('@/lib/recaptcha', () => ({ verifyRecaptcha: jest.fn() }));
+// Slack 通知は同一サーバー内の sendNotify を直接呼ぶ（HTTP 往復しない・/api/notify 廃止）。
+jest.mock('@/lib/notify', () => ({ sendNotify: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { sendNotify } from '@/lib/notify';
 import { POST } from '../route';
 
 const STORAGE_PREFIX =
@@ -47,6 +52,7 @@ function setupDefaultMocks(opts: { insertError?: boolean; noData?: boolean } = {
   });
 
   (verifyRecaptcha as jest.Mock).mockResolvedValue({ success: true });
+  (sendNotify as jest.Mock).mockResolvedValue({ ok: true, ts: '123.456' });
 
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
@@ -83,6 +89,7 @@ const validFull = {
   photo_urls: [`${STORAGE_PREFIX}salons/uuid/exterior.jpg`],
   desired_start_date: 'immediately',
   recaptcha_token: 'valid-token',
+  source: 'register' as const,
 };
 
 const validMinimal = {
@@ -97,6 +104,7 @@ const validMinimal = {
   website: null,
   pr_text: null,
   recaptcha_token: 'valid-token',
+  source: 'recruit' as const,
 };
 
 function makeRequest(body: unknown, ip = '192.168.1.1') {
@@ -323,6 +331,93 @@ describe('POST /api/salons', () => {
 
       expect(res.status).toBe(200);
       expect(verifyRecaptcha).not.toHaveBeenCalled();
+    });
+  });
+
+  test('missing source → 400', async () => {
+    const { source, ...rest } = validFull;
+    void source;
+    const res = await POST(makeRequest(rest) as any);
+    expect(res.status).toBe(400);
+    expect(mockInsert).not.toHaveBeenCalled();
+  });
+
+  test('invalid source value → 400', async () => {
+    const res = await POST(makeRequest({ ...validFull, source: 'other' }) as any);
+    expect(res.status).toBe(400);
+  });
+
+  // 【2026年7月16日 恒久根治】/api/notify（認証なし公開POST・偽Slackアラート経路）廃止に伴い、
+  // Slack通知は保存成功後にこのサーバーから sendNotify を直接呼ぶ（contact.ts と同型の
+  // fire-and-forget）。recruit/register いずれの送信元でも、従来クライアントが送っていたのと
+  // 同じ Slack メッセージ種別・内容が1件も欠落しないことを検証する。
+  describe('Slack通知（sendNotify 直接呼び出し・fire-and-forget）', () => {
+    test('source=register → type:salon で送信され、representative_name/address/desired_start_date を含む', async () => {
+      await POST(makeRequest(validFull) as any);
+
+      expect(sendNotify).toHaveBeenCalledWith({
+        type: 'salon',
+        data: {
+          facility_name: validFull.facility_name,
+          business_type: validFull.business_type,
+          representative_name: validFull.representative_name,
+          phone: validFull.phone,
+          email: validFull.email,
+          address: validFull.address,
+          desired_start_date: validFull.desired_start_date,
+        },
+      });
+    });
+
+    test('source=register かつ address/desired_start_date 未指定 → undefined で送信される（空文字/nullを送らない）', async () => {
+      await POST(makeRequest({ ...validFull, address: null, desired_start_date: null }) as any);
+
+      const call = (sendNotify as jest.Mock).mock.calls[0][0];
+      expect(call.type).toBe('salon');
+      expect(call.data.address).toBeUndefined();
+      expect(call.data.desired_start_date).toBeUndefined();
+    });
+
+    test('source=recruit → type:facility で送信され、contact_name を含む（representative_nameは含まない）', async () => {
+      await POST(makeRequest(validMinimal) as any);
+
+      expect(sendNotify).toHaveBeenCalledWith({
+        type: 'facility',
+        data: {
+          facility_name: validMinimal.facility_name,
+          contact_name: validMinimal.contact_name,
+          email: validMinimal.email,
+          phone: validMinimal.phone,
+          business_type: validMinimal.business_type,
+        },
+      });
+    });
+
+    test('DB insert失敗時は sendNotify が呼ばれない（保存に成功した場合のみ通知）', async () => {
+      setupDefaultMocks({ insertError: true });
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(500);
+      expect(sendNotify).not.toHaveBeenCalled();
+    });
+
+    test('sendNotify が ok:false を返しても 200（通知失敗はログのみ・本体は成功のまま・source=register）', async () => {
+      (sendNotify as jest.Mock).mockResolvedValue({ ok: false, error: 'not_configured' });
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
+      expect(sendNotify).toHaveBeenCalled();
+    });
+
+    test('sendNotify が ok:false を返しても 200（通知失敗はログのみ・本体は成功のまま・source=recruit）', async () => {
+      (sendNotify as jest.Mock).mockResolvedValue({ ok: false, error: 'not_configured' });
+      const res = await POST(makeRequest(validMinimal) as any);
+      expect(res.status).toBe(200);
+      expect(sendNotify).toHaveBeenCalled();
+    });
+
+    test('sendNotify が例外を投げても 200（fire-and-forget・本体を止めない）', async () => {
+      (sendNotify as jest.Mock).mockRejectedValue(new Error('network error'));
+      const res = await POST(makeRequest(validFull) as any);
+      expect(res.status).toBe(200);
     });
   });
 });

@@ -18,10 +18,9 @@ type InquiryFormData = z.infer<typeof inquirySchema>;
 
 interface Props {
   facilityId: string;
-  facilityName: string;
 }
 
-export default function InquiryForm({ facilityId, facilityName }: Props) {
+export default function InquiryForm({ facilityId }: Props) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [submitted, setSubmitted] = useState(false);
@@ -47,22 +46,10 @@ export default function InquiryForm({ facilityId, facilityName }: Props) {
       });
       if (!res.ok) throw new Error('inquiry submission failed');
 
-      // Slack notification (fire-and-forget)
-      fetch('/api/notify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'facility_inquiry',
-          data: {
-            facility_name: facilityName,
-            name: data.name,
-            email: data.email,
-            phone: data.phone || '未入力',
-            message: data.message,
-          },
-        }),
-        signal: AbortSignal.timeout(10000),
-      }).catch(() => {});
+      // 【2026年7月16日 恒久根治・/api/notify 廃止対応】従来はここで送信成功後に
+      // 認証なしの公開POST /api/notify を別途叩いて Slack 通知していたが、外部から
+      // 偽アラートを送れる構造的脆弱性だったため廃止。/api/inquiry が保存成功後に
+      // サーバー側（facility_profiles から確定した権威ある施設名）から直接 Slack 通知を送る。
 
       setSubmitted(true);
       reset();
