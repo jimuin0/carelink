@@ -19,7 +19,22 @@ export const metadata: Metadata = {
 };
 
 interface SearchParams {
-  tag?: string;
+  tag?: string | string[];
+}
+
+// タグ絞込パラメータの検証。
+// supabase-js の .contains() は配列を join(',') で `{a,b}` リテラルに組むだけでエスケープしないため、
+// `,` は複数要素扱い・`{` `}` `"` `\` は不正リテラル（PostgREST 400）になりうる。
+// これらの特殊文字を含む・空・長すぎる tag は絞込無効（未指定と同じ挙動）にする。
+const TAG_MAX_LENGTH = 100;
+const SAFE_TAG_PATTERN = /^[^,{}"\\]+$/;
+function sanitizeTag(raw: string | string[] | undefined): string | undefined {
+  // ?tag=a&tag=b のように複数指定されると string[] が来る（Next.js の searchParams 仕様）。先頭要素を採用。
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (!value) return undefined;
+  if (value.length > TAG_MAX_LENGTH) return undefined;
+  if (!SAFE_TAG_PATTERN.test(value)) return undefined;
+  return value;
 }
 
 interface DbPost {
@@ -90,7 +105,7 @@ async function getPosts(tag?: string): Promise<DisplayPost[]> {
 
 export default async function BlogPage(props: { searchParams: Promise<SearchParams> }) {
   const searchParams = await props.searchParams;
-  const tag = searchParams.tag;
+  const tag = sanitizeTag(searchParams.tag);
   const posts = await getPosts(tag);
 
   return (
