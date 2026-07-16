@@ -12,6 +12,11 @@
  *   - no-anon-select-rls-protected-table: anon Supabase クライアント（createServerSupabaseClient 等）
  *       で RLS 保護テーブルを select する事故（#483/#484/facilities.ts 同型・RLSで常に0行になり
  *       「空きあり誤判定」「バッジ非表示」等の無音バグを生む）の発症前予防。
+ *   - no-anon-write-rls-protected-table: anon/auth Supabase クライアントで「書込 RLS ポリシーが
+ *       一切無い」テーブルへ insert/update/upsert/delete する事故（gbp/place の facility_profiles
+ *       同型・書込が拒否/0行になり無音で機能が死ぬ）の発症前予防。SELECT専用ルールと異なり、
+ *       createServerSupabaseAuthClient（authクライアント）も対象に含む（このクラスのテーブルは
+ *       authクライアントでも書込ポリシーが存在しないため）。
  */
 
 'use strict';
@@ -76,10 +81,36 @@ const RLS_PROTECTED_TABLES = new Set([
   'contacts', 'contact_replies', 'sent_reminders', 'email_unsubscribe_tokens', 'salons', 'job_seekers',
 ]);
 
+// ─── no-anon-write-rls-protected-table ──────────────────────────────────────
+//
+// gbp/place（facility_profiles）で発見した書込RLS拒否バグ（2026年7月16日）と同型のクラスを
+// 発症前予防する。RLS が有効かつ SELECT ポリシーのみ（INSERT/UPDATE/DELETE/ALL ポリシーが
+// 一切無い）テーブルは、anon クライアントだけでなく createServerSupabaseAuthClient
+// （ログインユーザー文脈・auth.uid() 解決済み）であっても書込（insert/update/upsert/delete）が
+// 拒否/0行になり無音で機能が死ぬ（facility_profiles は SELECT が status='published' 限定の
+// 公開/認証読取ポリシーのみで、所有者ベースの書込ポリシーが存在しないため）。
+//
+// 全 supabase/migrations/*.sql を静的監査し、CREATE POLICY の FOR 句（INSERT/UPDATE/DELETE/ALL、
+// 無指定はALL既定）が一切無いテーブルを機械的に列挙して確定した（2026年7月16日）。
+// facility_profiles 以外の9テーブルは現時点で実際の anon/auth クライアント書込は存在しない
+// （既存コードは全て service role 経由で正しく書き込んでいる）ことをコードベース全体を検索して
+// 確認済み・false positive ゼロ。将来の実装ミスを発症前に検知するための予防的登録。
+const WRITE_RLS_PROTECTED_TABLES = new Set([
+  'facility_profiles', // gbp/place 実バグ（2026年7月16日）: SELECTのみ・所有者ベース書込ポリシー無し
+  'facility_members', 'customer_segments', 'daily_revenue_summary', 'user_points',
+  'user_coupon_codes', 'audit_logs', 'cron_logs', 'facility_entitlements', 'line_notification_logs',
+]);
+
+const WRITE_METHOD_NAMES = new Set(['insert', 'update', 'upsert', 'delete']);
+
 // anon（RLSをバイパスしない・cookie無し＝auth.uid()=null）クライアントを生成する関数名。
 const ANON_CLIENT_CTOR_NAMES = new Set(['createServerSupabaseClient']);
-// RLSを迂回する/正しくauth.uid()を持つ、安全なクライアントを生成する関数名（誤検知回避）。
-const SAFE_CLIENT_CTOR_NAMES = new Set(['createServiceRoleClient', 'createServerSupabaseAuthClient']);
+// RLS を完全バイパスする service role クライアント（真に安全＝どのテーブルへの書込も可）。
+const SERVICE_ROLE_CLIENT_CTOR_NAMES = new Set(['createServiceRoleClient']);
+// ログインユーザー文脈（auth.uid() がリクエストの実ユーザーに解決される）クライアント。
+// SELECT向けRLS保護テーブル判定では「安全」だが、書込RLSポリシーが一切無いテーブルに対しては
+// anon と同様に書込が拒否/0行になるため、no-anon-write-rls-protected-table では別枠で扱う。
+const AUTH_CLIENT_CTOR_NAMES = new Set(['createServerSupabaseAuthClient']);
 // key引数の文字列（変数名・env参照）を見てanon/service-roleを判定する汎用ファクトリ関数名。
 const GENERIC_CLIENT_FACTORY_NAMES = new Set(['createClient', 'createServerClient']);
 
@@ -136,9 +167,10 @@ function callHasCookiesOption(callExpr) {
  * createClient/createServerClient(url, key, ...) の key 引数テキストから
  * anon か service-role かを判定する。どちらとも判定できない場合は 'unknown'
  * （誤検知回避のため保守的に「flagしない」側に倒す）。
+ * cookies オプション配線済みは auth_client（ログインユーザー文脈）として区別する。
  */
 function classifyGenericClientCall(callExpr, sourceCode) {
-  if (callHasCookiesOption(callExpr)) return 'safe';
+  if (callHasCookiesOption(callExpr)) return 'auth_client';
   const argsText = callExpr.arguments
     .map((a) => {
       try {
@@ -151,17 +183,19 @@ function classifyGenericClientCall(callExpr, sourceCode) {
   const looksAnon = /ANON_KEY/i.test(argsText);
   const looksService = /SERVICE_ROLE/i.test(argsText);
   if (looksAnon && !looksService) return 'anon';
-  if (looksService && !looksAnon) return 'safe';
+  if (looksService && !looksAnon) return 'service_role';
   return 'unknown';
 }
 
 /**
- * 変数（Variable）が「anon クライアントに束縛されている」か判定する。
- * 誤検知回避のため、以下は全て 'unknown'（＝flagしない）に倒す：
+ * 変数（Variable）が「anon / service_role / auth_client のいずれのクライアントに
+ * 束縛されているか」を判定する。誤検知回避のため、以下は全て 'unknown'（＝flagしない）に倒す：
  *   - 定義が無い / 複数回定義されている（再代入等で追跡が不確実）
  *   - 定義が変数宣言以外（Parameter＝関数引数 `supabase: SupabaseClient` 等）（要件(3)）
  *   - 分割代入（`const { supabase } = ctx;` 等、RouteContext由来を含む）（要件(4)）
  *   - 初期化式が既知のクライアント生成関数呼び出しでない
+ *
+ * 戻り値: 'anon' | 'service_role' | 'auth_client' | 'unknown'
  */
 function classifyClientVariable(variable, sourceCode) {
   if (!variable || !variable.defs || variable.defs.length !== 1) return 'unknown';
@@ -176,7 +210,8 @@ function classifyClientVariable(variable, sourceCode) {
   if (!init || init.type !== 'CallExpression' || init.callee.type !== 'Identifier') return 'unknown';
   const calleeName = init.callee.name;
   if (ANON_CLIENT_CTOR_NAMES.has(calleeName)) return 'anon';
-  if (SAFE_CLIENT_CTOR_NAMES.has(calleeName)) return 'safe';
+  if (SERVICE_ROLE_CLIENT_CTOR_NAMES.has(calleeName)) return 'service_role';
+  if (AUTH_CLIENT_CTOR_NAMES.has(calleeName)) return 'auth_client';
   if (GENERIC_CLIENT_FACTORY_NAMES.has(calleeName)) return classifyGenericClientCall(init, sourceCode);
   return 'unknown';
 }
@@ -363,6 +398,86 @@ module.exports = {
                 node,
                 messageId: 'forbidden',
                 data: { table: tableName, varName: clientExpr.name },
+              });
+            }
+          },
+        };
+      },
+    },
+    'no-anon-write-rls-protected-table': {
+      meta: {
+        type: 'problem',
+        docs: {
+          description:
+            'anon/auth Supabase クライアントで「書込 RLS ポリシーが一切無い」テーブルへ ' +
+            'insert/update/upsert/delete することを禁止。gbp/place（facility_profiles）で発見した ' +
+            '実バグ（2026年7月16日）と同型：SELECTポリシーのみ（所有者ベースの書込ポリシーが ' +
+            '存在しない）テーブルは、createServerSupabaseAuthClient（ログインユーザー文脈）で ' +
+            'あっても書込が拒否/0行になり、機能が無音で死ぬ。',
+        },
+        schema: [],
+        messages: {
+          forbidden:
+            '{{kind}}クライアント `{{varName}}` で、書込RLSポリシーが無いテーブル `{{table}}` へ ' +
+            '{{method}}() しています。RLS により実際には書き込まれず（拒否/0行）、無音で機能が ' +
+            '死にます（gbp/place の facility_profiles 実バグと同型）。' +
+            'createServiceRoleClient()（サーバー信頼文脈・RLSバイパス）を使ってください。',
+        },
+      },
+      create(context) {
+        const filename = context.getFilename();
+        // テスト内のモック/フィクスチャは実際の Supabase クライアントではないため対象外（要件(5)）。
+        if (/[\\/]__tests__[\\/]/.test(filename) || /\.test\.tsx?$/.test(filename)) return {};
+        const sourceCode = context.getSourceCode();
+        return {
+          // `X.from('table').insert/update/upsert/delete(...)` の形を対象にする。
+          CallExpression(node) {
+            const writeCallee = node.callee;
+            if (
+              !writeCallee ||
+              writeCallee.type !== 'MemberExpression' ||
+              writeCallee.property.type !== 'Identifier' ||
+              !WRITE_METHOD_NAMES.has(writeCallee.property.name)
+            ) {
+              return;
+            }
+            const methodName = writeCallee.property.name;
+            const fromCall = writeCallee.object;
+            if (!fromCall || fromCall.type !== 'CallExpression') return;
+            const fromCallee = fromCall.callee;
+            if (
+              !fromCallee ||
+              fromCallee.type !== 'MemberExpression' ||
+              fromCallee.property.type !== 'Identifier' ||
+              fromCallee.property.name !== 'from'
+            ) {
+              return;
+            }
+            const clientExpr = fromCallee.object;
+            // `ctx.supabase.from(...)` のような直接メンバーチェーンは変数追跡できないため対象外
+            // （＝誤検知しない保守的な選択。要件(4)の ctx.supabase 除外とも整合）。
+            if (!clientExpr || clientExpr.type !== 'Identifier') return;
+
+            const tableName = getStringLiteralValue(fromCall.arguments[0]);
+            if (!tableName || !WRITE_RLS_PROTECTED_TABLES.has(tableName)) return;
+
+            const scope =
+              typeof sourceCode.getScope === 'function' ? sourceCode.getScope(node) : context.getScope();
+            const variable = findVariableInScope(scope, clientExpr.name);
+            const kind = classifyClientVariable(variable, sourceCode);
+            // SELECT版ルールと異なり、'auth_client'（createServerSupabaseAuthClient等・
+            // ログインユーザー文脈）も対象テーブルには書込ポリシーが無いため flag する。
+            // 'service_role' のみが真に安全（RLSバイパス）。
+            if (kind === 'anon' || kind === 'auth_client') {
+              context.report({
+                node,
+                messageId: 'forbidden',
+                data: {
+                  table: tableName,
+                  varName: clientExpr.name,
+                  method: methodName,
+                  kind: kind === 'anon' ? 'anon' : 'auth',
+                },
               });
             }
           },

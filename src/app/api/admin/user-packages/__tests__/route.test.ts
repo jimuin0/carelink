@@ -5,9 +5,17 @@
  * Key assertions:
  *   - POST: non-admin → 401 (IDOR prevention)
  *   - POST: package not found → 404
- *   - PATCH (session use): CAS optimistic lock → 409
- *   - PATCH: sessions_remaining = 0 → 400
- *   - PATCH: expired → 400
+ *   - PATCH (session use): consume_package_session RPC（行ロックで原子的）に集約
+ *   - RPC 結果コード（not_found/no_sessions_remaining/expired/already_consumed）→ 対応 HTTP
+ *   - PATCH: sessions_remaining = 0 → 400（pre-check）
+ *   - PATCH: expired → 400（pre-check）
+ *
+ * 【2026年7月16日 恒久修正】従来は CAS decrement 成功後に package_usage_logs へ別クエリで
+ * INSERT していたため、ログ INSERT だけが失敗すると「減算は済んだがログが無い」状態になり、
+ * booking_id 単位の冪等チェック（ログ行の有無で判定）が偽装されて回数券が二重消費され得た
+ * （金銭的損失）。consume_package_session RPC（姉妹の consume_subscription_session と同型・
+ * 行ロック配下で冪等チェック→decrement→ログINSERTを同一トランザクション化）に集約したため、
+ * このテストも PATCH のセッション消費経路を RPC 呼び出しベースに更新した。
  */
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
@@ -24,8 +32,10 @@ const USER_ID =       'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const PACKAGE_UUID =  'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const TARGET_USER =   'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const UP_UUID =       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const BOOKING_UUID =  'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 
 const mockAdminFrom = jest.fn();
+const mockAdminRpc = jest.fn();
 const mockAnonFrom = jest.fn();
 const mockGetUser = jest.fn();
 
@@ -33,7 +43,7 @@ jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: mockAdminFrom }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom, rpc: mockAdminRpc }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -104,10 +114,17 @@ function buildUserPackage(overrides: Record<string, unknown> = {}) {
   };
 }
 
+// RPC 成功（ok:true）の既定戻り値
+function rpcOk() {
+  return { data: { ok: true, user_package: { id: UP_UUID, sessions_remaining: 2 } }, error: null };
+}
+
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  // 既定は RPC 成功。消費に到達しないテスト（pre-check 400/401/404/409）では呼ばれない。
+  mockAdminRpc.mockResolvedValue(rpcOk());
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
 });
@@ -261,76 +278,128 @@ test('POST: 正常付与 → 201', async () => {
   expect(res.status).toBe(201);
 });
 
-// ─── PATCH: session use ───────────────────────────────────────────────────────
+// ─── PATCH: session use path（RPC 集約後）──────────────────────────────────────
 
-test('PATCH: 残り回数 0 → 400', async () => {
+test('PATCH: 残り回数 0 → 400（pre-check・RPC到達せず）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(singleChain(buildUserPackage({ sessions_remaining: 0 })));
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   expect(res.status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('PATCH: 有効期限切れ → 400', async () => {
+test('PATCH: 有効期限切れ → 400（pre-check・RPC到達せず）', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockReturnValue(singleChain(buildUserPackage({
     expires_at: new Date(Date.now() - 1000).toISOString(),
   })));
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   expect(res.status).toBe(400);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
-test('PATCH: CAS競合 → 409', async () => {
-  let callNum = 0;
+test('PATCH: RPC no_sessions_remaining（読取後にrace）→ 400', async () => {
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildUserPackage());
-    // CAS miss: data is null
-    return {
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: null })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
-            }),
-          }),
-        }),
-      }),
-    };
-  });
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'no_sessions_remaining' }, error: null });
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
-  expect(res.status).toBe(409);
+  expect(res.status).toBe(400);
 });
 
-test('PATCH: 正常使用 → 200', async () => {
+test('PATCH: RPC expired（読取後にrace）→ 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'expired' }, error: null });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: RPC not_found → 404', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'not_found' }, error: null });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: RPCがalready_consumedを返す → 409（事前チェックは素通り・真の同時二重消費をRPC内部で捕捉）', async () => {
   let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return singleChain(buildUserPackage());
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return {
-      insert: jest.fn(() => Promise.resolve({ error: null })),
-    };
+    return usageLogChain(null); // 事前チェックは素通り（TOCTOU）→ RPC内部で捕捉される
   });
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'already_consumed' }, error: null });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  const json = await res.json();
+  expect(res.status).toBe(409);
+  expect(json.error).toBe('この予約は既に回数券を消費済みです');
+});
+
+test('PATCH: RPC 不明コード → 500（default ブランチ）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
+  mockAdminRpc.mockResolvedValue({ data: { ok: false, code: 'something_else' }, error: null });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: RPC 結果 null → 500（result?.ok / code 欠落で default）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
+  mockAdminRpc.mockResolvedValue({ data: null, error: null });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: RPC 自体がエラー → 500（旧・ログINSERT分離時代の二重消費バグの根治確認）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
+  mockAdminRpc.mockResolvedValue({ data: null, error: { message: 'rpc failed' } });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
+  expect(res.status).toBe(500);
+});
+
+test('PATCH: 正常使用 → 200（RPC ok、decrement とログINSERTはRPC内部の単一トランザクション）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage()));
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json.user_package).toBeDefined();
+  expect(mockAdminRpc).toHaveBeenCalledWith('consume_package_session', {
+    p_user_package_id: UP_UUID, p_booking_id: null, p_notes: null,
+  });
+});
+
+test('PATCH: booking_id 付きで正常使用 → 200（事前チェック通過後にRPCへ委譲）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    return usageLogChain(null); // package_usage_logs 事前チェック: 既存ログ無し
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(200);
+  expect(mockAdminRpc).toHaveBeenCalledWith('consume_package_session', {
+    p_user_package_id: UP_UUID, p_booking_id: BOOKING_UUID, p_notes: null,
+  });
+});
+
+test('PATCH: booking_id が既に消費済み → 409（二重消費防止・pre-check・RPC到達せず）', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return singleChain(buildUserPackage());
+    // 事前チェックで同一 booking_id の既存ログがヒット → 減算せず 409
+    return usageLogChain({ id: 'existing-log' });
+  });
+  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
+  expect(res.status).toBe(409);
+  expect(mockAdminRpc).not.toHaveBeenCalled();
 });
 
 // ─── GET: additional branches ─────────────────────────────────────────────────
@@ -465,110 +534,18 @@ test('PATCH: 本人でも管理者でもない → 401', async () => {
 });
 
 test('PATCH: service_packages が null (facilityId なし) で本人なら通過 → 200', async () => {
-  let callNum = 0;
   // The logged-in user IS the owner of the package
   mockAnonFrom.mockReturnValue(memberChain(null));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) {
-      return singleChain(buildUserPackage({ service_packages: null }));
-    }
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
-  });
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage({ service_packages: null })));
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   expect(res.status).toBe(200);
 });
 
 test('PATCH: expires_at が null → 期限チェックをスキップして通過', async () => {
-  let callNum = 0;
   mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildUserPackage({ expires_at: null }));
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
-  });
+  mockAdminFrom.mockReturnValue(singleChain(buildUserPackage({ expires_at: null })));
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   expect(res.status).toBe(200);
-});
-
-test('PATCH: CAS 更新 DB エラー → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildUserPackage());
-    return {
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-            }),
-          }),
-        }),
-      }),
-    };
-  });
-  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
-  expect(res.status).toBe(500);
-});
-
-test('PATCH: ログ挿入失敗 → console.error だが 200 を返す', async () => {
-  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildUserPackage());
-    if (callNum === 2) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: { message: 'log failed' } })) };
-  });
-  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
-  expect(res.status).toBe(200);
-  expect(consoleSpy).toHaveBeenCalled();
-  consoleSpy.mockRestore();
 });
 
 test('GET: facility_id が不正UUID → 400', async () => {
@@ -576,51 +553,9 @@ test('GET: facility_id が不正UUID → 400', async () => {
   expect(res.status).toBe(400);
 });
 
-// Branch coverage: line 137 — PATCH で user が null → 401 (true 分岐)
+// Branch coverage: PATCH で user が null → 401 (true 分岐)
 test('PATCH: 未認証 → 401', async () => {
   mockGetUser.mockResolvedValue({ data: { user: null } });
   const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID }) as any);
   expect(res.status).toBe(401);
-});
-
-test('PATCH: booking_id 付きで正常使用 → 200', async () => {
-  const BOOKING_UUID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildUserPackage());
-    if (callNum === 2) return usageLogChain(null); // package_usage_logs 事前チェック: 既存ログ無し
-    if (callNum === 3) {
-      return {
-        update: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-                maybeSingle: jest.fn(() => Promise.resolve({ data: { id: UP_UUID, sessions_remaining: 2 }, error: null })),
-              }),
-            }),
-          }),
-        }),
-      };
-    }
-    return { insert: jest.fn(() => Promise.resolve({ error: null })) };
-  });
-  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
-  expect(res.status).toBe(200);
-});
-
-test('PATCH: booking_id が既に消費済み → 409（二重消費防止）', async () => {
-  const BOOKING_UUID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
-  let callNum = 0;
-  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
-  mockAdminFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return singleChain(buildUserPackage());
-    // 事前チェックで同一 booking_id の既存ログがヒット → 減算せず 409
-    return usageLogChain({ id: "existing-log" });
-  });
-  const res = await PATCH(makePatchRequest({ user_package_id: UP_UUID, booking_id: BOOKING_UUID }) as any);
-  expect(res.status).toBe(409);
 });
