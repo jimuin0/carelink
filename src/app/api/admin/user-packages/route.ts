@@ -187,6 +187,8 @@ export async function PATCH(request: NextRequest) {
   }
   if (!isOwner && !isAdmin) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  // 早期リターン用の事前チェック（UX目的・非決定的な多層防御の一部）。読み取り時点の値に基づく
+  // ため TOCTOU の余地はあるが、真の冪等性・原子性は下の RPC 内部（行ロック配下）が担保する。
   if (userPkg.sessions_remaining <= 0) {
     return NextResponse.json({ error: '残り回数がありません' }, { status: 400 });
   }
@@ -194,10 +196,9 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
   }
 
-  // 冪等化（二重消費防止）: 同一 booking_id で既に消費済みなら減算しない。
+  // 冪等化（二重消費防止）事前チェック: 同一 booking_id で既に消費済みなら減算しない。
   // 「1回使用」ボタンの連打/リトライで顧客の前払い分が二重に減るのを防ぐ（逐次再呼び出し対策）。
-  // 並行の同時更新は下の CAS が、真の同時挿入は package_usage_logs(user_package_id, booking_id) の
-  // 部分 UNIQUE（migration・多層防御）が弾く。
+  // ここでの TOCTOU（事前SELECTと呼び出しの間の競合）は RPC 側の already_consumed で必ず捕捉される。
   if (parsed.data.booking_id) {
     const { data: existingLog } = await admin
       .from('package_usage_logs')
@@ -211,28 +212,38 @@ export async function PATCH(request: NextRequest) {
     }
   }
 
-  // Atomic decrement: require sessions_remaining matches what we read (optimistic lock)
-  // Prevents double-debit if two concurrent requests race past the > 0 check above.
-  const { data: updated, error } = await admin
-    .from('user_packages')
-    .update({ sessions_remaining: userPkg.sessions_remaining - 1 })
-    .eq('id', parsed.data.user_package_id)
-    .eq('sessions_remaining', userPkg.sessions_remaining)
-    .select()
-    .maybeSingle();
-
-  if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-  if (!updated) return NextResponse.json({ error: '残り回数がありません（同時更新が発生しました）' }, { status: 409 });
-
-  // ログ記録
-  const { error: logErr } = await admin.from('package_usage_logs').insert({
-    user_package_id: parsed.data.user_package_id,
-    booking_id: parsed.data.booking_id ?? null,
-    notes: parsed.data.notes,
+  // 恒久修正（金銭二重消費の根治）: 従来は CAS decrement 成功後に package_usage_logs へ
+  // 別クエリで INSERT していたため、ログ INSERT だけが失敗すると「減算は済んだがログが無い」
+  // 状態になり、上の事前チェックがログ行の有無で判定する冪等性を偽装して二重消費を許した。
+  // consume_package_session RPC（行ロック配下で冪等チェック→decrement→ログINSERTを同一
+  // トランザクション化・姉妹の consume_subscription_session と同型）に集約し、
+  // ログ INSERT が失敗すれば decrement ごとロールバックされる構造にした。
+  const { data: rpcResult, error: rpcError } = await admin.rpc('consume_package_session', {
+    p_user_package_id: parsed.data.user_package_id,
+    p_booking_id: parsed.data.booking_id ?? null,
+    p_notes: parsed.data.notes ?? null,
   });
-  if (logErr) {
-    console.error('[user-packages] usage log insert failed', { userPackageId: parsed.data.user_package_id, err: logErr });
+  if (rpcError) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  const result = rpcResult as {
+    ok: boolean;
+    code?: string;
+    user_package?: Record<string, unknown>;
+  } | null;
+  if (!result?.ok) {
+    switch (result?.code) {
+      case 'not_found':
+        return NextResponse.json({ error: 'Not found' }, { status: 404 });
+      case 'no_sessions_remaining':
+        return NextResponse.json({ error: '残り回数がありません' }, { status: 400 });
+      case 'expired':
+        return NextResponse.json({ error: '有効期限が切れています' }, { status: 400 });
+      case 'already_consumed':
+        return NextResponse.json({ error: 'この予約は既に回数券を消費済みです' }, { status: 409 });
+      default:
+        return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+    }
   }
 
-  return NextResponse.json({ user_package: updated });
+  return NextResponse.json({ user_package: result.user_package });
 }

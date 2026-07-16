@@ -6,6 +6,7 @@
     "carelink-safety/no-bare-sentry-capture": "error",
     "carelink-safety/no-discarded-supabase-error": "error",
     "carelink-safety/no-anon-select-rls-protected-table": "error",
+    "carelink-safety/no-anon-write-rls-protected-table": "error",
     "no-restricted-globals": [
       "error",
       { "name": "alert", "message": "alert() は使わず Toast を使ってください（UI 一貫性・スクリーンリーダー対応）。" },

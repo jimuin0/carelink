@@ -8,6 +8,14 @@
  *   - GET: external fetchPlaceDetails mocked
  *   - POST: saves gbp_place_id to facility_profiles
  *   - DB failure → 500
+ *
+ * 【2026年7月16日 恒久修正】facility_profiles は SELECT ポリシー（status='published' 限定）のみで
+ * UPDATE 用 RLS ポリシーが存在せず、createServerSupabaseAuthClient（RLS適用）での .update() は
+ * 拒否/0行になり GBP連携（Place ID保存・評価更新）が無音で死んでいた。書込を service role
+ * （createServiceRoleClient）へ切替したため、このテストも facility_profiles への書込は
+ * mockAdminFrom（service role）経由でモックする（読み取り・facility_members・gbp_audit_cache は
+ * 従来通り mockAnonFrom＝RLS適用クライアント経由）。phantom success 防止（0行更新→404/ログ）の
+ * 新規テストも追加した。
  */
 
 jest.mock('@/lib/rate-limit', () => ({ checkRateLimit: jest.fn(() => false) }));
@@ -23,12 +31,13 @@ const USER_ID       = '33333333-3333-3333-3333-333333333333';
 
 const mockGetUser = jest.fn();
 const mockAnonFrom = jest.fn();
+const mockAdminFrom = jest.fn();
 
 jest.mock('@supabase/ssr', () => ({
   createServerClient: () => ({ from: mockAnonFrom, auth: { getUser: mockGetUser } }),
 }));
 jest.mock('@/lib/supabase-server', () => ({
-  createServiceRoleClient: () => ({ from: jest.fn() }),
+  createServiceRoleClient: () => ({ from: mockAdminFrom }),
 }));
 
 import { NextRequest } from 'next/server';
@@ -45,7 +54,7 @@ function membershipSingle(members: { facility_id: string }[]) {
   };
 }
 
-// facility_profiles: select().eq().single()
+// facility_profiles: select().eq().single()（読み取り・anon/authクライアント。変更なし）
 function facilityProfileSingle(data: unknown) {
   return {
     select: jest.fn().mockReturnThis(),
@@ -54,18 +63,28 @@ function facilityProfileSingle(data: unknown) {
   };
 }
 
-// upsert chain (gbp_audit_cache)
+// upsert chain (gbp_audit_cache・変更なし・anon/authクライアント経由のまま)
 function upsertChain(error: unknown = null) {
   return {
     upsert: jest.fn(() => Promise.resolve({ error })),
   };
 }
 
-// update().eq() → Promise
-function updateEq(error: unknown = null) {
+// facility_profiles への書込（service role・admin経由）チェーン。
+// GET は `.update().eq().select('id')` を直接 await（Promise.allSettled 内・配列で返る）、
+// POST は `.update().eq().select('id').maybeSingle()`（単一行）。両方の呼ばれ方に対応するため、
+// select() の戻り値自体を thenable（Promise）にしつつ .maybeSingle() も生やす。
+function adminUpdateChain(rowOrRows: unknown, error: unknown = null) {
+  const arrayData = rowOrRows === null ? [] : (Array.isArray(rowOrRows) ? rowOrRows : [rowOrRows]);
+  const singleData = Array.isArray(rowOrRows) ? (rowOrRows[0] ?? null) : rowOrRows;
+  const selectResult: Promise<{ data: unknown[]; error: unknown }> & { maybeSingle?: jest.Mock } =
+    Promise.resolve({ data: arrayData, error });
+  selectResult.maybeSingle = jest.fn(() => Promise.resolve({ data: singleData, error }));
   return {
     update: jest.fn().mockReturnValue({
-      eq: jest.fn(() => Promise.resolve({ error })),
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => selectResult),
+      }),
     }),
   };
 }
@@ -85,6 +104,8 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   mockGetUser.mockResolvedValue({ data: { user: { id: USER_ID } } });
+  // 既定は書込成功（1行更新）。個別テストで上書きする。
+  mockAdminFrom.mockReturnValue(adminUpdateChain({ id: FACILITY_UUID }));
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   (fetchPlaceDetails as jest.Mock).mockResolvedValue(null);
@@ -127,7 +148,7 @@ test('GET: gbp_place_id なし → 200 with placeData null', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return facilityProfileSingle(FACILITY_DATA);
-    // upsert/update calls don't happen since placeData is null
+    // if(placeData) ブロックに入らないため upsert/update は呼ばれない
     return upsertChain(null);
   });
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
@@ -167,12 +188,8 @@ test('POST: 非管理者 → 403', async () => {
 });
 
 test('POST: DB失敗 → 500', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return updateEq({ message: 'DB error' });
-  });
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
+  mockAdminFrom.mockReturnValue(adminUpdateChain(null, { message: 'DB error' }));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
@@ -180,13 +197,20 @@ test('POST: DB失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
-test('POST: 正常保存 → 200', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return updateEq(null);
-  });
+test('POST: facility_profiles 行が存在しない(0行更新) → 404（phantom success防止）', async () => {
+  // service role は RLS をバイパスするため、facilityId に一致する行が無くてもエラーにならず
+  // 0行更新のまま終わりうる。.select().maybeSingle() で実在確認し、無ければ 404 を返す。
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
+  mockAdminFrom.mockReturnValue(adminUpdateChain(null, null));
+  const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
+  }));
+  expect(res.status).toBe(404);
+});
+
+test('POST: 正常保存 → 200（service role 経由で facility_profiles を書込）', async () => {
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gbp_place_id: 'ChIJ123' }),
@@ -232,12 +256,7 @@ test('GET: rate limit params (20/60s)', async () => {
 });
 
 test('POST: rate limit params (10/60s)', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return updateEq(null);
-  });
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   (checkRateLimit as jest.Mock).mockReturnValue(false);
   (checkRateLimit as jest.Mock).mockClear();
   await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
@@ -264,7 +283,7 @@ test('GET: レスポンスが { placeData, audit } 形式', async () => {
   expect('audit' in json).toBe(true);
 });
 
-test('GET: fetchPlaceDetails がデータを返す → キャッシュ・評価更新', async () => {
+test('GET: fetchPlaceDetails がデータを返す → キャッシュ・評価更新（service role 経由）', async () => {
   const mockPlaceData = {
     name: 'テスト施設',
     rating: 4.5,
@@ -276,14 +295,14 @@ test('GET: fetchPlaceDetails がデータを返す → キャッシュ・評価�
   const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ123' };
 
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
-    if (table === 'gbp_audit_cache') return upsertChain(null);
-    if (table === 'facility_profiles') return updateEq(null);
-    return upsertChain(null);
+    return upsertChain(null); // gbp_audit_cache upsert（anon/auth クライアントのまま）
   });
+  // facility_profiles の google_rating 更新は admin（service role）経由
+  mockAdminFrom.mockReturnValue(adminUpdateChain({ id: FACILITY_UUID }));
 
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
   const json = await res.json();
@@ -329,15 +348,12 @@ test('GET: cacheResult が rejected → 200 のまま (エラーログのみ)', 
   (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
   const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ123' };
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
-    // upsert and update — upsert rejects
-    if (table === 'gbp_audit_cache') {
-      return { upsert: jest.fn(() => Promise.reject(new Error('upsert failed'))) };
-    }
-    return updateEq(null);
+    // gbp_audit_cache upsert が reject
+    return { upsert: jest.fn(() => Promise.reject(new Error('upsert failed'))) };
   });
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
   expect(res.status).toBe(200);
@@ -348,13 +364,13 @@ test('GET: cacheResult fulfilled but with error → 200 のまま', async () => 
   (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
   const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ456' };
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
-    if (table === 'gbp_audit_cache') return upsertChain({ message: 'upsert err' });
-    return updateEq({ message: 'update err' });
+    return upsertChain({ message: 'upsert err' });
   });
+  mockAdminFrom.mockReturnValue(adminUpdateChain(null, { message: 'update err' }));
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
   expect(res.status).toBe(200);
 });
@@ -364,20 +380,42 @@ test('GET: ratingResult が rejected → 200 のまま', async () => {
   (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
   const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJ789' };
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
-    if (table === 'gbp_audit_cache') return upsertChain(null);
-    // facility_profiles update — rejects
-    return {
-      update: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.reject(new Error('update failed'))),
+    return upsertChain(null);
+  });
+  // facility_profiles update（admin経由）が reject
+  mockAdminFrom.mockReturnValue({
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn(() => Promise.reject(new Error('update failed'))),
       }),
-    };
+    }),
   });
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
   expect(res.status).toBe(200);
+});
+
+test('GET: ratingResult が0行更新（facility_id不一致等）でも 200 のまま（phantom success防止・ログのみ）', async () => {
+  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  const mockPlaceData = { name: 'ZeroRows', rating: 3.5, user_ratings_total: 5 };
+  (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
+  const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJZero' };
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
+    return upsertChain(null);
+  });
+  // エラー無しだが更新0行（配列が空）＝ phantom success パターン
+  mockAdminFrom.mockReturnValue(adminUpdateChain([], null));
+  const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
+  expect(res.status).toBe(200);
+  expect(consoleSpy).toHaveBeenCalledWith('[gbp/place] google_rating update failed', { facilityId: FACILITY_UUID });
+  consoleSpy.mockRestore();
 });
 
 test('GET: placeData.rating/user_ratings_total が undefined でも安全に処理', async () => {
@@ -385,12 +423,11 @@ test('GET: placeData.rating/user_ratings_total が undefined でも安全に処�
   (fetchPlaceDetails as jest.Mock).mockResolvedValue(mockPlaceData);
   const facilityWithPlace = { ...FACILITY_DATA, gbp_place_id: 'ChIJabc' };
   let callNum = 0;
-  mockAnonFrom.mockImplementation((table: string) => {
+  mockAnonFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return facilityProfileSingle(facilityWithPlace);
-    if (table === 'gbp_audit_cache') return upsertChain(null);
-    return updateEq(null);
+    return upsertChain(null);
   });
   const res = await GET(new NextRequest('http://localhost/api/admin/gbp/place', { method: 'GET' }));
   expect(res.status).toBe(200);
@@ -497,12 +534,7 @@ test('POST: 複数施設所有・所属していないfacility_id指定 → 403�
 });
 
 test('POST: 不正なJSON body → catchでfacility_id未指定扱い（単一施設なら自動選択）', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return updateEq(null);
-  });
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: 'not-json',
@@ -511,12 +543,7 @@ test('POST: 不正なJSON body → catchでfacility_id未指定扱い（単一�
 });
 
 test('POST: gbp_place_id なし → クリア（null保存）', async () => {
-  let callNum = 0;
-  mockAnonFrom.mockImplementation(() => {
-    callNum++;
-    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
-    return updateEq(null);
-  });
+  mockAnonFrom.mockReturnValue(membershipSingle([MEMBER_DATA]));
   const res = await POST(new NextRequest('http://localhost/api/admin/gbp/place', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ gbp_place_id: '', gbp_cid: 'cid123' }),
