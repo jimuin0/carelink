@@ -10,17 +10,21 @@ import StepIndicator from '@/components/StepIndicator';
 import Toast from '@/components/Toast';
 import Spinner from '@/components/Spinner';
 import { formatPhone } from '@/lib/validations';
+import { phoneField } from '@/lib/phone';
 import { getRecaptchaToken } from '@/lib/recaptcha-client';
 
-const phoneRegex = /^[\d-]+$/;
-
+// 【2026年7月16日 恒久根治】従来はこのページ固有の緩い正規表現(/^[\d-]+$/、先頭0任意・
+// 全角未対応)を独自定義しており、サーバー側 /api/salons が使う共通ヘルパー phoneField()
+// （予約/問い合わせ/会員登録の全箇所で使用・先頭0必須の phoneRegex + 全角→半角正規化）より
+// 検証が緩かった。クライアントを通過してもサーバーで400になる不一致を解消するため、
+// 正規表現を複製せず共通ヘルパーを直接importして統一する（将来のドリフト防止）。
 const step1Schema = z.object({
   facility_name: z.string().min(1, '施設名を入力してください').max(100),
   business_type: z.string().min(1, '業種を選択してください'),
   representative_name: z.string().min(1, '代表者名を入力してください').max(50),
   contact_name: z.string().min(1, '担当者名を入力してください').max(50),
   email: z.string().email('正しいメールアドレスを入力してください').max(254),
-  phone: z.string().min(1, '電話番号を入力してください').max(20).regex(phoneRegex, '正しい電話番号を入力してください'),
+  phone: phoneField({ required: true }),
 });
 
 const step2Schema = z.object({
@@ -78,7 +82,14 @@ export default function RecruitPage() {
           ...(recaptchaToken ? { recaptcha_token: recaptchaToken } : {}),
         }),
       });
-      if (!res.ok) throw new Error('registration failed');
+      if (!res.ok) {
+        // 【2026年7月16日 恒久根治】従来はサーバーのエラーJSONを読まず固定文言
+        // 'registration failed' を投げており、catch側で「登録に失敗しました: registration failed」
+        // という日英混在トーストになっていた（サーバーが返す具体的な理由（バリデーション/
+        // Bot検知/レート制限等）も利用者に伝わらなかった）。レスポンスJSONの error を読み取る。
+        const errBody: { error?: string } | null = await res.json().catch(() => null);
+        throw new Error(errBody?.error || '登録に失敗しました。時間をおいて再度お試しください。');
+      }
 
       fetch('/api/notify', {
         method: 'POST',
@@ -97,7 +108,9 @@ export default function RecruitPage() {
 
       setDone(true);
     } catch (e: unknown) {
-      setToast({ message: `登録に失敗しました: ${e instanceof Error ? e.message : '不明なエラー'}`, type: 'error' });
+      // e.message は上の throw で日本語の理由（サーバーJSONのerror or 既定文言）が
+      // 入っているため、そのまま表示する（"登録に失敗しました: " の二重prefixをしない）。
+      setToast({ message: e instanceof Error ? e.message : '登録に失敗しました。時間をおいて再度お試しください。', type: 'error' });
     } finally {
       setSubmitting(false);
     }
