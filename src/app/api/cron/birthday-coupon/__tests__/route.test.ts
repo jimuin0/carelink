@@ -36,7 +36,7 @@ import { sendLineText } from '@/lib/line';
 import { GET } from '../route';
 
 let mockProfilesSelect: jest.Mock;
-let mockProfilesFilter: jest.Mock;
+let mockProfilesEq: jest.Mock;
 let mockPointsInsert: jest.Mock;
 let mockLineLinkSelect: jest.Mock;
 let mockNotifSelect: jest.Mock;
@@ -64,13 +64,13 @@ function setupDefaultMocks(
       : [];
   const lineLinkData = lineLinkFound ? { line_user_id: 'line-user-123' } : null;
 
-  // filter を変数化して呼び出し引数（'birth_date','like','%-MM-DD'）を検証可能にする。
-  mockProfilesFilter = jest.fn().mockReturnValue({
+  // eq を変数化して呼び出し引数（'birth_md', todayMD）を検証可能にする。
+  mockProfilesEq = jest.fn().mockReturnValue({
     range: jest.fn().mockResolvedValue({ data: profileData }),
   });
   mockProfilesSelect = jest.fn().mockReturnValue({
     not: jest.fn().mockReturnValue({
-      filter: mockProfilesFilter,
+      eq: mockProfilesEq,
     }),
   });
 
@@ -167,7 +167,7 @@ describe('GET /api/cron/birthday-coupon', () => {
   test('profiles 取得が DB エラー → error ログ＋500（無音スキップにしない）', async () => {
     mockProfilesSelect.mockReturnValue({
       not: jest.fn().mockReturnValue({
-        filter: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
           range: jest.fn().mockResolvedValue({ data: null, error: { message: 'db down' } }),
         }),
       }),
@@ -219,15 +219,17 @@ describe('GET /api/cron/birthday-coupon', () => {
     nowSpy.mockRestore();
   });
 
-  test('searches profiles by birth_date (MM-DD today)', async () => {
+  test('searches profiles by birth_md (today, MM-DD 生成列一致)', async () => {
     setupDefaultMocks(2);
 
     await GET(makeRequest() as any);
 
     expect(mockProfilesSelect).toHaveBeenCalled();
-    // 固定時刻(JST 2026-06-15)から導かれる todayMD='06-15' で正しくフィルタしているか引数まで検証。
+    // 固定時刻(JST 2026-06-15)から導かれる todayMD='06-15' で正しく検索しているか引数まで検証。
     // 旧テストは toHaveBeenCalled() のみで、todayMD 生成にバグが入っても気付けない偽陽性だった。
-    expect(mockProfilesFilter).toHaveBeenCalledWith('birth_date::text', 'like', '%-06-15');
+    // (2026-07-16) 旧 `.filter('birth_date::text','like',...)` は PostgREST が
+    // 演算子不在(42883)で本番500を出していたため `.eq('birth_md', todayMD)` に切替。
+    expect(mockProfilesEq).toHaveBeenCalledWith('birth_md', '06-15');
   });
 
   test('inserts 100 points per user with reason=birthday_YYYY', async () => {
@@ -334,7 +336,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              filter: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'user-1', email: 'user@example.com', display_name: null }],
                 }),
@@ -364,7 +366,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              filter: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({ data: [{ id: 'user-unsub', email: 'u@e.com', display_name: 'U', email_unsubscribed: true }] }),
               }),
             }),
@@ -581,7 +583,7 @@ describe('GET /api/cron/birthday-coupon', () => {
         return {
           select: jest.fn().mockReturnValue({
             not: jest.fn().mockReturnValue({
-              filter: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
                 range: jest.fn().mockResolvedValue({
                   data: [{ id: 'u1', email: null, display_name: 'No Email' }],
                 }),
