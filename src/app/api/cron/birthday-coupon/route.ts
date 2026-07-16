@@ -1,13 +1,18 @@
 import { logCronRun } from '@/lib/cron-logger';
 import { errorMessage } from '@/lib/err';
 /**
- * 誕生日クーポン自動送信 Cron（v8.15）
+ * 誕生日クーポン自動送信 Cron（v8.16）
  * GET /api/cron/birthday-coupon
  * 誕生日のユーザーに100ptボーナスとメール通知を送信
  *
  * v8.15 変更: ポイント付与済みでも通知失敗チャネルを翌 run で再送するよう改修。
  *   birthday_notifications テーブルで送達済みチャネルを管理し、
  *   失敗時は記録しないことで次回 run が再送を試みる（恒久 miss 解消）。
+ *
+ * v8.16 変更（2026年7月16日）: 誕生日検索を `.filter('birth_date::text','like',...)` から
+ *   `.eq('birth_md', todayMD)` に切替。旧実装は PostgREST が date→text キャストの LIKE を
+ *   演算子不在（42883・date ~~ unknown）で毎日 cron_logs に error 記録し本番で全滅していた。
+ *   `birth_md` は migration 20260705000001 で追加済みの生成列（GENERATED ALWAYS STORED・索引付き）。
  */
 
 import { NextResponse } from 'next/server';
@@ -54,8 +59,21 @@ export async function GET(request: Request) {
     const day = jstNow.getUTCDate().toString().padStart(2, '0');
     const todayMD = `${month}-${day}`;
 
-    // birth_dateが今日（月日一致）のプロフィールを取得
-    // PostgreSQLの TO_CHAR で月日を比較
+    // birth_dateが今日（月日一致）のプロフィールを取得。
+    //
+    // 【本番500根治・2026年7月16日】旧実装は `.filter('birth_date::text', 'like', ...)` で
+    // PostgREST に date→text キャストの LIKE を投げていたが、PostgREST はこのキャスト付き
+    // フィルタを SQL へ素直に落とせず `date ~~ unknown`（演算子不在・42883）で本番 500 が
+    // 毎日発生していた（cron_logs 実測・本 PR で prod service_role 直叩きで再現確認済み）。
+    // 過去の "fix" (#286) はこの ::text キャストを追加しただけで、実際には直っていなかった。
+    //
+    // 恒久対策として migration 20260705000001_profiles_birth_md_prod_catchup.sql で
+    // `profiles.birth_md`（IMMUTABLE な extract+lpad で組み立てた 'MM-DD' 生成列・GENERATED
+    // ALWAYS STORED・索引付き）を追加済み（神原さんが本番へ適用済み・本 PR で prod 実データ
+    // 確認済み）。当時のコメントでアプリ側の追従 PR が別途必要と明記されていたが未実施のまま
+    // 放置されていたため、本 PR でその追従（`.eq('birth_md', todayMD)` への切替）を行う。
+    // birth_date が NULL の行は birth_md も NULL のため `.not('birth_date','is',null)` は
+    // 実質冗長だが、意図の明示と既存カバレッジ分岐を壊さないため維持する。
     // 本日が誕生日の profiles を全件ページング取得（旧 .limit(500) は同日誕生日が500人超で501人目以降に
     // ポイント付与・通知漏れ。本番監査）。email_unsubscribed も取得しメール送信のみ抑止する。
     type BirthdayProfile = { id: string; email: string | null; display_name: string | null; email_unsubscribed: boolean | null };
@@ -65,7 +83,7 @@ export async function GET(request: Request) {
           .from('profiles')
           .select('id, email, display_name, email_unsubscribed')
           .not('birth_date', 'is', null)
-          .filter('birth_date::text', 'like', `%-${todayMD}`)
+          .eq('birth_md', todayMD)
           .range(offset, offset + limit - 1);
         return { data: data as BirthdayProfile[] | null, error };
       },
