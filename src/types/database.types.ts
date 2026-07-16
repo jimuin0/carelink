@@ -5621,6 +5621,7 @@ export type Database = {
           p_booking_date: string
           p_booking_id: string
           p_end_time: string
+          p_enforce_schedule?: boolean
           p_start_time: string
           p_user_id: string
         }
@@ -5678,6 +5679,7 @@ export type Database = {
           p_customer_name: string
           p_email: string
           p_end_time: string
+          p_enforce_schedule?: boolean
           p_facility_id: string
           p_menu_id: string
           p_note: string
