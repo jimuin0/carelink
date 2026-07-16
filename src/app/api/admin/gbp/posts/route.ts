@@ -134,13 +134,18 @@ export async function PATCH(req: NextRequest) {
   if (scheduled_at !== undefined) allowed.scheduled_at = scheduled_at || null;
   if (published_at !== undefined) allowed.published_at = published_at || null;
 
-  const { error } = await supabase
+  // 更新件数(affected rows)を検証せず常に成功を返すと、existingPost 取得後に投稿が削除される
+  // TOCTOU で 0件更新でも 200 { ok: true } を偽装する（phantom success）。.select() で更新行を
+  // 受け取り、0件なら404を返す（catalog/[id] と同型）。
+  const { data: updatedRows, error } = await supabase
     .from('gbp_posts')
     .update(allowed)
     .eq('id', id)
-    .eq('facility_id', facilityId);
+    .eq('facility_id', facilityId)
+    .select();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!updatedRows || updatedRows.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: user.id,
@@ -180,13 +185,16 @@ export async function DELETE(req: NextRequest) {
   if (!facilityIds.includes(existingPost.facility_id)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
   const facilityId = existingPost.facility_id;
 
-  const { error } = await supabase
+  // PATCHと同様、TOCTOU による 0件削除の phantom success を防ぐ（catalog/[id] と同型）。
+  const { data: deletedRows, error } = await supabase
     .from('gbp_posts')
     .delete()
     .eq('id', id)
-    .eq('facility_id', facilityId);
+    .eq('facility_id', facilityId)
+    .select();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!deletedRows || deletedRows.length === 0) return NextResponse.json({ error: '投稿が見つかりません' }, { status: 404 });
 
   void writeAuditLog({
     userId: user.id,

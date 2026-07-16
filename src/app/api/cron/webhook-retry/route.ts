@@ -60,23 +60,41 @@ export async function GET(request: Request) {
       return NextResponse.json({ processed: 0, skipped: 0 });
     }
 
-    // processing に変更（二重実行防止）
+    // processing に変更（二重実行防止）。
+    // 【真のCAS・2026年7月16日】旧実装は `.in('id', jobIds)` のみで `.eq('status','pending')`
+    // ガードが無く、SELECT→UPDATE が非原子だった。cron は三重化（GitHub Actions + pg_cron +
+    // Render が同一 */15 発火）されており、並行 run が同じ pending 行を SELECT した後に両方が
+    // 無条件 UPDATE で claim を「成功」させ、同一ジョブを二重配信し得た。
+    // booking-reminder / review-request の claim と同方針の CAS：status='pending' の行だけを
+    // processing へ更新し、`.select('id')` で【実際に claim できた行のみ】を後続処理対象にする
+    // （update 結果の id リストが正）。他 run に先取りされた行は UPDATE の対象外＝返却されず、
+    // この run では処理しない（二重送信の発症前予防）。
     const jobIds = jobs.map((j) => j.id);
-    const { error: claimErr } = await supabase
+    const { data: claimedRows, error: claimErr } = await supabase
       .from('webhook_retry_queue')
       .update({ status: 'processing' })
-      .in('id', jobIds);
+      .in('id', jobIds)
+      .eq('status', 'pending')
+      .select('id');
     if (claimErr) {
       console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', { err: claimErr });
       await logCronRun('webhook-retry', 'error', startedAt, { error_msg: claimErr.message });
       return NextResponse.json({ error: 'claim failed' }, { status: 500 });
+    }
+    // data が null（0行更新時のドライバ表現揺れ）も「1行も claim できなかった」として安全側に扱う。
+    const claimedIds = new Set(((claimedRows ?? []) as { id: string }[]).map((r) => r.id));
+    const claimedJobs = jobs.filter((j) => claimedIds.has(j.id));
+    if (claimedJobs.length === 0) {
+      // 全行を並行 run に先取りされた＝この run の仕事は無い（重複配信を作らず正常終了）。
+      await logCronRun('webhook-retry', 'skipped', startedAt, { processed: 0, skipped: 0, meta: { total: jobs.length, claimed: 0 } });
+      return NextResponse.json({ processed: 0, skipped: 0 });
     }
 
     let success = 0;
     let failed = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-    for (const job of jobs) {
+    for (const job of claimedJobs) {
       try {
         if (job.webhook_type === 'line_push') {
           // sendLineText はリトライ上限到達時に throw せず false を返す。
@@ -145,7 +163,7 @@ export async function GET(request: Request) {
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
       skipped: failed,
-      meta: { total: jobs.length },
+      meta: { total: jobs.length, claimed: claimedJobs.length },
     });
 
     return NextResponse.json({ processed: success, skipped: failed });

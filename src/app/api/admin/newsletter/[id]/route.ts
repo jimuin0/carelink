@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createServiceRoleClient } from '@/lib/supabase-server';
-import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { Resend } from 'resend';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
@@ -9,25 +8,13 @@ import { getClientIp } from '@/lib/client-ip';
 import { escSubject } from '@/lib/email';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { newsletterUnsubUrl } from '@/lib/newsletter-unsub';
+import { requirePlatformAdmin } from '@/lib/platform-admin';
 
 // ニュースレター専用の差出人。EMAIL_FROM(email.ts の既定送信元 noreply@)とは意図的に
 // ローカル部を分けている（購読解除等の応答性を示す newsletter@）ため EMAIL_FROM を
 // 流用せず、専用の環境変数で本番ドメイン変更に追従できるようにする（未設定時は
 // 従来のハードコード値と同じ既定値にフォールバックし後方互換を維持）。
 const NEWSLETTER_FROM = process.env.NEWSLETTER_EMAIL_FROM || 'CareLink <newsletter@carelink-jp.com>';
-
-async function requirePlatformAdmin() {
-  const supabase = await createServerSupabaseAuthClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('is_platform_admin')
-    .eq('id', user.id)
-    .single();
-  if (!profile?.is_platform_admin) return null;
-  return user;
-}
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -58,28 +45,41 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     if (campaign.status !== 'scheduled') {
       return NextResponse.json({ error: 'Only scheduled campaigns can be cancelled' }, { status: 400 });
     }
+    // 直前の fetch とこの update の間の TOCTOU（他リクエストが先に状態を変更 / 削除）で
+    // 0件更新になっても、従来は .single() が PGRST116 を投げ 500 に丸められていた
+    // （phantom success ではないが誤ったステータスコード）。status='scheduled' を
+    // update 自体の WHERE 条件にも入れて楽観的並行制御にし、.select() で行数を検証、
+    // 0件は「状態変化による競合」として 409 を返す（send の claim と同型）。
     const { data: updated, error: cancelErr } = await admin
       .from('newsletter_campaigns')
       .update({ status: 'cancelled', updated_at: new Date().toISOString() })
       .eq('id', params.id)
-      .select()
-      .single();
+      .eq('status', 'scheduled')
+      .select();
     if (cancelErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-    return NextResponse.json({ campaign: updated });
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: 'キャンペーンの状態が変更されているため取り消せません' }, { status: 409 });
+    }
+    return NextResponse.json({ campaign: updated[0] });
   }
 
   if (action === 'schedule') {
     if (campaign.status !== 'draft') {
       return NextResponse.json({ error: 'Only draft campaigns can be scheduled' }, { status: 400 });
     }
+    // cancel と同型: TOCTOU による0件更新を、楽観的並行制御(status='draft'をWHEREに追加)＋
+    // 行数検証で 409 に正しく分類する（従来は .single() が0件で 500 に丸めていた）。
     const { data: updated, error: scheduleErr } = await admin
       .from('newsletter_campaigns')
       .update({ status: 'scheduled', updated_at: new Date().toISOString() })
       .eq('id', params.id)
-      .select()
-      .single();
+      .eq('status', 'draft')
+      .select();
     if (scheduleErr) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
-    return NextResponse.json({ campaign: updated });
+    if (!updated || updated.length === 0) {
+      return NextResponse.json({ error: 'キャンペーンの状態が変更されているため予約できません' }, { status: 409 });
+    }
+    return NextResponse.json({ campaign: updated[0] });
   }
 
   if (action === 'send') {

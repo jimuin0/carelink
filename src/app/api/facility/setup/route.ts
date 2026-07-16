@@ -4,8 +4,6 @@
  * 認証済みユーザーが施設を新規作成し、facility_membersにowner登録
  */
 
-import { createServerClient } from '@supabase/ssr';
-import { cookies } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
@@ -14,6 +12,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
 import { getClientIp } from "@/lib/client-ip";
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,12 +24,7 @@ export async function POST(request: NextRequest) {
     if (await checkRateLimit(mutationRateLimit, ip, 5, 60_000, "mutation")) {
       return NextResponse.json({ error: "リクエストが多すぎます" }, { status: 429 });
     }
-    const cookieStore = await cookies();
-    const supabase = createServerClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      { cookies: { getAll: () => cookieStore.getAll() } }
-    );
+    const supabase = await createServerSupabaseAuthClient();
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) {

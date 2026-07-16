@@ -89,15 +89,29 @@ function buildCampaign(overrides: Record<string, unknown> = {}) {
 }
 
 /**
- * Chain for update().eq().select().single() — used by cancel/schedule.
- * Returns the provided `updated` object from single().
+ * Chain for update().eq('id').eq('status').select() — used by cancel/schedule.
+ * update() 自体の WHERE に status も含む楽観的並行制御（TOCTOU対策・送信claim と同型）。
+ * 0件時は 409（状態変化による競合）、1件更新なら [updated] を返す想定。
  */
-function updateSingleChain(updated: unknown) {
+function updateSingleChain(updated: unknown, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data: updated, error: null })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : [updated], error })),
+        }),
+      }),
+    }),
+  };
+}
+
+/** 0件更新（TOCTOU競合）を再現する — data: [] を返す */
+function updateEmptyChain() {
+  return {
+    update: jest.fn().mockReturnValue({
+      eq: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: [], error: null })),
         }),
       }),
     }),
@@ -335,15 +349,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       mockAdminFrom.mockImplementation(() => {
         callNum++;
         if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'scheduled' }));
-        return {
-          update: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-              }),
-            }),
-          }),
-        };
+        return updateSingleChain(null, { message: 'DB error' });
       });
       const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
       expect(res.status).toBe(500);
@@ -364,6 +370,22 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       const json = await res.json();
       expect(json.campaign.status).toBe('cancelled');
       expect(json.campaign.id).toBe(CAMPAIGN_UUID);
+    });
+
+    // 【TOCTOU→409】直前fetchで status='scheduled' を確認した後、update直前に他リクエストが
+    // 状態を変えていた場合（楽観的並行制御のWHERE不一致で0件更新）。従来は .single() が
+    // PGRST116 を投げ 500 に丸められ、真の原因（状態競合）が隠れていた（phantom successでは
+    // ないが誤ったステータスコード）。0件は409で正しく分類する。
+    test('0件更新（TOCTOU：直前fetch後に状態が変化） → 409', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'scheduled' }));
+        return updateEmptyChain();
+      });
+      const res = await PATCH(makeRequest({ action: 'cancel' }), makeProps());
+      expect(res.status).toBe(409);
     });
   });
 
@@ -413,20 +435,26 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       mockAdminFrom.mockImplementation(() => {
         callNum++;
         if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'draft' }));
-        return {
-          update: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              select: jest.fn().mockReturnValue({
-                single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-              }),
-            }),
-          }),
-        };
+        return updateSingleChain(null, { message: 'DB error' });
       });
       const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
       expect(res.status).toBe(500);
       const json = await res.json();
       expect(json.error).toBeDefined();
+    });
+
+    // cancel と同型: TOCTOU による0件更新は409で正しく分類する（従来は .single() が
+    // 0件で500に丸めていた）。
+    test('0件更新（TOCTOU：直前fetch後に状態が変化） → 409', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ status: 'draft' }));
+        return updateEmptyChain();
+      });
+      const res = await PATCH(makeRequest({ action: 'schedule' }), makeProps());
+      expect(res.status).toBe(409);
     });
   });
 

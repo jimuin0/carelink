@@ -1,5 +1,6 @@
 const mockSend = jest.fn();
 const mockCaptureException = jest.fn();
+const mockEnqueueWebhook = jest.fn();
 
 jest.mock('resend', () => ({
   Resend: jest.fn().mockImplementation(() => ({
@@ -11,12 +12,16 @@ jest.mock('@sentry/nextjs', () => ({
   captureException: mockCaptureException,
 }), { virtual: true });
 
+jest.mock('@/lib/webhook-queue', () => ({
+  enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args),
+}));
+
 // Set env before require
 process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -34,6 +39,8 @@ const baseData = {
 beforeEach(() => {
   mockSend.mockReset();
   mockCaptureException.mockReset();
+  mockEnqueueWebhook.mockReset();
+  mockEnqueueWebhook.mockResolvedValue(undefined);
   mockSend.mockResolvedValue({});
 });
 
@@ -362,6 +369,152 @@ describe('送信エラー時', () => {
     const ok = await sendBookingConfirmation(baseData);
     expect(ok).toBe(false);
     consoleSpy.mockRestore();
+  });
+});
+
+describe('webhook_retry_queue への自動登録（送信失敗時のみ・対象contextのみ）', () => {
+  const failResend = () => mockSend.mockResolvedValueOnce({
+    data: null,
+    error: { statusCode: 500, name: 'server_error', message: 'boom' },
+  });
+
+  test('sendBookingConfirmation 失敗 → enqueueWebhook(type=email) が呼ばれる', async () => {
+    failResend();
+    const ok = await sendBookingConfirmation(baseData);
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'email',
+      targetId: baseData.customerEmail,
+      payload: expect.objectContaining({
+        to: baseData.customerEmail,
+        subject: expect.any(String),
+        html: expect.any(String),
+      }),
+    });
+  });
+
+  test('sendBookingConfirmation 成功 → enqueueWebhook は呼ばれない', async () => {
+    mockSend.mockResolvedValueOnce({ data: { id: 'em_ok' }, error: null });
+    const ok = await sendBookingConfirmation(baseData);
+    expect(ok).toBe(true);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendBookingRescheduled 失敗 → enqueueWebhook が呼ばれる', async () => {
+    failResend();
+    await sendBookingRescheduled(baseData);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook.mock.calls[0][0].type).toBe('email');
+  });
+
+  test('sendTimeAdjustRequest 失敗 → enqueueWebhook が呼ばれる', async () => {
+    failResend();
+    await sendTimeAdjustRequest(baseData);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('sendBookingConfirmed 失敗 → enqueueWebhook が呼ばれる', async () => {
+    failResend();
+    await sendBookingConfirmed(baseData);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('sendBookingCancelled 失敗 → enqueueWebhook が呼ばれる', async () => {
+    failResend();
+    await sendBookingCancelled(baseData);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  test('sendBookingStatusUpdate 失敗 → enqueueWebhook が呼ばれる', async () => {
+    failResend();
+    await sendBookingStatusUpdate({ ...baseData, newStatus: 'confirmed' });
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+  });
+
+  // BULK_AGGREGATED_CONTEXTS（各cronが独自の翌run再送を持つ）は対象外＝enqueueされない
+  test('sendBookingReminder 失敗（booking_reminder context）→ enqueueWebhook は呼ばれない（cron自前retryと二重化させない）', async () => {
+    failResend();
+    await sendBookingReminder(baseData);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendDailySummaryEmail 失敗（daily_summary context）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendDailySummaryEmail({
+      facilityEmail: 'o@example.com', facilityName: 'X', date: '2026-04-01',
+      totalRevenue: 0, bookingCount: 0, completedCount: 0, cancelledCount: 0,
+      newCustomerCount: 0, repeatCustomerCount: 0,
+    });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendWeeklyReportEmail 失敗（weekly_report context）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendWeeklyReportEmail({
+      facilityEmail: 'o@example.com', facilityName: 'X', periodStart: '2026-03-25', periodEnd: '2026-03-31',
+      totalRevenue: 0, bookingCount: 0, completedCount: 0, cancelledCount: 0,
+      newCustomerCount: 0, repeatCustomerCount: 0,
+    });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendOnboardingFollowEmail 失敗（onboarding_follow context）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendOnboardingFollowEmail({ ownerEmail: 'o@example.com', facilityName: 'X', missingSteps: ['写真'] });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendFavoritesDigest 失敗（favorites_digest context）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendFavoritesDigest({ userEmail: 'u@example.com', facilities: [] });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  // 施設オーナー向け通知（今回のスコープ外＝顧客向け通知のみ）も enqueue されないことを確認
+  test('sendNewBookingNotification 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendNewBookingNotification({ ...baseData, facilityEmail: 'owner@example.com' });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendBookingCancellationToFacility 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendBookingCancellationToFacility({ ...baseData, facilityEmail: 'owner@example.com' });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendNewReviewNotification 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendNewReviewNotification({ facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'Y', rating: 5 });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendNewInquiryNotification 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendNewInquiryNotification({ facilityEmail: 'owner@example.com', facilityName: 'X', inquirerName: 'Y', inquirerEmail: 'y@example.com', message: 'test' });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('sendWelcomeEmail 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+    failResend();
+    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'X' });
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+  });
+
+  test('RESEND_API_KEY未設定でresendがnull（送信自体を試みない）場合は enqueueWebhook を呼ばない', async () => {
+    const origKey = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    jest.resetModules();
+    jest.mock('resend', () => ({ Resend: jest.fn() }));
+    jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
+    jest.mock('@/lib/webhook-queue', () => ({ enqueueWebhook: (...args: unknown[]) => mockEnqueueWebhook(...args) }));
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const fresh = require('../email');
+    const ok = await fresh.sendBookingConfirmation(baseData);
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+    process.env.RESEND_API_KEY = origKey;
   });
 });
 
