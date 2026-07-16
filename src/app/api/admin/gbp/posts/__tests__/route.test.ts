@@ -74,23 +74,27 @@ function insertSingle(data: unknown, error: unknown = null) {
   };
 }
 
-// Update: update().eq().eq() → Promise
-function updateEqEq(error: unknown = null) {
+// Update: update().eq().eq().select() → Promise（0行更新のphantom successを404にするため.select()で影響行を受け取る）
+function updateChain(data: unknown[] | null, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data, error })),
+        }),
       }),
     }),
   };
 }
 
-// Delete: delete().eq().eq() → Promise
-function deleteEqEq(error: unknown = null) {
+// Delete: delete().eq().eq().select() → Promise（同上）
+function deleteChain(data: unknown[] | null, error: unknown = null) {
   return {
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data, error })),
+        }),
       }),
     }),
   };
@@ -269,13 +273,44 @@ test('PATCH: 正常更新 → 200', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return updateEqEq(null);
+    return updateChain([{ id: POST_UUID }]);
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id: POST_UUID, title: '更新タイトル' }),
   }));
   expect(res.status).toBe(200);
+});
+
+// 存在チェック通過後にレコードが消える TOCTOU：0行更新でも 200 を返す phantom success の根治確認
+test('PATCH: 存在チェック後に削除され更新0行（TOCTOU） → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
+    return updateChain([]);
+  });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, title: '更新' }),
+  }));
+  expect(res.status).toBe(404);
+});
+
+test('PATCH: 更新結果 data が null → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
+    return updateChain(null);
+  });
+  const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: POST_UUID, title: '更新' }),
+  }));
+  expect(res.status).toBe(404);
 });
 
 test('PATCH: 投稿が見つからない → 404', async () => {
@@ -326,10 +361,35 @@ test('DELETE: 正常削除 → 200', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return deleteEqEq(null);
+    return deleteChain([{ id: POST_UUID }]);
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
   expect(res.status).toBe(200);
+});
+
+// 存在チェック通過後にレコードが消える TOCTOU：0行削除でも 200 を返す phantom success の根治確認
+test('DELETE: 存在チェック後に削除され削除0行（TOCTOU） → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
+    return deleteChain([]);
+  });
+  const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
+  expect(res.status).toBe(404);
+});
+
+test('DELETE: 削除結果 data が null → 404', async () => {
+  let callNum = 0;
+  mockAnonFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return membershipSingle([MEMBER_DATA]);
+    if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
+    return deleteChain(null);
+  });
+  const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: 投稿が見つからない → 404', async () => {
@@ -360,7 +420,7 @@ test('DELETE: DB失敗 → 500', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return deleteEqEq({ message: 'DB error' });
+    return deleteChain(null, { message: 'DB error' });
   });
   const res = await DELETE(new NextRequest(`http://localhost/api/admin/gbp/posts?id=${POST_UUID}`, { method: 'DELETE' }));
   expect(res.status).toBe(500);
@@ -372,7 +432,7 @@ test('PATCH: DB失敗 → 500', async () => {
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return updateEqEq({ message: 'DB error' });
+    return updateChain(null, { message: 'DB error' });
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -453,7 +513,7 @@ test('PATCH: body, post_type, photo_url, cta_type, cta_url, status, scheduled_at
     callNum++;
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
-    return updateEqEq(null);
+    return updateChain([{ id: POST_UUID }]);
   });
   const res = await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -483,7 +543,7 @@ test('PATCH: 無効なpost_type → 更新されない（条件false）', async 
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -506,7 +566,7 @@ test('PATCH: photo_url 無効 → null に変換', async () => {
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -529,7 +589,7 @@ test('PATCH: title=null → null に変換', async () => {
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -599,7 +659,7 @@ test('PATCH: 無効な cta_type → null に変換（false分岐）', async () =
     return {
       update: (data: unknown) => {
         capturedUpdate(data);
-        return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) };
+        return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) };
       },
     };
   });
@@ -695,7 +755,7 @@ test('PATCH: scheduled_at と published_at が falsy → null に変換', async 
     if (callNum === 1) return membershipSingle([MEMBER_DATA]);
     if (callNum === 2) return postFacilitySingle(FACILITY_UUID);
     return {
-      update: (d: unknown) => { capturedUpdate(d); return { eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }; },
+      update: (d: unknown) => { capturedUpdate(d); return { eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: POST_UUID }], error: null })) }) }) }; },
     };
   });
   await PATCH(new NextRequest('http://localhost/api/admin/gbp/posts', {
