@@ -412,6 +412,71 @@ describe('POST /api/booking', () => {
     expect(json.error).toContain('既に利用済み');
   });
 
+  // スケジュールゲート（2026年7月16日・p_enforce_schedule）: RPC が RAISE する3種のエラーを
+  // 顧客向け日本語メッセージの 409 に変換する。ゲート判定自体は RPC（DB）側で行うため、
+  // ここでは「公開経路が p_enforce_schedule: true を渡すこと」と「エラー変換」を検証する。
+  function scheduleGateMocks() {
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuLookupChain();
+      return nullChain;
+    });
+  }
+
+  test('公開経路の create_booking_atomic は p_enforce_schedule: true を渡す（スケジュールゲート発効）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    scheduleGateMocks();
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_enforce_schedule: true })
+    );
+  });
+
+  test('定休日（RPC が BOOKING_CLOSED_DAY を RAISE）→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    scheduleGateMocks();
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_CLOSED_DAY: この日は定休日です', code: 'P0001' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain('定休日');
+  });
+
+  test('営業時間外（RPC が BOOKING_OUTSIDE_HOURS を RAISE）→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    scheduleGateMocks();
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'BOOKING_OUTSIDE_HOURS: 営業時間外です', code: 'P0001' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain('営業時間外');
+  });
+
+  test('指名スタッフ勤務外（RPC が STAFF_NOT_WORKING を RAISE）→409', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    scheduleGateMocks();
+
+    mockRpc.mockResolvedValue({ data: null, error: { message: 'STAFF_NOT_WORKING: このスタッフはこの日は勤務していません', code: 'P0001' } });
+
+    const res = await POST(makeRequest(validBooking));
+    expect(res.status).toBe(409);
+    const json = await res.json();
+    expect(json.error).toContain('勤務していません');
+  });
+
   test('ポイント残高不足→400', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
