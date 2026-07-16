@@ -5634,6 +5634,14 @@ export type Database = {
       cleanup_old_cron_logs: { Args: never; Returns: undefined }
       cleanup_old_cron_report_sends: { Args: never; Returns: undefined }
       cleanup_old_webhook_retry: { Args: never; Returns: undefined }
+      consume_package_session: {
+        Args: {
+          p_booking_id?: string
+          p_notes?: string
+          p_user_package_id: string
+        }
+        Returns: Json
+      }
       consume_subscription_session: {
         Args: {
           p_booking_id?: string
