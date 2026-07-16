@@ -13,38 +13,46 @@ import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { alertCaughtError } from '@/lib/alert';
+import { safeCaptureException } from '@/lib/safe';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  const ip = getClientIp(request);
-  if (await checkRateLimit(null, ip, 30, 60_000, 'intake-get')) {
-    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  try {
+    const ip = getClientIp(request);
+    if (await checkRateLimit(null, ip, 30, 60_000, 'intake-get')) {
+      return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+    }
+    const { searchParams } = new URL(request.url);
+    const facilityId = searchParams.get('facility_id');
+    if (!facilityId) return NextResponse.json({ error: 'facility_id が必要です' }, { status: 400 });
+    if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
+
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => cookieStore.getAll() } }
+    );
+
+    const { data: template } = await supabase
+      .from('intake_form_templates')
+      .select('id, title, description, fields')
+      .eq('facility_id', facilityId)
+      .eq('is_active', true)
+      .maybeSingle();
+
+    if (!template) {
+      return NextResponse.json({ template: null });
+    }
+
+    return NextResponse.json({ template });
+  } catch (e) {
+    safeCaptureException(e, 'intake-get');
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('intake-get', e, '/api/intake');
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
-  const { searchParams } = new URL(request.url);
-  const facilityId = searchParams.get('facility_id');
-  if (!facilityId) return NextResponse.json({ error: 'facility_id が必要です' }, { status: 400 });
-  if (!UUID_REGEX.test(facilityId)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
-
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  const { data: template } = await supabase
-    .from('intake_form_templates')
-    .select('id, title, description, fields')
-    .eq('facility_id', facilityId)
-    .eq('is_active', true)
-    .maybeSingle();
-
-  if (!template) {
-    return NextResponse.json({ template: null });
-  }
-
-  return NextResponse.json({ template });
 }
 
 export async function POST(request: Request) {

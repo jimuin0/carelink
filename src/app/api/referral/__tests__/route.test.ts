@@ -13,6 +13,7 @@ jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(),
 }));
 jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 jest.mock('@supabase/ssr');
 jest.mock('next/headers');
 
@@ -599,4 +600,28 @@ describe('cookie callbacks and body parse catch', () => {
   });
 
   // Branch coverage: line 118 — refResult.error が null のとき ?? selfResult.error を使用（false 分岐）
+});
+
+describe('GET: ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', () => {
+  test('supabase.auth.getUser が throw → catch 経路で 500 + Slack 通知', async () => {
+    const { alertCaughtError } = require('@/lib/alert');
+    const { createServerClient } = require('@supabase/ssr');
+    const { cookies } = require('next/headers');
+    cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockRejectedValue(new Error('boom')) },
+    });
+
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/referral');
+    Object.defineProperty(req, 'nextUrl', { value: new URL(req.url) });
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('サーバーエラーが発生しました');
+    expect(alertCaughtError).toHaveBeenCalledWith('referral-get', expect.any(Error), '/api/referral');
+    consoleSpy.mockRestore();
+  });
 });

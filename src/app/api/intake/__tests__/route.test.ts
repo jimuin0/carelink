@@ -146,6 +146,28 @@ describe('GET /api/intake', () => {
     const json = await res.json();
     expect(json.template).toBeNull();
   });
+
+  test('ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { alertCaughtError } = require('@/lib/alert');
+    createServerClient.mockReturnValue({
+      from: jest.fn(() => {
+        throw new Error('boom');
+      }),
+    });
+
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/intake?facility_id=11111111-1111-1111-1111-111111111111');
+    Object.defineProperty(req, 'nextUrl', {
+      value: new URL(req.url),
+    });
+    const res = await GET(req as any);
+
+    expect(res.status).toBe(500);
+    const json = await res.json();
+    expect(json.error).toBe('サーバーエラーが発生しました');
+    expect(alertCaughtError).toHaveBeenCalledWith('intake-get', expect.any(Error), '/api/intake');
+  });
 });
 
 describe('POST /api/intake', () => {
