@@ -67,7 +67,7 @@ const RLS_PROTECTED_TABLES = new Set([
   'customers', 'customer_visits', 'customer_segments', 'daily_revenue_summary', 'favorites',
   'user_points', 'user_packages', 'package_usage_logs', 'user_subscriptions', 'subscription_usage_logs',
   'user_preferred_staff', 'user_coupon_codes', 'nps_surveys', 'intake_form_responses',
-  'telehealth_sessions', 'treatment_plans', 'treatment_records', 'job_applications', 'api_keys',
+  'treatment_plans', 'treatment_records', 'job_applications', 'api_keys',
   'audit_logs', 'cron_logs', 'cron_report_sends', 'facility_entitlements', 'facility_inquiries',
   'facility_line_settings', 'facility_notification_settings', 'facility_reminder_settings',
   'moderation_queue', 'newsletter_campaigns', 'newsletter_subscriptions', 'referral_codes',
