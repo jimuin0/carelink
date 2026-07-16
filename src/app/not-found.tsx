@@ -1,8 +1,12 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 
+// ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
+// 本番実測で確認済み：ルートに一致するルートファイルが無い純粋な404は本ファイルが直接描画されテンプレが適用される
+// （generateStaticParams配下のnotFound()呼び出し経由の404は各ページ側のgenerateMetadataが使われ本ファイルの
+// metadataは使われないため対象外）。
 export const metadata: Metadata = {
-  title: 'ページが見つかりません | CareLink',
+  title: 'ページが見つかりません',
   robots: { index: false, follow: false },
 };
 

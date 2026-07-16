@@ -15,13 +15,15 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const { facility } = await getFacilityBySlug(params.slug);
   if (!facility) return {};
-  const title = `スタッフ一覧 | ${facility.name} | CareLink`;
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、
+  // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
+  const title = `スタッフ一覧 | ${facility.name}`;
   const description = `${facility.name}のスタッフ紹介。経歴・得意分野・作品集をご覧いただけます。`;
   return {
     title,
     description,
     alternates: { canonical: `/facility/${params.slug}/staff` },
-    openGraph: { title, description },
+    openGraph: { title: `${title} | CareLink`, description },
   };
 }
 

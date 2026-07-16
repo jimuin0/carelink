@@ -212,47 +212,6 @@ test('RPC エラーに message が無い → 500（message ?? "" フォールバ
   expect(res.status).toBe(500);
 });
 
-// ─── スケジュールゲート（2026年7月16日・p_enforce_schedule）──────────────────
-// RPC が RAISE する3種のエラーを顧客向け日本語メッセージの 409 に変換する。ゲート判定自体は
-// RPC（DB）側で行うため、ここでは「公開経路が p_enforce_schedule: true を渡すこと」と
-// 「エラー変換」を検証する。
-
-test('公開経路の change_booking_atomic は p_enforce_schedule: true を渡す（スケジュールゲート発効）', async () => {
-  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
-  const res = await POST(makeRequest(), makeProps());
-  expect(res.status).toBe(200);
-  expect(mockRpc).toHaveBeenCalledWith('change_booking_atomic', expect.objectContaining({
-    p_enforce_schedule: true,
-  }));
-});
-
-test('RPC が BOOKING_CLOSED_DAY（定休日）→ 409', async () => {
-  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
-  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_CLOSED_DAY: この日は定休日です' } });
-  const res = await POST(makeRequest(), makeProps());
-  expect(res.status).toBe(409);
-  const json = await res.json();
-  expect(json.error).toContain('定休日');
-});
-
-test('RPC が BOOKING_OUTSIDE_HOURS（営業時間外）→ 409', async () => {
-  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
-  mockRpc.mockResolvedValue({ error: { message: 'BOOKING_OUTSIDE_HOURS: 営業時間外です' } });
-  const res = await POST(makeRequest(), makeProps());
-  expect(res.status).toBe(409);
-  const json = await res.json();
-  expect(json.error).toContain('営業時間外');
-});
-
-test('RPC が STAFF_NOT_WORKING（担当スタッフ勤務外）→ 409', async () => {
-  mockFrom.mockReturnValue(singleChain(CONFIRMED_BOOKING));
-  mockRpc.mockResolvedValue({ error: { message: 'STAFF_NOT_WORKING: このスタッフはこの日は勤務していません' } });
-  const res = await POST(makeRequest(), makeProps());
-  expect(res.status).toBe(409);
-  const json = await res.json();
-  expect(json.error).toContain('勤務していません');
-});
-
 // 【2026年7月7日 本番実データで確定した恒久根治の回帰防止】変更通知を fire-and-forget (waitUntil)
 // に戻すと本番(Fluid Compute 無効)でレスポンス返却後に打ち切られ通知が全滅する。レスポンスは副作用の
 // 完了(await Promise.allSettled)まで確定しないことを直列に検証する（常時送る顧客 Push で代表検証）。

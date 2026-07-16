@@ -96,7 +96,6 @@ export async function POST(request: NextRequest) {
   }
 
   // アトミック作成（status=confirmed・user_id なし）
-  // p_enforce_schedule を渡さない＝店舗手動予約はスケジュールゲート（営業時間・定休日・指名勤務窓）対象外（意図的・電話受付等の時間外登録を塞がない）。
   const { data: rpcResult, error } = await admin.rpc('create_booking_atomic', {
     p_facility_id: d.facility_id,
     p_staff_id: d.staff_id ?? null,
