@@ -19,6 +19,7 @@ jest.mock('next/headers');
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
 }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -433,6 +434,23 @@ describe('POST /api/waitlist', () => {
     expect(res.status).toBe(404); // facility not found → 404
     expect(mockCookieStore.getAll).toHaveBeenCalled();
   });
+
+  test('ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { alertCaughtError } = require('@/lib/alert');
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockRejectedValue(new Error('boom')) },
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(makePostRequest(validWaitlist));
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe('サーバーエラーが発生しました');
+    expect(alertCaughtError).toHaveBeenCalledWith('waitlist-post', expect.any(Error), '/api/waitlist');
+    consoleSpy.mockRestore();
+  });
 });
 
 describe('DELETE /api/waitlist', () => {
@@ -614,5 +632,22 @@ describe('DELETE /api/waitlist', () => {
     const res = await DELETE(makeDeleteRequest('550e8400-e29b-41d4-a716-446655440000'));
     expect(res.status).toBe(401);
     expect(mockCookieStore.getAll).toHaveBeenCalled();
+  });
+
+  test('ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', async () => {
+    const { createServerClient } = require('@supabase/ssr');
+    const { alertCaughtError } = require('@/lib/alert');
+    createServerClient.mockReturnValue({
+      auth: { getUser: jest.fn().mockRejectedValue(new Error('boom')) },
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await DELETE(makeDeleteRequest('11111111-1111-1111-1111-111111111111'));
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe('サーバーエラーが発生しました');
+    expect(alertCaughtError).toHaveBeenCalledWith('waitlist-delete', expect.any(Error), '/api/waitlist');
+    consoleSpy.mockRestore();
   });
 });

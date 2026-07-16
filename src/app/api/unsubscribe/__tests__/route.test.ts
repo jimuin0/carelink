@@ -11,6 +11,7 @@ jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('@/lib/rate-limit', () => ({
   checkRateLimit: jest.fn(() => false),
 }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 const mockFrom = jest.fn();
 
@@ -441,6 +442,22 @@ describe('Token path (方式A)', () => {
     const res = await POST(makeRequest({ token: VALID_TOKEN }));
     expect(res.status).toBe(200);
     expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  test('ハンドラ内で例外 → 500（catch で alertCaughtError 経由）', async () => {
+    const { alertCaughtError } = require('@/lib/alert');
+    mockFrom.mockImplementation(() => {
+      throw new Error('boom');
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await POST(makeRequest({ token: VALID_TOKEN }));
+    const json = await res.json();
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe('サーバーエラーが発生しました');
+    expect(alertCaughtError).toHaveBeenCalledWith('unsubscribe', expect.any(Error), '/api/unsubscribe');
     consoleSpy.mockRestore();
   });
 });

@@ -12,6 +12,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { randomInt } from 'crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
+import { safeCaptureException } from '@/lib/safe';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,48 +26,55 @@ function generateCode(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const ip = getClientIp(request);
-  if (await checkRateLimit(null, ip, 10, 60_000, 'referral-get')) {
-    return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+  try {
+    const ip = getClientIp(request);
+    if (await checkRateLimit(null, ip, 10, 60_000, 'referral-get')) {
+      return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
+    }
+    const cookieStore = await cookies();
+    const supabase = createServerClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { cookies: { getAll: () => cookieStore.getAll() } }
+    );
+
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
+    const adminSupabase = createServiceRoleClient();
+
+    // 自分が既に他人の紹介コードを使用済みか（適用済みフラグの永続化 = REF-2）。
+    // これを返さないと、フロントの「適用済み」表示が再読込で消える。error は best-effort(未適用扱い)。
+    const { data: usedRow, error: usedErr } = await adminSupabase
+      .from('referral_uses')
+      .select('id')
+      .eq('referred_user_id', user.id)
+      .maybeSingle();
+    const already_referred = !usedErr && !!usedRow;
+
+    // 既存コード取得
+    const { data: existing } = await adminSupabase
+      .from('referral_codes')
+      .select('code, used_count')
+      .eq('user_id', user.id)
+      .maybeSingle();
+
+    if (existing) return NextResponse.json({ ...existing, already_referred });
+
+    // 新規生成
+    const code = generateCode();
+    const { error: insertErr } = await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
+    if (insertErr) {
+      console.error('[referral] code generation failed', { userId: user.id, err: insertErr });
+      return NextResponse.json({ error: '紹介コードの生成に失敗しました' }, { status: 500 });
+    }
+    return NextResponse.json({ code, used_count: 0, already_referred });
+  } catch (e) {
+    safeCaptureException(e, 'referral-get');
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('referral-get', e, '/api/referral');
+    return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
-  const cookieStore = await cookies();
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: { getAll: () => cookieStore.getAll() } }
-  );
-
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const adminSupabase = createServiceRoleClient();
-
-  // 自分が既に他人の紹介コードを使用済みか（適用済みフラグの永続化 = REF-2）。
-  // これを返さないと、フロントの「適用済み」表示が再読込で消える。error は best-effort(未適用扱い)。
-  const { data: usedRow, error: usedErr } = await adminSupabase
-    .from('referral_uses')
-    .select('id')
-    .eq('referred_user_id', user.id)
-    .maybeSingle();
-  const already_referred = !usedErr && !!usedRow;
-
-  // 既存コード取得
-  const { data: existing } = await adminSupabase
-    .from('referral_codes')
-    .select('code, used_count')
-    .eq('user_id', user.id)
-    .maybeSingle();
-
-  if (existing) return NextResponse.json({ ...existing, already_referred });
-
-  // 新規生成
-  const code = generateCode();
-  const { error: insertErr } = await adminSupabase.from('referral_codes').insert({ user_id: user.id, code });
-  if (insertErr) {
-    console.error('[referral] code generation failed', { userId: user.id, err: insertErr });
-    return NextResponse.json({ error: '紹介コードの生成に失敗しました' }, { status: 500 });
-  }
-  return NextResponse.json({ code, used_count: 0, already_referred });
 }
 
 export const POST = withRoute(async (request) => {
