@@ -132,8 +132,11 @@ export async function POST(req: NextRequest) {
     // 広告枠を即アクティブ化していた。本番で env 設定ミスにより STRIPE_SECRET_KEY が
     // 抜けていると、これが「無料で広告枠が有効化される」抜け穴になる（金銭損失）。
     // 開発/デモ用途の即時有効化(Stripe未接続でも動作確認できる)自体は残すが、
-    // 本番(NODE_ENV=production)でのみ fail-closed とし、決済なしの無料化を物理的に防ぐ。
-    if (process.env.NODE_ENV === 'production') {
+    // 真の本番(VERCEL_ENV=production)でのみ fail-closed とし、決済なしの無料化を物理的に防ぐ。
+    // NODE_ENV は Vercel の Preview デプロイでも 'production' になり Preview まで巻き込むため、
+    // Preview を明確に区別できる VERCEL_ENV（alert.ts / instrumentation.ts と同じ env 判定源）で
+    // 判定する。VERCEL_ENV は本番のみ 'production'・Preview は 'preview'・ローカルは undefined。
+    if (process.env.VERCEL_ENV === 'production') {
       const err = new Error('STRIPE_SECRET_KEY is not set in production - refusing to activate featured slot without payment');
       console.error('[featured-ads] STRIPE_SECRET_KEY missing in production', { slotId: slot.id });
       alertCaughtError('featured-ads:stripe-key-missing', err, '/api/admin/featured-ads');
