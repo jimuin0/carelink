@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { z } from 'zod';
-import { createServerSupabaseClient } from '@/lib/supabase-server';
+import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit, mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { safeCaptureException } from '@/lib/safe';
@@ -162,7 +162,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const supabase = createServerSupabaseClient();
+  // 【2026年7月16日 恒久根治・新規eslintルール no-anon-select-rls-protected-table が検知】
+  // `salons` は RLS 有効かつ anon 向け SELECT ポリシーが1件も存在しない（INSERT ポリシーのみ
+  // だった旧 "Allow anonymous insert" も migration 20260604000002 で削除済み）。そのため
+  // createServerSupabaseClient()（anon）で読むと常に0行/404になり、この公開一覧 GET が
+  // 本番で常に空を返す無音バグだった（facilities.ts の #483/#484 と同型・本ルール導入時に発見）。
+  // 返却列は PUBLIC_SALON_COLUMNS のみ・is_public=true 限定のため PII 漏洩は無い。
+  const supabase = createServiceRoleClient();
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
 

@@ -1,4 +1,10 @@
 const mockFrom = jest.fn();
+// 【2026年7月16日】getAvailableFacilityIds の bookings 読み取り／getMonthlyBookingCounts
+// 全体は service role クライアントを使う（anon RLSで常に0行になる #483/#484 同型バグの根治）。
+// mockFrom（anon＝createServerSupabaseClient）と mockServiceFrom（service role＝
+// createServiceRoleClient）を別々のモックにすることで、「bookings は必ず service role
+// 経由で読む」ことをテストで直接検証できるようにする（anon 経由に退行したら即座にテスト赤化）。
+const mockServiceFrom = jest.fn();
 const mockRpc = jest.fn();
 
 jest.mock('react', () => ({
@@ -8,6 +14,7 @@ jest.mock('react', () => ({
 
 jest.mock('../supabase-server', () => ({
   createServerSupabaseClient: () => ({ from: mockFrom, rpc: mockRpc }),
+  createServiceRoleClient: () => ({ from: mockServiceFrom, rpc: mockRpc }),
 }));
 jest.mock('../redis', () => ({
   cachedFetch: jest.fn().mockImplementation((_key: string, fetcher: () => Promise<unknown>) => fetcher()),
@@ -36,6 +43,7 @@ const { cachedFetch } = require('../redis');
 
 beforeEach(() => {
   mockFrom.mockReset();
+  mockServiceFrom.mockReset();
   mockRpc.mockReset();
 });
 
@@ -363,7 +371,7 @@ describe('getMonthlyBookingCounts', () => {
     ];
     const chain = fluent(null);
     chain.lt = jest.fn(() => Promise.resolve({ data: bookings }));
-    mockFrom.mockReturnValue(chain);
+    mockServiceFrom.mockReturnValue(chain);
 
     const result = await getMonthlyBookingCounts(['f-1', 'f-2']);
     expect(result).toEqual({ 'f-1': 2, 'f-2': 1 });
@@ -372,6 +380,26 @@ describe('getMonthlyBookingCounts', () => {
   test('空配列の場合は空オブジェクト', async () => {
     const result = await getMonthlyBookingCounts([]);
     expect(result).toEqual({});
+  });
+
+  // 【2026年7月16日 恒久根治の回帰防止・#483/#484同型】bookings の SELECT RLS は
+  // auth.uid()=user_id のため anon では常に0行になり「今月N件予約」バッジが全店で
+  // 非表示になっていた。service role クライアント経由であることを直接検証する
+  // （anon(mockFrom) に退行したら bookings は取得されず 0 になり、この test が赤化する）。
+  test('bookings読み取りはanonではなくservice roleクライアント経由（#483/#484同型の回帰防止）', async () => {
+    const bookings = [{ facility_id: 'f-1' }];
+    const chain = fluent(null);
+    chain.lt = jest.fn(() => Promise.resolve({ data: bookings }));
+    mockServiceFrom.mockReturnValue(chain);
+    // anon の from が bookings 目的で呼ばれたら壊す（anon退行を検知するための毒餌）
+    mockFrom.mockImplementation(() => {
+      throw new Error('anon client must not be used for bookings reads');
+    });
+
+    const result = await getMonthlyBookingCounts(['f-1']);
+    expect(result).toEqual({ 'f-1': 1 });
+    expect(mockServiceFrom).toHaveBeenCalledWith('bookings');
+    expect(mockFrom).not.toHaveBeenCalled();
   });
 });
 
@@ -584,12 +612,14 @@ describe('getNearbyFacilities', () => {
 
 describe('getAvailableFacilityIds', () => {
   /**
-   * Build table-specific from() mock:
-   * Each table returns a pre-set fluent chain resolving to given data.
+   * Build table-specific from() mock。
+   * 【2026年7月16日】bookings は service role クライアント（mockServiceFrom）、
+   * それ以外（staff_schedules/staff_profiles/schedule_overrides）は従来どおり anon
+   * クライアント（mockFrom）から返す。anon 経由で bookings が読まれたら例外を投げ、
+   * #483/#484 同型バグへの退行を即座に検知する。
    */
   function buildMultiTableMock(tables: Record<string, unknown[]>) {
-    mockFrom.mockImplementation((table: string) => {
-      const data = tables[table] ?? [];
+    function makeChain(data: unknown[]) {
       const chain = fluent({ data });
       // Make all terminal methods resolve immediately
       ['in', 'eq', 'not'].forEach(m => {
@@ -599,6 +629,18 @@ describe('getAvailableFacilityIds', () => {
       (chain as unknown as PromiseLike<{ data: unknown[] }>).then =
         (resolve: (v: { data: unknown[] }) => unknown) => Promise.resolve({ data }).then(resolve);
       return chain;
+    }
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') {
+        throw new Error('anon client(createServerSupabaseClient) must not read bookings — use service role');
+      }
+      return makeChain(tables[table] ?? []);
+    });
+    mockServiceFrom.mockImplementation((table: string) => {
+      if (table !== 'bookings') {
+        throw new Error(`service role client should only be used for bookings, got: ${table}`);
+      }
+      return makeChain(tables[table] ?? []);
     });
   }
 
@@ -765,6 +807,13 @@ describe('getAvailableFacilityIds', () => {
   });
 
   test('staffSchedulesがnullの場合も動作する', async () => {
+    function nullChain() {
+      const chain = fluent({ data: null });
+      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+      (chain as unknown as PromiseLike<unknown>).then =
+        (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null }).then(resolve);
+      return chain;
+    }
     mockFrom.mockImplementation((table: string) => {
       if (table === 'staff_profiles') {
         const chain = fluent({ data: [{ id: 'staff-1', facility_id: 'fac-1' }] });
@@ -773,13 +822,11 @@ describe('getAvailableFacilityIds', () => {
           (resolve: (v: unknown) => unknown) => Promise.resolve({ data: [{ id: 'staff-1', facility_id: 'fac-1' }] }).then(resolve);
         return chain;
       }
-      // Other tables return null data
-      const chain = fluent({ data: null });
-      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
-      (chain as unknown as PromiseLike<unknown>).then =
-        (resolve: (v: unknown) => unknown) => Promise.resolve({ data: null }).then(resolve);
-      return chain;
+      // Other anon tables (staff_schedules/schedule_overrides) return null data
+      return nullChain();
     });
+    // bookings は service role クライアント経由（null データでも動作すること）
+    mockServiceFrom.mockImplementation(() => nullChain());
     const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
     expect(result.size).toBe(0);
   });
@@ -844,7 +891,7 @@ describe('null data fallbacks', () => {
   test('getMonthlyBookingCounts: dataがnullのとき空オブジェクト', async () => {
     const chain = fluent(null);
     chain.lt = jest.fn(() => Promise.resolve({ data: null }));
-    mockFrom.mockReturnValue(chain);
+    mockServiceFrom.mockReturnValue(chain);
     const result = await getMonthlyBookingCounts(['f-1']);
     expect(result).toEqual({});
   });
@@ -888,42 +935,41 @@ describe('null data fallbacks', () => {
     expect(orCallArgs![0]).toContain('\\\\');
   });
 
+  // table 名 → チェーンを組み立てる共通ヘルパー（anon/service role どちらの from() にも使う）
+  function chainFor(data: unknown[]) {
+    const chain = fluent({ data });
+    ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
+    (chain as unknown as PromiseLike<unknown>).then =
+      (resolve: (v: unknown) => unknown) => Promise.resolve({ data }).then(resolve);
+    return chain;
+  }
+
   test('getAvailableFacilityIds: 時刻フォーマット h のみ (分なし) も処理する', async () => {
     // timeToMinutes が "10" → h*60 + 0 を返す経路を踏む
-    mockFrom.mockImplementation((table: string) => {
-      const map: Record<string, unknown[]> = {
-        staff_schedules: [{ staff_id: 's-1', start_time: '10', end_time: '11' }],
-        staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
-        schedule_overrides: [],
-        bookings: [],
-      };
-      const data = map[table] ?? [];
-      const chain = fluent({ data });
-      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
-      (chain as unknown as PromiseLike<unknown>).then =
-        (resolve: (v: unknown) => unknown) => Promise.resolve({ data }).then(resolve);
-      return chain;
-    });
+    const anonMap: Record<string, unknown[]> = {
+      staff_schedules: [{ staff_id: 's-1', start_time: '10', end_time: '11' }],
+      staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+    };
+    mockFrom.mockImplementation((table: string) => chainFor(anonMap[table] ?? []));
+    // bookings は service role クライアント経由
+    mockServiceFrom.mockImplementation((table: string) => chainFor(table === 'bookings' ? [] : []));
     const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
     expect(result.has('fac-1')).toBe(true);
   });
 
   test('getAvailableFacilityIds: bookings.start/end 時刻が end <= start → bookedMinutes=0', async () => {
     // Math.max(0, end-start) の Math.max 分岐をテスト
-    mockFrom.mockImplementation((table: string) => {
-      const map: Record<string, unknown[]> = {
-        staff_schedules: [{ staff_id: 's-1', start_time: '09:00', end_time: '18:00' }],
-        staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
-        schedule_overrides: [],
-        bookings: [{ staff_id: 's-1', start_time: '11:00', end_time: '10:00' }],
-      };
-      const data = map[table] ?? [];
-      const chain = fluent({ data });
-      ['in', 'eq'].forEach(m => { chain[m] = jest.fn(() => chain); });
-      (chain as unknown as PromiseLike<unknown>).then =
-        (resolve: (v: unknown) => unknown) => Promise.resolve({ data }).then(resolve);
-      return chain;
-    });
+    const anonMap: Record<string, unknown[]> = {
+      staff_schedules: [{ staff_id: 's-1', start_time: '09:00', end_time: '18:00' }],
+      staff_profiles: [{ id: 's-1', facility_id: 'fac-1' }],
+      schedule_overrides: [],
+    };
+    mockFrom.mockImplementation((table: string) => chainFor(anonMap[table] ?? []));
+    // bookings は service role クライアント経由
+    mockServiceFrom.mockImplementation((table: string) =>
+      chainFor(table === 'bookings' ? [{ staff_id: 's-1', start_time: '11:00', end_time: '10:00' }] : [])
+    );
     const result = await getAvailableFacilityIds(['fac-1'], '2026-05-01');
     expect(result.has('fac-1')).toBe(true);
   });
@@ -933,7 +979,7 @@ describe('null data fallbacks', () => {
     jest.setSystemTime(new Date('2026-12-15T00:00:00Z'));
     const chain = fluent(null);
     chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
-    mockFrom.mockReturnValue(chain);
+    mockServiceFrom.mockReturnValue(chain);
     await getMonthlyBookingCounts(['f-1']);
     const ltCall = (chain.lt as jest.Mock).mock.calls[0];
     expect(ltCall[1]).toBe('2027-01-01');
@@ -947,7 +993,7 @@ describe('null data fallbacks', () => {
     const chain = fluent(null);
     chain.gte = jest.fn(() => chain);
     chain.lt = jest.fn(() => Promise.resolve({ data: [] }));
-    mockFrom.mockReturnValue(chain);
+    mockServiceFrom.mockReturnValue(chain);
     await getMonthlyBookingCounts(['f-1']);
     // JST では既に7月 → 当月境界は 7/1〜8/1 でなければならない（旧実装だと 6/1〜7/1）
     expect((chain.gte as jest.Mock).mock.calls[0]).toEqual(['booking_date', '2026-07-01']);

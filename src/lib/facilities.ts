@@ -1,5 +1,5 @@
 import { cache } from 'react';
-import { createServerSupabaseClient } from './supabase-server';
+import { createServerSupabaseClient, createServiceRoleClient } from './supabase-server';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
@@ -335,7 +335,13 @@ export async function getAvailableFacilityIds(
   }
 
   // 4. Get existing bookings for this date
-  const { data: bookings } = await supabase
+  // 【2026年7月16日 恒久根治・#483/#484同型】bookings の SELECT RLS は
+  // auth.uid()=user_id（＋施設メンバー限定）のためanonクライアントでは常に0行になり、
+  // 満席の枠まで「空きあり」と誤判定していた（本番実測で確認）。bookings 読み取りのみ
+  // service role で行う（他クエリ（staff_schedules/staff_profiles/schedule_overrides）は
+  // 公開データのため anon のまま変更しない）。取得列は既存どおり（PII非含有）。
+  const serviceRoleSupabase = createServiceRoleClient();
+  const { data: bookings } = await serviceRoleSupabase
     .from('bookings')
     .select('staff_id, start_time, end_time')
     .eq('booking_date', dateStr)
@@ -420,7 +426,12 @@ function timeToMinutes(t: string): number {
 
 export async function getMonthlyBookingCounts(facilityIds: string[]): Promise<Record<string, number>> {
   if (facilityIds.length === 0) return {};
-  const supabase = createServerSupabaseClient();
+  // 【2026年7月16日 恒久根治・#483/#484同型】bookings の SELECT RLS は
+  // auth.uid()=user_id（＋施設メンバー限定）のためanonクライアントでは常に0行になり、
+  // 「今月N件予約」バッジが全店で非表示になっていた（本番実測で確認）。この関数は
+  // bookings 集計のみを行うため service role クライアントに置き換える。取得列は
+  // facility_id のみ（PII非含有）。
+  const supabase = createServiceRoleClient();
   // 「今月」は JST 暦月で判定する。サーバ(UTC)で now.getMonth() を使うと
   // JST 月初早朝（JST 1日 00:00〜08:59 = UTC 前月末日 15:00〜23:59）にまだ前月扱いになり、
   // 「今月の予約数」が前月分を集計してしまう。admin-date の単一ソースで JST 月境界に統一する。
