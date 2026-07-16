@@ -42,7 +42,8 @@ export const metadata: Metadata = {
 export default async function JobsListPage(props: { searchParams: Promise<SearchParams> }) {
   const searchParams = await props.searchParams;
   const supabase = createServerSupabaseClient();
-  const page = Math.max(1, parseInt(searchParams.page || '1', 10));
+  const parsedPage = parseInt(searchParams.page || '1', 10);
+  const page = Math.max(1, Number.isNaN(parsedPage) ? 1 : parsedPage);
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
