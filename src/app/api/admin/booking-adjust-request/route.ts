@@ -105,8 +105,11 @@ export async function POST(request: Request) {
       });
       // LINE経路（下）は送信失敗を502で呼び出し元に伝えているのに、メール経路だけ戻り値を
       // 確認せず常に成功表示していた（無音成功）。同じ失敗可視性に揃える。
+      // 文言は手動リトライを誘導しない：送信失敗分は safeSend（time_adjust_request context）が
+      // webhook_retry_queue に自動登録し15分毎の webhook-retry cron が再送するため、
+      // 「時間をおいて再度お試しください」と手動再送を促すと両方走って確定二重送信になる。
       if (!sent) {
-        return NextResponse.json({ error: 'メールの送信に失敗しました。時間をおいて再度お試しください。' }, { status: 502 });
+        return NextResponse.json({ error: 'メールの送信に失敗しました。15〜30分以内に自動で再送されます（手動での再送は不要です）。' }, { status: 502 });
       }
     } else {
       // LINE 送信は有料オプション time_adjust_line が必要。
@@ -143,8 +146,10 @@ export async function POST(request: Request) {
         enqueueOnFailure: true,
         facilityId: booking.facility_id,
       });
+      // 文言は手動リトライを誘導しない：失敗分は上の enqueueOnFailure で webhook_retry_queue に
+      // 自動登録され15分毎の webhook-retry cron が再送するため、手動再送と両方走ると確定二重送信になる。
       if (!ok) {
-        return NextResponse.json({ error: 'LINEの送信に失敗しました。時間をおいて再度お試しください。' }, { status: 502 });
+        return NextResponse.json({ error: 'LINEの送信に失敗しました。15〜30分以内に自動で再送されます（手動での再送は不要です）。' }, { status: 502 });
       }
     }
 

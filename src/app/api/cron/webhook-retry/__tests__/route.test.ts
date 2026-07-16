@@ -80,10 +80,17 @@ function setupDefaultMocks(
         : [],
   });
 
+  // 真のCAS: update({status:'processing'}).in('id',ids).eq('status','pending').select('id')
+  // → 実際に claim できた行の id を返す。既定は全行 claim 成功。
   mockClaimUpdate = jest.fn().mockReturnValue({
-    in: jest.fn().mockResolvedValue({
-      error: claimFails ? new Error('Claim failed') : null,
-    }),
+    in: jest.fn((_col: string, ids: string[]) => ({
+      eq: jest.fn().mockReturnValue({
+        select: jest.fn().mockResolvedValue({
+          data: claimFails ? null : ids.map((id) => ({ id })),
+          error: claimFails ? new Error('Claim failed') : null,
+        }),
+      }),
+    })),
   });
 
   mockSuccessUpdate = jest.fn().mockReturnValue({
@@ -229,6 +236,90 @@ describe('GET /api/cron/webhook-retry', () => {
     const res = await GET(makeRequest() as any);
 
     expect(res.status).toBe(500);
+  });
+
+  test('claim は真のCAS（.eq(status,pending)＋.select(id)）で行う', async () => {
+    setupDefaultMocks(1);
+
+    await GET(makeRequest() as any);
+
+    // update({status:'processing'}) → .in('id', ids) → .eq('status','pending') → .select('id')
+    const inMock = mockClaimUpdate.mock.results[0].value.in as jest.Mock;
+    expect(inMock).toHaveBeenCalledWith('id', ['job-1', 'job-2']);
+    const eqMock = inMock.mock.results[0].value.eq as jest.Mock;
+    expect(eqMock).toHaveBeenCalledWith('status', 'pending');
+    const selectMock = eqMock.mock.results[0].value.select as jest.Mock;
+    expect(selectMock).toHaveBeenCalledWith('id');
+  });
+
+  test('claim 競合（並行runが一部行を先取り）→ claimできた行のみ処理し、取れなかった行は送信しない', async () => {
+    setupDefaultMocks(1);
+    // SELECT は job-1(line_push)・job-2(email) の2行を返すが、CAS の update 結果は job-1 のみ
+    //（job-2 は並行 run が先に processing へ倒した＝status<>'pending' で UPDATE 対象外）。
+    mockClaimUpdate.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockResolvedValue({ data: [{ id: 'job-1' }], error: null }),
+        }),
+      }),
+    });
+    const sendSpy = jest.fn().mockResolvedValue({ success: true });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    // job-1（line_push）のみ処理される
+    expect(mockSendLineText).toHaveBeenCalledTimes(1);
+    // job-2（email）は claim できなかった＝Resend 送信されない（二重送信の発症前予防）
+    expect(sendSpy).not.toHaveBeenCalled();
+    // success マークも claim できた1行分のみ
+    expect(mockSuccessUpdate).toHaveBeenCalledTimes(1);
+    expect(json.processed).toBe(1);
+    expect(json.skipped).toBe(0);
+  });
+
+  test('claim 全敗（全行を並行runが先取り）→ 1件も処理せず skipped で正常終了', async () => {
+    setupDefaultMocks(1);
+    mockClaimUpdate.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockResolvedValue({ data: [], error: null }),
+        }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(0);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(mockSuccessUpdate).not.toHaveBeenCalled();
+    expect(logCronRun).toHaveBeenCalledWith(
+      'webhook-retry', 'skipped', expect.any(Date),
+      expect.objectContaining({ processed: 0, skipped: 0, meta: { total: 2, claimed: 0 } }),
+    );
+  });
+
+  test('claim の update 結果 data=null（error無し）→ 0行claim扱いで安全側に倒す', async () => {
+    setupDefaultMocks(1);
+    mockClaimUpdate.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockResolvedValue({ data: null, error: null }),
+        }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(json.processed).toBe(0);
+    expect(mockSendLineText).not.toHaveBeenCalled();
   });
 
   test('line_push webhook → sends LINE text', async () => {
