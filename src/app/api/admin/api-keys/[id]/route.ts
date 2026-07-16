@@ -37,11 +37,20 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
     : { data: null };
   if (!key || !mem) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
-  const { error: deactivateErr } = await admin.from('api_keys').update({ is_active: false }).eq('id', params.id).eq('facility_id', key.facility_id);
+  // 更新件数(affected rows)を検証せず常に success:true を返していたため、TOCTOU（key/membership確認後に
+  // 既削除等）による0件更新も「成功」と偽装していた（phantom success）。.select() で更新行を受け取り、
+  // 0件なら404を返す（customers/[id]・menus/[id]・catalog/[id] と同型）。
+  const { data: deactivated, error: deactivateErr } = await admin
+    .from('api_keys')
+    .update({ is_active: false })
+    .eq('id', params.id)
+    .eq('facility_id', key.facility_id)
+    .select();
   if (deactivateErr) {
     console.error('[api-keys/delete] deactivate failed', { id: params.id, err: deactivateErr });
     return NextResponse.json({ error: 'Failed to deactivate key' }, { status: 500 });
   }
+  if (!deactivated || deactivated.length === 0) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

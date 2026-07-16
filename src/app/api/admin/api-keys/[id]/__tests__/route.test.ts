@@ -49,16 +49,6 @@ function singleChain(data: unknown, error: unknown = null) {
   };
 }
 
-function updateChain(error: unknown = null) {
-  return {
-    update: jest.fn().mockReturnValue({
-      eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
-      }),
-    }),
-  };
-}
-
 beforeEach(() => {
   jest.clearAllMocks();
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -122,7 +112,9 @@ test('無効化DB失敗 → 500 (サイレント成功を防ぐ)', async () => {
       }),
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'DB update failed' } })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB update failed' } })),
+          }),
         }),
       }),
     };
@@ -131,6 +123,33 @@ test('無効化DB失敗 → 500 (サイレント成功を防ぐ)', async () => {
 
   const res = await DELETE(makeRequest(), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('無効化0行 (key/membership確認後にTOCTOU削除) → 404', async () => {
+  mockAdminFrom.mockImplementation(() => {
+    const calls: number[] = [];
+    return {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      single: jest.fn(() => {
+        calls.push(1);
+        if (calls.length === 1) return Promise.resolve({ data: { facility_id: FACILITY_UUID }, error: null });
+        return Promise.resolve({ data: null, error: null });
+      }),
+      update: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ role: 'owner' }));
+
+  const res = await DELETE(makeRequest(), makeProps());
+  expect(res.status).toBe(404);
 });
 
 // ─── Happy path ───────────────────────────────────────────────────────────────
@@ -147,7 +166,9 @@ test('正常無効化 → 200 success:true', async () => {
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [{ id: KEY_UUID }], error: null })),
+          }),
         }),
       }),
     };
@@ -171,7 +192,7 @@ test('writeAuditLog が呼ばれる（delete アクション）', async () => {
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+    return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: KEY_UUID }], error: null })) }) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ role: 'owner' }));
   const { writeAuditLog } = require('@/lib/audit-logger');
@@ -185,7 +206,7 @@ test('レートリミット params (10/60s)', async () => {
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+    return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: KEY_UUID }], error: null })) }) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ role: 'owner' }));
   (checkRateLimit as jest.Mock).mockReturnValue(false);
@@ -201,7 +222,7 @@ test('レスポンスが { success: true } 形式', async () => {
   mockAdminFrom.mockImplementation(() => {
     adminCallNum++;
     if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
-    return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn(() => Promise.resolve({ error: null })) }) }) };
+    return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: KEY_UUID }], error: null })) }) }) }) };
   });
   mockAnonFrom.mockReturnValue(singleChain({ role: 'owner' }));
   const res = await DELETE(makeRequest(), makeProps());

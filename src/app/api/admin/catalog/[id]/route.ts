@@ -95,8 +95,12 @@ export async function DELETE(request: NextRequest, props: { params: Promise<{ id
   if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
-  const { error } = await admin.from('treatment_catalogs').delete().eq('id', params.id).eq('facility_id', facilityId);
+  // 削除件数(affected rows)を検証せず常に成功を返していたため、TOCTOU（verify後に既削除等）による
+  // 0件削除も「成功」と偽装していた（phantom success）。.select() で削除行を受け取り、0件なら404を返す
+  // （customers/[id]・menus/[id] と同型）。
+  const { data, error } = await admin.from('treatment_catalogs').delete().eq('id', params.id).eq('facility_id', facilityId).select();
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!data || data.length === 0) return NextResponse.json({ error: 'カタログが見つかりません' }, { status: 404 });
 
   const { ip: auditIp, ua } = getRequestContext(request);
   void writeAuditLog({

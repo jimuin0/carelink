@@ -80,7 +80,9 @@ function buildUpdateOrDeleteChain(error: unknown = null) {
     }),
     delete: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        eq: jest.fn(() => Promise.resolve({ error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn(() => Promise.resolve({ data: error ? null : [{ id: COUPON_UUID }], error })),
+        }),
       }),
     }),
   };
@@ -203,7 +205,7 @@ function redemptionCountChain(count: number, error: unknown = null) {
 
 test('DELETE: 利用実績なし → DELETEのWHEREにfacility_idが含まれ成功 → 200', async () => {
   let adminCallNum = 0;
-  const innerEq = jest.fn(() => Promise.resolve({ error: null }));
+  const innerEq = jest.fn().mockReturnValue({ select: jest.fn(() => Promise.resolve({ data: [{ id: COUPON_UUID }], error: null })) });
   const outerEq = jest.fn().mockReturnValue({ eq: innerEq });
   const deleteMock = jest.fn().mockReturnValue({ eq: outerEq });
 
@@ -225,7 +227,8 @@ test('DELETE: 利用実績なし → DELETEのWHEREにfacility_idが含まれ成
 
 test('DELETE: 利用実績あり → 削除せず無効化のみ → 200', async () => {
   let adminCallNum = 0;
-  const updateEq2 = jest.fn(() => Promise.resolve({ error: null }));
+  const updateSelect = jest.fn(() => Promise.resolve({ data: [{ id: COUPON_UUID }], error: null }));
+  const updateEq2 = jest.fn().mockReturnValue({ select: updateSelect });
   const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
   const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
 
@@ -246,7 +249,8 @@ test('DELETE: 利用実績あり → 削除せず無効化のみ → 200', async
 
 test('DELETE: 利用実績あり → 無効化のDB更新自体が失敗 → 500', async () => {
   let adminCallNum = 0;
-  const updateEq2 = jest.fn(() => Promise.resolve({ error: { message: 'DB error' } }));
+  const updateSelect = jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } }));
+  const updateEq2 = jest.fn().mockReturnValue({ select: updateSelect });
   const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
   const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
 
@@ -260,6 +264,25 @@ test('DELETE: 利用実績あり → 無効化のDB更新自体が失敗 → 500
 
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 利用実績あり・無効化0行（verify後にTOCTOU削除）→ 404', async () => {
+  let adminCallNum = 0;
+  const updateSelect = jest.fn(() => Promise.resolve({ data: [], error: null }));
+  const updateEq2 = jest.fn().mockReturnValue({ select: updateSelect });
+  const updateEq1 = jest.fn().mockReturnValue({ eq: updateEq2 });
+  const updateMock = jest.fn().mockReturnValue({ eq: updateEq1 });
+
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return redemptionCountChain(3);
+    return { update: updateMock };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 test('DELETE: 利用実績カウント取得失敗 → 500', async () => {
@@ -283,7 +306,9 @@ test('DELETE: DB削除失敗 → 500', async () => {
     return {
       delete: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          eq: jest.fn(() => Promise.resolve({ error: { message: 'DB error' } })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+          }),
         }),
       }),
     };
@@ -291,6 +316,27 @@ test('DELETE: DB削除失敗 → 500', async () => {
   mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
   const res = await DELETE(makeRequest('DELETE'), makeProps());
   expect(res.status).toBe(500);
+});
+
+test('DELETE: 利用実績なし・削除0行 (verify後にTOCTOU削除) → 404', async () => {
+  let adminCallNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    adminCallNum++;
+    if (adminCallNum === 1) return singleChain({ facility_id: FACILITY_UUID });
+    if (adminCallNum === 2) return redemptionCountChain(0);
+    return {
+      delete: jest.fn().mockReturnValue({
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn(() => Promise.resolve({ data: [], error: null })),
+          }),
+        }),
+      }),
+    };
+  });
+  mockAnonFrom.mockReturnValue(singleChain({ facility_id: FACILITY_UUID }));
+  const res = await DELETE(makeRequest('DELETE'), makeProps());
+  expect(res.status).toBe(404);
 });
 
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
