@@ -17,13 +17,15 @@ interface Props {
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const area = decodeURIComponent(params.area);
-  const title = `${area}の人気ランキング | CareLink`;
+  // ルート layout の title.template '%s | CareLink' が自動付与するため、
+  // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
+  const title = `${area}の人気ランキング`;
   const description = `${area}エリアで口コミ評価の高い美容・医療・福祉施設のランキング。`;
   return {
     title,
     description,
     alternates: { canonical: `/ranking/${params.area}` },
-    openGraph: { title, description, type: 'website' },
+    openGraph: { title: `${title} | CareLink`, description, type: 'website' },
   };
 }
 

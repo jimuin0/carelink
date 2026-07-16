@@ -34,7 +34,8 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     ? `${typeName}（${ctx.keyword}）を全国から検索。${ctx.description}を口コミ・料金・写真で比較し、24時間ネット予約できます。`
     : `${typeName}を全国から検索・比較・予約。CareLinkで自分にぴったりの${typeName}を見つけましょう。`;
   return {
-    title: `${typeName}を全国から探す｜口コミ・料金で比較 | CareLink`,
+    // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
+    title: `${typeName}を全国から探す｜口コミ・料金で比較`,
     description,
     alternates: { canonical: `/type/${typeSlug}` },
   };
