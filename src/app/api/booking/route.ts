@@ -253,10 +253,6 @@ export async function POST(request: Request) {
     p_total_price: finalPrice,
     p_points_used: pointsUsed,
     p_status: bookingStatus,
-    // 公開経路は営業時間・定休日・指名スタッフ勤務窓ゲートを RPC 側で強制する（get_available_slots
-    // が UI に出さない枠を API 直叩きで確定できた非対称の根治・2026年7月16日）。admin の手動予約
-    // （電話受付等）は意図的にゲート対象外＝パラメータ省略（DEFAULT FALSE）。
-    p_enforce_schedule: true,
   });
   void bookingData;
 
@@ -269,18 +265,6 @@ export async function POST(request: Request) {
     // 他施設スタッフの割り当て＝マルチテナント違反を fail-closed で拒否する。
     if (error.message?.includes('STAFF_NOT_IN_FACILITY')) {
       return NextResponse.json({ error: '指定されたスタッフはこの施設で予約できません' }, { status: 400 });
-    }
-    // スケジュールゲート（p_enforce_schedule=true で RPC が RAISE・2026年7月16日）。
-    // UI(get_available_slots) が出さない枠の API 直叩きを、時間帯利用不可＝BOOKING_CONFLICT と
-    // 同じ流儀の 409 で拒否する。
-    if (error.message?.includes('BOOKING_CLOSED_DAY')) {
-      return NextResponse.json({ error: 'この日は定休日のため予約できません' }, { status: 409 });
-    }
-    if (error.message?.includes('BOOKING_OUTSIDE_HOURS')) {
-      return NextResponse.json({ error: '営業時間外のため予約できません' }, { status: 409 });
-    }
-    if (error.message?.includes('STAFF_NOT_WORKING')) {
-      return NextResponse.json({ error: '指名されたスタッフはこの日時には勤務していません' }, { status: 409 });
     }
     // クーポン使用制限（create_booking_atomic が RAISE する。トランザクションごとロールバック済み）
     if (error.message?.includes('COUPON_LIMIT')) {

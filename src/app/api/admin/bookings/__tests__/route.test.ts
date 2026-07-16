@@ -204,9 +204,6 @@ test('スタッフ指定（指名料あり） → 201・指名料加算', async 
   expect(res.status).toBe(201);
   // total_price = 5000 + 1000
   expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.objectContaining({ p_total_price: 6000, p_status: 'confirmed', p_user_id: null }));
-  // 店舗手動予約はスケジュールゲート対象外（意図的）: p_enforce_schedule を渡さない＝DEFAULT FALSE。
-  // 電話受付等の意図的な時間外登録を塞がない（公開経路 booking/route.ts のみ true を渡す）。
-  expect(mockRpc).toHaveBeenCalledWith('create_booking_atomic', expect.not.objectContaining({ p_enforce_schedule: expect.anything() }));
 });
 
 test('スタッフ指定（指名料なし null） → 201', async () => {

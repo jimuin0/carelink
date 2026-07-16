@@ -116,10 +116,6 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       p_booking_date: parsed.data.booking_date,
       p_start_time: parsed.data.start_time,
       p_end_time: parsed.data.end_time,
-      // 公開経路は営業時間・定休日・指名スタッフ勤務窓ゲートを RPC 側で強制する（get_available_slots
-      // が UI に出さない枠へ API 直叩きで変更できた非対称の根治・2026年7月16日）。admin の手動予約
-      // （電話受付等）は意図的にゲート対象外＝パラメータ省略（DEFAULT FALSE）。
-      p_enforce_schedule: true,
     });
 
     if (error) {
@@ -135,18 +131,6 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       }
       if (msg.includes('BOOKING_NOT_CHANGEABLE')) {
         return NextResponse.json({ error: 'この予約は変更できません' }, { status: 400 });
-      }
-      // スケジュールゲート（p_enforce_schedule=true で RPC が RAISE・2026年7月16日）。
-      // UI(get_available_slots) が出さない枠への変更を、時間帯利用不可＝BOOKING_CONFLICT と
-      // 同じ流儀の 409 で拒否する。
-      if (msg.includes('BOOKING_CLOSED_DAY')) {
-        return NextResponse.json({ error: 'この日は定休日のため予約できません' }, { status: 409 });
-      }
-      if (msg.includes('BOOKING_OUTSIDE_HOURS')) {
-        return NextResponse.json({ error: '営業時間外のため予約できません' }, { status: 409 });
-      }
-      if (msg.includes('STAFF_NOT_WORKING')) {
-        return NextResponse.json({ error: '担当スタッフはこの日時には勤務していません' }, { status: 409 });
       }
       return NextResponse.json({ error: '変更に失敗しました' }, { status: 500 });
     }
