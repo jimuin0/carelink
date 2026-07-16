@@ -5,7 +5,9 @@
  * Key assertions:
  *   - CRON_SECRET validation
  *   - Finds pending jobs scheduled_at <= now
- *   - Claims jobs (status=processing for idempotency)
+ *   - Claims jobs with CAS (.update().eq('status','pending').in().select('id')) —
+ *     only rows actually flipped pending→processing by THIS run are processed
+ *     (parallel runs racing on the same pending rows must not double-deliver)
  *   - Processes line_push & email webhook types
  *   - Updates status=success on completion
  *   - Schedules retry on failure
@@ -30,6 +32,7 @@ import { GET } from '../route';
 
 let mockJobsSelect: jest.Mock;
 let mockClaimUpdate: jest.Mock;
+let mockClaimEq: jest.Mock;
 let mockSuccessUpdate: jest.Mock;
 let mockReclaimUpdate: jest.Mock;
 let mockSendLineText: jest.Mock;
@@ -80,11 +83,17 @@ function setupDefaultMocks(
         : [],
   });
 
-  mockClaimUpdate = jest.fn().mockReturnValue({
-    in: jest.fn().mockResolvedValue({
-      error: claimFails ? new Error('Claim failed') : null,
-    }),
+  // claim は CAS chain: update({status:'processing'}).eq('status','pending').in('id', ids).select('id')。
+  // デフォルトは「要求した全 id を claim 成功」（レース無し）として echo back する。
+  mockClaimEq = jest.fn().mockReturnValue({
+    in: jest.fn((_col: string, ids: string[]) => ({
+      select: jest.fn().mockResolvedValue({
+        data: claimFails ? null : ids.map((id) => ({ id })),
+        error: claimFails ? new Error('Claim failed') : null,
+      }),
+    })),
   });
+  mockClaimUpdate = jest.fn().mockReturnValue({ eq: mockClaimEq });
 
   mockSuccessUpdate = jest.fn().mockReturnValue({
     eq: jest.fn().mockResolvedValue({
@@ -202,6 +211,77 @@ describe('GET /api/cron/webhook-retry', () => {
     await GET(makeRequest() as any);
 
     expect(mockClaimUpdate).toHaveBeenCalled();
+  });
+
+  test('claim は .eq(status,pending) の CAS ガード付き（無条件 UPDATE ではない）', async () => {
+    // SELECT と UPDATE が別クエリのため、並行 run が同じ pending 行を取得し得る。
+    // .eq('status','pending') が無いと両 run が無条件に processing 化でき二重配信になる。
+    setupDefaultMocks(1);
+
+    await GET(makeRequest() as any);
+
+    expect(mockClaimEq).toHaveBeenCalledWith('status', 'pending');
+  });
+
+  test('レース：claim に勝った行だけ送信する（負けた行は他プロセス所有＝スキップ）', async () => {
+    // 並行 run が job-2 を先に claim したケース。自 run の CAS UPDATE は job-1 しか
+    // 更新できない → job-1 のみ送信し、job-2 は送信もリトライ登録もしない。
+    setupDefaultMocks(1);
+    const sendSpy = jest.fn().mockResolvedValue({ success: true });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
+    mockClaimEq.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        select: jest.fn().mockResolvedValue({ data: [{ id: 'job-1' }], error: null }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    // job-1(line_push) は送信、job-2(email) は claim 負けで送信しない。
+    expect(mockSendLineText).toHaveBeenCalledTimes(1);
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(json.processed).toBe(1);
+    expect(json.skipped).toBe(0);
+    expect(scheduleRetry).not.toHaveBeenCalled();
+  });
+
+  test('レース：全行 claim 負け（claimed=空配列）→ 1件も送信せず 200', async () => {
+    setupDefaultMocks(1);
+    const sendSpy = jest.fn().mockResolvedValue({ success: true });
+    const { Resend } = require('resend');
+    Resend.mockImplementation(() => ({ emails: { send: sendSpy } }));
+    mockClaimEq.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        select: jest.fn().mockResolvedValue({ data: [], error: null }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(sendSpy).not.toHaveBeenCalled();
+    expect(json.processed).toBe(0);
+    expect(json.skipped).toBe(0);
+  });
+
+  test('レース：claimed=null（error なし）でも空扱いで送信しない（?? [] 分岐）', async () => {
+    setupDefaultMocks(1);
+    mockClaimEq.mockReturnValue({
+      in: jest.fn().mockReturnValue({
+        select: jest.fn().mockResolvedValue({ data: null, error: null }),
+      }),
+    });
+
+    const res = await GET(makeRequest() as any);
+    const json = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(mockSendLineText).not.toHaveBeenCalled();
+    expect(json.processed).toBe(0);
   });
 
   test('開始時に stale processing 孤児を pending へ再回収する', async () => {

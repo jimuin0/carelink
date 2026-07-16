@@ -60,23 +60,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ processed: 0, skipped: 0 });
     }
 
-    // processing に変更（二重実行防止）
+    // processing に変更（二重実行防止）。
+    // SELECT（pending 取得）と UPDATE（claim）が別クエリのため、cron 三重化
+    // （GitHub Actions / pg_cron / Render が毎15分ほぼ同時に本エンドポイントを叩く）下では
+    // 並行 run が同じ pending 行を取得し得る。無条件 UPDATE だと両 run が送信まで進み
+    // 顧客への二重配信になるため、.eq('status','pending') の CAS ガード＋ .select('id') で
+    // 「実際に自分が pending→processing へ更新できた行」だけを処理対象にする
+    // （review-request cron の .update().is('review_request_sent_at', null) と同型）。
     const jobIds = jobs.map((j) => j.id);
-    const { error: claimErr } = await supabase
+    const { data: claimed, error: claimErr } = await supabase
       .from('webhook_retry_queue')
       .update({ status: 'processing' })
-      .in('id', jobIds);
+      .eq('status', 'pending')
+      .in('id', jobIds)
+      .select('id');
     if (claimErr) {
       console.error('[webhook-retry] status claim failed — aborting to prevent duplicate delivery', { err: claimErr });
       await logCronRun('webhook-retry', 'error', startedAt, { error_msg: claimErr.message });
       return NextResponse.json({ error: 'claim failed' }, { status: 500 });
     }
 
+    // claim に負けた行（他プロセスが先に processing 化済み）は処理しない。
+    const claimedIds = new Set((claimed ?? []).map((r: { id: string }) => r.id));
+    const claimedJobs = jobs.filter((j) => claimedIds.has(j.id));
+
     let success = 0;
     let failed = 0;
     const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-    for (const job of jobs) {
+    for (const job of claimedJobs) {
       try {
         if (job.webhook_type === 'line_push') {
           // sendLineText はリトライ上限到達時に throw せず false を返す。
@@ -145,7 +157,7 @@ export async function GET(request: Request) {
     await logCronRun('webhook-retry', 'success', startedAt, {
       processed: success,
       skipped: failed,
-      meta: { total: jobs.length },
+      meta: { total: claimedJobs.length, lost_claim: jobs.length - claimedJobs.length },
     });
 
     return NextResponse.json({ processed: success, skipped: failed });
