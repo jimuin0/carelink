@@ -18,14 +18,22 @@ jest.mock('@/lib/schema-drift', () => ({
 
 const mockRpc = jest.fn();
 const mockClaimInsert = jest.fn();
+const mockClaimDeleteEq = jest.fn();
 const mockClaimDeleteLt = jest.fn();
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({
     rpc: mockRpc,
     from: (table: string) => ({
       insert: (row: unknown) => mockClaimInsert(table, row),
+      // 掃除 delete は .eq('job_name', 自ジョブ) → .lt('claimed_at', ...) の chain
+      //（job_name 限定＝他 cron の claim 行を越境削除しない）
       delete: () => ({
-        lt: (col: string, val: string) => mockClaimDeleteLt(table, col, val),
+        eq: (eqCol: string, eqVal: string) => {
+          mockClaimDeleteEq(table, eqCol, eqVal);
+          return {
+            lt: (col: string, val: string) => mockClaimDeleteLt(table, col, val),
+          };
+        },
       }),
     }),
   }),
@@ -98,7 +106,9 @@ test('列ドリフト有(data=配列) + 制約RPC成功・制約ドリフト無 
   expect(table).toBe('cron_alert_claims');
   expect(row.job_name).toBe('schema-drift-check');
   expect(typeof row.claim_key).toBe('string');
-  // 古い claim 行の掃除も同 run 内で呼ばれる
+  // 古い claim 行の掃除も同 run 内で呼ばれる（job_name を自ジョブに限定＝越境削除しない）
+  expect(mockClaimDeleteEq).toHaveBeenCalledTimes(1);
+  expect(mockClaimDeleteEq.mock.calls[0]).toEqual(['cron_alert_claims', 'job_name', 'schema-drift-check']);
   expect(mockClaimDeleteLt).toHaveBeenCalledTimes(1);
   expect(mockClaimDeleteLt.mock.calls[0][0]).toBe('cron_alert_claims');
   expect(mockClaimDeleteLt.mock.calls[0][1]).toBe('claimed_at');

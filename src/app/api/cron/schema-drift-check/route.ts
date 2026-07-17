@@ -127,10 +127,13 @@ export async function GET(request: Request) {
 
     // 古い claim 行の掃除（保持期間超過分を削除）。best-effort・失敗しても本体は継続する
     // （テーブル肥大化の防止のみが目的で、失敗しても通知ロジックの正しさに影響しない）。
+    // job_name を自ジョブに限定する：テーブルは (job_name, claim_key) 設計で将来他 cron と
+    // 共有し得るため、無条件 delete だと他ジョブの claim 行を越境削除してしまう。
     const staleBefore = new Date(startedAt.getTime() - CLAIM_RETENTION_MS).toISOString();
     const { error: cleanupError } = await admin
       .from('cron_alert_claims')
       .delete()
+      .eq('job_name', 'schema-drift-check')
       .lt('claimed_at', staleBefore);
     if (cleanupError) {
       console.warn('[schema-drift-check] stale alert claim cleanup failed (best-effort, ignored)', {
