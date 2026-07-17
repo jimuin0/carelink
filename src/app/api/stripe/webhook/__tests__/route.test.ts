@@ -693,7 +693,7 @@ describe('POST /api/stripe/webhook', () => {
       // 0 行でも throw せず featured_slots 有効化に正常到達すること
       expect(slotUpdate).toHaveBeenCalledWith({ is_active: true });
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('stripe_sessions update matched 0 rows (non-booking checkout; continuing)'),
+        expect.stringContaining('stripe_sessions update matched 0 rows (non-booking checkout; booking_id/payment_type いずれも無し; continuing)'),
         expect.objectContaining({ sessionId: 'cs_ad_slot_only' }),
       );
       warnSpy.mockRestore();
@@ -710,10 +710,29 @@ describe('POST /api/stripe/webhook', () => {
       const res = await POST(makeRequest('{}') as any);
       expect(res.status).toBe(200);
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('non-booking checkout; continuing'),
+        expect.stringContaining('non-booking checkout; booking_id/payment_type いずれも無し; continuing'),
         expect.objectContaining({ sessionId: 'cs_option_only' }),
       );
       warnSpy.mockRestore();
+    });
+
+    test('stripe_sessions 0行更新（booking_id=\'\'・payment_type=deposit＝booking未指定の一般デポジット）→ throw→500（観測性の穴の回帰テスト）', async () => {
+      // stripe/checkout/route.ts の booking 未指定デポジットは metadata.booking_id を空文字 '' にしつつ
+      // stripe_sessions に insert する（行が在るはず）。空文字は falsy なので booking_id 単独判定だと
+      // この経路の真の0行異常が warn 止まりになり Slack 通知されない（PR#511 フォローアップで根治）。
+      setupSessionZeroRows(null);
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_general_deposit_0rows',
+        payment_intent: 'pi_general_deposit_0rows',
+        metadata: { booking_id: '', facility_id: 'fac-1', user_id: 'user-1', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'stripe-webhook-handler',
+        expect.any(Error),
+        '/api/stripe/webhook',
+      );
     });
 
     function setupDepositZeroRows(opts: { updateData: unknown; currentStatus: { status: string } | null; currentStatusError?: unknown }) {
