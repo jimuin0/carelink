@@ -106,9 +106,19 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
         .select('id');
       if (sessionErr) throw new Error(`stripe_sessions update failed: ${sessionErr.message}`);
       if (!sessionRows || sessionRows.length === 0) {
-        // 直前の checkout session 作成フローで作成済みのはずの行が無い＝異常。
-        // throw して 500→Stripe リトライ（外側 catch が alertCaughtError で通知する）。
-        throw new Error(`stripe_sessions update matched 0 rows (session_id=${session.id})`);
+        // stripe_sessions に行を作るのは booking 系フロー（payment/checkout・stripe/checkout）のみ。
+        // featured-ads（metadata=slot_id）と options/checkout（metadata=option_key）は行を作らないため、
+        // それら由来のイベントでは 0 行が【正常系】。無条件 throw にすると広告枠・オプション決済が
+        // 500→Stripe再送ループに陥り、featured_slots 有効化に永久に到達しない。
+        // booking_id がある場合のみ「作成済みのはずの行が無い」異常として throw
+        //（500→Stripe リトライ・外側 catch が alertCaughtError で通知する）。
+        if (meta.booking_id) {
+          throw new Error(`stripe_sessions update matched 0 rows (session_id=${session.id})`);
+        }
+        console.warn('[stripe/webhook] stripe_sessions update matched 0 rows (non-booking checkout; continuing)', {
+          sessionId: session.id,
+          metadataKeys: Object.keys(meta),
+        });
       }
 
       // Update booking status to confirmed if deposit was paid
@@ -122,14 +132,18 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
         if (!confirmedRows || confirmedRows.length === 0) {
           // CAS（status='pending'）に一致する行が無い＝(1) 冪等リトライで既に confirmed 済 か
           // (2) 真の異常（booking 不存在・想定外ステータス）。現状を SELECT して切り分ける。
-          const { data: current } = await admin.from('bookings')
+          const { data: current, error: currentErr } = await admin.from('bookings')
             .select('status')
             .eq('id', meta.booking_id)
             .maybeSingle();
-          if (current?.status !== 'confirmed') {
+          if (currentErr || current?.status !== 'confirmed') {
+            // トリアージ精度のため「booking 不存在」と「切り分け SELECT 自体の失敗」を区別して通知する。
+            const currentStatusLabel = currentErr
+              ? `select_failed: ${currentErr.message}`
+              : (current?.status ?? 'not_found');
             alertCaughtError(
               'stripe-webhook-deposit-confirm-0rows',
-              new Error(`bookings deposit confirm matched 0 rows and booking is not confirmed (booking_id=${meta.booking_id}, current_status=${current?.status ?? 'not_found'})`),
+              new Error(`bookings deposit confirm matched 0 rows and booking is not confirmed (booking_id=${meta.booking_id}, current_status=${currentStatusLabel})`),
               '/api/stripe/webhook',
             );
             throw new Error(`bookings deposit confirm failed: 0 rows updated and booking not confirmed (booking_id=${meta.booking_id})`);
@@ -146,22 +160,15 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
           .select('id');
         if (cancelErr) throw new Error(`bookings cancel_fee update failed: ${cancelErr.message}`);
         if (!cancelRows || cancelRows.length === 0) {
-          // cancel_fee への遷移元ステータス集合は booking-status.ts の
-          // ALLOWED_STATUS_TRANSITIONS に明確な定義が無い（webhook 専用の到達状態）ため CAS は付与せず、
-          // .eq('id', ...) のみで 0 行＝該当 booking が存在しない異常のはず。
-          // (deposit と同型の) SELECT 二段構えで、冪等リトライ（既に cancel_fee_paid）なら正常継続。
-          const { data: current } = await admin.from('bookings')
-            .select('status')
-            .eq('id', meta.booking_id)
-            .maybeSingle();
-          if (current?.status !== 'cancel_fee_paid') {
-            alertCaughtError(
-              'stripe-webhook-cancel-fee-0rows',
-              new Error(`bookings cancel_fee update matched 0 rows (booking_id=${meta.booking_id}, current_status=${current?.status ?? 'not_found'})`),
-              '/api/stripe/webhook',
-            );
-            throw new Error(`bookings cancel_fee update failed: 0 rows updated (booking_id=${meta.booking_id})`);
-          }
+          // cancel_fee の update は .eq('id', ...)（PK）のみで CAS が無いため、冪等リトライでも
+          // 行が存在する限り必ず 1 行 match する。0 行になり得るのは【booking 不存在】のみ
+          //（cancel_fee_paid への遷移元集合は booking-status.ts に定義が無く CAS は付与しない）。
+          alertCaughtError(
+            'stripe-webhook-cancel-fee-0rows',
+            new Error(`bookings cancel_fee update matched 0 rows — booking not found (booking_id=${meta.booking_id})`),
+            '/api/stripe/webhook',
+          );
+          throw new Error(`bookings cancel_fee update failed: 0 rows updated (booking_id=${meta.booking_id})`);
         }
       }
 
