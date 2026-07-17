@@ -221,11 +221,14 @@ export async function POST(request: Request) {
         })
       );
 
+      // role は push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
+      // （2026年7月17日 恒久根治：admin ロールは Push は受け取るがメール通知は owner 限定のため
+      // 受け取れない非対称があった）。
       const { data: ownerRows } = await supabase
         .from('facility_members')
         .select('user_id')
         .eq('facility_id', parsed.data.facility_id)
-        .eq('role', 'owner');
+        .in('role', ['owner', 'admin']);
       const ownerUserIds = Array.from(new Set((ownerRows ?? []).map((o) => o.user_id).filter(Boolean)));
       if (ownerUserIds.length > 0) {
         const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);

@@ -217,13 +217,15 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     // 新規予約通知(/api/booking)・口コミ通知(/api/review)・問い合わせ通知(/api/inquiry)が
     // 施設の全オーナーへループ送信するのと非対称だった（複数オーナー施設でキャンセルだけ一部の
     // オーナーに届かない）。上記3経路と同じパターン（全オーナー取得→メール重複排除→ループ送信）に
-    // 統一する。
+    // 統一する。role も push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
+    // （facility_members の admin ロールは Push は受け取るがメール通知は owner 限定のため受け取れない
+    // 非対称があった）。
     const ownerLookupClient = createServiceRoleClient();
     const { data: ownerRows } = await ownerLookupClient
       .from('facility_members')
       .select('user_id')
       .eq('facility_id', booking.facility_id)
-      .eq('role', 'owner');
+      .in('role', ['owner', 'admin']);
     const ownerUserIds = Array.from(new Set(
       ((ownerRows ?? []) as { user_id: string }[]).map((o) => o.user_id).filter(Boolean)
     ));

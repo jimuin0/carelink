@@ -1070,6 +1070,93 @@ describe('POST /api/booking/[id]/cancel', () => {
     expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
   });
 
+  // 【2026年7月17日 恒久根治】施設向けキャンセルメール送信 Promise の .catch((e)=>{...}) 経路に
+  // テストが無かった（false 返却の .then 分岐は既存でテスト済みだが、reject による .catch 分岐は
+  // 未検証だった）。送信が例外を投げても本体レスポンスは200のまま完了する（未処理rejectionで
+  // 500化しない）ことを検証する。alertCaughtError/safeCaptureException はこのファイルでは
+  // モックせず実装のまま呼ぶ（SLACK_BOT_TOKEN 未設定のテスト環境ではサイレントスキップの契約・
+  // 既存の「送達失敗(false)」テストも同様に実装のまま検証済み）。
+  test('施設向けキャンセルメール送信が例外を投げる(reject) → catchされ本体は200のまま完了する', async () => {
+    const { sendBookingCancellationToFacility } = require('@/lib/email');
+    (sendBookingCancellationToFacility as jest.Mock).mockRejectedValueOnce(new Error('network down'));
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner@example.com' }] });
+      return adminReadChain();
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
+  });
+
+  // 【2026年7月17日 admin ロールへのメール通知統一】facility_members の admin ロールは
+  // push.ts(sendPushToFacilityOwners) では通知対象だが、キャンセル通知メールは .eq('role','owner')
+  // のため対象外という非対称があった。role フィルタが push.ts と同じ .in('role',['owner','admin'])
+  // で呼ばれること（.eq('role','owner') に戻す退行があれば失敗する）と、admin ロールのメンバーにも
+  // 実際にメールが届くこと（owner・admin混在で重複排除も維持されること）を検証する。
+  test('owner+adminが混在 → 両ロールへ施設向けキャンセルメールが送られ、role フィルタは owner/admin 両方を含む', async () => {
+    const { sendBookingCancellationToFacility } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
+      return fluent({ data: null });
+    });
+    const membersChain = ownerRowsChain({ data: [{ user_id: 'owner-1' }, { user_id: 'admin-1' }] });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return membersChain;
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner1@example.com' }, { email: 'admin1@example.com' }] });
+      return adminReadChain();
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(membersChain.in).toHaveBeenCalledWith('role', ['owner', 'admin']);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(2);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner1@example.com' }));
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'admin1@example.com' }));
+  });
+
 // ─── 深掘り: LINE Works キャンセル通知 ──────────────────────────────────────
 
   test('isLineWorksConfigured=true スタッフなし → 200（通知なし）', async () => {
