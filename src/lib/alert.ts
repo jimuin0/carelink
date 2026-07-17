@@ -147,14 +147,22 @@ export function alertCaughtError(tag: string, error: unknown, route?: string | n
  * @param route  cron 名（例: 'onboarding-followup'）。route フィールドは `/api/cron/${route}` になる。
  * @param failures  この run での送達失敗総数。
  * @param extra  補足情報（sent / skipped 等）。route + level + commit で thread 集約される。
+ * @param deadLettered  failures のうち再送上限（max_attempts）に到達し dead-letter
+ *   （status='failed'・二度と自動再送されない）に倒れた件数。省略時 0。
+ *   0 より大きい場合のみ文言を差し替える（他 cron の呼び出し元は 3 引数のまま＝挙動不変）。
  */
 export function alertDeliveryFailures(
   route: string,
   failures: number,
   extra: Record<string, unknown> = {},
+  deadLettered = 0,
 ): void {
   if (failures <= 0) return;
-  alertWarning(`[${route}] 送達失敗 ${failures}件（run集約・翌runで再送）`, {
+  const message =
+    deadLettered > 0
+      ? `[${route}] 送達失敗 ${failures}件（うち${deadLettered}件は再送上限到達=dead-letter・自動再送されない）`
+      : `[${route}] 送達失敗 ${failures}件（run集約・翌runで再送）`;
+  alertWarning(message, {
     route: `/api/cron/${route}`,
     commit_sha: (process.env.VERCEL_GIT_COMMIT_SHA ?? '').slice(0, 7) || null,
     env: process.env.VERCEL_ENV ?? process.env.NODE_ENV ?? null,
