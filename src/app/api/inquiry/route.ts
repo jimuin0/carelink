@@ -92,12 +92,15 @@ export const POST = withRoute(async (request) => {
   // 【2026年7月10日 恒久根治】保存のみで通知経路が存在せず、問い合わせが実質誰にも届かない
   // 構造的欠陥だった。施設の全オーナーへメール通知する（複数オーナー運用でも全員に届くよう、
   // /api/booking の owner 全員通知と同じパターンで一部のみに絞らない）。送信失敗はレスポンスを
-  // ブロックしない（保存自体は成功しているため）が、無音にせず可視化する。
+  // ブロックしない（保存自体は成功しているため）が、無音にせず可視化する。role も
+  // push.ts(sendPushToFacilityOwners) と揃え owner に加え admin も対象にする
+  // （2026年7月17日 恒久根治：admin ロールは Push は受け取るがメール通知は owner 限定のため
+  // 受け取れない非対称があった）。
   const { data: ownerRows } = await supabase
     .from('facility_members')
     .select('user_id')
     .eq('facility_id', facility.id)
-    .eq('role', 'owner');
+    .in('role', ['owner', 'admin']);
   const ownerUserIds = Array.from(new Set(((ownerRows ?? []) as { user_id: string }[]).map((o) => o.user_id).filter(Boolean)));
   if (ownerUserIds.length > 0) {
     const { data: ownerProfiles } = await supabase.from('profiles').select('email').in('id', ownerUserIds);

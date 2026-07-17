@@ -61,8 +61,10 @@ function setupDefaultMocks(hasUser: boolean = true, hasRecentReview: boolean = f
   const mockSelectInsert = jest.fn().mockReturnValue({ single: mockSingle });
   mockInsert = jest.fn().mockReturnValue({ select: mockSelectInsert });
 
+  // role フィルタは .eq('role','owner')→.in('role',['owner','admin']) に変わった（2026年7月17日
+  // admin ロールへのメール通知統一）ため、.eq/.in どちらで終端されても同じ結果に解決する。
   const mockMembersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
-  const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2 });
+  const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2, in: mockMembersEq2 });
   const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
 
   const mockProfilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
@@ -398,9 +400,12 @@ describe('POST /api/review', () => {
       const mockPointsSelect = jest.fn().mockReturnValue({ eq: mockPointsEq1 });
       const mockPointsInsert = jest.fn().mockResolvedValue({ error: null });
 
-      // facility_members.select('user_id').eq('facility_id',...).eq('role','owner')
-      const mockMembersEq2 = jest.fn().mockResolvedValue({ data: ownerUserIds.map((id) => ({ user_id: id })) });
-      const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2 });
+      // facility_members.select('user_id').eq('facility_id',...).in('role',['owner','admin'])
+      // role フィルタは .eq('role','owner')→.in('role',['owner','admin']) に変わった（2026年7月17日
+      // admin ロールへのメール通知統一）ため、.eq/.in どちらで終端されても同じ結果に解決する共有
+      // モックにし、呼び出し引数を検証できるよう外に返す。
+      const mockMembersRoleFilter = jest.fn().mockResolvedValue({ data: ownerUserIds.map((id) => ({ user_id: id })) });
+      const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersRoleFilter, in: mockMembersRoleFilter });
       const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
 
       // profiles.select('email').in('id', [...])
@@ -439,6 +444,8 @@ describe('POST /api/review', () => {
 
       const { cookies } = require('next/headers');
       cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
+
+      return { mockMembersRoleFilter };
     }
 
     test('authenticated user → 200 with review id', async () => {
@@ -499,6 +506,42 @@ describe('POST /api/review', () => {
       expect(res.status).toBe(200);
       await new Promise((r) => setTimeout(r, 10));
       expect(sendNewReviewNotification).not.toHaveBeenCalled();
+    });
+
+    // 【2026年7月17日 admin ロールへのメール通知統一】facility_members の admin ロールは
+    // push.ts(sendPushToFacilityOwners) では通知対象だが、口コミ通知メールは .eq('role','owner')
+    // のため対象外という非対称があった。role フィルタが push.ts と同じ .in('role',['owner','admin'])
+    // で呼ばれること（.eq('role','owner') に戻す退行があれば失敗する）と、admin ロールのメンバーにも
+    // 実際にメールが届くこと（owner・admin混在で重複排除も維持されること）を検証する。
+    test('owner+adminが混在 → 両ロールへメール通知が送られ、role フィルタは owner/admin 両方を含む', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      const { mockMembersRoleFilter } = setupBizMocks({
+        hasUser: true, hasRecentReview: false, hasCompletedBooking: false,
+        ownerUserIds: ['owner-1', 'admin-1'],
+        ownerEmails: ['owner1@example.invalid', 'admin1@example.invalid'],
+      });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockMembersRoleFilter).toHaveBeenCalledWith('role', ['owner', 'admin']);
+      expect(sendNewReviewNotification).toHaveBeenCalledTimes(2);
+      const sentEmails = (sendNewReviewNotification as jest.Mock).mock.calls.map((c) => c[0].facilityEmail).sort();
+      expect(sentEmails).toEqual(['admin1@example.invalid', 'owner1@example.invalid']);
+    });
+
+    test('owner+adminが同じメールアドレス → 重複排除で1通のみ', async () => {
+      const { sendNewReviewNotification } = require('@/lib/email');
+      const { mockMembersRoleFilter } = setupBizMocks({
+        hasUser: true, hasRecentReview: false, hasCompletedBooking: false,
+        ownerUserIds: ['owner-1', 'admin-1'],
+        ownerEmails: ['shared@example.invalid', 'shared@example.invalid'],
+      });
+      const res = await POST(makeRequest(bizReview));
+      expect(res.status).toBe(200);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(mockMembersRoleFilter).toHaveBeenCalledWith('role', ['owner', 'admin']);
+      expect(sendNewReviewNotification).toHaveBeenCalledTimes(1);
+      expect((sendNewReviewNotification as jest.Mock).mock.calls[0][0].facilityEmail).toBe('shared@example.invalid');
     });
 
     test('メール送信が失敗(false)を返しても投稿成功を返す（防御）', async () => {
@@ -568,8 +611,8 @@ describe('POST /api/review', () => {
       const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
       const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
       const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
-      const nullMembersEq2 = jest.fn().mockResolvedValue({ data: null });
-      const nullMembersEq1 = jest.fn().mockReturnValue({ eq: nullMembersEq2 });
+      const nullMembersRoleFilter = jest.fn().mockResolvedValue({ data: null });
+      const nullMembersEq1 = jest.fn().mockReturnValue({ eq: nullMembersRoleFilter, in: nullMembersRoleFilter });
       const nullMembersSelect = jest.fn().mockReturnValue({ eq: nullMembersEq1 });
       const overrideFrom = jest.fn((table: string) => {
         if (table === 'facility_reviews') return { select: dupSelect, insert: insertFn };
@@ -594,8 +637,8 @@ describe('POST /api/review', () => {
       const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
       const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
       const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
-      const membersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
-      const membersEq1 = jest.fn().mockReturnValue({ eq: membersEq2 });
+      const membersRoleFilter = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+      const membersEq1 = jest.fn().mockReturnValue({ eq: membersRoleFilter, in: membersRoleFilter });
       const membersSelect = jest.fn().mockReturnValue({ eq: membersEq1 });
       const nullProfilesIn = jest.fn().mockResolvedValue({ data: null });
       const nullProfilesSelect = jest.fn().mockReturnValue({ in: nullProfilesIn });
@@ -624,8 +667,8 @@ describe('POST /api/review', () => {
       const insertSingle = jest.fn().mockResolvedValue({ data: { id: 'review-123' }, error: null });
       const insertSelect = jest.fn().mockReturnValue({ single: insertSingle });
       const insertFn = jest.fn().mockReturnValue({ select: insertSelect });
-      const membersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
-      const membersEq1 = jest.fn().mockReturnValue({ eq: membersEq2 });
+      const membersRoleFilter = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+      const membersEq1 = jest.fn().mockReturnValue({ eq: membersRoleFilter, in: membersRoleFilter });
       const membersSelect = jest.fn().mockReturnValue({ eq: membersEq1 });
       const profilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
       const profilesSelect = jest.fn().mockReturnValue({ in: profilesIn });
@@ -1158,8 +1201,8 @@ describe('POST /api/review', () => {
       const mockPointsSelect = jest.fn();
       const mockPointsInsert = jest.fn();
 
-      const mockMembersEq2 = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
-      const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersEq2 });
+      const mockMembersRoleFilter = jest.fn().mockResolvedValue({ data: [{ user_id: 'owner-1' }] });
+      const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersRoleFilter, in: mockMembersRoleFilter });
       const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
       const mockProfilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
       const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });

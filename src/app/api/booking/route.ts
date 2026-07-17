@@ -394,11 +394,13 @@ export async function POST(request: Request) {
       parsed.data.staff_id
         ? supabase.from('staff_profiles').select('name').eq('id', parsed.data.staff_id).eq('facility_id', parsed.data.facility_id).single()
         : Promise.resolve({ data: null }),
-      // 施設の全オーナーを取得（配列）。旧実装は .limit(1).single() で非決定的に1人だけ取得し、
-      // push.ts(sendPushToFacilityOwners) が owner 全員へ送るのと非対称で、複数オーナー運用時に
+      // 施設の全オーナー・管理者を取得（配列）。旧実装は .limit(1).single() で非決定的に1人だけ取得し、
+      // push.ts(sendPushToFacilityOwners) が owner/admin 全員へ送るのと非対称で、複数オーナー運用時に
       // 一部オーナーへ新規予約メールが届かなかった。配列 select なら複数行でも PGRST116 にならず、
-      // 全オーナーへ送れる（下でメール宛先を全オーナー化する）。
-      ownerLookupClient.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).eq('role', 'owner'),
+      // 全員へ送れる（下でメール宛先を全員化する）。role も push.ts と揃え owner に加え admin も対象にする
+      // （2026年7月17日 恒久根治：facility_members の admin ロールは Push は受け取るがメール通知は
+      // .eq('role','owner') のため受け取れない非対称があった）。
+      ownerLookupClient.from('facility_members').select('user_id').eq('facility_id', parsed.data.facility_id).in('role', ['owner', 'admin']),
     ]);
 
     const emailData = {

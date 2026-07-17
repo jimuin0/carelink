@@ -1948,6 +1948,79 @@ describe('POST /api/booking', () => {
     expect(alertCaughtError).toHaveBeenCalledWith('booking-email-owner', expect.any(Error), '/api/booking');
   });
 
+  // 【2026年7月17日 恒久根治】オーナー通知メール送信 Promise の .catch((e)=>{...}) 経路に
+  // テストが無かった（false 返却の .then 分岐は既存でテスト済みだが、reject による .catch 分岐は
+  // 未検証だった）。送信が例外を投げても本体レスポンスは200のまま、失敗は可視化されることを検証する。
+  test('オーナー通知メール送信が例外を投げる(reject) → catchされ本体は200のまま可視化される', async () => {
+    const { sendNewBookingNotification } = require('@/lib/email');
+    const { alertCaughtError } = require('@/lib/alert');
+    (sendNewBookingNotification as jest.Mock).mockRejectedValueOnce(new Error('network down'));
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    const ownersResult = { data: [{ user_id: 'owner-id-1' }] };
+    const ownerChain = fluent(null);
+    ownerChain.then = Promise.resolve(ownersResult).then.bind(Promise.resolve(ownersResult));
+    const ownerProfilesResult = { data: [{ email: 'owner1@example.com' }] };
+    const ownerProfilesChain = fluent(null);
+    ownerProfilesChain.then = Promise.resolve(ownerProfilesResult).then.bind(Promise.resolve(ownerProfilesResult));
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'facility_members') return ownerChain;
+      if (table === 'profiles') return ownerProfilesChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: 'booking-email-reject-test', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(alertCaughtError).toHaveBeenCalledWith('booking-email-owner', expect.any(Error), '/api/booking');
+  });
+
+  // 【2026年7月17日 admin ロールへのメール通知統一】facility_members の admin ロールは
+  // push.ts(sendPushToFacilityOwners) では通知対象だが、新規予約通知メールは .eq('role','owner')
+  // のため対象外という非対称があった。role フィルタが push.ts と同じ .in('role',['owner','admin'])
+  // で呼ばれること（.eq('role','owner') に戻す退行があれば失敗する）と、admin ロールのメンバーにも
+  // 実際にメールが届くこと（owner・admin混在で重複排除も維持されること）を検証する。
+  test('owner+adminが混在 → 両ロールへ通知メールが送られ、role フィルタは owner/admin 両方を含む', async () => {
+    const { sendNewBookingNotification } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+    const nullChain = fluent({ data: null });
+    const ownersResult = { data: [{ user_id: 'owner-id-1' }, { user_id: 'admin-id-1' }] };
+    const ownerChain = fluent(null);
+    ownerChain.then = Promise.resolve(ownersResult).then.bind(Promise.resolve(ownersResult));
+    const ownerProfilesResult = { data: [{ email: 'owner1@example.com' }, { email: 'admin1@example.com' }] };
+    const ownerProfilesChain = fluent(null);
+    ownerProfilesChain.then = Promise.resolve(ownerProfilesResult).then.bind(Promise.resolve(ownerProfilesResult));
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'bookings') return conflictChain;
+      if (table === 'facility_menus') return menuLookupChain();
+      if (table === 'facility_members') return ownerChain;
+      if (table === 'profiles') return ownerProfilesChain;
+      return nullChain;
+    });
+    mockRpc.mockResolvedValue({ data: 'booking-owner-admin-test', error: null });
+
+    const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(ownerChain.in).toHaveBeenCalledWith('role', ['owner', 'admin']);
+    expect(sendNewBookingNotification).toHaveBeenCalledTimes(2);
+    const sentEmails = (sendNewBookingNotification as jest.Mock).mock.calls.map((c: [{ facilityEmail: string }]) => c[0].facilityEmail).sort();
+    expect(sentEmails).toEqual(['admin1@example.com', 'owner1@example.com']);
+  });
+
   test('オーナーは居るが profiles 取得が null → メール送信ゼロ（?? [] フォールバック）', async () => {
     const { sendNewBookingNotification } = require('@/lib/email');
     mockGetUser.mockResolvedValue({ data: { user: null } });
