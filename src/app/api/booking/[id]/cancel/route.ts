@@ -213,26 +213,38 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
     // LIFF 経路は db が既に service role のため実害は無かったが、両経路で挙動を統一するため、
     // この2クエリだけは常に service role（RLSバイパス）で引く。facility_profiles / facility_menus は
     // 「公開施設は誰でも読める」ポリシーがあるため anon(db)のままで問題ない（越境しない）。
+    // 【2026年7月17日 恒久根治・#510敵対検証】旧実装は .limit(1).single() で非決定的に1人だけ取得し、
+    // 新規予約通知(/api/booking)・口コミ通知(/api/review)・問い合わせ通知(/api/inquiry)が
+    // 施設の全オーナーへループ送信するのと非対称だった（複数オーナー施設でキャンセルだけ一部の
+    // オーナーに届かない）。上記3経路と同じパターン（全オーナー取得→メール重複排除→ループ送信）に
+    // 統一する。
     const ownerLookupClient = createServiceRoleClient();
-    const { data: owner } = await ownerLookupClient
+    const { data: ownerRows } = await ownerLookupClient
       .from('facility_members')
       .select('user_id')
       .eq('facility_id', booking.facility_id)
-      .eq('role', 'owner')
-      .limit(1)
-      .single();
-    if (owner) {
-      const { data: ownerProfile } = await ownerLookupClient.from('profiles').select('email').eq('id', owner.user_id).single();
-      if (ownerProfile?.email) {
+      .eq('role', 'owner');
+    const ownerUserIds = Array.from(new Set(
+      ((ownerRows ?? []) as { user_id: string }[]).map((o) => o.user_id).filter(Boolean)
+    ));
+    if (ownerUserIds.length > 0) {
+      const { data: ownerProfiles } = await ownerLookupClient.from('profiles').select('email').in('id', ownerUserIds);
+      const ownerEmails = Array.from(new Set(
+        ((ownerProfiles ?? []) as { email: string | null }[]).map((p) => p.email).filter(Boolean) as string[]
+      ));
+      for (const facilityEmail of ownerEmails) {
         // 店向けは顧客向けテンプレートの流用ではなく、施設向け文面（顧客名・メールを明記し
         // 管理画面へ誘導）で送る。customerEmail は顧客のまま保持し facilityEmail に宛先を渡す。
         cancelSideEffects.push(
-          sendBookingCancellationToFacility({ ...emailData, facilityEmail: ownerProfile.email }).then((ok) => {
+          sendBookingCancellationToFacility({ ...emailData, facilityEmail }).then((ok) => {
             if (!ok) {
               const err = new Error('booking cancellation facility email send failed');
               safeCaptureException(err, 'cancel-email-owner');
               alertCaughtError('cancel-email-owner', err, '/api/booking/[id]/cancel');
             }
+          }).catch((e) => {
+            safeCaptureException(e, 'cancel-email-owner');
+            alertCaughtError('cancel-email-owner', e, '/api/booking/[id]/cancel');
           })
         );
       }

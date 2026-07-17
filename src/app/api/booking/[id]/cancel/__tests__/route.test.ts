@@ -140,6 +140,22 @@ function adminReadChain() {
   return chain;
 }
 
+// 【2026年7月17日 恒久根治】オーナー通知（facility_members/profiles）が旧
+// .limit(1).single() から /api/booking と同型の「配列 select→全オーナー」に変わったため、
+// select/eq/in で終端(.single()/.limit() 無し)する。real Supabase の PostgrestFilterBuilder は
+// チェーン可能かつ thenable（await で確定）なため、モックも自身を返しつつ then で解決する
+// builder にする。
+function ownerRowsChain(result: unknown) {
+  const builder: Record<string, jest.Mock> & { then?: unknown } = {};
+  const self = jest.fn(() => builder);
+  builder.select = self;
+  builder.eq = self;
+  builder.in = self;
+  (builder as unknown as { then: (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) => Promise<unknown> }).then =
+    (resolve, reject) => Promise.resolve(result).then(resolve, reject);
+  return builder;
+}
+
 // 正常系のキャンセル通知チェーン（happy path と同一の mockFrom 構成）を共有する。
 function setupCancelHappyMocks() {
   mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
@@ -845,8 +861,8 @@ describe('POST /api/booking/[id]/cancel', () => {
       return fluent({ data: null });
     });
     mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
-      if (table === 'profiles') return fluent({ data: { email: 'owner@example.com' } });
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner@example.com' }] });
       return adminReadChain();
     });
 
@@ -862,6 +878,157 @@ describe('POST /api/booking/[id]/cancel', () => {
     // を経由しなくなり、以下のアサーションが失敗する。
     expect(mockOwnerLookupFrom).toHaveBeenCalledWith('facility_members');
     expect(mockOwnerLookupFrom).toHaveBeenCalledWith('profiles');
+  });
+
+  // 【2026年7月17日 恒久根治・#510敵対検証】キャンセルのオーナー通知が .limit(1).single() で
+  // 非決定的に1人だけ取得し、新規予約通知(/api/booking)・口コミ通知(/api/review)・
+  // 問い合わせ通知(/api/inquiry)が施設の全オーナーへループ送信するのと非対称だった。
+  // 複数オーナー施設で一部のオーナーにキャンセル通知が届かない実害を回帰防止する。
+  test('オーナー2人（メールが別々）→ 施設向けキャンセルメールを2通送る（新規予約通知と対称）', async () => {
+    const { sendBookingCancellationToFacility } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }, { user_id: 'owner-2' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner1@example.com' }, { email: 'owner2@example.com' }] });
+      return adminReadChain();
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(2);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner1@example.com' }));
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'owner2@example.com' }));
+  });
+
+  test('オーナー2人が同じメールアドレス → 重複排除で施設向けキャンセルメールは1通のみ', async () => {
+    const { sendBookingCancellationToFacility } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      if (table === 'facility_profiles') return fluent({ data: { name: 'Salon X' } });
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }, { user_id: 'owner-2' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'shared@example.com' }, { email: 'shared@example.com' }] });
+      return adminReadChain();
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    expect(res.status).toBe(200);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledTimes(1);
+    expect(sendBookingCancellationToFacility).toHaveBeenCalledWith(expect.objectContaining({ facilityEmail: 'shared@example.com' }));
+  });
+
+  test('オーナー0人（facility_members 0行）→ 施設向けキャンセルメール送信はスキップされ本体は成功', async () => {
+    const { sendBookingCancellationToFacility } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return ownerRowsChain({ data: [] });
+      return adminReadChain();
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(sendBookingCancellationToFacility).not.toHaveBeenCalled();
+  });
+
+  // Branch coverage: ownerUserIds は1件以上あるが、profiles 取得(.in())が data:null を返すケース
+  // （`(ownerProfiles ?? [])` の null 分岐）。facility_members は取れたが profiles が取れない
+  // 異常系でも施設向けメール送信をスキップし本体は成功させる。
+  test('オーナーは1人いるが profiles 取得が data:null → 施設向けキャンセルメールはスキップされ本体は成功', async () => {
+    const { sendBookingCancellationToFacility } = require('@/lib/email');
+    mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
+
+    let callNum = 0;
+    mockFrom.mockImplementation((table: string) => {
+      callNum++;
+      if (callNum === 1) {
+        return fluent({
+          data: {
+            id: validId, user_id: 'user-1', status: 'pending',
+            facility_id: 'f-1', customer_name: 'テスト', email: 'c@example.com',
+            booking_date: '2026-04-01', start_time: '10:00', end_time: '11:00',
+            total_price: 5000, menu_id: null, staff_id: null,
+          },
+        });
+      }
+      if (callNum === 2) {
+        const eqTerminal = jest.fn(() => ({ eq: jest.fn(() => ({ select: jest.fn(() => Promise.resolve({ data: [{ id: 'bk' }], error: null })) })) }));
+        return { update: jest.fn(() => ({ eq: jest.fn(() => ({ eq: eqTerminal })) })) };
+      }
+      return fluent({ data: null });
+    });
+    mockOwnerLookupFrom.mockImplementation((table: string) => {
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: null });
+      return adminReadChain();
+    });
+
+    const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
+    const json = await res.json();
+    expect(res.status).toBe(200);
+    expect(json.success).toBe(true);
+    expect(sendBookingCancellationToFacility).not.toHaveBeenCalled();
   });
 
   test('sendBookingCancelled/sendBookingCancellationToFacility が送達失敗(false)を返す → 無音化せず可視化するのみ（200のまま）', async () => {
@@ -891,8 +1058,8 @@ describe('POST /api/booking/[id]/cancel', () => {
       return fluent({ data: null });
     });
     mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
-      if (table === 'profiles') return fluent({ data: { email: 'owner@example.com' } });
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: 'owner@example.com' }] });
       return adminReadChain();
     });
 
@@ -1341,8 +1508,8 @@ describe('POST /api/booking/[id]/cancel', () => {
       return fluent({ data: null });
     });
     mockOwnerLookupFrom.mockImplementation((table: string) => {
-      if (table === 'facility_members') return fluent({ data: { user_id: 'owner-1' } });
-      if (table === 'profiles') return fluent({ data: { email: null } });
+      if (table === 'facility_members') return ownerRowsChain({ data: [{ user_id: 'owner-1' }] });
+      if (table === 'profiles') return ownerRowsChain({ data: [{ email: null }] });
       return adminReadChain();
     });
     const res = await POST(makeRequest(), { params: Promise.resolve({ id: validId }) });
