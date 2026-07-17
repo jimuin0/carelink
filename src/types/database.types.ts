@@ -939,6 +939,24 @@ export type Database = {
           },
         ]
       }
+      cron_alert_claims: {
+        Row: {
+          claim_key: string
+          claimed_at: string
+          job_name: string
+        }
+        Insert: {
+          claim_key: string
+          claimed_at?: string
+          job_name: string
+        }
+        Update: {
+          claim_key?: string
+          claimed_at?: string
+          job_name?: string
+        }
+        Relationships: []
+      }
       cron_logs: {
         Row: {
           duration_ms: number | null

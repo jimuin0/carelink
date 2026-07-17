@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createHash } from 'node:crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
@@ -11,6 +12,9 @@ import {
 } from '@/lib/schema-drift';
 import snapshot from '@/lib/schema-snapshot.json';
 import constraintsSnapshot from '@/lib/schema-constraints-snapshot.json';
+
+/** 古い claim 行の掃除しきい値（この期間より古い claim は削除対象）。 */
+const CLAIM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 // 本番スキーマ(RPC get_public_columns)と期待スキーマ(schema-snapshot.json)を突合し、
 // out-of-band な混入/欠落/列差分を発症前に Slack 通知する。読み取りのみ・副作用なし。
@@ -65,19 +69,91 @@ export async function GET(request: Request) {
     colDrift.length +
     constraintExtra.length +
     constraintMissing.length;
+
+  // 【claim-first 設計・2026-07-17】
+  // cron は三重化（GitHub Actions + pg_cron + Render）で同一スケジュール(JST 02:40)に
+  // ほぼ同時発火するため、同一ドリフトに対して複数 run が同時に alertWarning を叩き、
+  // Slack へ重複警報が飛んでいた。alertWarning はスレッド集約のみで送信自体は毎回行う
+  // ため集約では防げない。事前 SELECT で確認してから送る方式は TOCTOU（確認後に別 run が
+  // 割り込む余地がある）を再導入するため使わない。birthday-coupon / review-request と
+  // 同型の claim-first：送信直前に (job_name, claim_key) を INSERT して「送信権」を claim し、
+  // PRIMARY KEY 違反(23505)なら他 run が先取り済みとして送信をスキップする。
+  // claim_key は「当日(UTC)＋drift内容の指紋」で構成するため、同日同内容の drift は1通だけ
+  // 通知され、内容が変化すれば別キーとして再通知される。
+  let alertDeduped = false;
   if (driftCount > 0) {
-    alertWarning(
-      `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length}`,
-      {
-        route: '/api/cron/schema-drift-check',
-        extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing },
-      },
-    );
+    // drift 内容の安定した指紋。computeDrift/computeConstraintDrift は結果を常にソート済みで
+    // 返す純粋関数のため、同一ドリフトなら常に同じ JSON 文字列＝同じハッシュになる。
+    const driftFingerprint = createHash('sha256')
+      .update(JSON.stringify({ contaminated, missing, colDrift, constraintExtra, constraintMissing }))
+      .digest('hex')
+      .slice(0, 16);
+    const claimDate = startedAt.toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
+    const claimKey = `${claimDate}:${driftFingerprint}`;
+
+    const { error: claimError } = await admin.from('cron_alert_claims').insert({
+      job_name: 'schema-drift-check',
+      claim_key: claimKey,
+    });
+
+    let shouldAlert = true;
+    if (claimError) {
+      if ((claimError as { code?: string }).code === '23505') {
+        // 他スケジューラが同日・同内容のドリフトを先に claim・通知済み。重複送信を避けてスキップ。
+        shouldAlert = false;
+        alertDeduped = true;
+        console.log('[schema-drift-check] alert claim already taken (deduped)', { claimKey });
+      } else {
+        // claim 不能（migration 未適用の 42P01 含む）。fail-open：無音より重複の方が安全なため
+        // 送信する。DDL 未適用期間はこの分岐に必ず落ち、claim 導入前と完全に同一の挙動になる
+        // （デプロイ順序非依存）。
+        console.warn('[schema-drift-check] alert claim insert failed (fail-open: sending anyway)', {
+          claimKey,
+          code: (claimError as { code?: string }).code,
+          message: claimError.message,
+        });
+      }
+    }
+
+    if (shouldAlert) {
+      alertWarning(
+        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length}`,
+        {
+          route: '/api/cron/schema-drift-check',
+          extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing },
+        },
+      );
+    }
+
+    // 古い claim 行の掃除（保持期間超過分を削除）。best-effort・失敗しても本体は継続する
+    // （テーブル肥大化の防止のみが目的で、失敗しても通知ロジックの正しさに影響しない）。
+    // job_name を自ジョブに限定する：テーブルは (job_name, claim_key) 設計で将来他 cron と
+    // 共有し得るため、無条件 delete だと他ジョブの claim 行を越境削除してしまう。
+    const staleBefore = new Date(startedAt.getTime() - CLAIM_RETENTION_MS).toISOString();
+    const { error: cleanupError } = await admin
+      .from('cron_alert_claims')
+      .delete()
+      .eq('job_name', 'schema-drift-check')
+      .lt('claimed_at', staleBefore);
+    if (cleanupError) {
+      console.warn('[schema-drift-check] stale alert claim cleanup failed (best-effort, ignored)', {
+        code: (cleanupError as { code?: string }).code,
+        message: cleanupError.message,
+      });
+    }
   }
 
   await logCronRun('schema-drift-check', 'success', startedAt, {
     processed: driftCount,
-    meta: { contaminated, missing, colDrift, constraintExtra, constraintMissing, constraintCheckSkipped },
+    meta: {
+      contaminated,
+      missing,
+      colDrift,
+      constraintExtra,
+      constraintMissing,
+      constraintCheckSkipped,
+      alertDeduped,
+    },
   });
   return NextResponse.json({
     ok: true,
