@@ -643,8 +643,9 @@ describe('GET /api/cron/customer-segment', () => {
       consoleSpy.mockRestore();
     });
 
-    test('coupon insert error → logs error and skips email', async () => {
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    test('coupon insert error（非23505・通常のDBエラー）→ console.error でログし email をスキップ', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
       mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: { message: 'insert failed' } });
       mockFromDelegate.mockImplementation((table: string) => {
         if (table === 'facility_profiles') {
@@ -664,13 +665,64 @@ describe('GET /api/cron/customer-segment', () => {
       const res = await GET(makeRequest() as any);
 
       expect(res.status).toBe(200);
-      expect(consoleSpy).toHaveBeenCalledWith(
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
         expect.stringContaining('[customer-segment] coupon insert failed, skipping email'),
         expect.anything()
       );
+      // 23505 専用の警告ログは呼ばれない（正常系ではなく本物のエラーとして扱う）
+      expect(consoleWarnSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('lost concurrent claim'),
+        expect.anything()
+      );
       expect(mockSend).not.toHaveBeenCalled();
-      consoleSpy.mockRestore();
+      consoleErrorSpy.mockRestore();
+      consoleWarnSpy.mockRestore();
     });
+
+    // -------------------------------------------------------------------
+    // uq_user_coupon_codes_at_risk_daily（migration 20260717000001）による
+    // 並行 cron invocation の claim 負け＝23505 は正常なレース決着として扱う。
+    // -------------------------------------------------------------------
+    test('coupon insert error（23505・並行invocationが同日先着発行済み）→ console.warn でログしメール送信をスキップ・処理継続', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      mockCouponInsert = jest.fn().mockResolvedValue({ data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "uq_user_coupon_codes_at_risk_daily"' } });
+      mockFromDelegate.mockImplementation((table: string) => {
+        if (table === 'facility_profiles') {
+          return { select: (...args: any[]) => mockFacilitiesSelect(...args) };
+        } else if (table === 'bookings') {
+          return mockBookingsSelect();
+        } else if (table === 'customer_segments') {
+          return { upsert: (...args: any[]) => mockUpsert(...args) };
+        } else if (table === 'user_coupon_codes') {
+          return {
+            select: () => mockCouponSelect(),
+            insert: (...args: any[]) => mockCouponInsert(...args),
+          };
+        }
+      });
+
+      const res = await GET(makeRequest() as any);
+
+      expect(res.status).toBe(200);
+      // 23505 は正常なレース決着 → console.error ではなく console.warn
+      expect(consoleWarnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('lost concurrent claim (23505)'),
+        expect.anything()
+      );
+      expect(consoleErrorSpy).not.toHaveBeenCalledWith(
+        expect.stringContaining('[customer-segment] coupon insert failed, skipping email'),
+        expect.anything()
+      );
+      // メール送信はスキップ（先着 invocation が既に送信済みのはず・二重送信防止）
+      expect(mockSend).not.toHaveBeenCalled();
+      // 処理は継続し 200 を返す（例外化しない）
+      consoleErrorSpy.mockRestore();
+      consoleWarnSpy.mockRestore();
+    });
+
+    // insert 成功 → メール送信されるケースは本 describe 冒頭の
+    // 'at-risk customer (60-65 days) → coupon inserted and email sent' で既に検証済み（重複回避のため追加しない）。
 
     test('atRiskCandidates.length === 0 → no coupon insert, no email sent', async () => {
       // Override bookings to have a customer whose last visit is 30 days ago (not at_risk range 60-65)
