@@ -210,6 +210,11 @@
     "valid_from",
     "valid_until"
   ],
+  "cron_alert_claims": [
+    "claim_key",
+    "claimed_at",
+    "job_name"
+  ],
   "cron_logs": [
     "duration_ms",
     "error_msg",
