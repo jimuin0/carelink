@@ -96,38 +96,93 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
       const meta = session.metadata ?? {};
 
       // Update payment status — throw on failure so outer handler returns 500 → Stripe retries
-      const { error: sessionErr } = await admin.from('stripe_sessions')
+      const { data: sessionRows, error: sessionErr } = await admin.from('stripe_sessions')
         .update({
           status: 'paid',
           stripe_payment_intent_id: typeof session.payment_intent === 'string' ? session.payment_intent : null,
           updated_at: new Date().toISOString(),
         })
-        .eq('stripe_session_id', session.id);
+        .eq('stripe_session_id', session.id)
+        .select('id');
       if (sessionErr) throw new Error(`stripe_sessions update failed: ${sessionErr.message}`);
+      if (!sessionRows || sessionRows.length === 0) {
+        // stripe_sessions に行を作るのは booking 系フロー（payment/checkout・stripe/checkout）のみ。
+        // featured-ads（metadata=slot_id）と options/checkout（metadata=option_key）は行を作らないため、
+        // それら由来のイベントでは 0 行が【正常系】。無条件 throw にすると広告枠・オプション決済が
+        // 500→Stripe再送ループに陥り、featured_slots 有効化に永久に到達しない。
+        // booking_id がある場合のみ「作成済みのはずの行が無い」異常として throw
+        //（500→Stripe リトライ・外側 catch が alertCaughtError で通知する）。
+        if (meta.booking_id) {
+          throw new Error(`stripe_sessions update matched 0 rows (session_id=${session.id})`);
+        }
+        console.warn('[stripe/webhook] stripe_sessions update matched 0 rows (non-booking checkout; continuing)', {
+          sessionId: session.id,
+          metadataKeys: Object.keys(meta),
+        });
+      }
 
       // Update booking status to confirmed if deposit was paid
       if (meta.booking_id && meta.payment_type === 'deposit') {
-        const { error: bookingErr } = await admin.from('bookings')
+        const { data: confirmedRows, error: bookingErr } = await admin.from('bookings')
           .update({ status: 'confirmed', updated_at: new Date().toISOString() })
           .eq('id', meta.booking_id)
-          .eq('status', 'pending');
+          .eq('status', 'pending')
+          .select('id');
         if (bookingErr) throw new Error(`bookings deposit confirm failed: ${bookingErr.message}`);
+        if (!confirmedRows || confirmedRows.length === 0) {
+          // CAS（status='pending'）に一致する行が無い＝(1) 冪等リトライで既に confirmed 済 か
+          // (2) 真の異常（booking 不存在・想定外ステータス）。現状を SELECT して切り分ける。
+          const { data: current, error: currentErr } = await admin.from('bookings')
+            .select('status')
+            .eq('id', meta.booking_id)
+            .maybeSingle();
+          if (currentErr || current?.status !== 'confirmed') {
+            // トリアージ精度のため「booking 不存在」と「切り分け SELECT 自体の失敗」を区別して通知する。
+            const currentStatusLabel = currentErr
+              ? `select_failed: ${currentErr.message}`
+              : (current?.status ?? 'not_found');
+            alertCaughtError(
+              'stripe-webhook-deposit-confirm-0rows',
+              new Error(`bookings deposit confirm matched 0 rows and booking is not confirmed (booking_id=${meta.booking_id}, current_status=${currentStatusLabel})`),
+              '/api/stripe/webhook',
+            );
+            throw new Error(`bookings deposit confirm failed: 0 rows updated and booking not confirmed (booking_id=${meta.booking_id})`);
+          }
+          // 既に confirmed（冪等リトライで再到達）＝正常系として続行。
+        }
       }
 
       // Mark cancel fee as paid on the booking
       if (meta.booking_id && meta.payment_type === 'cancel_fee') {
-        const { error: cancelErr } = await admin.from('bookings')
+        const { data: cancelRows, error: cancelErr } = await admin.from('bookings')
           .update({ status: 'cancel_fee_paid', updated_at: new Date().toISOString() })
-          .eq('id', meta.booking_id);
+          .eq('id', meta.booking_id)
+          .select('id');
         if (cancelErr) throw new Error(`bookings cancel_fee update failed: ${cancelErr.message}`);
+        if (!cancelRows || cancelRows.length === 0) {
+          // cancel_fee の update は .eq('id', ...)（PK）のみで CAS が無いため、冪等リトライでも
+          // 行が存在する限り必ず 1 行 match する。0 行になり得るのは【booking 不存在】のみ
+          //（cancel_fee_paid への遷移元集合は booking-status.ts に定義が無く CAS は付与しない）。
+          alertCaughtError(
+            'stripe-webhook-cancel-fee-0rows',
+            new Error(`bookings cancel_fee update matched 0 rows — booking not found (booking_id=${meta.booking_id})`),
+            '/api/stripe/webhook',
+          );
+          throw new Error(`bookings cancel_fee update failed: 0 rows updated (booking_id=${meta.booking_id})`);
+        }
       }
 
       // Activate featured slot if ad payment completed
       if (meta.slot_id) {
-        const { error: slotErr } = await admin.from('featured_slots')
+        const { data: slotRows, error: slotErr } = await admin.from('featured_slots')
           .update({ is_active: true })
-          .eq('id', meta.slot_id);
-        if (slotErr) console.error('[stripe/webhook] featured_slot activate failed:', slotErr);
+          .eq('id', meta.slot_id)
+          .select('id');
+        if (slotErr) {
+          console.error('[stripe/webhook] featured_slot activate failed:', slotErr);
+        } else if (!slotRows || slotRows.length === 0) {
+          console.error('[stripe/webhook] featured_slot activate matched 0 rows', { slotId: meta.slot_id });
+        }
       }
       break;
     }

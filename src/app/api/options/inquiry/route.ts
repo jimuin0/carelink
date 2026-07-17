@@ -14,6 +14,7 @@ import { cookies } from 'next/headers';
 import { UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { postToSlack } from '@/lib/slack';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -91,6 +92,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error('[options/inquiry] Error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('options-inquiry', e, '/api/options/inquiry');
     return NextResponse.json({ error: '申込みの送信に失敗しました' }, { status: 500 });
   }
 }
