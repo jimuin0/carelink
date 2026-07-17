@@ -471,35 +471,92 @@ describe('webhook_retry_queue への自動登録（送信失敗時のみ・対�
     expect(mockEnqueueWebhook).not.toHaveBeenCalled();
   });
 
-  // 施設オーナー向け通知（今回のスコープ外＝顧客向け通知のみ）も enqueue されないことを確認
-  test('sendNewBookingNotification 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+  // 施設オーナー向け単発イベント通知（2026年7月17日拡張・失敗時の再送手段が他に無いため対象化）
+  test('sendNewBookingNotification 失敗（オーナー向け）→ enqueueWebhook(type=email) が呼ばれる', async () => {
     failResend();
-    await sendNewBookingNotification({ ...baseData, facilityEmail: 'owner@example.com' });
+    const ok = await sendNewBookingNotification({ ...baseData, facilityEmail: 'owner@example.com' });
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'email',
+      targetId: 'owner@example.com',
+      payload: expect.objectContaining({
+        to: 'owner@example.com',
+        subject: expect.any(String),
+        html: expect.any(String),
+      }),
+    });
+  });
+
+  test('sendNewBookingNotification 成功（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+    mockSend.mockResolvedValueOnce({ data: { id: 'em_ok' }, error: null });
+    const ok = await sendNewBookingNotification({ ...baseData, facilityEmail: 'owner@example.com' });
+    expect(ok).toBe(true);
     expect(mockEnqueueWebhook).not.toHaveBeenCalled();
   });
 
-  test('sendBookingCancellationToFacility 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+  test('sendBookingCancellationToFacility 失敗（オーナー向け）→ enqueueWebhook(type=email) が呼ばれる', async () => {
     failResend();
-    await sendBookingCancellationToFacility({ ...baseData, facilityEmail: 'owner@example.com' });
-    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+    const ok = await sendBookingCancellationToFacility({ ...baseData, facilityEmail: 'owner@example.com' });
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'email',
+      targetId: 'owner@example.com',
+      payload: expect.objectContaining({
+        to: 'owner@example.com',
+        subject: expect.any(String),
+        html: expect.any(String),
+      }),
+    });
   });
 
-  test('sendNewReviewNotification 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+  test('sendNewReviewNotification 失敗（オーナー向け）→ enqueueWebhook(type=email) が呼ばれる', async () => {
     failResend();
-    await sendNewReviewNotification({ facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'Y', rating: 5 });
-    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+    const ok = await sendNewReviewNotification({ facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'Y', rating: 5 });
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'email',
+      targetId: 'owner@example.com',
+      payload: expect.objectContaining({
+        to: 'owner@example.com',
+        subject: expect.any(String),
+        html: expect.any(String),
+      }),
+    });
   });
 
-  test('sendNewInquiryNotification 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+  test('sendNewInquiryNotification 失敗（オーナー向け）→ enqueueWebhook(type=email) が呼ばれる', async () => {
     failResend();
-    await sendNewInquiryNotification({ facilityEmail: 'owner@example.com', facilityName: 'X', inquirerName: 'Y', inquirerEmail: 'y@example.com', message: 'test' });
-    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+    const ok = await sendNewInquiryNotification({ facilityEmail: 'owner@example.com', facilityName: 'X', inquirerName: 'Y', inquirerEmail: 'y@example.com', message: 'test' });
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'email',
+      targetId: 'owner@example.com',
+      payload: expect.objectContaining({
+        to: 'owner@example.com',
+        subject: expect.any(String),
+        html: expect.any(String),
+      }),
+    });
   });
 
-  test('sendWelcomeEmail 失敗（オーナー向け）→ enqueueWebhook は呼ばれない', async () => {
+  test('sendWelcomeEmail 失敗（オーナー向け）→ enqueueWebhook(type=email) が呼ばれる', async () => {
     failResend();
-    await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'X' });
-    expect(mockEnqueueWebhook).not.toHaveBeenCalled();
+    const ok = await sendWelcomeEmail({ ownerEmail: 'owner@example.com', facilityName: 'X' });
+    expect(ok).toBe(false);
+    expect(mockEnqueueWebhook).toHaveBeenCalledTimes(1);
+    expect(mockEnqueueWebhook).toHaveBeenCalledWith({
+      type: 'email',
+      targetId: 'owner@example.com',
+      payload: expect.objectContaining({
+        to: 'owner@example.com',
+        subject: expect.any(String),
+        html: expect.any(String),
+      }),
+    });
   });
 
   test('RESEND_API_KEY未設定でresendがnull（送信自体を試みない）場合は enqueueWebhook を呼ばない', async () => {

@@ -268,10 +268,17 @@ export async function GET(request: Request) {
                 couponCode = pendingCoupons.get(email)!;
               } else {
                 // TOCTOU 二重発行対策: 既存クーポンのバッチ取得は loop の前（205 行目付近）で一度だけ行うため、
-                // その取得時点と個々の insert の間に別 invocation（手動 workflow_dispatch と cron の重なり等）が
-                // 同一 (facility_id, email, reason='at_risk') のクーポンを作ると二重発行＆二重メールになる。
-                // insert 直前に 30 日窓の最新状態を再確認し、既に発行済みならこの email をスキップして
-                // 実到達可能な race を塞ぐ（発症前予防・schema 非変更・deploy 順序非依存）。
+                // その取得時点と個々の insert の間に別 invocation（cron 三重化=GitHub Actions/pg_cron/Render
+                // の近接同時発火等）が同一 (facility_id, email, reason='at_risk') のクーポンを作ると二重発行
+                // ＆二重メールになる恐れがある。insert 直前に 30 日窓の最新状態を再確認し、既に発行済みなら
+                // この email をスキップして実到達可能な race の大半を塞ぐ（アプリ側の前置フィルタ・30日
+                // ルールの担い手）。
+                // recheck は select→insert が非原子な以上、recheck 自体と insert の間にも狭いレース窓が残る。
+                // その窓を物理封鎖するのは DB 側の部分UNIQUEインデックス uq_user_coupon_codes_at_risk_daily
+                // （migration 20260717000001_user_coupon_codes_at_risk_daily_unique.sql・同一UTC日内の
+                // (facility_id, email) 重複を 23505 で拒否）。DDL 未適用の期間は本 recheck のみが dedup を
+                // 担う＝現行と完全同一の挙動（fail-open・デプロイ順序非依存、下の couponErr.code==='23505'
+                // 分岐が「先着 invocation に負けた」ケースを正常系として処理する）。
                 const recheck = await supabase
                   .from('user_coupon_codes')
                   .select('code')
@@ -301,7 +308,15 @@ export async function GET(request: Request) {
                   valid_until: validUntil,
                 });
                 if (couponErr) {
-                  console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
+                  if ((couponErr as { code?: string }).code === '23505') {
+                    // 並行 invocation が同一UTC日内に先着で at_risk クーポンを発行済み（claim負け）。
+                    // uq_user_coupon_codes_at_risk_daily（DDL適用時のみ有効）による正常なレース決着で
+                    // あり障害ではないため、console.error ではなく console.warn で記録してメール送信を
+                    // スキップする（先着 invocation が既にメール送信済みのはず・二重送信を避ける）。
+                    console.warn('[customer-segment] coupon insert lost concurrent claim (23505), skipping email — another invocation already issued today\'s at_risk coupon', { email: String(email).replace(/(.).*@/, '$1***@') });
+                  } else {
+                    console.error('[customer-segment] coupon insert failed, skipping email', { email: String(email).replace(/(.).*@/, '$1***@'), error: couponErr });
+                  }
                   continue;
                 }
               }
