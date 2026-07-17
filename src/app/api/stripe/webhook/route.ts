@@ -110,12 +110,15 @@ async function handleEvent(event: Stripe.Event, admin: ReturnType<typeof createS
         // featured-ads（metadata=slot_id）と options/checkout（metadata=option_key）は行を作らないため、
         // それら由来のイベントでは 0 行が【正常系】。無条件 throw にすると広告枠・オプション決済が
         // 500→Stripe再送ループに陥り、featured_slots 有効化に永久に到達しない。
-        // booking_id がある場合のみ「作成済みのはずの行が無い」異常として throw
+        // stripe_sessions に行を作る2フローは必ず metadata.payment_type を持つ（stripe/checkout は
+        // booking 未指定の一般デポジットで booking_id を '' にするため、booking_id 単独判定だと
+        // その経路の真の0行異常が warn止まりになる＝観測性の穴）。booking_id か payment_type の
+        // いずれかがある場合のみ「作成済みのはずの行が無い」異常として throw
         //（500→Stripe リトライ・外側 catch が alertCaughtError で通知する）。
-        if (meta.booking_id) {
+        if (meta.booking_id || meta.payment_type) {
           throw new Error(`stripe_sessions update matched 0 rows (session_id=${session.id})`);
         }
-        console.warn('[stripe/webhook] stripe_sessions update matched 0 rows (non-booking checkout; continuing)', {
+        console.warn('[stripe/webhook] stripe_sessions update matched 0 rows (non-booking checkout; booking_id/payment_type いずれも無し; continuing)', {
           sessionId: session.id,
           metadataKeys: Object.keys(meta),
         });
