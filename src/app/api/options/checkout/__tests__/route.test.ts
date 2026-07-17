@@ -17,6 +17,10 @@ jest.mock('@/lib/csrf', () => ({ checkCsrf: jest.fn(() => null) }));
 jest.mock('next/headers', () => ({
   cookies: () => ({ getAll: () => [], set: jest.fn() }),
 }));
+const mockAlertCaughtError = jest.fn();
+jest.mock('@/lib/alert', () => ({
+  alertCaughtError: (...args: unknown[]) => mockAlertCaughtError(...args),
+}));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -171,10 +175,16 @@ test('正常系: subscription モードで作成され URL を返す（価格は
   expect(arg.subscription_data.metadata).toEqual({ facility_id: FACILITY_UUID, option_key: 'reminder_line' });
 });
 
-test('Stripe エラー → 500（内部情報は漏らさない）', async () => {
+test('Stripe エラー → 500（内部情報は漏らさない）＋Slack通知（無音catch根治）', async () => {
   mockStripeCreate.mockRejectedValue(new Error('stripe down'));
   const res = await POST(makeRequest());
   expect(res.status).toBe(500);
   const json = await res.json();
   expect(JSON.stringify(json)).not.toContain('stripe down');
+  // catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れるため明示通知する（#490 と同型）。
+  expect(mockAlertCaughtError).toHaveBeenCalledWith(
+    'options-checkout',
+    expect.any(Error),
+    '/api/options/checkout',
+  );
 });

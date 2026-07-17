@@ -8,11 +8,17 @@
  *   - Event processing with atomic claim pattern
  *   - Audit logging via writeAuditLog
  *   - Graceful retry handling
+ *   - affected-rows 検証（.select('id') の0行分岐＝異常/冪等リトライの切り分け）
  */
 
 jest.mock('stripe');
 jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/audit-logger');
+
+const mockAlertCaughtError = jest.fn();
+jest.mock('@/lib/alert', () => ({
+  alertCaughtError: (...args: unknown[]) => mockAlertCaughtError(...args),
+}));
 
 import { POST } from '../route';
 
@@ -22,20 +28,40 @@ let mockUpdate: jest.Mock;
 let mockConstructEvent: jest.Mock;
 let mockWriteAuditLog: jest.Mock;
 
+type ChainResult = { error: unknown; data?: unknown };
+
 // チェイン段数に依存しないモック結果。
-// 実装の stripe_sessions / dispute-bookings 更新は単段 .eq() で await するが、
-// deposit-bookings 更新は .eq().eq() の2段。旧テストは2段固定モックだったため、単段 .eq() を
-// await しても {eq:fn} オブジェクトが解決され error が undefined になり、エラー注入が効かず
-// 偽陽性になっていた（敵対監査 テスト-2）。下記は「await で result に解決し、かつ さらに .eq()
-// を呼べる」thenable を返すため、単段・2段どちらのチェーンでも result.error が正しく伝播する。
-function chainableResult(result: { error: unknown }): { then: (r: (v: unknown) => void) => void; eq: jest.Mock } {
+// 実装の stripe_sessions / featured_slots 更新は .eq().select('id') の単段、
+// deposit-bookings 更新は .eq().eq().select('id') の2段で await する。.eq() / .select() を
+// 何回チェーンしても同じ result に解決する thenable を返すため、段数の違いを吸収できる
+// （旧テストが2段固定モックだったために単段 .eq() の await で偽陽性になっていた敵対監査
+// テスト-2 の教訓を踏襲）。data を省略すると [{ id: 'row-1' }]（affected-rows チェックを
+// 素通りする既定の1行成功）になる。0行を模すときは data: null または data: [] を明示する。
+function chainableResult(result: ChainResult): { then: (r: (v: unknown) => void) => void; eq: jest.Mock; select: jest.Mock } {
   return {
     then: (resolve: (v: unknown) => void) => resolve(result),
     eq: jest.fn(() => chainableResult(result)),
+    select: jest.fn(() => chainableResult(result)),
   };
 }
-function chainableUpdate(result: { error: unknown } = { error: null }): jest.Mock {
-  return jest.fn(() => ({ eq: jest.fn(() => chainableResult(result)) }));
+function chainableUpdate(result: ChainResult = { error: null }): jest.Mock {
+  const normalized: ChainResult = {
+    error: result.error ?? null,
+    data: 'data' in result ? result.data : [{ id: 'row-1' }],
+  };
+  return jest.fn(() => ({ eq: jest.fn(() => chainableResult(normalized)) }));
+}
+
+/**
+ * bookings.select('status').eq('id', ...).maybeSingle() の模倣。
+ * deposit / cancel_fee の 0 行フォールバック（冪等リトライ判定）で使う。
+ */
+function selectStatusChain(data: { status: string } | null, error: unknown = null): jest.Mock {
+  return jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      maybeSingle: jest.fn().mockResolvedValue({ data, error }),
+    }),
+  });
 }
 
 function setupDefaultMocks(
@@ -84,7 +110,9 @@ function setupDefaultMocks(
   const defaultTableMock = {
     update: chainableUpdate({ error: null }),
     select: jest.fn().mockReturnValue({
-      eq: jest.fn().mockResolvedValue({ data: [], error: null }),
+      eq: jest.fn().mockReturnValue({
+        maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+      }),
     }),
   };
 
@@ -262,11 +290,7 @@ describe('POST /api/stripe/webhook', () => {
         if (table === 'stripe_webhook_logs') {
           return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
         }
-        return {
-          update: jest.fn().mockReturnValue({
-            eq: jest.fn().mockResolvedValue({ error: { message: 'DB error' } }),
-          }),
-        };
+        return { update: chainableUpdate({ error: { message: 'DB error' } }) };
       }),
     });
 
@@ -340,6 +364,7 @@ describe('POST /api/stripe/webhook', () => {
 
     const mockStripeSessionsUpdate = chainableUpdate({ error: null });
     const mockBookingsUpdate = chainableUpdate({ error: null });
+    const mockFeaturedSlotsUpdate = chainableUpdate({ error: null });
 
     beforeEach(() => {
       const { createServiceRoleClient } = require('@/lib/supabase-server');
@@ -352,14 +377,18 @@ describe('POST /api/stripe/webhook', () => {
             return { update: mockStripeSessionsUpdate };
           }
           if (table === 'bookings') {
-            return { update: mockBookingsUpdate };
+            return { update: mockBookingsUpdate, select: selectStatusChain(null) };
           }
           if (table === 'featured_slots') {
-            return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+            return { update: mockFeaturedSlotsUpdate };
           }
           return {
-            update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }),
-            select: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ data: [], error: null }) }),
+            update: chainableUpdate({ error: null }),
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+              }),
+            }),
           };
         }),
       });
@@ -393,14 +422,8 @@ describe('POST /api/stripe/webhook', () => {
         from: jest.fn((table: string) => {
           if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
           if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
-          if (table === 'bookings') return {
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockResolvedValue({ error: { message: 'deposit confirm failed' } }),
-              }),
-            }),
-          };
-          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+          if (table === 'bookings') return { update: chainableUpdate({ error: { message: 'deposit confirm failed' } }) };
+          return { update: chainableUpdate({ error: null }) };
         }),
       });
       setupEventMock('checkout.session.completed', {
@@ -418,12 +441,8 @@ describe('POST /api/stripe/webhook', () => {
         from: jest.fn((table: string) => {
           if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
           if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
-          if (table === 'bookings') return {
-            update: jest.fn().mockReturnValue({
-              eq: jest.fn().mockResolvedValue({ error: { message: 'cancel_fee update failed' } }),
-            }),
-          };
-          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+          if (table === 'bookings') return { update: chainableUpdate({ error: { message: 'cancel_fee update failed' } }) };
+          return { update: chainableUpdate({ error: null }) };
         }),
       });
       setupEventMock('checkout.session.completed', {
@@ -511,19 +530,6 @@ describe('POST /api/stripe/webhook', () => {
     });
 
     test('checkout.session.completed with slot_id → activates featured slot', async () => {
-      const mockFeaturedSlotsUpdate = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: null }),
-      });
-      const { createServiceRoleClient } = require('@/lib/supabase-server');
-      createServiceRoleClient.mockReturnValue({
-        from: jest.fn((table: string) => {
-          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
-          if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
-          if (table === 'bookings') return { update: mockBookingsUpdate };
-          if (table === 'featured_slots') return { update: mockFeaturedSlotsUpdate };
-          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
-        }),
-      });
       setupEventMock('checkout.session.completed', {
         id: 'cs_slot_001',
         payment_intent: 'pi_slot',
@@ -540,8 +546,8 @@ describe('POST /api/stripe/webhook', () => {
         from: jest.fn((table: string) => {
           if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
           if (table === 'stripe_sessions') return { update: mockStripeSessionsUpdate };
-          if (table === 'featured_slots') return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: { message: 'slot error' } }) }) };
-          return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+          if (table === 'featured_slots') return { update: chainableUpdate({ error: { message: 'slot error' } }) };
+          return { update: chainableUpdate({ error: null }) };
         }),
       });
       setupEventMock('checkout.session.completed', {
@@ -623,6 +629,235 @@ describe('POST /api/stripe/webhook', () => {
       setupEventMock('charge.dispute.closed', { payment_intent: 'pi_disp_cberr', status: 'lost' });
       const res = await POST(makeRequest('{}') as any);
       expect(res.status).toBe(500);
+    });
+
+    // ─── affected-rows チェック（.select('id') 追加分）の 0 行分岐 ───
+
+    test('stripe_sessions 0行更新（data:null）→ throw→500（直前フローで作成済みのはずの行が無い異常）', async () => {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null, data: null }) };
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_0rows_null',
+        payment_intent: 'pi_0rows_null',
+        metadata: {},
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'stripe-webhook-handler',
+        expect.any(Error),
+        '/api/stripe/webhook',
+      );
+    });
+
+    test('stripe_sessions 0行更新（data:[]）→ throw→500', async () => {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null, data: [] }) };
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_0rows_empty',
+        payment_intent: 'pi_0rows_empty',
+        metadata: {},
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+    });
+
+    function setupDepositZeroRows(opts: { updateData: unknown; currentStatus: { status: string } | null }) {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null }) };
+          if (table === 'bookings') {
+            return {
+              update: chainableUpdate({ error: null, data: opts.updateData }),
+              select: selectStatusChain(opts.currentStatus),
+            };
+          }
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+    }
+
+    test('deposit 0行更新（data:null）・現在status=confirmed（冪等リトライ）→ 200で正常継続', async () => {
+      setupDepositZeroRows({ updateData: null, currentStatus: { status: 'confirmed' } });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_dep_idem_null',
+        payment_intent: 'pi_dep_idem_null',
+        metadata: { booking_id: 'bk_dep_idem_null', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockAlertCaughtError).not.toHaveBeenCalledWith(
+        'stripe-webhook-deposit-confirm-0rows',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    test('deposit 0行更新（data:[]）・現在status=confirmed（冪等リトライ）→ 200で正常継続', async () => {
+      setupDepositZeroRows({ updateData: [], currentStatus: { status: 'confirmed' } });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_dep_idem_empty',
+        payment_intent: 'pi_dep_idem_empty',
+        metadata: { booking_id: 'bk_dep_idem_empty', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('deposit 0行更新・現在statusがconfirmed以外（想定外）→ alertCaughtError通知＋throw→500', async () => {
+      setupDepositZeroRows({ updateData: [], currentStatus: { status: 'pending' } });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_dep_anomaly',
+        payment_intent: 'pi_dep_anomaly',
+        metadata: { booking_id: 'bk_dep_anomaly', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'stripe-webhook-deposit-confirm-0rows',
+        expect.any(Error),
+        '/api/stripe/webhook',
+      );
+    });
+
+    test('deposit 0行更新・booking不存在（current:null）→ alertCaughtError通知＋throw→500', async () => {
+      setupDepositZeroRows({ updateData: null, currentStatus: null });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_dep_notfound',
+        payment_intent: 'pi_dep_notfound',
+        metadata: { booking_id: 'bk_dep_notfound', payment_type: 'deposit' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'stripe-webhook-deposit-confirm-0rows',
+        expect.any(Error),
+        '/api/stripe/webhook',
+      );
+    });
+
+    function setupCancelFeeZeroRows(opts: { updateData: unknown; currentStatus: { status: string } | null }) {
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null }) };
+          if (table === 'bookings') {
+            return {
+              update: chainableUpdate({ error: null, data: opts.updateData }),
+              select: selectStatusChain(opts.currentStatus),
+            };
+          }
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+    }
+
+    test('cancel_fee 0行更新（data:null）・現在status=cancel_fee_paid（冪等リトライ）→ 200で正常継続', async () => {
+      setupCancelFeeZeroRows({ updateData: null, currentStatus: { status: 'cancel_fee_paid' } });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_cf_idem_null',
+        payment_intent: 'pi_cf_idem_null',
+        metadata: { booking_id: 'bk_cf_idem_null', payment_type: 'cancel_fee' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(mockAlertCaughtError).not.toHaveBeenCalledWith(
+        'stripe-webhook-cancel-fee-0rows',
+        expect.anything(),
+        expect.anything(),
+      );
+    });
+
+    test('cancel_fee 0行更新（data:[]）・現在status=cancel_fee_paid（冪等リトライ）→ 200で正常継続', async () => {
+      setupCancelFeeZeroRows({ updateData: [], currentStatus: { status: 'cancel_fee_paid' } });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_cf_idem_empty',
+        payment_intent: 'pi_cf_idem_empty',
+        metadata: { booking_id: 'bk_cf_idem_empty', payment_type: 'cancel_fee' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+    });
+
+    test('cancel_fee 0行更新・booking不存在（current:null）→ alertCaughtError通知＋throw→500', async () => {
+      setupCancelFeeZeroRows({ updateData: [], currentStatus: null });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_cf_notfound',
+        payment_intent: 'pi_cf_notfound',
+        metadata: { booking_id: 'bk_cf_notfound', payment_type: 'cancel_fee' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(500);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'stripe-webhook-cancel-fee-0rows',
+        expect.any(Error),
+        '/api/stripe/webhook',
+      );
+    });
+
+    test('featured_slots 0行更新（data:null）→ console.error のみ・200のまま（挙動不変）', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null }) };
+          if (table === 'featured_slots') return { update: chainableUpdate({ error: null, data: null }) };
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_slot_0rows_null',
+        payment_intent: 'pi_slot_0rows_null',
+        metadata: { slot_id: 'slot_missing_null' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[stripe/webhook] featured_slot activate matched 0 rows',
+        expect.objectContaining({ slotId: 'slot_missing_null' }),
+      );
+      errorSpy.mockRestore();
+    });
+
+    test('featured_slots 0行更新（data:[]）→ console.error のみ・200のまま（挙動不変）', async () => {
+      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      createServiceRoleClient.mockReturnValue({
+        from: jest.fn((table: string) => {
+          if (table === 'stripe_webhook_logs') return { upsert: mockUpsert, select: mockSelect, update: mockUpdate };
+          if (table === 'stripe_sessions') return { update: chainableUpdate({ error: null }) };
+          if (table === 'featured_slots') return { update: chainableUpdate({ error: null, data: [] }) };
+          return { update: chainableUpdate({ error: null }) };
+        }),
+      });
+      setupEventMock('checkout.session.completed', {
+        id: 'cs_slot_0rows_empty',
+        payment_intent: 'pi_slot_0rows_empty',
+        metadata: { slot_id: 'slot_missing_empty' },
+      });
+      const res = await POST(makeRequest('{}') as any);
+      expect(res.status).toBe(200);
+      expect(errorSpy).toHaveBeenCalledWith(
+        '[stripe/webhook] featured_slot activate matched 0 rows',
+        expect.objectContaining({ slotId: 'slot_missing_empty' }),
+      );
+      errorSpy.mockRestore();
     });
   });
 

@@ -17,6 +17,10 @@ jest.mock('next/headers', () => ({
   cookies: () => ({ getAll: () => [], set: jest.fn() }),
 }));
 jest.mock('@/lib/slack', () => ({ postToSlack: jest.fn() }));
+const mockAlertCaughtError = jest.fn();
+jest.mock('@/lib/alert', () => ({
+  alertCaughtError: (...args: unknown[]) => mockAlertCaughtError(...args),
+}));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -150,8 +154,14 @@ test('Slack 通知失敗 → 500（申込みが闇に消えない）', async () 
   expect(res.status).toBe(500);
 });
 
-test('予期しない例外 → 500', async () => {
+test('予期しない例外 → 500＋Slack通知（無音catch根治）', async () => {
   (postToSlack as jest.Mock).mockRejectedValue(new Error('boom'));
   const res = await POST(makeRequest());
   expect(res.status).toBe(500);
+  // catch して 500 を返すと onRequestError に伝播せず Slack 通知が漏れるため明示通知する（#490 と同型）。
+  expect(mockAlertCaughtError).toHaveBeenCalledWith(
+    'options-inquiry',
+    expect.any(Error),
+    '/api/options/inquiry',
+  );
 });

@@ -19,6 +19,11 @@ jest.mock('@supabase/supabase-js', () => ({
   })),
 }));
 
+const mockAlertCaughtError = jest.fn();
+jest.mock('@/lib/alert', () => ({
+  alertCaughtError: (...args: unknown[]) => mockAlertCaughtError(...args),
+}));
+
 import { POST } from '../route';
 
 let mockInsert: jest.Mock;
@@ -26,6 +31,18 @@ let mockUpdate: jest.Mock;
 let mockDelete: jest.Mock;
 let mockConstructEvent: jest.Mock;
 let mockSubscriptionsCancel: jest.Mock;
+
+/**
+ * bookings.update(...).eq(...).select('id') の共通チェーンを模したモック。
+ * data を省略すると null（0行相当）、error を省略すると null（成功）。
+ */
+function mockBookingsUpdateResult(result: { data?: unknown; error?: unknown } = {}): jest.Mock {
+  return jest.fn().mockReturnValue({
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockResolvedValue({ data: result.data ?? null, error: result.error ?? null }),
+    }),
+  });
+}
 
 function setupDefaultMocks(
   signatureValid: boolean = true,
@@ -61,9 +78,14 @@ function setupDefaultMocks(
     }),
   });
 
+  // bookings.update(...).eq(...).select('id') の共通チェーン。
+  // 既定は 1 行更新（affected-rows チェックの 0 行分岐は個別テストで上書きする）。
   mockUpdate = jest.fn().mockReturnValue({
-    eq: jest.fn().mockResolvedValue({
-      error: updateSucceeds ? null : { message: 'Update failed' },
+    eq: jest.fn().mockReturnValue({
+      select: jest.fn().mockResolvedValue({
+        data: updateSucceeds ? [{ id: 'booking-123' }] : null,
+        error: updateSucceeds ? null : { message: 'Update failed' },
+      }),
     }),
   });
 
@@ -294,6 +316,34 @@ describe('POST /api/payment/webhook', () => {
     expect(res.status).toBe(500);
   });
 
+  test('checkout.session.completed bookingId 0行更新（data:null）→ 500＋冪等行ロールバック＋Slack通知', async () => {
+    mockUpdate = mockBookingsUpdateResult({ data: null, error: null });
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(res.status).toBe(500);
+    // 冪等行を削除して Stripe リトライで再処理可能化（entitlement 分岐と同水準の防御）。
+    expect(mockDelete).toHaveBeenCalled();
+    expect(mockAlertCaughtError).toHaveBeenCalledWith(
+      'payment-webhook-booking-paid-notfound',
+      expect.any(Error),
+      '/api/payment/webhook',
+    );
+  });
+
+  test('checkout.session.completed bookingId 0行更新（data:[]）→ 500＋冪等行ロールバック', async () => {
+    mockUpdate = mockBookingsUpdateResult({ data: [], error: null });
+
+    const res = await POST(
+      makeRequest(JSON.stringify({}), 'sig') as any
+    );
+
+    expect(res.status).toBe(500);
+    expect(mockDelete).toHaveBeenCalled();
+  });
+
   test('insert stripe_events for idempotency', async () => {
     const res = await POST(
       makeRequest(
@@ -520,6 +570,41 @@ describe('POST /api/payment/webhook', () => {
       expect(mockUpdate).not.toHaveBeenCalled();
     });
 
+    test('charge.refunded 0行更新（data:null）→ 200・console.warn（非bookingチャージの正常系）', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_refund_0rows_null',
+        amount: 5000,
+        amount_refunded: 5000,
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: null, error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no booking matched refund'),
+        expect.any(Object),
+      );
+      warnSpy.mockRestore();
+    });
+
+    test('charge.refunded 0行更新（data:[]）→ 200・console.warn', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('charge.refunded', {
+        payment_intent: 'pi_refund_0rows_empty',
+        amount: 5000,
+        amount_refunded: 5000,
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: [], error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
     test('charge.dispute.created → payment_status=disputed', async () => {
       setupEventMock('charge.dispute.created', {
         payment_intent: 'pi_dispute_001',
@@ -544,6 +629,39 @@ describe('POST /api/payment/webhook', () => {
 
       expect(res.status).toBe(200);
       expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    test('charge.dispute.created 0行更新（data:null）→ 200・console.warn（非bookingチャージの正常系）', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('charge.dispute.created', {
+        payment_intent: 'pi_dispute_0rows_null',
+        status: 'needs_response',
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: null, error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no booking matched dispute.created'),
+        expect.any(Object),
+      );
+      warnSpy.mockRestore();
+    });
+
+    test('charge.dispute.created 0行更新（data:[]）→ 200・console.warn', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('charge.dispute.created', {
+        payment_intent: 'pi_dispute_0rows_empty',
+        status: 'needs_response',
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: [], error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
     });
 
     test('charge.dispute.closed won → payment_status=paid', async () => {
@@ -596,14 +714,112 @@ describe('POST /api/payment/webhook', () => {
       expect(mockUpdate).toHaveBeenCalledWith({ payment_status: 'failed' });
     });
 
+    test('charge.dispute.closed 0行更新（data:null）→ 200・console.warn（非bookingチャージの正常系）', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dispute_closed_0rows_null',
+        status: 'won',
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: null, error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no booking matched dispute.closed'),
+        expect.any(Object),
+      );
+      warnSpy.mockRestore();
+    });
+
+    test('charge.dispute.closed 0行更新（data:[]）→ 200・console.warn', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('charge.dispute.closed', {
+        payment_intent: 'pi_dispute_closed_0rows_empty',
+        status: 'lost',
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: [], error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('payment_intent.payment_failed（pi-id経路）0行更新（data:null）→ 200・console.warn（非bookingチャージの正常系）', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('payment_intent.payment_failed', {
+        id: 'pi_fallback_0rows_null',
+        metadata: {},
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: null, error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('no booking matched payment_failed by pi_id'),
+        expect.any(Object),
+      );
+      warnSpy.mockRestore();
+    });
+
+    test('payment_intent.payment_failed（pi-id経路）0行更新（data:[]）→ 200・console.warn', async () => {
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      setupEventMock('payment_intent.payment_failed', {
+        id: 'pi_fallback_0rows_empty',
+        metadata: {},
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: [], error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(warnSpy).toHaveBeenCalled();
+      warnSpy.mockRestore();
+    });
+
+    test('payment_intent.payment_failed（bookingId経路）0行更新（data:null）→ 200・alertCaughtError通知', async () => {
+      setupEventMock('payment_intent.payment_failed', {
+        id: 'pi_bk_0rows_null',
+        metadata: { booking_id: 'bk-0rows-null' },
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: null, error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'payment-webhook-payment-failed-notfound',
+        expect.any(Error),
+        '/api/payment/webhook',
+      );
+    });
+
+    test('payment_intent.payment_failed（bookingId経路）0行更新（data:[]）→ 200・alertCaughtError通知', async () => {
+      setupEventMock('payment_intent.payment_failed', {
+        id: 'pi_bk_0rows_empty',
+        metadata: { booking_id: 'bk-0rows-empty' },
+      });
+      mockUpdate = mockBookingsUpdateResult({ data: [], error: null });
+
+      const res = await POST(makeRequest('{}', 'sig') as any);
+
+      expect(res.status).toBe(200);
+      expect(mockAlertCaughtError).toHaveBeenCalledWith(
+        'payment-webhook-payment-failed-notfound',
+        expect.any(Error),
+        '/api/payment/webhook',
+      );
+    });
+
     test('payment_intent.payment_failed with booking_id + update error → logs, still 200', async () => {
       setupEventMock('payment_intent.payment_failed', {
         id: 'pi_err',
         metadata: { booking_id: 'b-err' },
       });
-      mockUpdate = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
-      });
+      mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
 
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(200);
@@ -611,9 +827,7 @@ describe('POST /api/payment/webhook', () => {
 
     test('payment_intent.payment_failed without booking_id + update error → logs, still 200', async () => {
       setupEventMock('payment_intent.payment_failed', { id: 'pi_no_bk', metadata: {} });
-      mockUpdate = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: { message: 'update failed' } }),
-      });
+      mockUpdate = mockBookingsUpdateResult({ error: { message: 'update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(200);
     });
@@ -624,9 +838,7 @@ describe('POST /api/payment/webhook', () => {
         amount: 5000,
         amount_refunded: 5000,
       });
-      mockUpdate = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: { message: 'refund update failed' } }),
-      });
+      mockUpdate = mockBookingsUpdateResult({ error: { message: 'refund update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(200);
     });
@@ -636,9 +848,7 @@ describe('POST /api/payment/webhook', () => {
         payment_intent: 'pi_dis_err',
         status: 'needs_response',
       });
-      mockUpdate = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: { message: 'dispute update failed' } }),
-      });
+      mockUpdate = mockBookingsUpdateResult({ error: { message: 'dispute update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(200);
     });
@@ -648,9 +858,7 @@ describe('POST /api/payment/webhook', () => {
         payment_intent: 'pi_dis_closed_err',
         status: 'won',
       });
-      mockUpdate = jest.fn().mockReturnValue({
-        eq: jest.fn().mockResolvedValue({ error: { message: 'close update failed' } }),
-      });
+      mockUpdate = mockBookingsUpdateResult({ error: { message: 'close update failed' } });
       const res = await POST(makeRequest('{}', 'sig') as any);
       expect(res.status).toBe(200);
     });
