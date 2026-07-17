@@ -149,19 +149,32 @@ export async function POST(request: Request) {
       }
 
       if (bookingId) {
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('bookings')
           .update({
             payment_status: 'paid',
             stripe_payment_intent_id: session.payment_intent as string,
             paid_amount: amountTotal || 0,
           })
-          .eq('id', bookingId);
+          .eq('id', bookingId)
+          .select('id');
         if (error) {
           console.error('[payment/webhook] CRITICAL: failed to mark booking paid', { bookingId, eventId: event.id, error });
           // 冪等行を削除して Stripe リトライで再処理可能化＋Slack 通知（恒久根治）。
           await rollbackIdempotencyAndAlert(supabase, event.id, 'payment-webhook-booking-paid', error);
           return NextResponse.json({ error: 'DB update failed' }, { status: 500 });
+        }
+        if (!updated || updated.length === 0) {
+          // Supabase の .update() は該当0行でも error=null を返す。id 指定なのに0行＝
+          // 該当予約が存在しない異常（正常系では発生し得ない）。entitlement 分岐と同水準の防御。
+          console.error('[payment/webhook] CRITICAL: booking not found for payment update (0 rows)', { bookingId, eventId: event.id });
+          await rollbackIdempotencyAndAlert(
+            supabase,
+            event.id,
+            'payment-webhook-booking-paid-notfound',
+            new Error(`booking not found: ${bookingId}`),
+          );
+          return NextResponse.json({ error: 'Booking not found' }, { status: 500 });
         }
       }
       break;
@@ -171,21 +184,38 @@ export async function POST(request: Request) {
       const pi = event.data.object as Stripe.PaymentIntent;
       const bookingId = pi.metadata?.booking_id;
       if (bookingId) {
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('bookings')
           .update({
             payment_status: 'failed',
             stripe_payment_intent_id: pi.id,
           })
-          .eq('id', bookingId);
-        if (error) console.error('[payment/webhook] failed to mark payment_failed', { bookingId, eventId: event.id, error });
+          .eq('id', bookingId)
+          .select('id');
+        if (error) {
+          console.error('[payment/webhook] failed to mark payment_failed', { bookingId, eventId: event.id, error });
+        } else if (!updated || updated.length === 0) {
+          console.error('[payment/webhook] booking not found for payment_failed update (0 rows)', { bookingId, eventId: event.id });
+          alertCaughtError(
+            'payment-webhook-payment-failed-notfound',
+            new Error(`booking not found: ${bookingId}`),
+            '/api/payment/webhook',
+          );
+        }
       } else {
         // metadataにbooking_idがない場合はpayment_intent_idで検索
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('bookings')
           .update({ payment_status: 'failed' })
-          .eq('stripe_payment_intent_id', pi.id);
-        if (error) console.error('[payment/webhook] failed to mark payment_failed by pi_id', { piId: pi.id, error });
+          .eq('stripe_payment_intent_id', pi.id)
+          .select('id');
+        if (error) {
+          console.error('[payment/webhook] failed to mark payment_failed by pi_id', { piId: pi.id, error });
+        } else if (!updated || updated.length === 0) {
+          // payment_intent は booking 以外のチャージ（サブスク・広告等）でも発火するため、
+          // 該当予約が無いのは正常系としてあり得る。500 にはしない。
+          console.warn('[payment/webhook] no booking matched payment_failed by pi_id (0 rows, may be non-booking charge)', { eventType: event.type, piId: pi.id });
+        }
       }
       break;
     }
@@ -196,13 +226,20 @@ export async function POST(request: Request) {
 
       if (paymentIntentId) {
         const isFullRefund = charge.amount_refunded >= charge.amount;
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('bookings')
           .update({
             payment_status: isFullRefund ? 'refunded' : 'partial_refund',
           })
-          .eq('stripe_payment_intent_id', paymentIntentId);
-        if (error) console.error('[payment/webhook] failed to update refund status', { paymentIntentId, error });
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .select('id');
+        if (error) {
+          console.error('[payment/webhook] failed to update refund status', { paymentIntentId, error });
+        } else if (!updated || updated.length === 0) {
+          // charge.refunded は booking 以外のチャージ（サブスク・広告等）でも発火するため、
+          // 該当予約が無いのは正常系としてあり得る。500 にはしない。
+          console.warn('[payment/webhook] no booking matched refund (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId });
+        }
       }
       break;
     }
@@ -211,11 +248,17 @@ export async function POST(request: Request) {
       const dispute = event.data.object as Stripe.Dispute;
       const paymentIntentId = dispute.payment_intent as string;
       if (paymentIntentId) {
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('bookings')
           .update({ payment_status: 'disputed' })
-          .eq('stripe_payment_intent_id', paymentIntentId);
-        if (error) console.error('[payment/webhook] failed to mark disputed', { paymentIntentId, error });
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .select('id');
+        if (error) {
+          console.error('[payment/webhook] failed to mark disputed', { paymentIntentId, error });
+        } else if (!updated || updated.length === 0) {
+          // charge.dispute.* は booking 以外のチャージでも発火するため、該当予約が無いのは正常系としてあり得る。
+          console.warn('[payment/webhook] no booking matched dispute.created (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId });
+        }
       }
       break;
     }
@@ -225,11 +268,17 @@ export async function POST(request: Request) {
       const paymentIntentId = dispute.payment_intent as string;
       if (paymentIntentId) {
         const status = dispute.status === 'won' ? 'paid' : 'dispute_lost';
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('bookings')
           .update({ payment_status: status })
-          .eq('stripe_payment_intent_id', paymentIntentId);
-        if (error) console.error('[payment/webhook] failed to close dispute', { paymentIntentId, status, error });
+          .eq('stripe_payment_intent_id', paymentIntentId)
+          .select('id');
+        if (error) {
+          console.error('[payment/webhook] failed to close dispute', { paymentIntentId, status, error });
+        } else if (!updated || updated.length === 0) {
+          // charge.dispute.* は booking 以外のチャージでも発火するため、該当予約が無いのは正常系としてあり得る。
+          console.warn('[payment/webhook] no booking matched dispute.closed (0 rows, may be non-booking charge)', { eventType: event.type, paymentIntentId, status });
+        }
       }
       break;
     }

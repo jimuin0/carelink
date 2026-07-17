@@ -15,6 +15,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { SITE_URL, UUID_REGEX } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
+import { alertCaughtError } from '@/lib/alert';
 
 export const dynamic = 'force-dynamic';
 
@@ -123,6 +124,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ url: session.url });
   } catch (e) {
     console.error('[options/checkout] Error:', e);
+    // catch して 500 を返すと instrumentation.ts の onRequestError に伝播せず Slack 通知が漏れるため明示通知。
+    alertCaughtError('options-checkout', e, '/api/options/checkout');
     return NextResponse.json({ error: '決済セッションの作成に失敗しました' }, { status: 500 });
   }
 }
