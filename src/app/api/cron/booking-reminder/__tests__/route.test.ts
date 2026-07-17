@@ -8,7 +8,7 @@
  *   - 設定（facility_reminder_settings）・エンタイトルメント（facility_entitlements）による送信ゲート
  *   - メール（1d 無料無条件 / 7d 無料設定 / 3d 有料）・LINE（3d/7d 有料）
  *   - Idempotency via sent_reminders (booking_id, reminder_date, kind)
- *   - Race condition handling (30-second window)
+ *   - Race condition handling（upsert(ignoreDuplicates).select() の戻り件数による原子的 CAS 判定）
  *   - 実時間予算ガード（deferred）
  */
 
@@ -61,8 +61,12 @@ type Cfg = {
   lineLinks?: { data: { user_id: string | null; line_user_id: string }[] | null; error?: unknown };
   menus?: { data: { id: string; name: string }[] | null; error?: unknown };
   upsertError?: unknown;
-  /** claim 検証 select の戻り（既定: 直近 sent_at=now-5s で勝ち） */
-  claimedAt?: () => string | null;
+  deleteError?: unknown;
+  /**
+   * upsert(ignoreDuplicates).select('sent_at') の戻り data。
+   * 既定 undefined = 1 行返る（claim 勝ち）。[] = 0 行（claim 負け）。null = 防御的 OR 分岐。
+   */
+  claimSelectData?: { sent_at: string }[] | null;
 };
 
 let mockUpsert: jest.Mock;
@@ -89,7 +93,18 @@ function setup(cfg: Cfg = {}) {
     }),
   });
 
-  mockUpsert = jest.fn().mockImplementation(() => Promise.resolve({ error: cfg.upsertError ?? null }));
+  // upsert(...).select('sent_at') → 実際に INSERT された行のみ返る（PostgREST 仕様）。
+  // 既定は 1 行（claim 勝ち）。cfg.claimSelectData で上書き可能（[] = 負け、null = 防御的分岐）。
+  const claimSelectData = cfg.claimSelectData === undefined
+    ? [{ sent_at: new Date().toISOString() }]
+    : cfg.claimSelectData;
+  mockUpsert = jest.fn().mockReturnValue({
+    select: jest.fn().mockImplementation(() => Promise.resolve(
+      cfg.upsertError
+        ? { data: null, error: cfg.upsertError }
+        : { data: claimSelectData, error: null },
+    )),
+  });
   // F-9 根治: 送信失敗時の claim 解放 .delete().eq().eq().eq() → { error }。
   mockDelete = jest.fn().mockReturnValue({
     eq: jest.fn().mockReturnValue({
@@ -98,7 +113,6 @@ function setup(cfg: Cfg = {}) {
       }),
     }),
   });
-  const claimedAt = cfg.claimedAt ?? (() => new Date(Date.now() - 5_000).toISOString());
 
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   createServiceRoleClient.mockReturnValue({
@@ -149,18 +163,6 @@ function setup(cfg: Cfg = {}) {
         return {
           upsert: mockUpsert,
           delete: mockDelete,
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  single: jest.fn().mockImplementation(() => {
-                    const at = claimedAt();
-                    return Promise.resolve({ data: at === null ? null : { sent_at: at } });
-                  }),
-                }),
-              }),
-            }),
-          }),
         };
       }
       throw new Error(`unexpected table: ${table}`);
@@ -480,16 +482,33 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(json.processed).toBe(0);
   });
 
-  test('race: 30秒より古い claim → 他 invocation の勝ち → skipped', async () => {
-    setup({ bookings: { data: [booking()] }, claimedAt: () => new Date(Date.now() - 40_000).toISOString() });
+  // CAS: upsert(ignoreDuplicates).select('sent_at') が 1 行返す = 実際に INSERT できた
+  // （＝claim 勝ち）→ 送信される。
+  test('claim 勝ち（upsert().select() が1行返す）→ 送信される', async () => {
+    setup({ bookings: { data: [booking()] }, claimSelectData: [{ sent_at: new Date().toISOString() }] });
     const json = await (await GET(makeRequest() as any)).json();
-    expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(1);
+    expect(json.skipped).toBe(0);
+    expect(mockEmailReminder).toHaveBeenCalled();
   });
 
-  test('race: claim 行が読めない（null）→ skipped', async () => {
-    setup({ bookings: { data: [booking()] }, claimedAt: () => null });
+  // CAS: 空配列 = 競合により INSERT が無視された（他 invocation が先に claim 済み）→ 負け→ skipped。
+  // 旧実装の「30秒より古ければ負け」ヒューリスティックはレースを構造的に埋め切れなかった
+  // （cron 三重化で両 invocation が『30秒未満だから勝ち』と誤判定し得た）。
+  test('claim 負け（upsert().select() が空配列を返す・他 invocation が先取り）→ skipped・送信されない', async () => {
+    setup({ bookings: { data: [booking()] }, claimSelectData: [] });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(0);
+    expect(mockEmailReminder).not.toHaveBeenCalled();
+  });
+
+  // 防御的 OR 分岐: data が null（PostgREST が空配列ではなく null を返すケースへの保険）も負け扱い。
+  test('claim select data が null（防御的分岐）→ skipped', async () => {
+    setup({ bookings: { data: [booking()] }, claimSelectData: null });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.skipped).toBe(1);
+    expect(json.processed).toBe(0);
   });
 
   test('メール送信 throw → skipped（バッチ全体は止めない）', async () => {
@@ -504,10 +523,12 @@ describe('GET /api/cron/booking-reminder', () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     setup({ bookings: { data: [booking({ id: 'p1' }), booking({ id: 'p2' }), booking({ id: 'p3' })] } });
     // 1件目の claim 中に時計を 60 秒進める → 2件目のループ先頭で予算超過
-    mockUpsert.mockImplementation(() => {
-      jest.advanceTimersByTime(60_000);
-      return Promise.resolve({ error: null });
-    });
+    mockUpsert.mockImplementation(() => ({
+      select: jest.fn().mockImplementation(() => {
+        jest.advanceTimersByTime(60_000);
+        return Promise.resolve({ data: [{ sent_at: new Date().toISOString() }], error: null });
+      }),
+    }));
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.deferred).toBe(2);
     expect(json.processed).toBe(1);
