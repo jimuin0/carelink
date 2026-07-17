@@ -328,5 +328,34 @@ describe('alert', () => {
       expect(body.text).not.toContain('*commit:*');
       expect(body.text).not.toContain('*env:*');
     });
+
+    // 【2026年7月17日 dead-letter 文言追加】webhook-retry の scheduleRetry は再送上限到達時に
+    // status='failed'（dead-letter・二度と自動再送されない）に倒すが、旧文言は固定で
+    // 「翌runで再送」と表示し、dead-letter でも「再送します」と嘘をつく無音バグだった。
+    // 第4引数 deadLettered を省略・0 の場合は既存文言のまま（他 cron の呼び出し元 9 箇所は
+    // 全て3引数のまま呼んでおり挙動不変であることをここで固定する）。
+    test('deadLettered 省略（3引数呼び出し）→ 既存文言のまま（他cron呼び出し元の挙動不変）', async () => {
+      alertDeliveryFailures('booking-reminder', 3, { sent: 1 });
+      await new Promise((r) => setTimeout(r, 50));
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[booking-reminder] 送達失敗 3件（run集約・翌runで再送）');
+      expect(body.text).not.toContain('dead-letter');
+    });
+
+    test('deadLettered=0（明示的に4引数目0）→ 既存文言のまま', async () => {
+      alertDeliveryFailures('webhook-retry', 3, { success: 1 }, 0);
+      await new Promise((r) => setTimeout(r, 50));
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[webhook-retry] 送達失敗 3件（run集約・翌runで再送）');
+      expect(body.text).not.toContain('dead-letter');
+    });
+
+    test('deadLettered>0 → 文言が dead-letter 向けに差し替わる（再送されない旨を明示）', async () => {
+      alertDeliveryFailures('webhook-retry', 3, { success: 1 }, 2);
+      await new Promise((r) => setTimeout(r, 50));
+      const body = JSON.parse((mockFetch.mock.calls[0]![1] as RequestInit).body as string);
+      expect(body.text).toContain('[webhook-retry] 送達失敗 3件（うち2件は再送上限到達=dead-letter・自動再送されない）');
+      expect(body.text).not.toContain('翌runで再送');
+    });
   });
 });

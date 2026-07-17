@@ -24,7 +24,10 @@
     "test:load:booking": "k6 run load-tests/concurrent-booking.js",
     "test:all": "npm run test:ci && npm run test:e2e",
     "prepare": "husky",
-    "test:contract": "jest --config=jest.config.contract.js"
+    "test:contract": "jest --config=jest.config.contract.js",
+    "prelint": "node scripts/ensure-eslint-plugin-link.mjs",
+    "pretest": "node scripts/ensure-eslint-plugin-link.mjs",
+    "postinstall": "node scripts/ensure-eslint-plugin-link.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",
