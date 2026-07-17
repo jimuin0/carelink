@@ -207,12 +207,22 @@ export async function GET(request: Request) {
       }
 
       // Idempotency: claim this (booking_id, reminder_date, kind) slot atomically.
-      const { error: claimError } = await supabase
+      // PostgREST 仕様: ignoreDuplicates:true の upsert に .select() を付けると、
+      // レスポンスには実際に INSERT された行だけが含まれる（競合で無視された行は含まれない）。
+      // つまり戻り data の有無（1 行 or 0 行）がそのまま原子的な勝敗判定になり、追加の
+      // SELECT や時間ヒューリスティックは不要。旧実装は claim 後に別クエリで sent_at を
+      // 読み直し「30秒より新しければ自分が勝ち」と判定していたが、cron 三重化
+      // （GitHub Actions + pg_cron + Render が同一スケジュールで数秒差発火）では
+      // 両 invocation の sent_at がともに 30 秒未満に見え、両方が「勝ち」と誤判定し
+      // リマインダーを二重送信し得た（非原子的・レースあり）。この upsert().select() の
+      // 戻り件数のみで判定する方式は DB 側で原子的に解決されるため、その穴が構造的に無い。
+      const { data: claimedRows, error: claimError } = await supabase
         .from('sent_reminders')
         .upsert({ booking_id: booking.id, reminder_date: booking.booking_date, kind }, {
           onConflict: 'booking_id,reminder_date,kind',
           ignoreDuplicates: true,
-        });
+        })
+        .select('sent_at');
 
       if (claimError) {
         // Unexpected DB error — skip rather than risk duplicate send
@@ -221,26 +231,16 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // Verify we won the upsert race (ignoreDuplicates means no error on conflict)
-      const { data: claimed } = await supabase
-        .from('sent_reminders')
-        .select('sent_at')
-        .eq('booking_id', booking.id)
-        .eq('reminder_date', booking.booking_date)
-        .eq('kind', kind)
-        .single();
-
-      // If row was inserted more than 30 seconds ago it belongs to another invocation
-      if (!claimed || new Date(claimed.sent_at).getTime() < Date.now() - 30_000) {
+      // INSERT された行が 0 件 = 他 invocation が既にこの slot を claim 済み（自分の負け）。
+      if (!claimedRows || claimedRows.length === 0) {
         skipped++;
         continue;
       }
 
-      // 送信が失敗した場合、claim（sent_reminders 行）を握ったままにすると、翌 run で
-      // upsert(ignoreDuplicates) は衝突→無エラーで通り、その後の SELECT で sent_at が
-      // 30 秒より古いため「別 invocation が取得済み」と誤判定され、当該リマインダーは
-      // 恒久 miss になる。送信失敗時は claim を解放（削除）して同種 run での再送を可能にする
-      // （favorites-digest / review-request 等の恒久 miss 防止と同方針）。
+      // 送信が失敗した場合、claim（sent_reminders 行）を握ったままにすると、翌 run の
+      // upsert(ignoreDuplicates) は既存行と衝突して INSERT 0 件（=負け判定）になり、
+      // 当該リマインダーは恒久 miss になる。送信失敗時は claim を解放（削除）して
+      // 同種 run での再送を可能にする（favorites-digest / review-request 等の恒久 miss 防止と同方針）。
       const releaseClaim = async () => {
         const { error: releaseErr } = await supabase
           .from('sent_reminders')
