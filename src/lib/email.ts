@@ -145,14 +145,17 @@ const BULK_AGGREGATED_CONTEXTS = new Set([
 /**
  * webhook_retry_queue（15分毎の webhook-retry cron）へ自動再送登録する対象 context。
  *
- * 対象＝顧客向け・単発（HTTPリクエスト起点の1回送信）で、他に再送手段が存在しない通知のみ。
+ * 対象＝顧客向け＋施設オーナー向けの単発イベント通知（HTTPリクエスト起点の1回送信）で、
+ * 他に再送手段が存在しないもの。
  * 上の BULK_AGGREGATED_CONTEXTS（booking_reminder / daily_summary / weekly_report /
  * onboarding_follow / favorites_digest）は各 cron が claim テーブルで「送達失敗時は claim を
  * 解放し翌 run で再送する」独自の再送機構を既に持つため、ここに二重で積むと
- * webhook-retry cron（15分毎）と cron 自身の翌 run 再送が競合し二重配信になり得るため対象外。
- * 施設オーナー向け（new_review_notification / new_inquiry_notification /
- * new_booking_notification / booking_cancellation_facility / welcome）も対象外
- * （今回のスコープ＝顧客向け通知のみ・2026年7月16日 神原さん承認）。
+ * webhook-retry cron（15分毎）と cron 自身の翌 run 再送が競合し二重配信になり得るため対象外
+ * （BULK 系＝claim 機構持ち cron からの送信のみ・二重送信防止で除外を維持）。
+ * new_review_notification / new_inquiry_notification / new_booking_notification /
+ * booking_cancellation_facility / welcome は施設オーナー向けの単発イベント通知で、
+ * 従来は失敗時の再送手段が一切無く Slack 警報のみで永久消失していたため、
+ * 顧客向けと同様にここへ追加した（2026年7月17日 拡張）。
  */
 const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'booking_confirmation',
@@ -161,6 +164,11 @@ const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'booking_confirmed',
   'booking_cancelled',
   'booking_status_update',
+  'new_booking_notification',
+  'booking_cancellation_facility',
+  'new_review_notification',
+  'new_inquiry_notification',
+  'welcome',
 ]);
 
 /**
