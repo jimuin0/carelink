@@ -20,6 +20,9 @@ jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
 }));
 jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
+// 【監査M2/H1】既存の挙動テストは問診 有効前提のため config を true にモックする。
+// ゲート OFF（404）は末尾の専用テストで別途 doMock して検証する。
+jest.mock('@/lib/intake-config', () => ({ INTAKE_CUSTOMER_ENABLED: true }));
 
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
@@ -565,5 +568,37 @@ describe('GET /api/intake – cookie callback invocable', () => {
     }) as any);
     expect([200, 201, 400, 500]).toContain(res.status);
     expect(mockCookieStore.getAll).toHaveBeenCalled();
+  });
+});
+
+// 【監査M2/H1】問診 非表示ゲート。INTAKE_CUSTOMER_ENABLED=false 時は GET/POST とも
+// 他の処理に一切触れず 404 を返す（PII 新規蓄積の物理停止・ゲスト送信 401 経路 H1 の到達不能化）。
+describe('問診 非表示ゲート（INTAKE_CUSTOMER_ENABLED=false）', () => {
+  afterEach(() => {
+    jest.resetModules();
+    jest.dontMock('@/lib/intake-config');
+  });
+
+  test('GET → 404（問診票は現在ご利用いただけません）', async () => {
+    jest.resetModules();
+    jest.doMock('@/lib/intake-config', () => ({ INTAKE_CUSTOMER_ENABLED: false }));
+    const { GET } = await import('../route');
+    const req = new Request('http://localhost/api/intake?facility_id=11111111-1111-1111-1111-111111111111');
+    const res = await GET(req as any);
+    expect(res.status).toBe(404);
+    expect((await res.json()).error).toContain('ご利用いただけません');
+  });
+
+  test('POST → 404（送信も拒否）', async () => {
+    jest.resetModules();
+    jest.doMock('@/lib/intake-config', () => ({ INTAKE_CUSTOMER_ENABLED: false }));
+    const { POST } = await import('../route');
+    const req = new Request('http://localhost/api/intake', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ template_id: 't', customer_name: 'X', facility_id: 'f' }),
+    });
+    const res = await POST(req as any);
+    expect(res.status).toBe(404);
   });
 });

@@ -14,10 +14,17 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { UUID_REGEX } from '@/lib/constants';
 import { alertCaughtError } from '@/lib/alert';
 import { safeCaptureException } from '@/lib/safe';
+import { INTAKE_CUSTOMER_ENABLED } from '@/lib/intake-config';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  // 【監査M2/H1・神原さん決定】ローンチでは問診を顧客に出さない。多層防御として
+  // API 経路でも直接アクセス（フォーム外の GET/POST）を 404 で拒否する。再開は
+  // INTAKE_CUSTOMER_ENABLED を true に戻すだけでよい。
+  if (!INTAKE_CUSTOMER_ENABLED) {
+    return NextResponse.json({ error: '問診票は現在ご利用いただけません' }, { status: 404 });
+  }
   try {
     const ip = getClientIp(request);
     if (await checkRateLimit(null, ip, 30, 60_000, 'intake-get')) {
@@ -56,6 +63,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: Request) {
+  // 【監査M2/H1・神原さん決定】問診 非表示中は送信も 404 で拒否（ゲスト送信の 401 経路 H1 も
+  // 到達不能になる）。PII（intake_form_responses）の新規蓄積を物理的に止める。
+  if (!INTAKE_CUSTOMER_ENABLED) {
+    return NextResponse.json({ error: '問診票は現在ご利用いただけません' }, { status: 404 });
+  }
   try {
     const csrfError = checkCsrf(request);
     if (csrfError) return csrfError;
