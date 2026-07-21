@@ -52,6 +52,10 @@ on:
           - /api/cron/schema-drift-check
           - /api/cron/cron-heartbeat
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   dispatch:
     name: Dispatch matching cron
