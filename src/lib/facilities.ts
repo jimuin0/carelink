@@ -1,5 +1,6 @@
 import { cache } from 'react';
 import { createServerSupabaseClient, createServiceRoleClient } from './supabase-server';
+import { alertCaughtError } from './alert';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
@@ -41,8 +42,16 @@ export async function searchFacilities(params: SearchParams) {
     // クォート内でも % / _ は LIKE ワイルドカードとして機能するため、前方/後方一致は維持される。
     const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
     const pat = `"%${escaped}%"`;
+    // 【2026年7月22日 恒久根治・監査C1】検索対象列は facility_card_view に実在する列のみに限る。
+    // 旧実装は nearest_station.ilike を含んでいたが facility_card_view に nearest_station 列は
+    // 存在せず（view は access_info を射影・nearest_station は非射影）、PostgREST が
+    // 「column facility_card_view.nearest_station does not exist」で 400 を返し、error 握り潰しで
+    // キーワード検索が常に0件になっていた（主要導線の無音全滅）。駅・アクセスのキーワードは
+    // view に実在する access_info（最寄駅・アクセス説明を含む）で一致させる。専用列
+    // nearest_station まで完全対称化するには view への列追加DDLが別途必要（GPS経路の RPC は
+    // facility_profiles.nearest_station を直接検索するため元テーブルには存在する）。
     query = query.or(
-      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},nearest_station.ilike.${pat}`
+      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat}`
     );
   }
 
@@ -114,6 +123,10 @@ export async function searchFacilities(params: SearchParams) {
   query = query.range(from, from + PER_PAGE - 1);
 
   const { data, count, error } = await query;
+  // 【2026年7月22日 監査C1】検索クエリの error を握り潰さず監視に載せる。列不存在・RLS 等で
+  // PostgREST が error を返すと data は null になり「0件」表示に化けるため、同種の無音破綻を
+  // 発症前に検知できるよう Slack 通知する（返り値の error は従来どおり呼び出し側へも渡す）。
+  if (error) alertCaughtError('searchFacilities', error, 'lib/facilities:searchFacilities');
   return { facilities: (data || []) as unknown as FacilityCardData[], total: count || 0, perPage: PER_PAGE, error };
 }
 

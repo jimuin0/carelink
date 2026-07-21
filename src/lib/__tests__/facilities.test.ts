@@ -22,6 +22,10 @@ jest.mock('../redis', () => ({
   cacheSet: jest.fn().mockResolvedValue(undefined),
   cacheDel: jest.fn().mockResolvedValue(undefined),
 }));
+const mockAlertCaughtError = jest.fn();
+jest.mock('../alert', () => ({
+  alertCaughtError: (...args: unknown[]) => mockAlertCaughtError(...args),
+}));
 
 import {
   searchFacilities,
@@ -45,6 +49,7 @@ beforeEach(() => {
   mockFrom.mockReset();
   mockServiceFrom.mockReset();
   mockRpc.mockReset();
+  mockAlertCaughtError.mockReset();
 });
 
 /** Build a fluent chain; every method returns self, terminal resolves with given value */
@@ -80,6 +85,34 @@ describe('searchFacilities', () => {
       (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('テスト')
     );
     expect(call).toBeTruthy();
+    // 【監査C1回帰】facility_card_view に存在しない nearest_station を参照すると
+    // PostgREST 400 でキーワード検索が常に0件になる。view 実在列 access_info を使い、
+    // nearest_station は絶対に参照しないことを固定する。
+    const orFilter = call![0] as string;
+    expect(orFilter).toContain('access_info.ilike.');
+    expect(orFilter).not.toContain('nearest_station');
+  });
+
+  test('【監査C1】検索クエリが error を返したら握り潰さず監視に載せる', async () => {
+    const chain = fluent({ data: null, count: null, error: { message: 'column does not exist' } });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await searchFacilities({ keyword: '駅' });
+    expect(result.facilities).toEqual([]);
+    expect(result.total).toBe(0);
+    expect(mockAlertCaughtError).toHaveBeenCalledWith(
+      'searchFacilities',
+      expect.objectContaining({ message: 'column does not exist' }),
+      expect.any(String)
+    );
+  });
+
+  test('【監査C1】error が無ければ監視は呼ばれない', async () => {
+    const chain = fluent({ data: [], count: 0, error: null });
+    mockFrom.mockReturnValue(chain);
+
+    await searchFacilities({ keyword: 'テスト' });
+    expect(mockAlertCaughtError).not.toHaveBeenCalled();
   });
 
   test('business_typeフィルタ', async () => {
