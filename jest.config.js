@@ -30,6 +30,11 @@ const config = {
       functions: 75,
       // L3: ブランチカバレッジ100%維持を CI で物理ゲート（測定スコープ内で実測100%）。
       // 下回ると jest --coverage が exit 1 し、ci.yml の Coverage Gate で検知される。
+      // 注意：ローカルで branches が 100% 未満（99.89% 等）になることがあるが、これは .env
+      // （gitignore・EMAIL_FROM / NEXT_PUBLIC_BASE_URL / RESEND_API_KEY 等）を next/jest が読み、
+      // `process.env.X || 'default'` の default 分岐（env 未設定時）が踏まれないための偽陽性。
+      // CI には .env が無いため両分岐がカバーされ 100%。ローカルで再現確認するなら .env を一時退避
+      // （mv .env .env.__bak → 実行 → trap で必ず復元）して実行する。
       branches: 100,
       statements: 80,
     },

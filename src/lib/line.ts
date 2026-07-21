@@ -141,6 +141,12 @@ export async function sendLinePush(
 /**
  * テキストメッセージ送信（簡易版）
  *
+ * 戻り値契約：外部送信ヘルパー（本関数・sendPush 系・sendXxxNotification 等）は送信失敗
+ * （リトライ上限到達）時も throw せず false を返す。呼び出し側は返り値を必ず受け、成功時のみ
+ * 送達フラグ（delivered / sent_at 等）を確定すること。false を無視して送達済みにすると、
+ * claim 解放による再送が発火せず配信が無音で永久消失する。新しい cron / 通知経路を足す時は
+ * 既存の webhook-retry / birthday-coupon と同じ `const ok = await sendX(); if (ok) …` 流儀に揃える。
+ *
  * opts.enqueueOnFailure=true を渡すと、送信失敗（false）時に webhook_retry_queue へ登録し
  * 15分毎の webhook-retry cron に自動再送させる。既定は enqueue しない（省略時は従来と完全に
  * 同一の挙動・戻り値契約）。review-request / birthday-coupon 等の cron から直接呼ぶ経路は
