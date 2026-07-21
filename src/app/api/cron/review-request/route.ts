@@ -8,6 +8,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { escSubject, esc } from '@/lib/email';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
@@ -170,20 +171,17 @@ export async function GET(request: Request) {
 
       // LINE通知
       if (booking.user_id && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
-        const { data: lineLink } = await supabase
-          .from('line_user_links')
-          .select('line_user_id')
-          .eq('user_id', booking.user_id)
-          .maybeSingle();
+        // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
+        const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
 
-        if (lineLink?.line_user_id) {
+        if (customerLineUserId) {
           attempted = true;
           try {
             // sendLineText はリトライ上限到達時に throw せず false を返す。戻り値を無視して
             // delivered=true に固定すると、配信失敗でも claim 解放（再送）が発火せず sent_at が
             // 立ったまま二度と再送されない（silent な恒久 miss）。戻り値で delivered を確定する。
             const ok = await sendLineText(
-              lineLink.line_user_id,
+              customerLineUserId,
               `✨ ${facility.name}へのご来店ありがとうございました！\n\n口コミを投稿すると50ポイントプレゼント🎁\n\n👇 口コミを書く\n${reviewUrl}`
             );
             if (ok) delivered = true;

@@ -14,6 +14,7 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { UUID_REGEX as uuidRegex } from '@/lib/constants';
 import { writeAuditLog } from '@/lib/audit-logger';
 import { notifyCancellationLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
@@ -261,13 +262,10 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
   try {
     if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
       const adminSupabase = createServiceRoleClient();
-      const { data: lineLink } = await adminSupabase
-        .from('line_user_links')
-        .select('line_user_id')
-        .eq('user_id', userId)
-        .maybeSingle();
+      // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
+      const lineUserId = await resolveLineUserIdForUser(adminSupabase, userId);
 
-      if (lineLink?.line_user_id) {
+      if (lineUserId) {
         const { data: facilityForLine } = await db
           .from('facility_profiles')
           .select('name')
@@ -282,7 +280,7 @@ export async function POST(_request: Request, props: { params: Promise<{ id: str
 
         // sendLineCancellation は失敗時 throw せず false を返す契約。void で捨てると送達失敗が
         // 完全に無音化するため、戻り値を確認して未送達をログに残す（可観測性の確保）。
-        const lineOk = await sendLineCancellation(lineLink.line_user_id, {
+        const lineOk = await sendLineCancellation(lineUserId, {
           facilityName: facilityForLine?.name || '',
           menuName: cancelMenuName,
           date: booking.booking_date,

@@ -2063,13 +2063,13 @@ describe('POST /api/booking', () => {
     // facility_profiles → auto-confirm
     const nullChain = fluent({ data: null });
 
-    // line_user_links → lineLink with line_user_id
+    // profiles → line_user_id（監査C2：連携の単一ソース）
     const lineLinkChain = fluent({ data: { line_user_id: 'line-user-abc' } });
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'profiles') return lineLinkChain;
       return nullChain; // facility_profiles (auto-confirm / email / LINE 施設名) 等
     });
 
@@ -2096,7 +2096,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'profiles') return lineLinkChain;
       return nullChain;
     });
 
@@ -2130,7 +2130,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'profiles') return lineLinkChain;
       if (table === 'staff_profiles') return staffChain;
       return nullChain;
     });
@@ -2162,7 +2162,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'profiles') return lineLinkChain;
       return nullChain; // staff_profiles も null → staffForLine?.name || '' の右辺
     });
 
@@ -2355,7 +2355,7 @@ describe('POST /api/booking', () => {
     // 1: bookings (conflict), 2: facility_menus (price check - .in().eq() chain)
     // 3: facility_profiles (auto-confirm), rpc
     // 4: facility_profiles (email), 5: facility_menus (email name lookup)
-    // 6: facility_members (owner), 7: line_user_links (LINE via adminSupabase)
+    // 6: facility_members (owner), 7: profiles (LINE via adminSupabase・監査C2)
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
@@ -2392,7 +2392,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return fluent({ data: { line_user_id: 'U_line_err' } });
+      if (table === 'profiles') return fluent({ data: { line_user_id: 'U_line_err' } });
       return fluent({ data: null });
     });
 
@@ -2416,7 +2416,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return fluent({ data: { line_user_id: 'U_line_undeliv' } });
+      if (table === 'profiles') return fluent({ data: { line_user_id: 'U_line_undeliv' } });
       return fluent({ data: null });
     });
 
@@ -3151,13 +3151,13 @@ describe('POST /api/booking', () => {
 
     const nullChain = fluent({ data: null });
 
-    // line_user_links → lineLink exists but line_user_id is null → lineLink?.line_user_id is falsy → skip
+    // profiles → line_user_id null → resolveLineUserIdForUser が null → skip（監査C2）
     const lineLinkChain = fluent({ data: { line_user_id: null } });
 
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'profiles') return lineLinkChain;
       return nullChain;
     });
 
@@ -3195,7 +3195,7 @@ describe('POST /api/booking', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return conflictChain;
       if (table === 'facility_menus') return menuLookupChain();
-      if (table === 'line_user_links') return lineLinkChain;
+      if (table === 'profiles') return lineLinkChain;
       if (table === 'staff_profiles') return staffListChain; // LINE Works 対象スタッフ
       return fluent({ data: null });
     });

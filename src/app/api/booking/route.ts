@@ -13,6 +13,7 @@ import { alertCaughtError } from '@/lib/alert';
 import { getFacilityNotificationSettings } from '@/lib/notification-settings';
 import { sendBookingConfirmation as sendLineBookingConfirm } from '@/lib/line';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { notifyNewBookingLineWorks, isLineWorksConfigured } from '@/lib/integrations/line-works';
 import { calculateCouponDiscountedTotal } from '@/lib/coupon-pricing';
 import { buildMenuStaffMap, isStaffCompatibleWithMenus } from '@/lib/menu-staff';
@@ -499,13 +500,11 @@ export async function POST(request: Request) {
   try {
     if (user && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
       const adminSupabase = createServiceRoleClient();
-      const { data: lineLink } = await adminSupabase
-        .from('line_user_links')
-        .select('line_user_id')
-        .eq('user_id', user.id)
-        .maybeSingle();
+      // 【監査C2】連携の単一ソース profiles.line_user_id で解決する（line_user_links.user_id は
+      // どの経路でも populate されず常に0件ヒットで LINE 通知が無音失効していた）。
+      const lineUserId = await resolveLineUserIdForUser(adminSupabase, user.id);
 
-      if (lineLink?.line_user_id) {
+      if (lineUserId) {
         const { data: facilityForLine } = await supabase
           .from('facility_profiles')
           .select('name')
@@ -530,7 +529,7 @@ export async function POST(request: Request) {
         // 契約のため、.catch() だけでは失敗が無音化する。戻り値を確認して可視化する。
         // 本パスは line_user_id 連携済みの時のみ到達するため、false は「連携なし」でなく真の未送達。
         bookingSideEffects.push(
-          sendLineBookingConfirm(lineLink.line_user_id, {
+          sendLineBookingConfirm(lineUserId, {
             facilityName: facilityForLine?.name || '',
             menuName: lineMenuName,
             staffName: lineStaffName || undefined,

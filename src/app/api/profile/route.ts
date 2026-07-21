@@ -28,20 +28,23 @@ const profileSchema = z.object({
 
 // LINE 連携状態を返す（mypage/settings が連携バッジ表示に使用）。
 // 旧実装は GET ハンドラが無く settings が GET /api/profile → 405 → 常にエラー表示していた。
-// 連携は profiles.line_user_id ではなく line_user_links テーブルで管理される（mypage/profile と同経路）。
+// 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
+// 旧実装は line_user_links を user_id で引いて linked を判定していたが、同列は常に NULL のため
+// LIFF 連携済みでも常に linked=false（未連携表示）になっていた。profiles.line_user_id の
+// 非 NULL で連携判定する（送信経路と単一ソースを一致させる）。
 export const GET = withRoute(async (_request, ctx) => {
   const serviceClient = createServiceRoleClient();
   const { data, error } = await serviceClient
-    .from('line_user_links')
-    .select('user_id')
-    .eq('user_id', ctx.user!.id)
+    .from('profiles')
+    .select('line_user_id')
+    .eq('id', ctx.user!.id)
     .maybeSingle();
 
   if (error) {
     return NextResponse.json({ error: '取得に失敗しました' }, { status: 500 });
   }
 
-  return NextResponse.json({ linked: !!data });
+  return NextResponse.json({ linked: !!data?.line_user_id });
 }, {
   csrf: false,
   requireAuth: true,

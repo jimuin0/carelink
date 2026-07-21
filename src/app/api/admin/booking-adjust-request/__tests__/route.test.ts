@@ -19,6 +19,8 @@ jest.mock('@/lib/supabase-server');
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 jest.mock('@/lib/email');
 jest.mock('@/lib/line');
+// 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。cfg.lineLink を helper へ配線。
+jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 
 import { POST } from '../route';
@@ -136,6 +138,11 @@ function setup() {
   const lineModule = require('@/lib/line');
   mockSendLineText = jest.fn().mockResolvedValue(true);
   lineModule.sendLineText = mockSendLineText;
+
+  // 【監査C2】顧客の連携解決は profiles.line_user_id（helper）。test 本文で cfg.lineLink を
+  // 書き換えるケースがあるため、実行時に cfg を参照する mockImplementation で反映する。
+  const { resolveLineUserIdForUser } = require('@/lib/line-link');
+  (resolveLineUserIdForUser as jest.Mock).mockImplementation(async () => cfg.lineLink?.line_user_id ?? null);
 }
 
 beforeEach(() => {

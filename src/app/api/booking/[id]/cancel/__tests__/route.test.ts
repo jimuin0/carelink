@@ -12,6 +12,9 @@ jest.mock('@/lib/email', () => ({
 }));
 jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn().mockResolvedValue(undefined) }));
+// 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。route テストは
+// helper をモックして DB モックから切り離す（helper 自体は line-link.test.ts で branches 100%）。
+jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/lib/liff-auth', () => ({ getBearerToken: jest.fn(() => null), resolveLiffUserId: jest.fn() }));
 jest.mock('@/lib/integrations/line-works', () => ({
@@ -1252,6 +1255,7 @@ describe('POST /api/booking/[id]/cancel', () => {
 
   test('LINE_CHANNEL_ACCESS_TOKEN_CARELINK 設定時 → LINE通知パスを通る', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U_line_test');
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
@@ -1296,6 +1300,7 @@ describe('POST /api/booking/[id]/cancel', () => {
 
   test('LINE通知: menu_id あり → facility_menus からメニュー名を取得して通知', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U_line_abc');
     const { sendBookingCancellation } = require('@/lib/line');
     // 送達成功(truthy)を返させ、戻り値確認の成功分岐(未送達ログを出さない)を網羅する。
     (sendBookingCancellation as jest.Mock).mockResolvedValueOnce(true);
@@ -1679,6 +1684,7 @@ describe('POST /api/booking/[id]/cancel', () => {
   // Branch coverage: line 146 — LINE通知パス内で menu_id が存在してlineLink有効、menu_id false分岐
   test('LINE通知: lineLink あり + menu_id なし → cancelMenuName = "" で通知', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U_no_menu');
     const { sendBookingCancellation } = require('@/lib/line');
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
@@ -1741,6 +1747,7 @@ describe('POST /api/booking/[id]/cancel', () => {
   // Branch coverage: line 148 — menuForLine が見つかったが name が null の場合
   test('LINE通知: menu_id あり + menuForLine.name が null → cancelMenuName = ""', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U_null_name');
     const { sendBookingCancellation } = require('@/lib/line');
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
@@ -1811,6 +1818,7 @@ describe('POST /api/booking/[id]/cancel', () => {
   // Branch coverage: line 152 — facilityForLine?.name が null (|| '' 分岐)
   test('LINE通知: facilityForLine.name が null → facilityName = ""', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
+    (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U_null_facility');
     const { sendBookingCancellation } = require('@/lib/line');
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });

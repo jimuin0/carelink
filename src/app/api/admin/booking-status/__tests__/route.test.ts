@@ -16,6 +16,8 @@ jest.mock('@/lib/email', () => ({
 }));
 jest.mock('@/lib/push', () => ({ sendPushToUser: jest.fn(() => Promise.resolve(true)) }));
 jest.mock('@/lib/line', () => ({ sendBookingCancellation: jest.fn() }));
+// 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。DB モックから切り離す。
+jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 // 紹介ボーナス付与(applyCompletionSideEffects 経由)は referral.test / booking-completion.test で
 // 検証済み。ここでは no-op にして referral_uses クエリのモックを不要にする（責務分離）。
@@ -526,6 +528,16 @@ describe('POST /api/admin/booking-status - notifications', () => {
     /** confirmed→cancelled 成功パス。line_user_links は maybeSingle で lineLink を返す。 */
     function setupCancelledLineMock(lineLinkData: unknown, opts: { linkThrows?: boolean } = {}) {
       mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+      // 【監査C2】顧客の連携解決は profiles.line_user_id（helper）。linkThrows は helper を
+      // reject させて外側 catch（LINE cancellation notification failed）を網羅する。
+      const { resolveLineUserIdForUser } = require('@/lib/line-link');
+      if (opts.linkThrows) {
+        (resolveLineUserIdForUser as jest.Mock).mockRejectedValue(new Error('link query boom'));
+      } else {
+        (resolveLineUserIdForUser as jest.Mock).mockResolvedValue(
+          (lineLinkData as { line_user_id?: string } | null)?.line_user_id ?? null,
+        );
+      }
       let callCount = 0;
       mockFrom.mockImplementation((table: string) => {
         if (table === 'bookings') {
@@ -582,6 +594,8 @@ describe('POST /api/admin/booking-status - notifications', () => {
     test('facility 名が空・menu 名ありでも既定値で LINE 通知（|| フォールバック分岐）', async () => {
       (sendBookingCancellation as jest.Mock).mockResolvedValue(true);
       mockGetUser.mockResolvedValue({ data: { user: { id: userId } } });
+      // 【監査C2】顧客の連携解決は profiles.line_user_id（helper）。
+      (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue('U-x');
       let callCount = 0;
       mockFrom.mockImplementation((table: string) => {
         if (table === 'bookings') {
