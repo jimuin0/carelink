@@ -14,6 +14,12 @@ import { awardReferralPointsOnCompletion } from './referral';
  * 失敗は致命でないため Sentry 通知のみで本体は継続（admin は service_role を渡すこと）。
  * 呼び出し側が status='confirmed'→'completed' を CAS で1回だけ確定してから呼ぶ前提
  * （重複付与防止）。返り値は付与した来店ポイント数。
+ *
+ * 【不変条件】completed へ進入する全経路で本関数を、completed から離脱する全経路で
+ * reverseCompletionSideEffects を必ず対で呼ぶ（対称性）。現在の完了経路は3つ＝
+ * /api/booking/complete・/api/admin/booking-status・/api/admin/booking-checkout
+ * （退店レジ会計・total_price を確定してから呼ぶ）。新たな完了 / 離脱経路を足す時は
+ * apply / reverse の配線を必ず対で追加すること（片側漏れは来店実績・ポイントの無音欠落になる）。
  */
 export interface CompletableBooking {
   id: string;
