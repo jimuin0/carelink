@@ -204,6 +204,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       if (emails.length > 0) {
         // 【監査M4】配信停止リストは PostgREST 1000行上限で無音打ち切りされると停止済みユーザーへ
         // 誤送信し得るため、必ず全件取得する（取得失敗は空集合扱いにせず送信を中止＝fail-safe）。
+        // 【監査M4 low】suppression は「全件取得」が契約。failOnTruncation:true で maxRows 打ち切りを
+        // error として受け取り、下の既存 fail-safe 分岐で送信中止する（打ち切りを許すと停止済みが
+        // suppression から漏れ opted-out へ誤送信する fail-open になる）。
         const { rows: unsubProfiles, error: unsubProfilesErr } = await fetchAllPaged<{ email: string | null }>(
           async (offset, limit) => {
             const { data, error } = await admin
@@ -215,9 +218,10 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
               .range(offset, offset + limit - 1);
             return { data, error };
           },
+          { failOnTruncation: true },
         );
         if (unsubProfilesErr) {
-          console.error('[newsletter/send] unsubscribed profiles fetch failed — aborting to avoid sending to opted-out users', { campaignId: params.id, err: unsubProfilesErr });
+          console.error('[newsletter/send] unsubscribed profiles fetch failed/truncated — aborting to avoid sending to opted-out users', { campaignId: params.id, err: unsubProfilesErr });
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
           return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
         }
@@ -232,9 +236,10 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
               .range(offset, offset + limit - 1);
             return { data, error };
           },
+          { failOnTruncation: true },
         );
         if (inactiveSubsErr) {
-          console.error('[newsletter/send] inactive subscriptions fetch failed — aborting to avoid sending to opted-out users', { campaignId: params.id, err: inactiveSubsErr });
+          console.error('[newsletter/send] inactive subscriptions fetch failed/truncated — aborting to avoid sending to opted-out users', { campaignId: params.id, err: inactiveSubsErr });
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
           return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
         }
