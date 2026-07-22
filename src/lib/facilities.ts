@@ -1,6 +1,5 @@
 import { cache } from 'react';
 import { createServerSupabaseClient, createServiceRoleClient } from './supabase-server';
-import { alertCaughtError } from './alert';
 import type { Facility, FacilityCardData, FacilityMenu, FacilityPhoto, FacilityReview, SearchParams, ScheduleOverride } from '@/types';
 import { cachedFetch } from './redis';
 import { jstMonthInfo, dayOfWeekUtc } from './admin-date';
@@ -123,10 +122,11 @@ export async function searchFacilities(params: SearchParams) {
   query = query.range(from, from + PER_PAGE - 1);
 
   const { data, count, error } = await query;
-  // 【2026年7月22日 監査C1】検索クエリの error を握り潰さず監視に載せる。列不存在・RLS 等で
-  // PostgREST が error を返すと data は null になり「0件」表示に化けるため、同種の無音破綻を
-  // 発症前に検知できるよう Slack 通知する（返り値の error は従来どおり呼び出し側へも渡す）。
-  if (error) alertCaughtError('searchFacilities', error, 'lib/facilities:searchFacilities');
+  // 【2026年7月22日 監査C1】検索クエリの error は返り値の error で呼び出し側へ渡す（従来どおり）。
+  // 注意：ここで alertCaughtError を per-request に発火させると、公開検索は高トラフィックかつ
+  // preview 等の環境要因（anon キー不正 401 等）で全リクエストが失敗し得るため Slack が
+  // フラッド（実測200件超）する。無音破綻の検知は外形監視(health-monitor)側に委ね、この
+  // ホットパスでは通知しない（列不存在の再発防止は回帰テストと下の access_info 固定で担保）。
   return { facilities: (data || []) as unknown as FacilityCardData[], total: count || 0, perPage: PER_PAGE, error };
 }
 
