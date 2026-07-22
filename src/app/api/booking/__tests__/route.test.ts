@@ -226,8 +226,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain; // conflict check
-      if (callNum === 2) return menuLookupChain(); // facility_menus 価格ルックアップ
+      if (callNum === 1) return menuLookupChain(); // facility_menus 価格ルックアップ
       return nullChain;                         // facility_profiles + notification lookups
     });
 
@@ -249,8 +248,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -336,8 +334,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -357,8 +354,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -377,8 +373,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -399,8 +394,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -422,8 +416,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
   }
@@ -535,11 +528,10 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;  // conflict check
-      if (callNum === 2) return menuChain;      // facility_menus 価格ルックアップ
-      if (callNum === 3) return balanceChain;   // user_points 残高スナップショット
-      if (callNum === 4) return nullChain;      // facility_profiles (auto-confirm)
-      if (table === 'user_points' && callNum === 5) return deductionChain; // 控除 insert
+      if (callNum === 1) return menuChain;      // facility_menus 価格ルックアップ
+      if (callNum === 2) return balanceChain;   // user_points 残高スナップショット
+      if (callNum === 3) return nullChain;      // facility_profiles (auto-confirm)
+      if (table === 'user_points' && callNum === 4) return deductionChain; // 控除 insert
       if (table === 'user_points') return recheckChain;                    // 再検証
       return nullChain;
     });
@@ -572,7 +564,7 @@ describe('POST /api/booking', () => {
   test('H-1: ポイント控除INSERT失敗 → 予約キャンセル+500（無償値引き防止）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
-    const { menuChain, conflictChain, balanceChain } = pointMenuChains(8000, 10000);
+    const { menuChain, balanceChain } = pointMenuChains(8000, 10000);
     const nullChain = fluent({ data: null });
     const deductionChain: Record<string, unknown> = {};
     deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'insert failed' } })) })) }));
@@ -583,11 +575,10 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain;                                 // facility auto-confirm
-      if (table === 'user_points' && callNum === 5) return deductionChain; // 控除 insert（error）
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;                                 // facility auto-confirm
+      if (table === 'user_points' && callNum === 4) return deductionChain; // 控除 insert（error）
       if (table === 'bookings') return bookingRbChain;                     // ロールバック
       return nullChain;
     });
@@ -600,7 +591,7 @@ describe('POST /api/booking', () => {
   test('SM-12: 残高recheck取得失敗 → 控除削除+予約キャンセル+500（fail-open防止）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
-    const { menuChain, conflictChain, balanceChain } = pointMenuChains(8000, 10000);
+    const { menuChain, balanceChain } = pointMenuChains(8000, 10000);
     const nullChain = fluent({ data: null });
     const deductionChain: Record<string, unknown> = {};
     deductionChain.insert = jest.fn(() => ({ select: jest.fn(() => ({ single: jest.fn(() => Promise.resolve({ data: { id: 'deduction-1' }, error: null })) })) }));
@@ -614,11 +605,10 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain;
-      if (table === 'user_points' && callNum === 5) return deductionChain; // 控除 insert（ok）
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain; // 控除 insert（ok）
       if (table === 'user_points') return recheckChain;                    // recheck（error）
       if (table === 'bookings') return bookingRbChain;                     // ロールバック
       return nullChain;
@@ -633,7 +623,7 @@ describe('POST /api/booking', () => {
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
     const menuId = '323e4567-e89b-12d3-a456-426614174000';
     const couponId = '423e4567-e89b-12d3-a456-426614174000';
-    const { menuChain, conflictChain, balanceChain } = pointMenuChains(8000, 10000);
+    const { menuChain, balanceChain } = pointMenuChains(8000, 10000);
     const nullChain = fluent({ data: null });
     // coupon 検証（fixed 0円割引 = 価格不変・有効）
     const couponsChain = fluent({ data: { discount_type: 'fixed', discount_value: 0, special_price: null, is_active: true, valid_from: null, valid_until: null } });
@@ -648,13 +638,12 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       if (table === 'coupons') return couponsChain;          // coupon 検証（callNum 3）
       if (table === 'coupon_menus') return couponMenusChain([]); // 対象メニューチェック（callNum 4・0行→全メニュー適用）
-      if (callNum === 5) return balanceChain;
-      if (callNum === 6) return nullChain;                   // facility auto-confirm
-      if (table === 'user_points' && callNum === 7) return deductionChain; // 控除 insert（error）
+      if (callNum === 4) return balanceChain;
+      if (callNum === 5) return nullChain;                   // facility auto-confirm
+      if (table === 'user_points' && callNum === 6) return deductionChain; // 控除 insert（error）
       if (table === 'bookings') return bookingRbChain;       // ロールバック
       if (table === 'coupon_redemptions') return couponDelChain; // クーポン解放
       return nullChain;
@@ -710,8 +699,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain; // conflict check
-      if (callNum === 2) return menuChain;     // facility_menus price lookup
+      if (callNum === 1) return menuChain;     // facility_menus price lookup
       return nullChain;                        // facility_profiles + notification lookups
     });
 
@@ -755,9 +743,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;  // conflict check
-      if (callNum === 2) return menuChain;      // facility_menus lookup
-      if (callNum === 3) return couponChain;    // coupons discount lookup
+      if (callNum === 1) return menuChain;      // facility_menus lookup
+      if (callNum === 2) return couponChain;    // coupons discount lookup
       if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;                         // facility_profiles + notification lookups
     });
@@ -796,9 +783,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
@@ -835,9 +821,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
@@ -895,13 +880,12 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;   // conflict check (bookings)
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 3) return balanceChain;    // user_points balance snapshot
-      if (callNum === 4) return nullChain;       // facility_profiles (auto-confirm)
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 2) return balanceChain;    // user_points balance snapshot
+      if (callNum === 3) return nullChain;       // facility_profiles (auto-confirm)
       // After RPC success:
-      if (table === 'user_points' && callNum === 5) return deductionChain; // insert deduction
-      if (table === 'user_points' && callNum === 6) return recheckChain;   // re-verify balance
+      if (table === 'user_points' && callNum === 4) return deductionChain; // insert deduction
+      if (table === 'user_points' && callNum === 5) return recheckChain;   // re-verify balance
       if (table === 'user_points') return deleteChain;                     // rollback deduction
       if (table === 'bookings') return cancelChain;                        // cancel booking
       return nullChain;
@@ -923,8 +907,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -955,9 +938,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
@@ -995,9 +977,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });
@@ -1040,9 +1021,8 @@ describe('POST /api/booking', () => {
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return couponChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return couponChain;
         // 対象メニューは otherMenuId と menuId の2件。選択中の menuId が含まれるため通る。
         if (table === 'coupon_menus') return couponMenusChain([{ menu_id: otherMenuId }, { menu_id: menuId }]);
         return nullChain;
@@ -1081,9 +1061,8 @@ describe('POST /api/booking', () => {
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return couponChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return couponChain;
         // 対象メニューは allowedMenuId のみ。選択中の menuId は含まれないため拒否。
         if (table === 'coupon_menus') return couponMenusChain([{ menu_id: allowedMenuId }]);
         return nullChain;
@@ -1120,9 +1099,8 @@ describe('POST /api/booking', () => {
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return couponChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return couponChain;
         if (table === 'coupon_menus') return couponMenusChain(null, { message: 'db error' });
         return nullChain;
       });
@@ -1250,13 +1228,12 @@ describe('POST /api/booking', () => {
     test('menu_staffに行あり・指名なし(staff_id null)→担当チェックはスキップし通る（200）', async () => {
       // staff_id が無ければ担当制の判定対象外（おまかせ）。menu_staff クエリ自体が実行されない。
       mockGetUser.mockResolvedValue({ data: { user: null } });
-      const { conflictChain, menuChain, nullChain, menuId } = baseChains(8000);
+      const { menuChain, nullChain, menuId } = baseChains(8000);
       const menuStaffSpy = jest.fn(() => menuStaffChain([{ menu_id: menuId, staff_id: 'some-staff' }]));
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
+        if (callNum === 1) return menuChain;
         if (table === 'menu_staff') return menuStaffSpy();
         return nullChain;
       });
@@ -1298,9 +1275,8 @@ describe('POST /api/booking', () => {
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return couponChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return couponChain;
         // 対象メニューは targetMenuId のみ（otherMenuId は対象外）
         if (table === 'coupon_menus') return couponMenusChain([{ menu_id: targetMenuId }]);
         return nullChain;
@@ -1343,9 +1319,8 @@ describe('POST /api/booking', () => {
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return couponChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return couponChain;
         if (table === 'coupon_menus') return couponMenusChain([{ menu_id: targetMenuId }]);
         return nullChain;
       });
@@ -1388,9 +1363,8 @@ describe('POST /api/booking', () => {
       let callNum = 0;
       mockFrom.mockImplementation((table: string) => {
         callNum++;
-        if (callNum === 1) return conflictChain;
-        if (callNum === 2) return menuChain;
-        if (callNum === 3) return couponChain;
+        if (callNum === 1) return menuChain;
+        if (callNum === 2) return couponChain;
         if (table === 'coupon_menus') return couponMenusChain([{ menu_id: targetMenuId }]);
         return nullChain;
       });
@@ -1431,9 +1405,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       return fluent({ data: null });
     });
 
@@ -1466,9 +1439,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       return fluent({ data: null });
     });
 
@@ -1501,8 +1473,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       return fluent({ data: null });
     });
 
@@ -1580,8 +1551,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       return nullChain;
     });
 
@@ -1620,8 +1590,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       return nullChain;
     });
 
@@ -1662,8 +1631,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       return restErr;
     });
 
@@ -1730,12 +1698,11 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain;
-      if (table === 'user_points' && callNum === 5) return deductionChain;
-      if (table === 'user_points' && callNum === 6) return recheckChain;
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
       return nullChain;
     });
 
@@ -1793,8 +1760,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain; // conflict check（重複あり・おまかせでは 409 にしない）
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -1830,8 +1796,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -1851,8 +1816,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
     mockRpc.mockResolvedValue({ data: null, error: { message: 'STAFF_NOT_IN_FACILITY: 指定されたスタッフはこの施設に所属していません', code: 'P0001' } });
@@ -1874,8 +1838,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain();
+      if (callNum === 1) return menuLookupChain();
       return nullChain;
     });
 
@@ -1959,8 +1922,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;       // conflict check
-      if (callNum === 2) return menuLookupChain();   // facility_menus 価格ルックアップ
+      if (callNum === 1) return menuLookupChain();   // facility_menus 価格ルックアップ
       if (table === 'facility_members') return ownerRowsChain([{ user_id: ownerId }]);
       if (table === 'profiles') return ownerRowsChain([{ email: ownerEmail }]);
       return nullChain;                              // facility_profiles + 通知用メニュー名 lookup
@@ -2431,8 +2393,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2 && table === 'facility_menus') {
+      if (callNum === 1 && table === 'facility_menus') {
         // Price validation: .select().in().eq() must resolve to { data: [{ id, price }] }
         return {
           select: jest.fn().mockReturnThis(),
@@ -2441,7 +2402,7 @@ describe('POST /api/booking', () => {
           or: jest.fn().mockResolvedValue({ data: [{ id: MENU_UUID, price: 5000 }], error: null }),
         };
       }
-      if (callNum === 7) return fluent({ data: { line_user_id: 'U_line_menu' } });
+      if (callNum === 6) return fluent({ data: { line_user_id: 'U_line_menu' } });
       return fluent({ data: null });
     });
 
@@ -2644,12 +2605,11 @@ describe('POST /api/booking', () => {
     let upCall = 0;
     mockFrom.mockImplementation((table: string) => {
       upCall++;
-      if (upCall === 1) return conflictChain;
-      if (upCall === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (upCall === 3) return balanceChain;
-      if (upCall === 4) return nullChain;
-      if (table === 'user_points' && upCall === 5) return deductionChain;
-      if (table === 'user_points' && upCall === 6) return recheckChain;
+      if (upCall === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (upCall === 2) return balanceChain;
+      if (upCall === 3) return nullChain;
+      if (table === 'user_points' && upCall === 4) return deductionChain;
+      if (table === 'user_points' && upCall === 5) return recheckChain;
       if (table === 'user_points') return rollbackPointsChain;
       if (table === 'bookings') return rollbackBookingChain;
       return nullChain;
@@ -2693,8 +2653,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuLookupChain(5000);
+      if (callNum === 1) return menuLookupChain(5000);
       return fluent({ data: null });
     });
     const res = await POST(makeRequest({ ...validBooking, menu_id: null, menu_ids: [MENU_UUID] }));
@@ -2726,8 +2685,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       return fluent({ data: null });
     });
 
@@ -2758,8 +2716,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
+      if (callNum === 1) return menuChain;
       return nullChain;
     });
 
@@ -2804,9 +2761,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       return fluent({ data: null });
     });
 
@@ -2851,12 +2807,11 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return fluent({ data: null }); // facility_profiles
-      if (table === 'user_points' && callNum === 5) return deductionChain;
-      if (table === 'user_points' && callNum === 6) return recheckChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return fluent({ data: null }); // facility_profiles
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
       return fluent({ data: null });
     });
 
@@ -2901,12 +2856,11 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain;
-      if (table === 'user_points' && callNum === 5) return deductionChain;
-      if (table === 'user_points' && callNum === 6) return recheckChain;
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
       if (table === 'bookings') return cancelChain;
       return nullChain;
     });
@@ -2954,12 +2908,11 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain;
-      if (table === 'user_points' && callNum === 5) return deductionChain;
-      if (table === 'user_points' && callNum === 6) return recheckChain;
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
       if (table === 'user_points') return deleteChain;
       if (table === 'bookings') return cancelChain;
       return nullChain;
@@ -3013,12 +2966,11 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain;
-      if (table === 'user_points' && callNum === 5) return deductionChain;
-      if (table === 'user_points' && callNum === 6) return recheckChain;
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain;
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckChain;
       if (table === 'user_points') return deleteChain;
       if (table === 'bookings') return cancelChain;
       return nullChain;
@@ -3047,8 +2999,7 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation(() => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
       return pointsNullChain;
     });
 
@@ -3086,12 +3037,11 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuPriceChain(100000); // facility_menus price lookup
-      if (callNum === 3) return balanceChain;
-      if (callNum === 4) return nullChain; // facility_profiles
-      if (table === 'user_points' && callNum === 5) return deductionChain;
-      if (table === 'user_points' && callNum === 6) return recheckNullChain;
+      if (callNum === 1) return menuPriceChain(100000); // facility_menus price lookup
+      if (callNum === 2) return balanceChain;
+      if (callNum === 3) return nullChain; // facility_profiles
+      if (table === 'user_points' && callNum === 4) return deductionChain;
+      if (table === 'user_points' && callNum === 5) return recheckNullChain;
       return nullChain;
     });
 
@@ -3196,9 +3146,8 @@ describe('POST /api/booking', () => {
     let callNum = 0;
     mockFrom.mockImplementation((table: string) => {
       callNum++;
-      if (callNum === 1) return conflictChain;
-      if (callNum === 2) return menuChain;
-      if (callNum === 3) return couponChain;
+      if (callNum === 1) return menuChain;
+      if (callNum === 2) return couponChain;
       if (table === 'coupon_menus') return couponMenusChain([]); // 0行→全メニュー適用
       return nullChain;
     });

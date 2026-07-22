@@ -21,6 +21,14 @@ export interface MasterCustomer {
   last_visit: string | null;
   segment: string | null;
   total_spent: number | null;
+  // 【監査M3】複数施設オーナー対応：各顧客が属する施設。編集/削除はこの facility_id を使う。
+  facility_id: string;
+  facility_name: string;
+}
+
+export interface Facility {
+  id: string;
+  name: string;
 }
 
 const SEGMENT_LABEL: Record<string, { label: string; className: string }> = {
@@ -36,6 +44,9 @@ export interface UnregisteredCustomer {
   email: string;
   visit_count: number;
   last_visit: string;
+  // 【監査M3】未登録顧客も所属施設を持つ（「登録」時にその施設へ追加する）。
+  facility_id: string;
+  facility_name: string;
 }
 
 type FormState = {
@@ -47,9 +58,11 @@ type FormState = {
   birthday: string;
   gender: string;
   notes: string;
+  // 【監査M3】追加=セレクタで選んだ施設、編集=当該顧客の施設。CRUD はこの facility_id を使う。
+  facility_id: string;
 };
 
-const EMPTY_FORM: FormState = { id: null, name: '', name_kana: '', email: '', phone: '', birthday: '', gender: '', notes: '' };
+const EMPTY_FORM: FormState = { id: null, name: '', name_kana: '', email: '', phone: '', birthday: '', gender: '', notes: '', facility_id: '' };
 
 const GENDER_LABEL: Record<string, string> = { male: '男性', female: '女性', other: 'その他' };
 
@@ -66,18 +79,22 @@ const EMPTY_SEARCH: SearchState = {
 const includesCI = (v: string | null, q: string) => !q || (v ?? '').toLowerCase().includes(q.toLowerCase());
 
 export default function CustomersManager({
-  facilityId,
+  facilities,
   customers,
   unregistered,
 }: {
-  facilityId: string;
+  facilities: Facility[];
   customers: MasterCustomer[];
   unregistered: UnregisteredCustomer[];
 }) {
   const router = useRouter();
+  // 【監査M3】複数施設のとき一覧に施設列・追加フォームに施設セレクタを出す。単一施設は従来どおり。
+  const multiFacility = facilities.length > 1;
+  const defaultFacilityId = facilities[0]?.id ?? '';
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  // 削除は対象顧客の facility_id が必要なため {id, facility_id} で保持する。
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; facility_id: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
   // ステート更新が次レンダーまで反映されない隙の二重クリックも弾く同期ガード。
   const deletingRef = useRef(false);
@@ -106,7 +123,8 @@ export default function CustomersManager({
   // 未登録（来店履歴のみ）は名前・メールのみで突合（他項目は保持していない）。
   const filteredUnregistered = unregistered.filter((u) => includesCI(u.name, search.name) && includesCI(u.email, search.email));
 
-  const openCreate = (prefill?: Partial<FormState>) => setForm({ ...EMPTY_FORM, ...prefill });
+  // 追加は既定施設（単一施設ならその施設・複数ならセレクタで変更可能）。prefill で施設を上書き可。
+  const openCreate = (prefill?: Partial<FormState>) => setForm({ ...EMPTY_FORM, facility_id: defaultFacilityId, ...prefill });
   const openEdit = (c: MasterCustomer) =>
     setForm({
       id: c.id,
@@ -117,6 +135,7 @@ export default function CustomersManager({
       birthday: c.birthday ?? '',
       gender: c.gender ?? '',
       notes: c.notes ?? '',
+      facility_id: c.facility_id, // 編集は当該顧客の施設で固定（施設移動はしない）
     });
 
   const handleSave = async () => {
@@ -136,9 +155,10 @@ export default function CustomersManager({
         gender: form.gender || null,
         notes: form.notes.trim() || null,
       };
+      // 【監査M3】追加/編集とも form.facility_id（対象施設）を使う。
       const url = form.id
-        ? `/api/admin/customers/${form.id}?facility_id=${facilityId}`
-        : `/api/admin/customers?facility_id=${facilityId}`;
+        ? `/api/admin/customers/${form.id}?facility_id=${form.facility_id}`
+        : `/api/admin/customers?facility_id=${form.facility_id}`;
       const res = await fetch(url, {
         method: form.id ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -160,11 +180,11 @@ export default function CustomersManager({
   };
 
   const handleDelete = async () => {
-    if (!deleteId || deletingRef.current) return;
+    if (!deleteTarget || deletingRef.current) return;
     deletingRef.current = true;
     setDeleting(true);
     try {
-      const res = await fetch(`/api/admin/customers/${deleteId}?facility_id=${facilityId}`, { method: 'DELETE' });
+      const res = await fetch(`/api/admin/customers/${deleteTarget.id}?facility_id=${deleteTarget.facility_id}`, { method: 'DELETE' });
       if (!res.ok) {
         const e = await res.json().catch(() => ({}));
         setToast({ type: 'error', message: e.error || '削除に失敗しました' });
@@ -177,7 +197,7 @@ export default function CustomersManager({
     } finally {
       deletingRef.current = false;
       setDeleting(false);
-      setDeleteId(null);
+      setDeleteTarget(null);
     }
   };
 
@@ -276,6 +296,7 @@ export default function CustomersManager({
           <SbTable>
             <SbThead>
               <SbTh>お客様名</SbTh>
+              {multiFacility && <SbTh>施設</SbTh>}
               <SbTh>連絡先</SbTh>
               <SbTh align="center">来店回数</SbTh>
               <SbTh>最終来店</SbTh>
@@ -291,6 +312,7 @@ export default function CustomersManager({
                     {c.name_kana && <span className="block text-xs text-gray-400">{c.name_kana}</span>}
                     {c.gender && <span className="ml-1 text-xs text-gray-400">（{GENDER_LABEL[c.gender] ?? c.gender}）</span>}
                   </SbTd>
+                  {multiFacility && <SbTd className="text-gray-500 text-xs">{c.facility_name}</SbTd>}
                   <SbTd className="text-gray-500 text-xs">
                     {c.email && <span className="block">{c.email}</span>}
                     {c.phone && <span className="block">{c.phone}</span>}
@@ -313,7 +335,7 @@ export default function CustomersManager({
                   <SbTd align="center">
                     <div className="flex items-center justify-center gap-1">
                       <button type="button" onClick={() => openEdit(c)} className="px-3 py-1.5 text-xs rounded border border-sky-200 text-sky-700 hover:bg-sky-50">編集</button>
-                      <button type="button" onClick={() => setDeleteId(c.id)} className="px-3 py-1.5 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50">削除</button>
+                      <button type="button" onClick={() => setDeleteTarget({ id: c.id, facility_id: c.facility_id })} className="px-3 py-1.5 text-xs rounded border border-red-200 text-red-600 hover:bg-red-50">削除</button>
                     </div>
                   </SbTd>
                 </tr>
@@ -344,7 +366,7 @@ export default function CustomersManager({
                     <SbTd align="center">{u.visit_count}回</SbTd>
                     <SbTd className="text-gray-500">{u.last_visit}</SbTd>
                     <SbTd align="center">
-                      <button type="button" onClick={() => openCreate({ name: u.name, email: u.email })} className="px-3 py-1.5 text-xs rounded border border-sky-200 text-sky-700 hover:bg-sky-50">＋ 登録</button>
+                      <button type="button" onClick={() => openCreate({ name: u.name, email: u.email, facility_id: u.facility_id })} className="px-3 py-1.5 text-xs rounded border border-sky-200 text-sky-700 hover:bg-sky-50">＋ 登録</button>
                     </SbTd>
                   </tr>
                 ))}
@@ -369,6 +391,19 @@ export default function CustomersManager({
           }
         >
             <div className="space-y-3">
+              {/* 【監査M3】複数施設のとき対象施設を明示。追加=セレクタで選択、編集=当該顧客の施設で固定表示。 */}
+              {multiFacility && (
+                <div>
+                  <label htmlFor="cust-facility" className="form-label">施設</label>
+                  {form.id ? (
+                    <p id="cust-facility" className="text-sm text-gray-700 py-2">{facilities.find((f) => f.id === form.facility_id)?.name ?? '施設'}</p>
+                  ) : (
+                    <select id="cust-facility" value={form.facility_id} onChange={(e) => setForm({ ...form, facility_id: e.target.value })} className="form-input">
+                      {facilities.map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}
+                    </select>
+                  )}
+                </div>
+              )}
               <div>
                 <label htmlFor="cust-name" className="form-label">お名前 <span className="text-red-500">*</span></label>
                 <SbInput id="cust-name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={50} />
@@ -410,14 +445,14 @@ export default function CustomersManager({
       )}
 
       <ConfirmDialog
-        open={deleteId !== null}
+        open={deleteTarget !== null}
         title="顧客を削除"
         message="この顧客をマスターから削除します。来店履歴（予約データ）は残ります。よろしいですか？"
         confirmLabel={deleting ? '削除中...' : '削除する'}
         confirmDisabled={deleting}
         variant="danger"
         onConfirm={handleDelete}
-        onCancel={() => { if (!deleting) setDeleteId(null); }}
+        onCancel={() => { if (!deleting) setDeleteTarget(null); }}
       />
 
       {toast && <Toast type={toast.type} message={toast.message} onClose={() => setToast(null)} />}
