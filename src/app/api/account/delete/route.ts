@@ -14,6 +14,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { todayJst } from '@/lib/admin-date';
 import { alertCaughtError } from '@/lib/alert';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 
 // 未完了（進行中）の予約ステータス。completed / cancelled / no_show / cancel_fee_paid は終了済み。
 const ACTIVE_BOOKING_STATUSES = ['pending', 'confirmed', 'arrived'];
@@ -83,10 +84,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // 【監査C2 low】line_user_links.user_id は恒常的に NULL（webhook は user_id 未設定で upsert・
+    // populate するコードが無い）ため、旧 .eq('user_id', user.id) 削除は一致0行でフォロー行が
+    // 退会後も孤児として残存していた。連携の line_user_id を profiles（単一ソース）から解決し、
+    // それを起点に削除する（未連携＝lineUserId null のときは対象行なしで削除自体を発行しない）。
+    const lineUserId = await resolveLineUserIdForUser(adminSupabase, user.id);
+
     // 関連データ削除（CASCADE設定されていないテーブル + SET NULL で残存するPIIテーブル）
     const deleteResults = await Promise.allSettled([
       // CASCADE なし → 明示削除必須
-      adminSupabase.from('line_user_links').delete().eq('user_id', user.id),
+      lineUserId
+        ? adminSupabase.from('line_user_links').delete().eq('line_user_id', lineUserId)
+        : Promise.resolve({ error: null }), // 未連携＝対象行なし。結果チェックの {error} 形に揃える。
+      adminSupabase.from('favorites').delete().eq('user_id', user.id),
       adminSupabase.from('favorites').delete().eq('user_id', user.id),
       adminSupabase.from('user_points').delete().eq('user_id', user.id),
       adminSupabase.from('push_subscriptions').delete().eq('user_id', user.id),
