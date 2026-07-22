@@ -27,7 +27,7 @@ const DEP_TIMEOUT_MS = 1500;
 // メッセージ等）を露出しない固定文字列。実メッセージは probe() 内で console.error にのみ出す。
 const DEP_FAILURE_MESSAGE = 'dependency check failed';
 
-type DepResult = { ok: boolean; elapsed_ms: number; error?: string; retried?: boolean };
+type DepResult = { ok: boolean; elapsed_ms: number; error?: string; retried?: boolean; skipped?: boolean; note?: string };
 
 async function withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
   // タイマーを必ず clearTimeout する（race で p が勝った場合も timeout が発火した場合も）。
@@ -102,9 +102,12 @@ async function probeRateLimit(): Promise<DepResult> {
 }
 
 async function probeStripe(): Promise<DepResult> {
+  // 決済プロバイダ(Stripe)は任意連携。未設定＝意図的な無効化（決済オフ運用）であり障害ではない。
+  // 鍵が無ければプローブせず skipped で返し degraded に算入しない（health-monitor の誤通報防止）。
+  // 鍵が有るのに疎通失敗した場合のみ従来どおり NG（設定済みだが壊れている＝実障害として degraded）。
+  const key = process.env.STRIPE_SECRET_KEY;
+  if (!key) return { ok: true, elapsed_ms: 0, skipped: true, note: 'not_configured' };
   return probe('stripe', async () => {
-    const key = process.env.STRIPE_SECRET_KEY;
-    if (!key) throw new Error('not configured');
     const res = await fetch('https://api.stripe.com/v1/balance', {
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(DEP_TIMEOUT_MS),
