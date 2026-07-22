@@ -5,6 +5,22 @@
 -- INSERT ... ON CONFLICT DO NOTHING を行う SECURITY DEFINER 関数経由に一本化して競合を根絶する。
 -- approve/reject 後（status が pending 以外に変わる）の再フラグは部分indexの対象外のため引き続き可能。
 
+-- 既存の重複 pending 行を先に解消する（best-effort dedup 時代に競合で挿入された重複が prod に
+-- 残っていると、下の部分ユニークindex 作成が 23505 で失敗するため）。各 (content_type, content_id)
+-- の pending 群は最古の1件（created_at 昇順・同時刻は id で決定）を残して残りを削除する。
+-- fresh DB（E2E）では重複が無いため no-op。
+DELETE FROM moderation_queue m
+USING (
+  SELECT id,
+    ROW_NUMBER() OVER (
+      PARTITION BY content_type, content_id
+      ORDER BY created_at ASC, id ASC
+    ) AS rn
+  FROM moderation_queue
+  WHERE status = 'pending'
+) d
+WHERE m.id = d.id AND d.rn > 1;
+
 CREATE UNIQUE INDEX IF NOT EXISTS uq_moderation_pending_content
   ON moderation_queue (content_type, content_id) WHERE status = 'pending';
 
