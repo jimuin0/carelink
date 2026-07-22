@@ -32,6 +32,12 @@ const PLANS = [
   { type: 'category_top', label: 'カテゴリートップ', price: 7800, desc: '業種別一覧の最上位固定表示' },
 ];
 
+// 【ローンチ時非表示】決済手段（Stripe/PAY.JP）未導入のため、有料掲載枠の販売を停止中。
+// nav（admin/layout.tsx の LAUNCH_HIDDEN_HREFS）で導線を隠しているが、直リンク／ブックマーク
+// での到達時に「決済へ進む」→鍵の無い Stripe に飛ばさないよう、ここでもゲートする。
+// 決済導入時に true へ戻すだけで販売UIが復活する（: boolean 明示で「常に偽」lint を回避）。
+const FEATURED_ADS_ENABLED: boolean = false;
+
 export default function FeaturedAdsPage() {
   const [slots, setSlots] = useState<FeaturedSlot[]>([]);
   const [loading, setLoading] = useState(true);
@@ -74,6 +80,23 @@ export default function FeaturedAdsPage() {
     slot.impressions > 0 ? ((slot.clicks / slot.impressions) * 100).toFixed(1) : '0.0';
 
   const selectedPlanData = PLANS.find((p) => p.type === selectedPlan);
+
+  // 【ローンチ時非表示ゲート】決済手段未導入のため、販売UI（プラン・購入・決済導線）を出さず
+  // 「準備中」表示に差し替える。全フックはこの上で無条件に評価済み＝rules-of-hooks 準拠。
+  if (!FEATURED_ADS_ENABLED) {
+    return (
+      <div className="max-w-4xl space-y-6">
+        <SbPageHeader
+          title="広告・上位表示"
+          description="検索結果の上位表示・バナー広告枠"
+        />
+        <div className="bg-white rounded-xl border p-8 text-center text-gray-600">
+          <p className="font-semibold text-gray-900">この機能は現在準備中です</p>
+          <p className="mt-2 text-sm">有料掲載枠のお申し込みは現在受け付けておりません。</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-4xl space-y-6">
