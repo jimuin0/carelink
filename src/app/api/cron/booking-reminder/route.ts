@@ -137,18 +137,22 @@ export async function GET(request: Request) {
         .map((b) => b.user_id as string),
     ));
     const lineMap = new Map<string, string>();
+    // 【監査C2】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
+    // 旧実装は line_user_links を user_id で引いていたが同列は常に NULL でヒット0＝
+    // リマインダーLINEが無音失効していた。chunk 分割・エラーハンドリングは維持し、
+    // 参照先だけ profiles(id, line_user_id) へ切り替える。
     for (let i = 0; i < lineCandidateUserIds.length; i += IN_CHUNK) {
       const idChunk = lineCandidateUserIds.slice(i, i + IN_CHUNK);
       const { data: links, error: linksErr } = await supabase
-        .from('line_user_links')
-        .select('user_id, line_user_id')
-        .in('user_id', idChunk);
+        .from('profiles')
+        .select('id, line_user_id')
+        .in('id', idChunk);
       if (linksErr) {
         safeCaptureException(linksErr, 'booking-reminder-line-links');
         continue;
       }
       for (const l of links ?? []) {
-        if (l.user_id) lineMap.set(l.user_id, l.line_user_id);
+        if (l.id && l.line_user_id) lineMap.set(l.id, l.line_user_id);
       }
     }
 

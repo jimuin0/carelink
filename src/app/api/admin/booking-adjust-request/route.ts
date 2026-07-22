@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { checkCsrf } from '@/lib/csrf';
@@ -122,12 +123,9 @@ export async function POST(request: Request) {
       if (!booking.user_id) {
         return NextResponse.json({ error: 'この予約の顧客はLINE連携していません' }, { status: 400 });
       }
-      const { data: link } = await supabase
-        .from('line_user_links')
-        .select('line_user_id')
-        .eq('user_id', booking.user_id)
-        .maybeSingle();
-      if (!link?.line_user_id) {
+      // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
+      const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
+      if (!customerLineUserId) {
         return NextResponse.json({ error: 'この予約の顧客はLINE連携していません' }, { status: 400 });
       }
       const { sendLineText } = await import('@/lib/line');
@@ -142,7 +140,7 @@ export async function POST(request: Request) {
       ].join('\n');
       // 単発のHTTPリクエスト起点送信で他に再送手段が無いため、失敗時は webhook_retry_queue へ
       // 積んで15分毎の webhook-retry cron に自動再送させる。
-      const ok = await sendLineText(link.line_user_id, text, {
+      const ok = await sendLineText(customerLineUserId, text, {
         enqueueOnFailure: true,
         facilityId: booking.facility_id,
       });

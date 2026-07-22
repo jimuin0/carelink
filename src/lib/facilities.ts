@@ -41,8 +41,16 @@ export async function searchFacilities(params: SearchParams) {
     // クォート内でも % / _ は LIKE ワイルドカードとして機能するため、前方/後方一致は維持される。
     const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
     const pat = `"%${escaped}%"`;
+    // 【2026年7月22日 恒久根治・監査C1】検索対象列は facility_card_view に実在する列のみに限る。
+    // 旧実装は nearest_station.ilike を含んでいたが facility_card_view に nearest_station 列は
+    // 存在せず（view は access_info を射影・nearest_station は非射影）、PostgREST が
+    // 「column facility_card_view.nearest_station does not exist」で 400 を返し、error 握り潰しで
+    // キーワード検索が常に0件になっていた（主要導線の無音全滅）。駅・アクセスのキーワードは
+    // view に実在する access_info（最寄駅・アクセス説明を含む）で一致させる。専用列
+    // nearest_station まで完全対称化するには view への列追加DDLが別途必要（GPS経路の RPC は
+    // facility_profiles.nearest_station を直接検索するため元テーブルには存在する）。
     query = query.or(
-      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},nearest_station.ilike.${pat}`
+      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat}`
     );
   }
 
@@ -114,6 +122,11 @@ export async function searchFacilities(params: SearchParams) {
   query = query.range(from, from + PER_PAGE - 1);
 
   const { data, count, error } = await query;
+  // 【2026年7月22日 監査C1】検索クエリの error は返り値の error で呼び出し側へ渡す（従来どおり）。
+  // 注意：ここで alertCaughtError を per-request に発火させると、公開検索は高トラフィックかつ
+  // preview 等の環境要因（anon キー不正 401 等）で全リクエストが失敗し得るため Slack が
+  // フラッド（実測200件超）する。無音破綻の検知は外形監視(health-monitor)側に委ね、この
+  // ホットパスでは通知しない（列不存在の再発防止は回帰テストと下の access_info 固定で担保）。
   return { facilities: (data || []) as unknown as FacilityCardData[], total: count || 0, perPage: PER_PAGE, error };
 }
 

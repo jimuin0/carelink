@@ -6,6 +6,7 @@ import { alertCaughtError } from '@/lib/alert';
 import { checkCsrf } from '@/lib/csrf';
 import { sendBookingConfirmed, sendBookingCancelled, sendBookingStatusUpdate } from '@/lib/email';
 import { sendBookingCancellation as sendLineCancellation } from '@/lib/line';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { sendPushToUser } from '@/lib/push';
 import { reverseCompletionSideEffects } from '@/lib/booking-completion-reversal';
 import { applyCompletionSideEffects } from '@/lib/booking-completion';
@@ -221,13 +222,10 @@ export async function POST(request: Request) {
     // 返す契約のため、戻り値を確認して未送達をログに残す（可観測性の確保・非ブロッキング）。
     if (status === 'cancelled' && booking.user_id && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
       try {
-        const { data: lineLink } = await supabase
-          .from('line_user_links')
-          .select('line_user_id')
-          .eq('user_id', booking.user_id)
-          .maybeSingle();
-        if (lineLink?.line_user_id) {
-          const lineOk = await sendLineCancellation(lineLink.line_user_id, {
+        // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
+        const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
+        if (customerLineUserId) {
+          const lineOk = await sendLineCancellation(customerLineUserId, {
             facilityName: facility?.name || '',
             menuName: menuName || '',
             date: booking.booking_date,

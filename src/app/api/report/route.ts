@@ -13,6 +13,7 @@ import { mutationRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { withRoute } from '@/lib/with-route';
+import { alertCaughtError } from '@/lib/alert';
 import { z } from 'zod';
 
 export const dynamic = 'force-dynamic';
@@ -50,6 +51,56 @@ export const POST = withRoute(async (request, ctx) => {
       return NextResponse.json({ error: '既にこの内容を通報済みです' }, { status: 409 });
     }
     return NextResponse.json({ error: '通報に失敗しました' }, { status: 500 });
+  }
+
+  // 【監査H2】通報を moderation_queue へも連携し /admin/moderation で審査可能にする（旧実装は
+  // reports へ INSERT するだけで、どの管理UIからも読まれず通報がブラックホール化していた）。
+  // moderation_queue.content_type の CHECK は ('review','photo','qa_answer','blog_comment') で
+  // 'facility' を許さない。UI（ReviewList）が送るのは review のみ・photo も有効。facility は
+  // queue 非対応のため reports 台帳のみに残す（現状 facility 通報の UI 経路は存在しない）。
+  // 連携失敗は通報自体（reports 記録済み）を 500 にせず監視通知に載せる（非ブロッキング）。
+  const contentType: 'review' | 'photo' | null =
+    parsed.data.target_type === 'review' ? 'review'
+    : parsed.data.target_type === 'photo' ? 'photo'
+    : null;
+  if (contentType) {
+    try {
+      // 対象から facility_id を解決（review→facility_reviews / photo→facility_photos）。
+      // 解決不能でも facility_id は nullable のため null で登録する。
+      const sourceTable = contentType === 'review' ? 'facility_reviews' : 'facility_photos';
+      const { data: target } = await supabase
+        .from(sourceTable)
+        .select('facility_id')
+        .eq('id', parsed.data.target_id)
+        .maybeSingle();
+      const facilityId = (target as { facility_id: string | null } | null)?.facility_id ?? null;
+
+      // 同一コンテンツの pending キューが既にあれば重複投入しない（複数通報者対策）。
+      const { data: existingQueue } = await supabase
+        .from('moderation_queue')
+        .select('id')
+        .eq('content_type', contentType)
+        .eq('content_id', parsed.data.target_id)
+        .eq('status', 'pending')
+        .maybeSingle();
+
+      if (!existingQueue) {
+        const reportReason = parsed.data.detail
+          ? `${parsed.data.reason}: ${parsed.data.detail}`
+          : parsed.data.reason;
+        const { error: mqError } = await supabase.from('moderation_queue').insert({
+          content_type: contentType,
+          content_id: parsed.data.target_id,
+          facility_id: facilityId,
+          reporter_id: ctx.user!.id,
+          report_reason: reportReason,
+          status: 'pending',
+        });
+        if (mqError) alertCaughtError('report-moderation-queue', mqError, '/api/report');
+      }
+    } catch (e) {
+      alertCaughtError('report-moderation-queue', e, '/api/report');
+    }
   }
 
   return NextResponse.json({ success: true });

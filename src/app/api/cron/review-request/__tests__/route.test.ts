@@ -22,6 +22,8 @@ jest.mock('@/lib/cron-auth', () => ({
 }));
 jest.mock('@/lib/cron-logger');
 jest.mock('@/lib/line');
+// 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。DB モックから切り離す。
+jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/email');
 jest.mock('resend');
 
@@ -119,6 +121,10 @@ function setupDefaultMocks(
       maybeSingle: jest.fn().mockResolvedValue({ data: lineLinkData }),
     }),
   });
+
+  // 【監査C2】顧客の連携解決は profiles.line_user_id（helper）。lineLinkData を反映する。
+  const { resolveLineUserIdForUser } = require('@/lib/line-link');
+  (resolveLineUserIdForUser as jest.Mock).mockResolvedValue(lineLinkData?.line_user_id ?? null);
 
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') {

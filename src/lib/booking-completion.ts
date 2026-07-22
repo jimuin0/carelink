@@ -37,15 +37,18 @@ export async function applyCompletionSideEffects(
   admin: SupabaseClient,
   booking: CompletableBooking,
 ): Promise<number> {
-  // customer_visits 表示用にメニュー名・スタッフ名を解決（任意・失敗時は null のまま）
+  // customer_visits 表示用にメニュー名・スタッフ名を解決（任意・失敗時は null のまま）。
+  // 【監査L1】名前解決は必ず当該予約の facility_id にスコープする。id のみで引くと、万一
+  // bookings.menu_id/staff_id に他施設の id が入っていた場合に他施設のメニュー名・スタッフ名が
+  // customer_visits へ越境混入し得る（booking API 側の primary menu_id 検証と多層防御で塞ぐ）。
   let menuName: string | null = null;
   let staffName: string | null = null;
   if (booking.menu_id) {
-    const { data: menu } = await admin.from('facility_menus').select('name').eq('id', booking.menu_id).single();
+    const { data: menu } = await admin.from('facility_menus').select('name').eq('id', booking.menu_id).eq('facility_id', booking.facility_id).single();
     menuName = menu?.name ?? null;
   }
   if (booking.staff_id) {
-    const { data: staff } = await admin.from('staff_profiles').select('name').eq('id', booking.staff_id).single();
+    const { data: staff } = await admin.from('staff_profiles').select('name').eq('id', booking.staff_id).eq('facility_id', booking.facility_id).single();
     staffName = staff?.name ?? null;
   }
 

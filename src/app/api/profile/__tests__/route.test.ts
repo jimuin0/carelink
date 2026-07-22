@@ -405,8 +405,10 @@ describe('PUT /api/profile', () => {
   });
 });
 
-// ─── GET /api/profile (M-1): LINE 連携状態を line_user_links から返す ───────────
+// ─── GET /api/profile (M-1): LINE 連携状態を profiles.line_user_id から返す ───────────
 // 旧実装は GET ハンドラが無く settings が 405 → 常にエラー表示だった。
+// 【監査C2】連携の単一ソースは profiles.line_user_id（旧 line_user_links.user_id は常に NULL で
+// LIFF 連携済みでも常に未連携表示だった）。line_user_id の非 NULL で linked を判定する。
 describe('GET /api/profile', () => {
   function setupLinkMock(row: unknown, error: unknown = null) {
     const { createServiceRoleClient } = require('@/lib/supabase-server');
@@ -425,15 +427,22 @@ describe('GET /api/profile', () => {
     return new Request('http://localhost/api/profile', { method: 'GET' });
   }
 
-  test('連携あり → { linked: true }', async () => {
-    setupLinkMock({ user_id: 'user-123' });
+  test('連携あり（line_user_id 非 NULL）→ { linked: true }', async () => {
+    setupLinkMock({ line_user_id: 'U-abc' });
     const res = await GET(makeGet() as any);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ linked: true });
   });
 
-  test('連携なし → { linked: false }', async () => {
+  test('連携なし（行なし）→ { linked: false }', async () => {
     setupLinkMock(null);
+    const res = await GET(makeGet() as any);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ linked: false });
+  });
+
+  test('行はあるが line_user_id が NULL → { linked: false }', async () => {
+    setupLinkMock({ line_user_id: null });
     const res = await GET(makeGet() as any);
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ linked: false });

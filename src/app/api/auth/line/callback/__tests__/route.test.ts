@@ -94,6 +94,10 @@ function setupDefaultMocks(
           }),
         };
       }
+      // 【監査C2】profiles.line_user_id バックフィル（update().eq()）。
+      if (table === 'profiles') {
+        return { update: jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) }) };
+      }
     }),
     auth: {
       admin: {
@@ -890,6 +894,50 @@ describe('GET /api/auth/line/callback', () => {
     const res = await GET(makeRequest('?code=test-code&state=saved-state') as any);
     expect(res.status).toBe(307);
     expect(consoleSpy).toHaveBeenCalled();
+    consoleSpy.mockRestore();
+  });
+
+  // ─── 監査C2: LINEログイン時の profiles.line_user_id バックフィル ──────────────
+  function adminWithProfiles(profilesUpdateResult: { error: unknown }) {
+    const profilesEq = jest.fn().mockResolvedValue(profilesUpdateResult);
+    const profilesUpdate = jest.fn().mockReturnValue({ eq: profilesEq });
+    const { createServiceRoleClient } = require('@/lib/supabase-server');
+    createServiceRoleClient.mockReturnValue({
+      from: jest.fn((table: string) => {
+        if (table === 'line_user_links') {
+          return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null }) }) }) };
+        }
+        if (table === 'profiles') return { update: profilesUpdate };
+      }),
+      auth: {
+        admin: {
+          createUser: jest.fn().mockResolvedValue({ error: null }),
+          generateLink: jest.fn().mockResolvedValue({
+            data: { properties: { hashed_token: 't' }, user: { id: 'u-backfill', user_metadata: {} } },
+            error: null,
+          }),
+          getUserById: jest.fn().mockResolvedValue({ data: { user: { email: 'e@example.com', user_metadata: {} } } }),
+          updateUserById: jest.fn().mockResolvedValue({ data: {}, error: null }),
+        },
+      },
+    });
+    return { profilesUpdate, profilesEq };
+  }
+
+  test('【監査C2】LINEログイン成功時に profiles.line_user_id をバックフィルする', async () => {
+    const { profilesUpdate, profilesEq } = adminWithProfiles({ error: null });
+    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
+    expect(res.status).toBe(307);
+    expect(profilesUpdate).toHaveBeenCalledWith(expect.objectContaining({ line_user_id: expect.any(String) }));
+    expect(profilesEq).toHaveBeenCalledWith('id', 'u-backfill');
+  });
+
+  test('【監査C2】profiles バックフィル失敗 → console.error のみでログインは成立（非ブロッキング）', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    adminWithProfiles({ error: { message: 'unique violation' } });
+    const res = await GET(makeRequest('?code=c&state=saved-state') as any);
+    expect(res.status).toBe(307); // ログイン自体は成立（リダイレクト）
+    expect(consoleSpy).toHaveBeenCalledWith('[line-callback] profiles.line_user_id backfill failed', expect.anything());
     consoleSpy.mockRestore();
   });
 });

@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import PushPermissionBanner from '@/components/push/PushPermissionBanner';
 import { createServiceRoleClient } from '@/lib/supabase-server';
+import { INTAKE_CUSTOMER_ENABLED } from '@/lib/intake-config';
 
 // 施設に有効な問診テンプレがあるか（slug 経由）。予約完了時に問診バナーを出すか判定する。
 // 旧実装は has_intake クエリのみに依存していたが、予約送信元(BookingFlow)が has_intake を
@@ -120,7 +121,10 @@ export default async function BookingCompletePage(props: Props) {
   const bookingStatus = await getBookingStatus(bookingId);
   const isConfirmed = bookingStatus === 'confirmed';
   // has_intake=1 の明示指定、または施設に有効な問診テンプレが実在すればバナーを出す（INTAKE-1）。
-  const hasIntakeForm = searchParams.has_intake === '1' || (await facilityHasActiveIntake(params.slug));
+  // 【監査M2/H1・神原さん決定】ローンチでは問診を顧客に出さないため、ゲート OFF 時は
+  // バナーを一切表示しない（テンプレ有無の DB 参照もスキップ）。再開は INTAKE_CUSTOMER_ENABLED で。
+  const hasIntakeForm = INTAKE_CUSTOMER_ENABLED
+    && (searchParams.has_intake === '1' || (await facilityHasActiveIntake(params.slug)));
   const icsContent = buildIcsContent(searchParams.date, searchParams.time, searchParams.end_time, searchParams.facility, bookingId);
   const icsDataUri = icsContent ? `data:text/calendar;charset=utf-8,${encodeURIComponent(icsContent)}` : null;
 

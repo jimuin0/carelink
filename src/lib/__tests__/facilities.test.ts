@@ -80,6 +80,12 @@ describe('searchFacilities', () => {
       (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('テスト')
     );
     expect(call).toBeTruthy();
+    // 【監査C1回帰】facility_card_view に存在しない nearest_station を参照すると
+    // PostgREST 400 でキーワード検索が常に0件になる。view 実在列 access_info を使い、
+    // nearest_station は絶対に参照しないことを固定する。
+    const orFilter = call![0] as string;
+    expect(orFilter).toContain('access_info.ilike.');
+    expect(orFilter).not.toContain('nearest_station');
   });
 
   test('business_typeフィルタ', async () => {

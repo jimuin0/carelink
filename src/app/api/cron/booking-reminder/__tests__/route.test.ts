@@ -58,7 +58,7 @@ type Cfg = {
   facilities?: { data: { id: string; name: string | null }[] | null };
   settings?: { data: Record<string, unknown>[] | null; error?: unknown };
   entitlements?: { data: { facility_id: string; option_key: string }[] | null; error?: unknown };
-  lineLinks?: { data: { user_id: string | null; line_user_id: string }[] | null; error?: unknown };
+  lineLinks?: { data: { id: string | null; line_user_id: string | null }[] | null; error?: unknown };
   menus?: { data: { id: string; name: string }[] | null; error?: unknown };
   upsertError?: unknown;
   deleteError?: unknown;
@@ -145,7 +145,7 @@ function setup(cfg: Cfg = {}) {
           }),
         };
       }
-      if (table === 'line_user_links') {
+      if (table === 'profiles') {
         return {
           select: jest.fn().mockReturnValue({
             in: jest.fn().mockResolvedValue({ data: cfg.lineLinks === undefined ? [] : cfg.lineLinks.data, error: cfg.lineLinks?.error ?? null }),
@@ -293,7 +293,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1', menu_id: 'm1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
       menus: { data: [{ id: 'm1', name: 'カット' }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
@@ -308,7 +308,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D3, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: false, remind_3d_line: true }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.processed).toBe(1);
@@ -321,7 +321,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     mockLineReminder.mockResolvedValue(false);
     const json = await (await GET(makeRequest() as any)).json();
@@ -353,7 +353,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
       deleteError: { message: 'delete failed' },
     });
     mockLineReminder.mockResolvedValue(false);
@@ -386,7 +386,7 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(json.planned).toBe(0);
   });
 
-  test('LINE: 連携（line_user_links）が無いユーザーは対象外', async () => {
+  test('LINE: 連携（profiles.line_user_id）が無いユーザーは対象外', async () => {
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
@@ -397,12 +397,27 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(json.planned).toBe(0);
   });
 
-  test('line_user_links の user_id null 行は無視（マッピングしない）', async () => {
+  // 【監査C2】profiles.id が null の行はマッピングしない（l.id 側の falsy 分岐）。
+  test('profiles の id null 行は無視（マッピングしない）', async () => {
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: null, line_user_id: 'LINE-X' }] },
+      lineLinks: { data: [{ id: null, line_user_id: 'LINE-X' }] },
+    });
+    const json = await (await GET(makeRequest() as any)).json();
+    expect(json.planned).toBe(0);
+  });
+
+  // 【監査C2】profiles.line_user_id が null（連携解除済み等）の行もマッピングしない
+  // （l.line_user_id 側の falsy 分岐・旧 line_user_links.line_user_id は NOT NULL だったが
+  // profiles.line_user_id は nullable のため必須ガード）。
+  test('profiles の line_user_id null 行は無視（マッピングしない）', async () => {
+    setup({
+      bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
+      settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
+      entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: null }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.planned).toBe(0);
@@ -435,7 +450,7 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(json.processed).toBe(0);
   });
 
-  test('line_user_links 取得エラー → fail-safe（LINE 送らない）', async () => {
+  test('profiles(連携) 取得エラー → fail-safe（LINE 送らない）', async () => {
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
@@ -451,7 +466,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1', menu_id: 'm1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
       menus: { data: null, error: { message: 'menus down' } },
     });
     const json = await (await GET(makeRequest() as any)).json();
@@ -551,7 +566,7 @@ describe('GET /api/cron/booking-reminder', () => {
     expect(logCronRun).toHaveBeenCalledWith('booking-reminder', 'error', expect.any(Date), expect.objectContaining({ error_msg: 'string-error' }));
   });
 
-  test('line_user_links data null（エラーなし）→ ?? [] で安全', async () => {
+  test('profiles(連携) data null（エラーなし）→ ?? [] で安全', async () => {
     setup({
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
@@ -567,7 +582,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1', menu_id: 'm1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
       menus: { data: null },
     });
     const json = await (await GET(makeRequest() as any)).json();
@@ -606,7 +621,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D7, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: false, remind_3d_line: true }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.planned).toBe(0);
@@ -617,7 +632,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: D3, user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.planned).toBe(0);
@@ -661,7 +676,7 @@ describe('GET /api/cron/booking-reminder', () => {
       bookings: { data: [booking({ booking_date: '2026-05-20', user_id: 'u1' })] },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: true, remind_3d_email: true, remind_7d_line: true, remind_3d_line: true }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }, { facility_id: 'fac-0', option_key: 'reminder_email_3d' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.planned).toBe(0);
@@ -673,7 +688,7 @@ describe('GET /api/cron/booking-reminder', () => {
       facilities: { data: null },
       settings: { data: [{ facility_id: 'fac-0', remind_7d_email: false, remind_3d_email: false, remind_7d_line: true, remind_3d_line: false }] },
       entitlements: { data: [{ facility_id: 'fac-0', option_key: 'reminder_line' }] },
-      lineLinks: { data: [{ user_id: 'u1', line_user_id: 'LINE-1' }] },
+      lineLinks: { data: [{ id: 'u1', line_user_id: 'LINE-1' }] },
     });
     const json = await (await GET(makeRequest() as any)).json();
     expect(json.processed).toBe(1);

@@ -212,6 +212,21 @@ export async function GET(request: NextRequest) {
           },
         });
       }
+
+      // 【監査C2・敵対検証 恒久根治】profiles.line_user_id を LINE ログイン時にもバックフィルする。
+      // サーバ起点の全 LINE 送信経路は profiles.line_user_id を単一ソースに解決する（監査C2）。
+      // 旧来 profiles.line_user_id を書くのは POST /api/liff/link のみで、LIFF ミニアプリで明示連携
+      // していない「LINE ログインのみ」の顧客は bot をフォロー済みでも全 LINE 通知を受け取れなかった。
+      // LINE userId は Login/LIFF/Messaging 間で一致するため、ここで profiles へ確実に紐付けることで
+      // その未達コホートを恒久解消する。UNIQUE 違反（別ユーザーに同 line_user_id が既存＝通常起きない）
+      // やエラーは握り潰してログのみ（ログイン自体は成立させる・非ブロッキング）。
+      const { error: profileLinkErr } = await adminSupabase
+        .from('profiles')
+        .update({ line_user_id: lineProfile.userId, updated_at: new Date().toISOString() })
+        .eq('id', linkData.user.id);
+      if (profileLinkErr) {
+        console.error('[line-callback] profiles.line_user_id backfill failed', { err: profileLinkErr.message });
+      }
     }
 
     // Cookie-aware client to establish session

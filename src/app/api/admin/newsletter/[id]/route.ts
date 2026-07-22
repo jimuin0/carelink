@@ -8,6 +8,7 @@ import { getClientIp } from '@/lib/client-ip';
 import { escSubject } from '@/lib/email';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { newsletterUnsubUrl } from '@/lib/newsletter-unsub';
+import { fetchAllPaged } from '@/lib/paginate';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
 
 // ニュースレター専用の差出人。EMAIL_FROM(email.ts の既定送信元 noreply@)とは意図的に
@@ -119,12 +120,30 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       // Determine subscription_type filter
       const subType = campaign.campaign_type === 'owner_monthly' ? 'owner_monthly' : 'user_digest';
 
-      // Get subscribers
-      const { data: subscribers } = await admin
-        .from('newsletter_subscriptions')
-        .select('email, user_id')
-        .or(`subscription_type.eq.${subType},subscription_type.eq.all`)
-        .eq('is_active', true);
+      // Get subscribers（全件・PostgREST 1000行上限で受信者を無音に取りこぼさないよう分頁取得。監査M4）
+      // 【監査M4・敵対検証】.order('id') 必須：ORDER BY 無しの OFFSET ページングは行順が不定で、
+      // >1000行＋並行 unsubscribe/プラン差で【ページ境界の行欠落・重複】が起き得る（suppression 側は
+      // 欠落＝停止済みへの誤送信に直結）。主キー id で決定的順序にする（booking-reminder と同方針）。
+      const { rows: subscribers, error: subscribersErr } = await fetchAllPaged<{ email: string | null; user_id: string | null }>(
+        async (offset, limit) => {
+          const { data, error } = await admin
+            .from('newsletter_subscriptions')
+            .select('email, user_id')
+            .or(`subscription_type.eq.${subType},subscription_type.eq.all`)
+            .eq('is_active', true)
+            .order('id', { ascending: true })
+            .range(offset, offset + limit - 1);
+          return { data, error };
+        },
+      );
+      // 【監査M4・敵対検証】user_digest では subscribers が唯一の受信者源。取得失敗を握り潰すと
+      // rows=[] で「0件送信→status='sent'確定」となりキャンペーンを空焼き（再送不可）してしまう。
+      // suppression と同格に fail-safe で中止（draft へ戻す）。
+      if (subscribersErr) {
+        console.error('[newsletter/send] subscribers fetch failed — aborting to avoid phantom empty send', { campaignId: params.id, err: subscribersErr });
+        await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
+        return NextResponse.json({ error: '受信者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+      }
 
       // For owner_monthly: also pull facility owner emails if no subscription record
       let emails: string[] = [];
@@ -133,27 +152,43 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         // facility_members→profiles の FK が無く、PostgREST が関係を解決できず常時エラーになり
         // owner_monthly のオーナー宛メールが全スキップされる実バグになる（user-packages と同根）。
         // owner の user_id を取得し profiles を別取得してメールを引く（best-effort・失敗はログのみで続行）。
-        const { data: owners, error: ownersErr } = await admin
-          .from('facility_members')
-          .select('user_id')
-          .eq('role', 'owner');
+        const { rows: owners, error: ownersErr } = await fetchAllPaged<{ user_id: string | null }>(
+          async (offset, limit) => {
+            const { data, error } = await admin
+              .from('facility_members')
+              .select('user_id')
+              .eq('role', 'owner')
+              .order('id', { ascending: true }) // 監査M4：決定的順序で分頁の欠落・重複を防ぐ
+              .range(offset, offset + limit - 1);
+            return { data, error };
+          },
+        );
         if (ownersErr) console.error('[newsletter/send] owner email fetch failed — some owners may be skipped', { campaignId: params.id, err: ownersErr });
-        const ownerUserIds = Array.from(new Set((owners || []).map((o: { user_id: string | null }) => o.user_id).filter(Boolean) as string[]));
-        let ownerEmails: string[] = [];
-        if (ownerUserIds.length > 0) {
+        const ownerUserIds = Array.from(new Set(owners.map((o) => o.user_id).filter(Boolean) as string[]));
+        const ownerEmails: string[] = [];
+        // profiles を id チャンク(500)で引く。ownerUserIds が 1000 を超えると単一 .in が
+        // PostgREST 1000行上限/URL 長で取りこぼす（監査M4）。
+        const OWNER_ID_CHUNK = 500;
+        for (let i = 0; i < ownerUserIds.length; i += OWNER_ID_CHUNK) {
+          const idChunk = ownerUserIds.slice(i, i + OWNER_ID_CHUNK);
           const { data: ownerProfiles, error: ownerProfErr } = await admin
             .from('profiles')
             .select('email')
-            .in('id', ownerUserIds);
-          if (ownerProfErr) console.error('[newsletter/send] owner profiles fetch failed — some owners may be skipped', { campaignId: params.id, err: ownerProfErr });
-          ownerEmails = (ownerProfiles || []).map((p: { email: string | null }) => p.email).filter(Boolean) as string[];
+            .in('id', idChunk);
+          if (ownerProfErr) {
+            console.error('[newsletter/send] owner profiles fetch failed — some owners may be skipped', { campaignId: params.id, err: ownerProfErr });
+            continue;
+          }
+          ownerEmails.push(...((ownerProfiles || []).map((p: { email: string | null }) => p.email).filter(Boolean) as string[]));
         }
+        // subscribers/unsubProfiles/inactiveSubs は fetchAllPaged の rows（型は T[]・常に配列）の
+        // ため `|| []` は型レベルで到達不能（デッド分岐）。付けない。
         emails = Array.from(new Set([
-          ...(subscribers || []).map((s: { email: string | null }) => s.email).filter(Boolean) as string[],
+          ...subscribers.map((s: { email: string | null }) => s.email).filter(Boolean) as string[],
           ...ownerEmails,
         ]));
       } else {
-        emails = (subscribers || []).map((s: { email: string | null }) => s.email).filter(Boolean) as string[];
+        emails = subscribers.map((s: { email: string | null }) => s.email).filter(Boolean) as string[];
       }
 
       // 配信停止の一次ソースは profiles.email_unsubscribed（アカウント有無に依存しない唯一の
@@ -167,29 +202,46 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       // toLowerCase 済み・大小文字違いの二重登録による停止漏れを防ぐ）。
       emails = Array.from(new Set(emails.map((e) => e.toLowerCase())));
       if (emails.length > 0) {
-        const { data: unsubProfiles, error: unsubProfilesErr } = await admin
-          .from('profiles')
-          .select('email')
-          .not('email', 'is', null)
-          .eq('email_unsubscribed', true);
+        // 【監査M4】配信停止リストは PostgREST 1000行上限で無音打ち切りされると停止済みユーザーへ
+        // 誤送信し得るため、必ず全件取得する（取得失敗は空集合扱いにせず送信を中止＝fail-safe）。
+        const { rows: unsubProfiles, error: unsubProfilesErr } = await fetchAllPaged<{ email: string | null }>(
+          async (offset, limit) => {
+            const { data, error } = await admin
+              .from('profiles')
+              .select('email')
+              .not('email', 'is', null)
+              .eq('email_unsubscribed', true)
+              .order('id', { ascending: true }) // 監査M4：決定的順序で分頁のsuppression欠落を防ぐ
+              .range(offset, offset + limit - 1);
+            return { data, error };
+          },
+        );
         if (unsubProfilesErr) {
           console.error('[newsletter/send] unsubscribed profiles fetch failed — aborting to avoid sending to opted-out users', { campaignId: params.id, err: unsubProfilesErr });
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
           return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
         }
-        const { data: inactiveSubs, error: inactiveSubsErr } = await admin
-          .from('newsletter_subscriptions')
-          .select('email')
-          .not('email', 'is', null)
-          .eq('is_active', false);
+        const { rows: inactiveSubs, error: inactiveSubsErr } = await fetchAllPaged<{ email: string | null }>(
+          async (offset, limit) => {
+            const { data, error } = await admin
+              .from('newsletter_subscriptions')
+              .select('email')
+              .not('email', 'is', null)
+              .eq('is_active', false)
+              .order('id', { ascending: true }) // 監査M4：決定的順序で分頁のsuppression欠落を防ぐ
+              .range(offset, offset + limit - 1);
+            return { data, error };
+          },
+        );
         if (inactiveSubsErr) {
           console.error('[newsletter/send] inactive subscriptions fetch failed — aborting to avoid sending to opted-out users', { campaignId: params.id, err: inactiveSubsErr });
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
           return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
         }
+        // unsubProfiles/inactiveSubs は fetchAllPaged の rows（常に配列）のため `|| []` は付けない。
         const unsubscribed = new Set<string>([
-          ...(unsubProfiles || []).map((p: { email: string | null }) => (p.email ?? '').toLowerCase()).filter(Boolean),
-          ...(inactiveSubs || []).map((s: { email: string | null }) => (s.email ?? '').toLowerCase()).filter(Boolean),
+          ...unsubProfiles.map((p: { email: string | null }) => (p.email ?? '').toLowerCase()).filter(Boolean),
+          ...inactiveSubs.map((s: { email: string | null }) => (s.email ?? '').toLowerCase()).filter(Boolean),
         ]);
         emails = emails.filter((e) => !unsubscribed.has(e));
       }

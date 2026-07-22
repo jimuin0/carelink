@@ -71,15 +71,18 @@ export default function ProfileEditPage() {
       }
 
       // LINE連携状態チェック（補助）。失敗時は未連携表示のままにし、本体フォームは継続。
+      // 【監査C2・2026年7月22日】連携の単一ソースは profiles.line_user_id（liff/link が書く唯一の正）。
+      // 旧実装は line_user_links を user_id で引いていたが、同列は常に NULL のうえ RLS も
+      // auth.uid()=user_id のためブラウザからは永久に0件＝LIFF連携済みでも常に未連携表示だった。
+      // profiles は own 行 RLS で読めるため、line_user_id の非 NULL で連携判定する。
       // eslint-disable-next-line carelink-safety/no-discarded-supabase-error
-      const { data: lineLink } = await supabase
-        .from('line_user_links')
-        .select('display_name')
-        .eq('user_id', user.id)
+      const { data: lineProfile } = await supabase
+        .from('profiles')
+        .select('line_user_id')
+        .eq('id', user.id)
         .maybeSingle();
-      if (lineLink) {
+      if (lineProfile?.line_user_id) {
         setLineLinked(true);
-        setLineDisplayName(lineLink.display_name);
       }
 
       setLoading(false);

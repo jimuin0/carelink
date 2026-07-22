@@ -19,6 +19,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
 import { sendLineText } from '@/lib/line';
+import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
@@ -270,13 +271,10 @@ export async function GET(request: Request) {
 
       // LINE通知（未送達かつ送信可能な場合のみ）
       if (process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK && !notifiedSet.has(`${profile.id}:line`)) {
-        const { data: lineLink } = await supabase
-          .from('line_user_links')
-          .select('line_user_id')
-          .eq('user_id', profile.id)
-          .maybeSingle();
+        // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
+        const birthdayLineUserId = await resolveLineUserIdForUser(supabase, profile.id);
 
-        if (lineLink?.line_user_id) {
+        if (birthdayLineUserId) {
           if (notificationsTableReady) {
             const claimResult = await claimNotification(profile.id, 'line');
             if (claimResult === 'already-claimed') {
@@ -286,7 +284,7 @@ export async function GET(request: Request) {
                 // sendLineText はリトライ上限到達時に throw せず false を返す。戻り値を見ずに
                 // delivered 扱いすると、全リトライ失敗でも claim が残ったまま（翌 run の再送(v8.15)が
                 // 成立しない）ため、戻り値を必ず見て失敗時は claim を解放する。
-                const lineOk = await sendLineText(lineLink.line_user_id, lineMessage);
+                const lineOk = await sendLineText(birthdayLineUserId, lineMessage);
                 if (lineOk) {
                   notifiedSet.add(`${profile.id}:line`);
                 } else {
@@ -304,7 +302,7 @@ export async function GET(request: Request) {
           } else {
             // 【notificationsTableReady=false フォールバック・現行挙動を維持】
             try {
-              const lineOk = await sendLineText(lineLink.line_user_id, lineMessage);
+              const lineOk = await sendLineText(birthdayLineUserId, lineMessage);
               if (lineOk) {
                 notifiedSet.add(`${profile.id}:line`);
               } else {

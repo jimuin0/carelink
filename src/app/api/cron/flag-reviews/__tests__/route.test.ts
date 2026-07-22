@@ -32,6 +32,11 @@ import { GET } from '../route';
 let mockRpc: jest.Mock;
 let mockSelectReviews: jest.Mock;
 let mockUpdateReviews: jest.Mock;
+// 【監査H3】moderation_queue 投入モック。既存 pending の content_id 集合と insert スパイ。
+let mockModQueueInsert: jest.Mock;
+let existingQueueContentIds: string[] = [];
+// 既存 pending 取得が data=null（防御的分岐 `existing ?? []`）を返すか
+let modQueueSelectReturnsNull = false;
 
 // fetchAllPaged 化で両クエリ末尾に .order().range() が付く。1ページ目に rows、
 // 2ページ目以降(offset>0)は空配列を返して終了させる terminal。
@@ -92,11 +97,31 @@ function setupDefaultMocks(
     in: jest.fn().mockResolvedValue({ error: null }),
   });
 
+  // 【監査H3】moderation_queue: select(content_id).eq.eq.in → 既存 pending / insert → { error:null }
+  existingQueueContentIds = [];
+  modQueueSelectReturnsNull = false;
+  mockModQueueInsert = jest.fn().mockResolvedValue({ error: null });
+
   mockFromDelegate.mockImplementation((table: string) => {
     if (table === 'facility_reviews') {
       return {
         select: (...args: any[]) => mockSelectReviews(...args),
         update: (...args: any[]) => mockUpdateReviews(...args),
+      };
+    }
+    if (table === 'moderation_queue') {
+      return {
+        select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              in: jest.fn().mockResolvedValue({
+                data: modQueueSelectReturnsNull ? null : existingQueueContentIds.map((id) => ({ content_id: id })),
+                error: null,
+              }),
+            }),
+          }),
+        }),
+        insert: (...args: any[]) => mockModQueueInsert(...args),
       };
     }
     return {};
@@ -367,5 +392,61 @@ describe('GET /api/cron/flag-reviews', () => {
       'flag-reviews', 'error', expect.any(Date),
       expect.objectContaining({ error_msg: 'rpc failed' })
     );
+  });
+
+  // ─── 監査H3: フラグ → moderation_queue 投入（審査画面に必ず表示）───────────────
+  describe('moderation_queue 連携（H3）', () => {
+    test('自動フラグしたレビューを moderation_queue へ pending 投入する', async () => {
+      // bulk 検知で 3 件フラグ → moderation_queue へ投入される。
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(mockModQueueInsert).toHaveBeenCalled();
+      const inserted = mockModQueueInsert.mock.calls[0][0];
+      expect(Array.isArray(inserted)).toBe(true);
+      expect(inserted[0]).toEqual(
+        expect.objectContaining({
+          content_type: 'review',
+          status: 'pending',
+          reporter_id: null,
+          auto_flags: ['bulk_submission'],
+        }),
+      );
+      // フラグした全レビューが content_id として投入される。
+      expect(inserted.map((r: { content_id: string }) => r.content_id)).toEqual(['review-0', 'review-1', 'review-2']);
+    });
+
+    test('既に pending キューにあるレビューは重複投入しない（dedup）', async () => {
+      existingQueueContentIds = ['review-0', 'review-1', 'review-2']; // 全件既存
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      // 全件が既存 → insert は呼ばれない。
+      expect(mockModQueueInsert).not.toHaveBeenCalled();
+    });
+
+    test('一部だけ既存 → 未登録分のみ投入する', async () => {
+      existingQueueContentIds = ['review-0']; // review-0 のみ既存
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      const inserted = mockModQueueInsert.mock.calls[0][0];
+      expect(inserted.map((r: { content_id: string }) => r.content_id)).toEqual(['review-1', 'review-2']);
+    });
+
+    test('既存 pending 取得が data=null（防御的分岐）→ existing ?? [] で全件投入', async () => {
+      modQueueSelectReturnsNull = true;
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      // existing が null → 既存扱いは0件 → フラグした全件を投入。
+      const inserted = mockModQueueInsert.mock.calls[0][0];
+      expect(inserted.map((r: { content_id: string }) => r.content_id)).toEqual(['review-0', 'review-1', 'review-2']);
+    });
+
+    test('moderation_queue insert 失敗 → console.error のみで cron は 200 継続', async () => {
+      const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockModQueueInsert.mockResolvedValueOnce({ error: { message: 'mq insert failed' } });
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      expect(errSpy).toHaveBeenCalledWith('[flag-reviews] moderation_queue enqueue failed:', expect.anything());
+      errSpy.mockRestore();
+    });
   });
 });
