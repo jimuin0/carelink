@@ -21,27 +21,32 @@ export default async function CustomerDetailPage(props: Props) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) notFound();
 
-  const { data: membership } = await supabase
+  // 【監査M3】owner/admin である【全施設】を対象にする。旧実装は role フィルタ無し・
+  // arbitrary limit(1) で先頭の1施設だけを選び、その施設スコープで顧客を引いていたため、
+  // 複数施設に所属するオーナーが「先頭以外の施設」の顧客詳細を開くと該当施設が一致せず
+  // 誤って 404 になっていた（一覧ページは .in('role',['owner','admin']) で全施設対象なのに詳細だけ非対称）。
+  // owner/admin 限定で所属施設をすべて集め、そのいずれかに属する顧客を引く（テナント分離は維持）。
+  const { data: memberships } = await supabase
     .from('facility_members')
     .select('facility_id')
     .eq('user_id', user.id)
-    .limit(1)
-    .single();
-  if (!membership) notFound();
+    .in('role', ['owner', 'admin']);
+  if (!memberships || memberships.length === 0) notFound();
+  const facilityIds = memberships.map((m) => m.facility_id);
 
-  // 施設スコープで顧客マスターを取得（他施設の顧客は見せない）。
+  // 施設スコープで顧客マスターを取得（自分が owner/admin の施設の顧客のみ・他施設は見せない）。
   const { data: customer } = await supabase
     .from('customers')
-    .select('name, email')
+    .select('name, email, facility_id')
     .eq('id', id)
-    .eq('facility_id', membership.facility_id)
+    .in('facility_id', facilityIds)
     .single();
   if (!customer) notFound();
 
   // 来店履歴は email キー。email 未登録の顧客で getCustomerVisits を空 email で呼ぶと施設の全来店が
-  // 返ってしまうため、email がある時のみ照会する。
+  // 返ってしまうため、email がある時のみ照会する。施設は顧客が実際に属する facility_id を使う。
   const visits = customer.email
-    ? await getCustomerVisits(membership.facility_id, customer.email)
+    ? await getCustomerVisits(customer.facility_id, customer.email)
     : [];
   const totalSpent = visits.reduce((sum, v) => sum + (v.amount ?? 0), 0);
 
