@@ -1595,6 +1595,48 @@ describe('POST /api/booking', () => {
     );
   });
 
+  // 【監査L1】menu_ids 使用時、RPC へ渡す p_menu_id は検証済み先頭(menuIdsToPrice[0])に揃える。
+  // 送信された menu_id が menu_ids に含まれない他施設 id でも、bookings.menu_id には検証済みの
+  // menu_ids[0] のみが保存される（越境 menu_id 混入を防ぐ）。
+  test('menu_ids 使用時 p_menu_id は検証済み先頭に揃う（送信 menu_id が別でも採用しない・監査L1）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+    const menuId1 = '323e4567-e89b-12d3-a456-426614174001';
+    const menuId2 = '323e4567-e89b-12d3-a456-426614174002';
+    const foreignMenuId = '999e4567-e89b-12d3-a456-426614174999'; // 他施設の menu_id（検証集合外）
+
+    const conflictChain = fluent(null);
+    conflictChain.gt = jest.fn(() => Promise.resolve({ data: [] }));
+
+    const menuResult = { data: [{ id: menuId1, price: 3000 }, { id: menuId2, price: 2000 }], error: null };
+    const menuChain: Record<string, unknown> = {};
+    const menuHandler = jest.fn(() => menuChain);
+    menuChain.select = menuHandler;
+    menuChain.in = menuHandler;
+    menuChain.eq = menuHandler;
+    menuChain.or = menuHandler;
+    menuChain.then = Promise.resolve(menuResult).then.bind(Promise.resolve(menuResult));
+
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain;
+      if (callNum === 2) return menuChain;
+      return nullChain;
+    });
+
+    // menu_id は menu_ids に含まれない他施設 id を送る。fix 前は p_menu_id=foreign が保存され得た。
+    const res = await POST(makeRequest({ ...validBooking, menu_id: foreignMenuId, menu_ids: [menuId1, menuId2] }));
+    const json = await res.json();
+    expect(json.success).toBe(true);
+    expect(mockRpc).toHaveBeenCalledWith(
+      'create_booking_atomic',
+      expect.objectContaining({ p_menu_id: menuId1 }) // 検証済み先頭。foreignMenuId ではない。
+    );
+    const rpcArg = mockRpc.mock.calls.find((c) => c[0] === 'create_booking_atomic')![1];
+    expect(rpcArg.p_menu_id).not.toBe(foreignMenuId);
+  });
+
   test('複数メニューで menu_ids 保存が失敗 → warn のみ・成功継続', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
     const menuId1 = '323e4567-e89b-12d3-a456-426614174001';
@@ -1738,14 +1780,44 @@ describe('POST /api/booking', () => {
     isLineWorksConfigured.mockReturnValue(false);
   });
 
-  test('競合あり（スタッフなし）→409', async () => {
+  // 【監査M1】指名なし（おまかせ=staff_id null）は施設全体の時間帯重複があっても事前チェックで
+  // 409 にせず、RPC(create_booking_atomic) の G2 容量判定へ委譲する（複数スタッフ在籍施設で
+  // 正当な2件目のおまかせ予約を誤拒否しない）。
+  test('指名なし（おまかせ）は施設全体の重複があっても409にせずRPCへ委譲する（監査M1）', async () => {
     mockGetUser.mockResolvedValue({ data: { user: null } });
 
+    // 施設全体に重なる予約が存在する状況（事前チェックの conflicts は非空）でも、おまかせは 409 にしない。
     const conflictChain = fluent(null);
     conflictChain.gt = jest.fn(() => Promise.resolve({ data: [{ id: 'conflict-booking' }] }));
-    mockFrom.mockReturnValue(conflictChain);
+    const nullChain = fluent({ data: null });
+    let callNum = 0;
+    mockFrom.mockImplementation(() => {
+      callNum++;
+      if (callNum === 1) return conflictChain; // conflict check（重複あり・おまかせでは 409 にしない）
+      if (callNum === 2) return menuLookupChain();
+      return nullChain;
+    });
 
     const res = await POST(makeRequest(validBooking));
+    const json = await res.json();
+    expect(res.status).not.toBe(409);
+    expect(json.success).toBe(true); // RPC まで到達し予約成立（容量に空きがある前提）
+  });
+
+  test('指名あり（staff_id）＋当該スタッフの二重予約 → 409（fast-fail維持・監査M1）', async () => {
+    mockGetUser.mockResolvedValue({ data: { user: null } });
+
+    // 指名ありでは code が .gt(...).eq('staff_id') の順で staff_id を後付けするため、
+    // チェーン自体を thenable にして「全メソッドが self を返し、await で conflict 行を返す」形にする。
+    const conflictChain: Record<string, unknown> = {};
+    for (const m of ['select', 'eq', 'not', 'lt', 'gt']) {
+      conflictChain[m] = jest.fn(() => conflictChain);
+    }
+    conflictChain.then = (onFulfilled: (v: unknown) => unknown) =>
+      Promise.resolve({ data: [{ id: 'conflict-booking' }] }).then(onFulfilled);
+    mockFrom.mockReturnValue(conflictChain);
+
+    const res = await POST(makeRequest({ ...validBooking, staff_id: '523e4567-e89b-12d3-a456-426614174000' }));
     expect(res.status).toBe(409);
   });
 

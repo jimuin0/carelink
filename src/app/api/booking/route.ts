@@ -62,7 +62,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
   }
 
-  // 競合チェック（指名あり/なし両方対応）
+  // 競合チェック（早期 fast-fail）。
   {
     let conflictQuery = supabase
       .from('bookings')
@@ -81,7 +81,15 @@ export async function POST(request: Request) {
     }
 
     const { data: conflicts } = await conflictQuery;
-    if (conflicts && conflicts.length > 0) {
+    // 【監査M1】409 を返すのは【指名あり（staff_id 指定）の当該スタッフ二重予約】のときだけに限定する。
+    // 指名なし（おまかせ=staff_id null）で施設全体の単純重複を 409 にすると容量を 1 とみなすことになり、
+    // 権威側 RPC(create_booking_atomic) の G2 容量モデル（勤務中 is_active スタッフ数まで同時予約を許可）
+    // と非対称になる。複数スタッフ在籍施設では既存 1 件があっても RPC は 2 件目のおまかせ予約を許可する
+    // ため、旧実装はこの事前チェックが先に正当な予約を誤って 409 拒否していた。おまかせの容量判定は
+    // RPC の権威的判定（advisory lock 下で原子的に競合検知）へ一元化する（事前チェックで 409 しなくても
+    // RPC が競合を検知するため二重予約リスクは増えない）。指名ありは当該スタッフの二重予約を早期に
+    // 弾く正当な fast-fail のため維持する。
+    if (parsed.data.staff_id && conflicts && conflicts.length > 0) {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
   }
@@ -111,6 +119,14 @@ export async function POST(request: Request) {
   if (!allValid) {
     return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 400 });
   }
+
+  // 【監査L1】RPC(create_booking_atomic)へ渡す primary menu_id は必ず施設所属検証済みの値にする。
+  // menuIdsToPrice は全要素が allValid（facility_id + is_published）検証済みのため、その先頭を
+  // primary とする。旧実装は menu_ids 使用時も別途 parsed.data.menu_id をそのまま p_menu_id として
+  // 渡しており、検証集合の外だった。手組みリクエストで menu_id=他施設・menu_ids=[自施設] を送ると
+  // 価格は自施設から算出される一方 bookings.menu_id に未検証の他施設 menu_id が保存され、
+  // customer_visits.menu_name への越境混入も起き得た（正常UIは menu_id=menu_ids[0] のため無影響）。
+  const primaryMenuId: string | null = menuIdsToPrice[0] ?? null;
 
   // menuRows が null の場合は上の validIds チェックで 400 返却済みのため非 null が保証される
   const menuTotal = menuRows!.reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
@@ -242,7 +258,7 @@ export async function POST(request: Request) {
     p_facility_id: parsed.data.facility_id,
     p_staff_id: parsed.data.staff_id ?? null,
     p_user_id: user?.id ?? null,
-    p_menu_id: parsed.data.menu_id ?? null,
+    p_menu_id: primaryMenuId,
     p_coupon_id: parsed.data.coupon_id ?? null,
     p_booking_date: parsed.data.booking_date,
     p_start_time: parsed.data.start_time,

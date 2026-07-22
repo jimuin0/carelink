@@ -12,12 +12,18 @@ jest.mock('../safe', () => ({ safeCaptureException: (...args: unknown[]) => mock
 
 type Result = { data?: unknown; error?: unknown };
 
-/** facility_menus / staff_profiles の .select().eq().single() チェーン。eqCap.eq に eq スパイを露出。 */
-function nameLookup(data: unknown, eqCap: { eq?: jest.Mock } = {}) {
-  const eq = jest.fn(() => ({
-    single: jest.fn(() => Promise.resolve({ data, error: null })),
-  }));
+/**
+ * facility_menus / staff_profiles の名前解決チェーン。
+ * 【監査L1】名前解決は .select().eq('id').eq('facility_id').single() へ変更（越境名混入防止）。
+ * eqCap.eq に 1つ目の eq（id フィルタ）スパイを、eqCap.eqFacility に 2つ目（facility_id）を露出。
+ */
+function nameLookup(data: unknown, eqCap: { eq?: jest.Mock; eqFacility?: jest.Mock } = {}) {
+  const single = jest.fn(() => Promise.resolve({ data, error: null }));
+  const eqFacility = jest.fn(() => ({ single }));
+  // .eq('id') は { eq: eqFacility, single } を返し、新旧どちらの呼び出し形にも対応する。
+  const eq = jest.fn(() => ({ eq: eqFacility, single }));
   eqCap.eq = eq;
+  eqCap.eqFacility = eqFacility;
   return { select: jest.fn(() => ({ eq })) };
 }
 
