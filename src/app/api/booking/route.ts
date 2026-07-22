@@ -89,6 +89,9 @@ export async function POST(request: Request) {
     // RPC の権威的判定（advisory lock 下で原子的に競合検知）へ一元化する（事前チェックで 409 しなくても
     // RPC が競合を検知するため二重予約リスクは増えない）。指名ありは当該スタッフの二重予約を早期に
     // 弾く正当な fast-fail のため維持する。
+    // 【監査M1 low】おまかせでクエリ結果を使わない（一律 SELECT が走る）点は検証で "no real harm" と
+    // 判定済みの micro-perf。回避には call-order 結合の56テスト（多分岐）書き換えが要り、誤り混入
+    // リスクが便益（低頻度書込での1 SELECT節約）を上回るため、確実性優先で現行構造を維持する。
     if (parsed.data.staff_id && conflicts && conflicts.length > 0) {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }

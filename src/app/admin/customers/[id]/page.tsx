@@ -24,8 +24,11 @@ export default async function CustomerDetailPage(props: Props) {
   // 【監査M3】owner/admin である【全施設】を対象にする。旧実装は role フィルタ無し・
   // arbitrary limit(1) で先頭の1施設だけを選び、その施設スコープで顧客を引いていたため、
   // 複数施設に所属するオーナーが「先頭以外の施設」の顧客詳細を開くと該当施設が一致せず
-  // 誤って 404 になっていた（一覧ページは .in('role',['owner','admin']) で全施設対象なのに詳細だけ非対称）。
+  // 誤って 404 になっていた（詳細ページのみ role フィルタが無く単一施設に固定される非対称）。
   // owner/admin 限定で所属施設をすべて集め、そのいずれかに属する顧客を引く（テナント分離は維持）。
+  // 注：一覧ページ(page.tsx)は現状 .in('role',...).limit(1).single() で単一施設のみを表示する既存
+  // 制約が残る（複数施設の全顧客一覧は未対応）。詳細への導線は一覧の各行からのみのため facility は
+  // 常に一致し 404 は解消する。全施設一覧化は別タスク（監査M3 low #12）。
   const { data: memberships } = await supabase
     .from('facility_members')
     .select('facility_id')
