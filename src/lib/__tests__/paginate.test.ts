@@ -52,12 +52,30 @@ describe('fetchAllPaged', () => {
     expect(error).toEqual({ message: 'boom' });
   });
 
-  test('maxRows 上限で打ち切る（フルページが続いても暴走しない）', async () => {
+  test('maxRows 上限で打ち切る（フルページが続いても暴走しない）→ truncated=true・error=null', async () => {
     const fetchPage = jest.fn().mockResolvedValue({ data: [1, 2], error: null }); // 常にフルページ
-    const { rows } = await fetchAllPaged<number>(fetchPage, { pageSize: 2, maxRows: 4 });
+    const { rows, error, truncated } = await fetchAllPaged<number>(fetchPage, { pageSize: 2, maxRows: 4 });
     // offset 0,2 の2回で maxRows(4) 到達 → 計4件で停止
     expect(rows).toEqual([1, 2, 1, 2]);
     expect(fetchPage).toHaveBeenCalledTimes(2);
+    expect(truncated).toBe(true); // 続きが残り得る＝打ち切り
+    expect(error).toBeNull();     // failOnTruncation 未指定なら error にしない
+  });
+
+  test('【監査M4】failOnTruncation:true + 打ち切り → error を返す（fail-safe用）', async () => {
+    const fetchPage = jest.fn().mockResolvedValue({ data: [1, 2], error: null }); // 常にフルページ
+    const { rows, error, truncated } = await fetchAllPaged<number>(fetchPage, { pageSize: 2, maxRows: 4, failOnTruncation: true });
+    expect(rows).toEqual([1, 2, 1, 2]);
+    expect(truncated).toBe(true);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain('打ち切り');
+  });
+
+  test('【監査M4】failOnTruncation:true でも全件取得できれば error=null・truncated=false', async () => {
+    const fetchPage = jest.fn().mockResolvedValue({ data: [1], error: null }); // 端数＝全件
+    const { error, truncated } = await fetchAllPaged<number>(fetchPage, { pageSize: 2, maxRows: 4, failOnTruncation: true });
+    expect(error).toBeNull();
+    expect(truncated).toBe(false);
   });
 
   test('既定 pageSize/maxRows で動作', async () => {

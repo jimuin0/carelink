@@ -30,23 +30,3 @@ export async function resolveLineUserIdForUser(
     .maybeSingle();
   return (data as { line_user_id: string | null } | null)?.line_user_id ?? null;
 }
-
-/**
- * 複数ユーザー分の連携を一括解決する（cron の一斉送信用）。
- * 連携済み（line_user_id が非 NULL）のユーザーのみを user_id → line_user_id の Map で返す。
- */
-export async function resolveLineUserIdsForUsers(
-  client: SupabaseClient,
-  userIds: string[]
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  if (userIds.length === 0) return map;
-  const { data } = await client
-    .from('profiles')
-    .select('id, line_user_id')
-    .in('id', userIds);
-  for (const row of (data as Array<{ id: string; line_user_id: string | null }> | null) ?? []) {
-    if (row.line_user_id) map.set(row.id, row.line_user_id);
-  }
-  return map;
-}

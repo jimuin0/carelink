@@ -41,6 +41,9 @@ jest.mock('@supabase/supabase-js', () => ({
   }),
 }));
 
+// 【監査C2 low】line_user_links は line_user_id 起点で削除するため、連携解決 helper をモックする。
+jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue('U-line-1') }));
+
 import { POST } from '../route';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
@@ -264,6 +267,21 @@ test('writeAuditLog が呼ばれる', async () => {
   await POST(makeRequest());
   await new Promise(r => setTimeout(r, 10));
   expect(writeAuditLog).toHaveBeenCalled();
+});
+
+test('【監査C2】LINE未連携（line_user_id null）→ line_user_links の削除を発行しない', async () => {
+  (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValueOnce(null);
+  const lineDeleteSpy = jest.fn().mockReturnValue({ eq: jest.fn().mockResolvedValue({ error: null }) });
+  mockFrom.mockImplementation((table: string) => {
+    if (table === 'bookings') return bookingsMock();
+    if (table === 'line_user_links') return { delete: lineDeleteSpy };
+    if (table === 'facility_members') return facilityMembersMock([]);
+    return genericWriteMock();
+  });
+  const res = await POST(makeRequest());
+  expect(res.status).toBe(200);
+  // lineUserId null → Promise.resolve() で置換され line_user_links への削除は発行されない。
+  expect(lineDeleteSpy).not.toHaveBeenCalled();
 });
 
 test('PII削除部分失敗(reject) → auth削除せず中断して500（孤立PII防止）', async () => {

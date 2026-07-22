@@ -14,6 +14,7 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { fetchAllPaged } from '@/lib/paginate';
 import { alertWarning } from '@/lib/alert';
+import { errorMessage } from '@/lib/err';
 
 export const dynamic = 'force-dynamic';
 
@@ -53,7 +54,16 @@ async function enqueueFlaggedReviews(
     }));
   if (toInsert.length > 0) {
     const { error } = await supabase.from('moderation_queue').insert(toInsert);
-    if (error) console.error('[flag-reviews] moderation_queue enqueue failed:', error);
+    if (error) {
+      // 【監査H3 low】enqueue が恒常失敗（moderation_queue のスキーマドリフト等）すると、
+      // フラグ済みレビューが is_flagged=true のまま審査キューに載らず、本 cron が解消したはずの
+      // no-op を無音で再現する。同ファイルの RPC 失敗警報と整合させ Slack にも警報する。
+      console.error('[flag-reviews] moderation_queue enqueue failed:', error);
+      alertWarning('flag-reviews: moderation_queue への審査キュー投入に失敗（フラグ済みが審査に載らない）', {
+        route: '/api/cron/flag-reviews',
+        extra: { errorMessage: errorMessage(error) },
+      });
+    }
   }
 }
 

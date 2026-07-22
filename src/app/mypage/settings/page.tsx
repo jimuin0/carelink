@@ -28,7 +28,7 @@ function SettingsContent() {
       .then(setGcal)
       .catch(() => setGcalError(true));
 
-    // LINE連携状態を確認（GET /api/profile が line_user_links の有無を { linked } で返す）
+    // LINE連携状態を確認（GET /api/profile が profiles.line_user_id の非NULLを { linked } で返す・監査C2）
     fetch('/api/profile')
       .then((r) => { if (!r.ok) throw new Error(); return r.json(); })
       .then((d) => setLineLinked(!!d.linked))
