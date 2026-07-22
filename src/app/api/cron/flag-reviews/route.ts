@@ -31,39 +31,30 @@ async function enqueueFlaggedReviews(
   flagType: string,
   reason: string,
 ): Promise<void> {
-  // 呼び出し側（bulk: reviews.length>0 / self-dealing: ids.length>=2）が常に非空を保証するため
-  // 空ガードは置かない（到達不能分岐を作らない）。
-  const ids = items.map((i) => i.id);
-  const { data: existing } = await supabase
-    .from('moderation_queue')
-    .select('content_id')
-    .eq('content_type', 'review')
-    .eq('status', 'pending')
-    .in('content_id', ids);
-  const existingSet = new Set(((existing as { content_id: string }[] | null) ?? []).map((e) => e.content_id));
-  const toInsert = items
-    .filter((i) => !existingSet.has(i.id))
-    .map((i) => ({
+  // 【監査H3 low・恒久根治】旧実装は pending 既存を SELECT→未登録のみ INSERT の best-effort dedup で、
+  // ユーザー通報(H2)や別cronが SELECT と INSERT の間に割り込むと同一レビューの pending が重複挿入され得た。
+  // DB 側の部分ユニークindex（uq_moderation_pending_content）＋ enqueue_moderation(INSERT ON CONFLICT
+  // DO NOTHING)で原子的に排除する（migration 20260722000001）。バッチ全体を jsonb で一括投入し、
+  // 既存 pending は自動スキップされる（バッチ全体を壊さない）。
+  const { error } = await supabase.rpc('enqueue_moderation', {
+    p_items: items.map((i) => ({
       content_type: 'review',
       content_id: i.id,
       facility_id: i.facility_id,
       reporter_id: null, // 自動検知（人間の通報者なし）
       report_reason: reason,
       auto_flags: [flagType],
-      status: 'pending',
-    }));
-  if (toInsert.length > 0) {
-    const { error } = await supabase.from('moderation_queue').insert(toInsert);
-    if (error) {
-      // 【監査H3 low】enqueue が恒常失敗（moderation_queue のスキーマドリフト等）すると、
-      // フラグ済みレビューが is_flagged=true のまま審査キューに載らず、本 cron が解消したはずの
-      // no-op を無音で再現する。同ファイルの RPC 失敗警報と整合させ Slack にも警報する。
-      console.error('[flag-reviews] moderation_queue enqueue failed:', error);
-      alertWarning('flag-reviews: moderation_queue への審査キュー投入に失敗（フラグ済みが審査に載らない）', {
-        route: '/api/cron/flag-reviews',
-        extra: { errorMessage: errorMessage(error) },
-      });
-    }
+    })),
+  });
+  if (error) {
+    // enqueue が恒常失敗（関数不在/スキーマドリフト等）すると、フラグ済みレビューが is_flagged=true の
+    // まま審査キューに載らず、本 cron が解消したはずの no-op を無音で再現する。RPC 失敗警報と整合させ
+    // Slack にも警報する。
+    console.error('[flag-reviews] moderation_queue enqueue failed:', error);
+    alertWarning('flag-reviews: moderation_queue への審査キュー投入に失敗（フラグ済みが審査に載らない）', {
+      route: '/api/cron/flag-reviews',
+      extra: { errorMessage: errorMessage(error) },
+    });
   }
 }
 

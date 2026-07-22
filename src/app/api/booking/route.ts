@@ -62,37 +62,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: '開始時間は終了時間より前にしてください' }, { status: 400 });
   }
 
-  // 競合チェック（早期 fast-fail）。
-  {
-    let conflictQuery = supabase
+  // 競合チェック（早期 fast-fail）は【指名あり（staff_id 指定）】のときだけ実行する（監査M1・恒久根治）。
+  // 指名なし（おまかせ=staff_id null）で施設全体の単純重複を 409 にすると容量を 1 とみなすことになり、
+  // 権威側 RPC(create_booking_atomic) の G2 容量モデル（勤務中 is_active スタッフ数まで同時予約を許可）
+  // と非対称になる（複数スタッフ在籍施設で正当な2件目のおまかせ予約を誤って 409 拒否していた）。
+  // おまかせの容量判定は RPC の権威的判定（advisory lock 下で原子的に競合検知）へ一元化するため、
+  // ここでは結果を使わない＝おまかせでは SELECT 自体を発行しない（無駄クエリを完全に排除）。
+  // 指名ありは当該スタッフの二重予約を早期に弾く正当な fast-fail のため実行・維持する。
+  if (parsed.data.staff_id) {
+    const { data: conflicts } = await supabase
       .from('bookings')
       .select('id')
       .eq('facility_id', parsed.data.facility_id)
       .eq('booking_date', parsed.data.booking_date)
-      // cancel_fee_paid（キャンセル料決済済・席は空く）も終了扱いで除外する。RPC 側
-      // （create_booking_atomic 等）は既に除外済みで、ここが未追従だと空き枠を競合と誤判定し
-      // 409 を返して RPC まで到達せず、空いているはずの枠が予約不能になる。
+      // cancel_fee_paid（キャンセル料決済済・席は空く）も終了扱いで除外し RPC 側と揃える。
       .not('status', 'in', '("cancelled","no_show","cancel_fee_paid")')
       .lt('start_time', parsed.data.end_time)
-      .gt('end_time', parsed.data.start_time);
-
-    if (parsed.data.staff_id) {
-      conflictQuery = conflictQuery.eq('staff_id', parsed.data.staff_id);
-    }
-
-    const { data: conflicts } = await conflictQuery;
-    // 【監査M1】409 を返すのは【指名あり（staff_id 指定）の当該スタッフ二重予約】のときだけに限定する。
-    // 指名なし（おまかせ=staff_id null）で施設全体の単純重複を 409 にすると容量を 1 とみなすことになり、
-    // 権威側 RPC(create_booking_atomic) の G2 容量モデル（勤務中 is_active スタッフ数まで同時予約を許可）
-    // と非対称になる。複数スタッフ在籍施設では既存 1 件があっても RPC は 2 件目のおまかせ予約を許可する
-    // ため、旧実装はこの事前チェックが先に正当な予約を誤って 409 拒否していた。おまかせの容量判定は
-    // RPC の権威的判定（advisory lock 下で原子的に競合検知）へ一元化する（事前チェックで 409 しなくても
-    // RPC が競合を検知するため二重予約リスクは増えない）。指名ありは当該スタッフの二重予約を早期に
-    // 弾く正当な fast-fail のため維持する。
-    // 【監査M1 low】おまかせでクエリ結果を使わない（一律 SELECT が走る）点は検証で "no real harm" と
-    // 判定済みの micro-perf。回避には call-order 結合の56テスト（多分岐）書き換えが要り、誤り混入
-    // リスクが便益（低頻度書込での1 SELECT節約）を上回るため、確実性優先で現行構造を維持する。
-    if (parsed.data.staff_id && conflicts && conflicts.length > 0) {
+      .gt('end_time', parsed.data.start_time)
+      .eq('staff_id', parsed.data.staff_id);
+    if (conflicts && conflicts.length > 0) {
       return NextResponse.json({ error: 'この時間帯は既に予約が入っています' }, { status: 409 });
     }
   }
