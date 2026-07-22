@@ -37,7 +37,7 @@
     "@react-map/japan": "^1.0.10",
     "@stripe/stripe-js": "^9.8.0",
     "@supabase/ssr": "^0.10.3",
-    "@supabase/supabase-js": "^2.108.2",
+    "@supabase/supabase-js": "^2.110.8",
     "@types/qrcode": "^1.5.6",
     "@vercel/analytics": "^2.0.1",
     "@vercel/functions": "^3.7.5",
