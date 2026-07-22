@@ -219,13 +219,24 @@ async function AdminShell({ children }: { children: React.ReactNode }) {
 
   const isPlatformAdmin = profile?.is_platform_admin === true;
 
-  const visibleNavItems = navItems.filter((item) => !item.platformAdmin || isPlatformAdmin);
+  // 【ローンチ時非表示】決済手段（Stripe/PAY.JP）未導入のため、有料掲載枠（featured-ads）の
+  // 販売導線を全ロールで一時的に隠す。決済導入時に LAUNCH_HIDDEN_HREFS から外すだけで復活する
+  // （nav 定義・ページ・API はそのまま温存＝症状ブロックでなく設定1箇所で可逆制御）。
+  const LAUNCH_HIDDEN_HREFS = new Set<string>(['/admin/featured-ads']);
+  const visibleNavItems = navItems.filter(
+    (item) => (!item.platformAdmin || isPlatformAdmin) && !LAUNCH_HIDDEN_HREFS.has(item.href),
+  );
   // グループ自体の platformAdmin だけでなく、グループ内の各項目（item.platformAdmin）も
   // 個別にフィルタする。'message' グループのように施設オーナーにも見せるグループの中に
   // 運営専用項目（email-setup / line-richmenu）が混在するケースがあるため。
   const visibleNavGroups = navGroups
     .filter((g) => !g.platformAdmin || isPlatformAdmin)
-    .map((g) => ({ ...g, items: g.items.filter((item) => !item.platformAdmin || isPlatformAdmin) }));
+    .map((g) => ({
+      ...g,
+      items: g.items.filter(
+        (item) => (!item.platformAdmin || isPlatformAdmin) && !LAUNCH_HIDDEN_HREFS.has(item.href),
+      ),
+    }));
 
   return (
     <div className="min-h-screen bg-gray-100">
