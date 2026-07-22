@@ -27,13 +27,19 @@ jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: jest.fn(),
   createServerSupabaseClient: jest.fn(),
 }));
+jest.mock('@/lib/alert', () => ({ alertCaughtError: jest.fn() }));
 
 import { checkRateLimit } from '@/lib/rate-limit';
 import { checkCsrf } from '@/lib/csrf';
 import { POST } from '../route';
 
 let mockGetUser: jest.Mock;
+// reports への INSERT（従来の mockInsert）。既存アサーションと互換のため別名も維持。
 let mockInsert: jest.Mock;
+let mockModQueueInsert: jest.Mock;
+// moderation_queue の pending 既存行（null=無し）。target の facility_id 解決値。
+let modQueueExisting: unknown;
+let targetFacilityId: string | null;
 
 function setupDefaultMocks(
   hasUser: boolean = true,
@@ -43,9 +49,14 @@ function setupDefaultMocks(
     data: { user: hasUser ? { id: 'user-123' } : null },
   });
 
+  // reports への INSERT
   mockInsert = jest.fn().mockResolvedValue({
     error: insertSucceeds ? null : { code: 'db-error' },
   });
+  // 【監査H2】moderation_queue への INSERT（連携）
+  mockModQueueInsert = jest.fn().mockResolvedValue({ error: null });
+  modQueueExisting = null;
+  targetFacilityId = 'fac-1';
 
   // 認証判定のみ anon SSR クライアント（createServerClient・withRoute 内部の
   // createServerSupabaseAuthClient 経由で使われる）
@@ -54,11 +65,39 @@ function setupDefaultMocks(
     auth: { getUser: mockGetUser },
   });
 
-  // DB 書き込みは service_role クライアント（createServiceRoleClient）
+  // DB 書き込みは service_role クライアント（createServiceRoleClient）。
+  // 【監査H2】reports に加え facility_reviews/facility_photos(facility_id 解決)・
+  // moderation_queue(既存 pending 確認 + INSERT)を叩くため table 別にルーティングする。
   const { createServiceRoleClient } = require('@/lib/supabase-server');
   (createServiceRoleClient as jest.Mock).mockReturnValue({
-    from: jest.fn().mockReturnValue({
-      insert: mockInsert,
+    from: jest.fn((table: string) => {
+      if (table === 'reports') return { insert: mockInsert };
+      if (table === 'facility_reviews' || table === 'facility_photos') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              maybeSingle: jest.fn().mockResolvedValue({
+                data: targetFacilityId === null ? null : { facility_id: targetFacilityId },
+              }),
+            }),
+          }),
+        };
+      }
+      if (table === 'moderation_queue') {
+        return {
+          select: jest.fn().mockReturnValue({
+            eq: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                eq: jest.fn().mockReturnValue({
+                  maybeSingle: jest.fn().mockResolvedValue({ data: modQueueExisting }),
+                }),
+              }),
+            }),
+          }),
+          insert: mockModQueueInsert,
+        };
+      }
+      return { insert: jest.fn().mockResolvedValue({ error: null }) };
     }),
   });
 
@@ -386,5 +425,83 @@ describe('POST /api/report', () => {
 
     const insertCall = mockInsert.mock.calls[0];
     expect(insertCall[0].detail).toBeNull();
+  });
+
+  // ─── 監査H2: 通報 → moderation_queue 連携（審査画面に必ず表示される）───────────
+  describe('moderation_queue 連携（H2）', () => {
+    test('review 通報 → moderation_queue に content_type=review で投入（facility_id/通報者/理由付き）', async () => {
+      const res = await POST(
+        makeRequest({ target_type: 'review', target_id: VALID_UUID, reason: 'fake', detail: '自作自演' }) as any
+      );
+      expect(res.status).toBe(200);
+      expect(mockModQueueInsert).toHaveBeenCalledTimes(1);
+      const row = mockModQueueInsert.mock.calls[0][0];
+      expect(row.content_type).toBe('review');
+      expect(row.content_id).toBe(VALID_UUID);
+      expect(row.facility_id).toBe('fac-1');
+      expect(row.reporter_id).toBe('user-123');
+      expect(row.status).toBe('pending');
+      expect(row.report_reason).toBe('fake: 自作自演'); // detail を連結
+    });
+
+    test('photo 通報 → moderation_queue に content_type=photo で投入', async () => {
+      const res = await POST(
+        makeRequest({ target_type: 'photo', target_id: VALID_UUID, reason: 'inappropriate' }) as any
+      );
+      expect(res.status).toBe(200);
+      expect(mockModQueueInsert).toHaveBeenCalledTimes(1);
+      expect(mockModQueueInsert.mock.calls[0][0].content_type).toBe('photo');
+      // detail 無し → reason のみ
+      expect(mockModQueueInsert.mock.calls[0][0].report_reason).toBe('inappropriate');
+    });
+
+    test('facility 通報 → moderation_queue へは投入しない（CHECK 非対応・reports台帳のみ）', async () => {
+      const res = await POST(
+        makeRequest({ target_type: 'facility', target_id: VALID_UUID, reason: 'spam' }) as any
+      );
+      expect(res.status).toBe(200);
+      expect(mockInsert).toHaveBeenCalledTimes(1); // reports には入る
+      expect(mockModQueueInsert).not.toHaveBeenCalled();
+    });
+
+    test('同一コンテンツの pending キューが既にある → 重複投入しない', async () => {
+      modQueueExisting = { id: 'existing-queue-1' };
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(mockModQueueInsert).not.toHaveBeenCalled();
+    });
+
+    test('target の facility_id 解決不能 → facility_id=null で投入（nullable）', async () => {
+      targetFacilityId = null;
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(mockModQueueInsert.mock.calls[0][0].facility_id).toBeNull();
+    });
+
+    test('moderation_queue INSERT 失敗 → 通報は 200 維持・監視通知に載せる（非ブロッキング）', async () => {
+      const { alertCaughtError } = require('@/lib/alert');
+      mockModQueueInsert.mockResolvedValueOnce({ error: { message: 'mq insert failed' } });
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-queue', expect.anything(), '/api/report');
+    });
+
+    test('連携中の例外 → catch で握り潰し 200 維持・監視通知（reports は記録済み）', async () => {
+      const { alertCaughtError } = require('@/lib/alert');
+      // moderation_queue の select が throw する状況を作る
+      const { createServiceRoleClient } = require('@/lib/supabase-server');
+      (createServiceRoleClient as jest.Mock).mockReturnValueOnce({
+        from: jest.fn((table: string) => {
+          if (table === 'reports') return { insert: mockInsert };
+          if (table === 'facility_reviews' || table === 'facility_photos') {
+            return { select: () => ({ eq: () => ({ maybeSingle: () => { throw new Error('boom'); } }) }) };
+          }
+          return { insert: jest.fn().mockResolvedValue({ error: null }) };
+        }),
+      });
+      const res = await POST(makeRequest(validReport) as any);
+      expect(res.status).toBe(200);
+      expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-queue', expect.anything(), '/api/report');
+    });
   });
 });
