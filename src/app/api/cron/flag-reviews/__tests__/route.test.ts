@@ -35,6 +35,8 @@ let mockUpdateReviews: jest.Mock;
 // 【監査H3】moderation_queue 投入モック。既存 pending の content_id 集合と insert スパイ。
 let mockModQueueInsert: jest.Mock;
 let existingQueueContentIds: string[] = [];
+// 既存 pending 取得が data=null（防御的分岐 `existing ?? []`）を返すか
+let modQueueSelectReturnsNull = false;
 
 // fetchAllPaged 化で両クエリ末尾に .order().range() が付く。1ページ目に rows、
 // 2ページ目以降(offset>0)は空配列を返して終了させる terminal。
@@ -97,6 +99,7 @@ function setupDefaultMocks(
 
   // 【監査H3】moderation_queue: select(content_id).eq.eq.in → 既存 pending / insert → { error:null }
   existingQueueContentIds = [];
+  modQueueSelectReturnsNull = false;
   mockModQueueInsert = jest.fn().mockResolvedValue({ error: null });
 
   mockFromDelegate.mockImplementation((table: string) => {
@@ -112,7 +115,7 @@ function setupDefaultMocks(
           eq: jest.fn().mockReturnValue({
             eq: jest.fn().mockReturnValue({
               in: jest.fn().mockResolvedValue({
-                data: existingQueueContentIds.map((id) => ({ content_id: id })),
+                data: modQueueSelectReturnsNull ? null : existingQueueContentIds.map((id) => ({ content_id: id })),
                 error: null,
               }),
             }),
@@ -426,6 +429,15 @@ describe('GET /api/cron/flag-reviews', () => {
       expect(res.status).toBe(200);
       const inserted = mockModQueueInsert.mock.calls[0][0];
       expect(inserted.map((r: { content_id: string }) => r.content_id)).toEqual(['review-1', 'review-2']);
+    });
+
+    test('既存 pending 取得が data=null（防御的分岐）→ existing ?? [] で全件投入', async () => {
+      modQueueSelectReturnsNull = true;
+      const res = await GET(makeRequest() as any);
+      expect(res.status).toBe(200);
+      // existing が null → 既存扱いは0件 → フラグした全件を投入。
+      const inserted = mockModQueueInsert.mock.calls[0][0];
+      expect(inserted.map((r: { content_id: string }) => r.content_id)).toEqual(['review-0', 'review-1', 'review-2']);
     });
 
     test('moderation_queue insert 失敗 → console.error のみで cron は 200 継続', async () => {

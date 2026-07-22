@@ -776,6 +776,32 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(200);
     });
 
+    // 【監査M4】owner profiles が data=null かつ error=null（防御的分岐）→ ownerProfiles || [] で
+    // 空配列にフォールバックして続行する（そのチャンクからのメールは 0 件）。
+    test('owner_monthly: profiles が data=null（error無し）→ || [] で空フォールバック', async () => {
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'owner_monthly' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        if (callNum === 3) return subscribersChain([{ email: 'sub@example.com', user_id: 'u1' }]);
+        if (callNum === 4) return facilityMembersChain([{ user_id: 'o1' }]);
+        if (callNum === 5) return ownerProfilesChain(null as unknown as { email: string | null }[], null);
+        if (callNum === 6) return unsubscribedProfilesChain([]);
+        if (callNum === 7) return inactiveSubscriptionsChain([]);
+        return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
+      });
+      const { Resend } = require('resend');
+      const mockBatchSend = jest.fn().mockResolvedValue({ data: [], error: null });
+      Resend.mockImplementationOnce(() => ({ batch: { send: mockBatchSend } }));
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(200);
+      // sub@example.com は送るが、owner profiles が null のため owner 宛は 0 件。
+      const [messages] = mockBatchSend.mock.calls[0];
+      expect(messages.map((m: { to: string[] }) => m.to[0])).toEqual(['sub@example.com']);
+    });
+
     test('text_content が空 → undefined として送信', async () => {
       mockAnonFrom.mockReturnValue(profileChain(true));
       buildSendMocks({

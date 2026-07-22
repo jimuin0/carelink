@@ -168,12 +168,14 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
           }
           ownerEmails.push(...((ownerProfiles || []).map((p: { email: string | null }) => p.email).filter(Boolean) as string[]));
         }
+        // subscribers/unsubProfiles/inactiveSubs は fetchAllPaged の rows（型は T[]・常に配列）の
+        // ため `|| []` は型レベルで到達不能（デッド分岐）。付けない。
         emails = Array.from(new Set([
-          ...(subscribers || []).map((s: { email: string | null }) => s.email).filter(Boolean) as string[],
+          ...subscribers.map((s: { email: string | null }) => s.email).filter(Boolean) as string[],
           ...ownerEmails,
         ]));
       } else {
-        emails = (subscribers || []).map((s: { email: string | null }) => s.email).filter(Boolean) as string[];
+        emails = subscribers.map((s: { email: string | null }) => s.email).filter(Boolean) as string[];
       }
 
       // 配信停止の一次ソースは profiles.email_unsubscribed（アカウント有無に依存しない唯一の
@@ -221,9 +223,10 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
           await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
           return NextResponse.json({ error: '配信停止者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
         }
+        // unsubProfiles/inactiveSubs は fetchAllPaged の rows（常に配列）のため `|| []` は付けない。
         const unsubscribed = new Set<string>([
-          ...(unsubProfiles || []).map((p: { email: string | null }) => (p.email ?? '').toLowerCase()).filter(Boolean),
-          ...(inactiveSubs || []).map((s: { email: string | null }) => (s.email ?? '').toLowerCase()).filter(Boolean),
+          ...unsubProfiles.map((p: { email: string | null }) => (p.email ?? '').toLowerCase()).filter(Boolean),
+          ...inactiveSubs.map((s: { email: string | null }) => (s.email ?? '').toLowerCase()).filter(Boolean),
         ]);
         emails = emails.filter((e) => !unsubscribed.has(e));
       }

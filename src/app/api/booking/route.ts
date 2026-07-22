@@ -126,7 +126,9 @@ export async function POST(request: Request) {
   // 渡しており、検証集合の外だった。手組みリクエストで menu_id=他施設・menu_ids=[自施設] を送ると
   // 価格は自施設から算出される一方 bookings.menu_id に未検証の他施設 menu_id が保存され、
   // customer_visits.menu_name への越境混入も起き得た（正常UIは menu_id=menu_ids[0] のため無影響）。
-  const primaryMenuId: string | null = menuIdsToPrice[0] ?? null;
+  // menuIdsToPrice は zod refine（menu_id か menu_ids 必須）＋フォールバック [menu_id!] により
+  // 常に非空が保証されるため [0] は常に string（`?? null` は到達不能分岐になるため置かない）。
+  const primaryMenuId: string = menuIdsToPrice[0]!;
 
   // menuRows が null の場合は上の validIds チェックで 400 返却済みのため非 null が保証される
   const menuTotal = menuRows!.reduce((sum: number, r: { price: number | null }) => sum + (r.price ?? 0), 0);
