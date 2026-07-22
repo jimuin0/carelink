@@ -67,8 +67,8 @@ export default function SalonPage() {
                     <span className="text-sky-700 font-bold text-base">CareLink</span>
                   </th>
                   <th className="py-3 px-4 text-center text-gray-500">大手ポータルA</th>
-                  <th className="py-3 px-4 text-center text-gray-500">ミニモ</th>
-                  <th className="py-3 px-4 text-center text-gray-500">楽天ビューティー</th>
+                  <th className="py-3 px-4 text-center text-gray-500">大手ポータルB</th>
+                  <th className="py-3 px-4 text-center text-gray-500">大手ポータルC</th>
                 </tr>
               </thead>
               <tbody>
@@ -88,19 +88,19 @@ export default function SalonPage() {
                   ['保険適用メニュー対応', '✅', '❌', '❌', '❌'],
                   ['最低契約期間', 'なし', '6ヶ月〜', 'なし', 'なし'],
                   ['解約金', '¥0', '契約残期間分', '¥0', '¥0'],
-                ].map(([feature, carelink, other, minimo, rakuten]) => (
+                ].map(([feature, carelink, otherA, otherB, otherC]) => (
                   <tr key={feature} className="border-b border-gray-100">
                     <td className="py-3 px-4 text-gray-600">{feature}</td>
                     <td className="py-3 px-4 text-center bg-sky-50 font-bold text-sky-700">{carelink}</td>
-                    <td className="py-3 px-4 text-center text-gray-500">{other}</td>
-                    <td className="py-3 px-4 text-center text-gray-500">{minimo}</td>
-                    <td className="py-3 px-4 text-center text-gray-500">{rakuten}</td>
+                    <td className="py-3 px-4 text-center text-gray-500">{otherA}</td>
+                    <td className="py-3 px-4 text-center text-gray-500">{otherB}</td>
+                    <td className="py-3 px-4 text-center text-gray-500">{otherC}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <p className="text-center text-xs text-gray-500 mt-4">※大手ポータルAは一般的な美容ポータルサイトの料金体系を参考にしています。ミニモ・楽天ビューティーの料金・機能は2026年7月時点の公開情報を参考にしています</p>
+          <p className="text-center text-xs text-gray-500 mt-4">※大手ポータルA・B・Cは、一般的な美容・予約ポータルサイトの料金体系・機能を2026年7月時点の公開情報をもとに一般化した参考値です（特定の実在サービスを指すものではありません）</p>
         </div>
       </section>
 
