@@ -83,7 +83,8 @@
   },
   "overrides": {
     "postcss": "$postcss",
-    "qs": "^6.15.2"
+    "qs": "^6.15.2",
+    "sharp": "^0.35.0"
   },
   "lint-staged": {
     "*": [
