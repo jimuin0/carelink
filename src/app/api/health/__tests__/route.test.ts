@@ -279,14 +279,16 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     expect(typeof json.deps.rate_limit.error).toBe('string');
   });
 
-  test('Stripe 未設定 → stripe NG (not configured), degraded', async () => {
+  test('Stripe 未設定 → skipped 扱い・degraded にしない（決済オフ運用）', async () => {
     setupDefaultMocks();
     delete process.env.STRIPE_SECRET_KEY;
     const res = await GET(makeReq());
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json.status).toBe('degraded');
-    expect(json.deps.stripe.ok).toBe(false);
+    expect(json.status).toBe('healthy');
+    expect(json.deps.stripe.ok).toBe(true);
+    expect(json.deps.stripe.skipped).toBe(true);
+    expect(json.deps.stripe.note).toBe('not_configured');
   });
 
   test('Resend 401 → resend NG', async () => {
