@@ -84,7 +84,6 @@ SELECT
   fp.prefecture,
   fp.city,
   fp.access_info,
-  fp.nearest_station,
   fp.rating_avg,
   fp.rating_count,
   fp.main_photo_url,
@@ -101,7 +100,8 @@ SELECT
   COALESCE(coupon_agg.coupon_count, 0) AS coupon_count,
   COALESCE(photo_agg.photo_count, 0) AS photo_count,
   fp.google_rating,
-  fp.google_review_count
+  fp.google_review_count,
+  fp.nearest_station
 FROM facility_profiles fp
 LEFT JOIN LATERAL (
   SELECT
