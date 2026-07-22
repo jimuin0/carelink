@@ -115,6 +115,11 @@
     "columns": "id"
   },
   {
+    "table_name": "cron_alert_claims",
+    "kind": "p",
+    "columns": "claim_key,job_name"
+  },
+  {
     "table_name": "cron_logs",
     "kind": "p",
     "columns": "id"
