@@ -189,6 +189,11 @@ const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
   // 2026-06-29: get_public_constraints（20260629000005）／2026-07-04: cleanup_old_cron_report_sends
   //   （M-1・20260704000010）はいずれも本番 apply ＋ database.types.ts 再生成を完了し types に反映済みの
   //   ため本リストから削除＝関数ドリフト 0。
+  // 2026-07-22: enqueue_moderation（20260722000001・監査H2/H3 low の原子的 dedup）は
+  //   デプロイ順序の待機窓に在る＝コード(report/flag-reviews の rpc)は prod に関数が存在してから動く。
+  //   神原さんが DDL を prod へ適用し database.types.ts を再生成したら本行を削除すること
+  //   （それまでは本 PR をマージしない・適用後にドリフト 0 へ戻す明示宣言）。
+  'enqueue_moderation',
 ]);
 
 function migrationDefinedTables(): Set<string> {

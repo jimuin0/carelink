@@ -36,9 +36,8 @@ import { POST } from '../route';
 let mockGetUser: jest.Mock;
 // reports への INSERT（従来の mockInsert）。既存アサーションと互換のため別名も維持。
 let mockInsert: jest.Mock;
-let mockModQueueInsert: jest.Mock;
-// moderation_queue の pending 既存行（null=無し）。target の facility_id 解決値。
-let modQueueExisting: unknown;
+// 【監査H2】moderation_queue 連携は rpc('enqueue_moderation') 経由（atomic dedup）。
+let mockRpc: jest.Mock;
 let targetFacilityId: string | null;
 
 function setupDefaultMocks(
@@ -53,9 +52,8 @@ function setupDefaultMocks(
   mockInsert = jest.fn().mockResolvedValue({
     error: insertSucceeds ? null : { code: 'db-error' },
   });
-  // 【監査H2】moderation_queue への INSERT（連携）
-  mockModQueueInsert = jest.fn().mockResolvedValue({ error: null });
-  modQueueExisting = null;
+  // 【監査H2】moderation_queue への連携は rpc('enqueue_moderation') に一本化（atomic dedup）。
+  mockRpc = jest.fn().mockResolvedValue({ error: null });
   targetFacilityId = 'fac-1';
 
   // 認証判定のみ anon SSR クライアント（createServerClient・withRoute 内部の
@@ -83,22 +81,9 @@ function setupDefaultMocks(
           }),
         };
       }
-      if (table === 'moderation_queue') {
-        return {
-          select: jest.fn().mockReturnValue({
-            eq: jest.fn().mockReturnValue({
-              eq: jest.fn().mockReturnValue({
-                eq: jest.fn().mockReturnValue({
-                  maybeSingle: jest.fn().mockResolvedValue({ data: modQueueExisting }),
-                }),
-              }),
-            }),
-          }),
-          insert: mockModQueueInsert,
-        };
-      }
       return { insert: jest.fn().mockResolvedValue({ error: null }) };
     }),
+    rpc: (...args: unknown[]) => mockRpc(...args),
   });
 
   const { cookies } = require('next/headers');
@@ -427,60 +412,55 @@ describe('POST /api/report', () => {
     expect(insertCall[0].detail).toBeNull();
   });
 
-  // ─── 監査H2: 通報 → moderation_queue 連携（審査画面に必ず表示される）───────────
+  // ─── 監査H2: 通報 → moderation_queue 連携（rpc enqueue_moderation・atomic dedup）───────────
   describe('moderation_queue 連携（H2）', () => {
-    test('review 通報 → moderation_queue に content_type=review で投入（facility_id/通報者/理由付き）', async () => {
+    function rpcItem() {
+      const call = mockRpc.mock.calls.find((c) => c[0] === 'enqueue_moderation');
+      return call ? call[1].p_items[0] : undefined;
+    }
+    test('review 通報 → enqueue_moderation に content_type=review で投入（facility_id/通報者/理由付き）', async () => {
       const res = await POST(
         makeRequest({ target_type: 'review', target_id: VALID_UUID, reason: 'fake', detail: '自作自演' }) as any
       );
       expect(res.status).toBe(200);
-      expect(mockModQueueInsert).toHaveBeenCalledTimes(1);
-      const row = mockModQueueInsert.mock.calls[0][0];
+      expect(mockRpc).toHaveBeenCalledWith('enqueue_moderation', expect.objectContaining({ p_items: expect.any(Array) }));
+      const row = rpcItem();
       expect(row.content_type).toBe('review');
       expect(row.content_id).toBe(VALID_UUID);
       expect(row.facility_id).toBe('fac-1');
       expect(row.reporter_id).toBe('user-123');
-      expect(row.status).toBe('pending');
       expect(row.report_reason).toBe('fake: 自作自演'); // detail を連結
+      expect(row.auto_flags).toEqual([]);
     });
 
-    test('photo 通報 → moderation_queue に content_type=photo で投入', async () => {
+    test('photo 通報 → enqueue_moderation に content_type=photo で投入', async () => {
       const res = await POST(
         makeRequest({ target_type: 'photo', target_id: VALID_UUID, reason: 'inappropriate' }) as any
       );
       expect(res.status).toBe(200);
-      expect(mockModQueueInsert).toHaveBeenCalledTimes(1);
-      expect(mockModQueueInsert.mock.calls[0][0].content_type).toBe('photo');
-      // detail 無し → reason のみ
-      expect(mockModQueueInsert.mock.calls[0][0].report_reason).toBe('inappropriate');
+      expect(rpcItem().content_type).toBe('photo');
+      expect(rpcItem().report_reason).toBe('inappropriate'); // detail 無し → reason のみ
     });
 
-    test('facility 通報 → moderation_queue へは投入しない（CHECK 非対応・reports台帳のみ）', async () => {
+    test('facility 通報 → enqueue_moderation を呼ばない（CHECK 非対応・reports台帳のみ）', async () => {
       const res = await POST(
         makeRequest({ target_type: 'facility', target_id: VALID_UUID, reason: 'spam' }) as any
       );
       expect(res.status).toBe(200);
       expect(mockInsert).toHaveBeenCalledTimes(1); // reports には入る
-      expect(mockModQueueInsert).not.toHaveBeenCalled();
-    });
-
-    test('同一コンテンツの pending キューが既にある → 重複投入しない', async () => {
-      modQueueExisting = { id: 'existing-queue-1' };
-      const res = await POST(makeRequest(validReport) as any);
-      expect(res.status).toBe(200);
-      expect(mockModQueueInsert).not.toHaveBeenCalled();
+      expect(mockRpc).not.toHaveBeenCalled();
     });
 
     test('target の facility_id 解決不能 → facility_id=null で投入（nullable）', async () => {
       targetFacilityId = null;
       const res = await POST(makeRequest(validReport) as any);
       expect(res.status).toBe(200);
-      expect(mockModQueueInsert.mock.calls[0][0].facility_id).toBeNull();
+      expect(rpcItem().facility_id).toBeNull();
     });
 
-    test('moderation_queue INSERT 失敗 → 通報は 200 維持・監視通知に載せる（非ブロッキング）', async () => {
+    test('enqueue_moderation 失敗 → 通報は 200 維持・監視通知に載せる（非ブロッキング）', async () => {
       const { alertCaughtError } = require('@/lib/alert');
-      mockModQueueInsert.mockResolvedValueOnce({ error: { message: 'mq insert failed' } });
+      mockRpc.mockResolvedValueOnce({ error: { message: 'rpc failed' } });
       const res = await POST(makeRequest(validReport) as any);
       expect(res.status).toBe(200);
       expect(alertCaughtError).toHaveBeenCalledWith('report-moderation-queue', expect.anything(), '/api/report');
