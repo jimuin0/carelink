@@ -121,17 +121,29 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       const subType = campaign.campaign_type === 'owner_monthly' ? 'owner_monthly' : 'user_digest';
 
       // Get subscribers（全件・PostgREST 1000行上限で受信者を無音に取りこぼさないよう分頁取得。監査M4）
-      const { rows: subscribers } = await fetchAllPaged<{ email: string | null; user_id: string | null }>(
+      // 【監査M4・敵対検証】.order('id') 必須：ORDER BY 無しの OFFSET ページングは行順が不定で、
+      // >1000行＋並行 unsubscribe/プラン差で【ページ境界の行欠落・重複】が起き得る（suppression 側は
+      // 欠落＝停止済みへの誤送信に直結）。主キー id で決定的順序にする（booking-reminder と同方針）。
+      const { rows: subscribers, error: subscribersErr } = await fetchAllPaged<{ email: string | null; user_id: string | null }>(
         async (offset, limit) => {
           const { data, error } = await admin
             .from('newsletter_subscriptions')
             .select('email, user_id')
             .or(`subscription_type.eq.${subType},subscription_type.eq.all`)
             .eq('is_active', true)
+            .order('id', { ascending: true })
             .range(offset, offset + limit - 1);
           return { data, error };
         },
       );
+      // 【監査M4・敵対検証】user_digest では subscribers が唯一の受信者源。取得失敗を握り潰すと
+      // rows=[] で「0件送信→status='sent'確定」となりキャンペーンを空焼き（再送不可）してしまう。
+      // suppression と同格に fail-safe で中止（draft へ戻す）。
+      if (subscribersErr) {
+        console.error('[newsletter/send] subscribers fetch failed — aborting to avoid phantom empty send', { campaignId: params.id, err: subscribersErr });
+        await admin.from('newsletter_campaigns').update({ status: 'draft', updated_at: new Date().toISOString() }).eq('id', params.id);
+        return NextResponse.json({ error: '受信者リストの取得に失敗したため送信を中止しました' }, { status: 500 });
+      }
 
       // For owner_monthly: also pull facility owner emails if no subscription record
       let emails: string[] = [];
@@ -146,6 +158,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
               .from('facility_members')
               .select('user_id')
               .eq('role', 'owner')
+              .order('id', { ascending: true }) // 監査M4：決定的順序で分頁の欠落・重複を防ぐ
               .range(offset, offset + limit - 1);
             return { data, error };
           },
@@ -198,6 +211,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
               .select('email')
               .not('email', 'is', null)
               .eq('email_unsubscribed', true)
+              .order('id', { ascending: true }) // 監査M4：決定的順序で分頁のsuppression欠落を防ぐ
               .range(offset, offset + limit - 1);
             return { data, error };
           },
@@ -214,6 +228,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
               .select('email')
               .not('email', 'is', null)
               .eq('is_active', false)
+              .order('id', { ascending: true }) // 監査M4：決定的順序で分頁のsuppression欠落を防ぐ
               .range(offset, offset + limit - 1);
             return { data, error };
           },

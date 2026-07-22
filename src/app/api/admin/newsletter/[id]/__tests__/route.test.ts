@@ -143,6 +143,7 @@ function subscribersChain(subscribers: { email: string; user_id: string }[]) {
     select: jest.fn().mockReturnThis(),
     or: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
     range: jest.fn(() => Promise.resolve({ data: subscribers, error: null })),
   };
 }
@@ -156,6 +157,7 @@ function facilityMembersChain(owners: { user_id: string | null }[]) {
   return {
     select: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
     range: jest.fn(() => Promise.resolve({ data: owners, error: null })),
   };
 }
@@ -177,6 +179,7 @@ function unsubscribedProfilesChain(emails: string[], error: unknown = null) {
     select: jest.fn().mockReturnThis(),
     not: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
     range: jest.fn(() => Promise.resolve({ data: error ? null : emails.map((email) => ({ email })), error })),
   };
 }
@@ -191,6 +194,7 @@ function inactiveSubscriptionsChain(emails: string[], error: unknown = null) {
     select: jest.fn().mockReturnThis(),
     not: jest.fn().mockReturnThis(),
     eq: jest.fn().mockReturnThis(),
+    order: jest.fn().mockReturnThis(),
     range: jest.fn(() => Promise.resolve({ data: error ? null : emails.map((email) => ({ email })), error })),
   };
 }
@@ -723,6 +727,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
         if (callNum === 4) return {
           select: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: null, error: { message: 'fail' } })),
         };
         if (callNum === 5) return unsubscribedProfilesChain([]);
@@ -944,6 +949,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           select: jest.fn().mockReturnThis(),
           or: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: null, error: null })),
         };
         if (callNum === 4) return facilityMembersChain([{ user_id: 'owner-uid' }]);
@@ -977,6 +983,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           select: jest.fn().mockReturnThis(),
           or: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: null, error: null })),
         };
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
@@ -1096,6 +1103,32 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(json.sentCount).toBe(1);
     });
 
+    // 【監査M4・敵対検証】subscribers 取得失敗を握り潰すと phantom empty send で campaign を焼失する。
+    // suppression と同格に fail-safe で 500 中止・draft へ戻す。
+    test('受信者(subscribers)取得に失敗 → 送信を中止し campaign を draft に戻す (fail-safe)', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => {});
+      mockAnonFrom.mockReturnValue(profileChain(true));
+      let callNum = 0;
+      mockAdminFrom.mockImplementation(() => {
+        callNum++;
+        if (callNum === 1) return campaignFetchChain(buildCampaign({ campaign_type: 'user_digest' }));
+        if (callNum === 2) return atomicClaimChain([{ id: CAMPAIGN_UUID }]);
+        // subscribers の range が error を返す（fetchAllPaged は rows=[] + error 伝播）
+        if (callNum === 3) return {
+          select: jest.fn().mockReturnThis(),
+          or: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
+          range: jest.fn(() => Promise.resolve({ data: null, error: { message: 'subscribers DB error' } })),
+        };
+        return rollbackToDraftChain();
+      });
+      const res = await PATCH(makeRequest({ action: 'send' }), makeProps());
+      expect(res.status).toBe(500);
+      const json = await res.json();
+      expect(json.error).toMatch(/受信者リスト/);
+    });
+
     test('停止済みプロフィール取得に失敗 → 送信を中止し campaign を draft に戻す (fail-safe)', async () => {
       jest.spyOn(console, 'error').mockImplementation(() => {});
       mockAnonFrom.mockReturnValue(profileChain(true));
@@ -1126,6 +1159,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           select: jest.fn().mockReturnThis(),
           not: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: null, error: null })),
         };
         if (callNum === 5) return inactiveSubscriptionsChain([]);
@@ -1150,6 +1184,7 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           select: jest.fn().mockReturnThis(),
           not: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: null, error: null })),
         };
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
@@ -1172,12 +1207,14 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
           select: jest.fn().mockReturnThis(),
           not: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: [{ email: null }], error: null })),
         };
         if (callNum === 5) return {
           select: jest.fn().mockReturnThis(),
           not: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
+          order: jest.fn().mockReturnThis(),
           range: jest.fn(() => Promise.resolve({ data: [{ email: null }], error: null })),
         };
         return updateSentChain({ id: CAMPAIGN_UUID, status: 'sent' });
