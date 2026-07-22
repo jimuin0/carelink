@@ -75,29 +75,24 @@ export const POST = withRoute(async (request, ctx) => {
         .maybeSingle();
       const facilityId = (target as { facility_id: string | null } | null)?.facility_id ?? null;
 
-      // 同一コンテンツの pending キューが既にあれば重複投入しない（複数通報者対策）。
-      const { data: existingQueue } = await supabase
-        .from('moderation_queue')
-        .select('id')
-        .eq('content_type', contentType)
-        .eq('content_id', parsed.data.target_id)
-        .eq('status', 'pending')
-        .maybeSingle();
-
-      if (!existingQueue) {
-        const reportReason = parsed.data.detail
-          ? `${parsed.data.reason}: ${parsed.data.detail}`
-          : parsed.data.reason;
-        const { error: mqError } = await supabase.from('moderation_queue').insert({
+      const reportReason = parsed.data.detail
+        ? `${parsed.data.reason}: ${parsed.data.detail}`
+        : parsed.data.reason;
+      // 【監査H2 low・恒久根治】旧実装は pending 既存を SELECT→無ければ INSERT の best-effort dedup で、
+      // 並行通報が SELECT と INSERT の間に割り込むと pending が重複挿入され得た。DB 側の部分ユニーク
+      // index（uq_moderation_pending_content）＋ enqueue_moderation(INSERT ON CONFLICT DO NOTHING)で
+      // 原子的に排除する（migration 20260722000001）。
+      const { error: mqError } = await supabase.rpc('enqueue_moderation', {
+        p_items: [{
           content_type: contentType,
           content_id: parsed.data.target_id,
           facility_id: facilityId,
           reporter_id: ctx.user!.id,
           report_reason: reportReason,
-          status: 'pending',
-        });
-        if (mqError) alertCaughtError('report-moderation-queue', mqError, '/api/report');
-      }
+          auto_flags: [],
+        }],
+      });
+      if (mqError) alertCaughtError('report-moderation-queue', mqError, '/api/report');
     } catch (e) {
       alertCaughtError('report-moderation-queue', e, '/api/report');
     }

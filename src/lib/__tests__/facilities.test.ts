@@ -80,12 +80,13 @@ describe('searchFacilities', () => {
       (c: unknown[]) => typeof c[0] === 'string' && c[0].includes('テスト')
     );
     expect(call).toBeTruthy();
-    // 【監査C1回帰】facility_card_view に存在しない nearest_station を参照すると
-    // PostgREST 400 でキーワード検索が常に0件になる。view 実在列 access_info を使い、
-    // nearest_station は絶対に参照しないことを固定する。
+    // 【監査C1回帰・恒久根治完了】migration 20260722000002 で facility_card_view に nearest_station を
+    // 射影したため、access_info（アクセス自由記述）に加え nearest_station（最寄駅名）も検索対象にして
+    // GPS/非GPS の駅名検索を対称化する。両列の .ilike が .or() に含まれることを固定する
+    // （view 実在列のみを参照＝過去の 400 全滅の再発防止）。
     const orFilter = call![0] as string;
     expect(orFilter).toContain('access_info.ilike.');
-    expect(orFilter).not.toContain('nearest_station');
+    expect(orFilter).toContain('nearest_station.ilike.');
   });
 
   test('business_typeフィルタ', async () => {
