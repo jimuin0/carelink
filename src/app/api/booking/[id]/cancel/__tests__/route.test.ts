@@ -1367,6 +1367,9 @@ describe('POST /api/booking/[id]/cancel', () => {
   test('LINE通知: line_user_id なし → sendLineCancellation 呼ばれない', async () => {
     process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token-test';
     const { sendBookingCancellation } = require('@/lib/line');
+    // 【監査C2】連携解決 helper を明示的に null に固定し、if(lineUserId) の false 分岐（LINEブロック
+    // スキップ）を .env の有無に依存せず確実に網羅する。
+    (require('@/lib/line-link').resolveLineUserIdForUser as jest.Mock).mockResolvedValue(null);
 
     mockGetUser.mockResolvedValue({ data: { user: { id: 'user-1' } } });
 
