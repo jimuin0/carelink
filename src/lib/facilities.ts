@@ -41,16 +41,14 @@ export async function searchFacilities(params: SearchParams) {
     // クォート内でも % / _ は LIKE ワイルドカードとして機能するため、前方/後方一致は維持される。
     const escaped = params.keyword.slice(0, 100).replace(/[%_\\]/g, '\\$&').replace(/"/g, '\\"');
     const pat = `"%${escaped}%"`;
-    // 【2026年7月22日 恒久根治・監査C1】検索対象列は facility_card_view に実在する列のみに限る。
-    // 旧実装は nearest_station.ilike を含んでいたが facility_card_view に nearest_station 列は
-    // 存在せず（view は access_info を射影・nearest_station は非射影）、PostgREST が
-    // 「column facility_card_view.nearest_station does not exist」で 400 を返し、error 握り潰しで
-    // キーワード検索が常に0件になっていた（主要導線の無音全滅）。駅・アクセスのキーワードは
-    // view に実在する access_info（最寄駅・アクセス説明を含む）で一致させる。専用列
-    // nearest_station まで完全対称化するには view への列追加DDLが別途必要（GPS経路の RPC は
-    // facility_profiles.nearest_station を直接検索するため元テーブルには存在する）。
+    // 【監査C1・恒久根治 完了】検索対象列は facility_card_view に実在する列のみに限る。
+    // かつて nearest_station は view 非射影で、参照すると PostgREST 400→error 握り潰しでキーワード検索
+    // が常に0件だった（主要導線の無音全滅）。migration 20260722000002 で facility_card_view に
+    // fp.nearest_station を射影したため、access_info（アクセス自由記述）に加え専用列 nearest_station
+    // （最寄駅名）も検索対象にでき、GPS 経路(search_facilities_nearby が nearest_station で一致)と
+    // 非GPS 経路の駅名検索が対称化する。列は必ず migration 適用後にのみ参照すること。
     query = query.or(
-      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat}`
+      `name.ilike.${pat},catch_copy.ilike.${pat},description.ilike.${pat},city.ilike.${pat},access_info.ilike.${pat},nearest_station.ilike.${pat}`
     );
   }
 
