@@ -28,6 +28,10 @@ const supabase =
     ? createClient(SUPABASE_URL, SUPABASE_KEY)
     : null;
 
+/**
+ * 現在はインメモリで会話状態を保持します。
+ * Renderが再起動すると状態はリセットされます。
+ */
 const userStates = new Map();
 
 function getState(userId) {
@@ -35,11 +39,15 @@ function getState(userId) {
 }
 
 function setState(userId, flow) {
-  if (userId) userStates.set(userId, { flow });
+  if (userId) {
+    userStates.set(userId, { flow });
+  }
 }
 
 function resetState(userId) {
-  if (userId) userStates.set(userId, { flow: "NONE" });
+  if (userId) {
+    userStates.set(userId, { flow: "NONE" });
+  }
 }
 
 app.get("/", (_req, res) => {
@@ -47,10 +55,15 @@ app.get("/", (_req, res) => {
 });
 
 function validateLineSignature(req) {
-  if (!CHANNEL_SECRET) return false;
+  if (!CHANNEL_SECRET) {
+    return false;
+  }
 
   const signature = req.headers["x-line-signature"];
-  if (!signature) return false;
+
+  if (!signature) {
+    return false;
+  }
 
   const hash = crypto
     .createHmac("sha256", CHANNEL_SECRET)
@@ -76,17 +89,20 @@ function canonicalizeInput(text) {
     "✨使える機能": "使える機能",
     "👨‍💼スタッフに相談": "スタッフに相談",
     "👨‍💼スタッフ対応": "スタッフに相談",
+    "💬詳しく相談する": "スタッフに相談",
     "🏠メニュー": "メニュー",
+
     "💇美容サロン系": "美容サロン系",
     "🏥医療・治療院系": "医療・治療院系",
     "🧓介護・福祉系": "介護・福祉系",
     "❓その他の業種": "その他の業種",
+
     "📅予約・通知": "予約・通知",
     "📣集客・口コミ": "集客・口コミ",
     "👥顧客・スタッフ管理": "顧客・スタッフ管理",
     "📊売上・分析": "売上・分析",
+
     "🔗掲載ページを見る": "掲載ページを見る",
-    "💬詳しく相談する": "スタッフに相談",
   };
 
   return map[raw] || raw;
@@ -138,15 +154,22 @@ async function replyText(replyToken, text, options = []) {
 
   const items = quickReplyItems(options);
 
-  if (items.length) {
-    message.quickReply = { items };
+  if (items.length > 0) {
+    message.quickReply = {
+      items,
+    };
   }
 
   await replyMessages(replyToken, [message]);
 }
 
-async function showLoading(userId, loadingSeconds = 10) {
-  if (!ACCESS_TOKEN || !userId) return;
+/**
+ * LINE上に「・・・」の入力中表示を出します。
+ */
+async function showLoading(userId, loadingSeconds = 5) {
+  if (!ACCESS_TOKEN || !userId) {
+    return;
+  }
 
   try {
     await axios.post(
@@ -172,11 +195,15 @@ async function showLoading(userId, loadingSeconds = 10) {
 }
 
 function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 async function getLineProfile(userId) {
-  if (!ACCESS_TOKEN || !userId) return null;
+  if (!ACCESS_TOKEN || !userId) {
+    return null;
+  }
 
   try {
     const response = await axios.get(
@@ -201,7 +228,9 @@ async function getLineProfile(userId) {
 }
 
 async function saveLog(userId, message, flow) {
-  if (!supabase) return;
+  if (!supabase) {
+    return;
+  }
 
   try {
     const { error } = await supabase.from("line_logs").insert([
@@ -238,7 +267,9 @@ async function notifySlack({
   message,
   flow,
 }) {
-  if (!SLACK_WEBHOOK_URL) return;
+  if (!SLACK_WEBHOOK_URL) {
+    return;
+  }
 
   const text = [
     "【CareLink LINE問い合わせ通知】",
@@ -252,7 +283,9 @@ async function notifySlack({
   try {
     await axios.post(
       SLACK_WEBHOOK_URL,
-      { text },
+      {
+        text,
+      },
       {
         timeout: 10000,
       }
@@ -286,6 +319,27 @@ function topMenuOptions() {
   ];
 }
 
+function greetingMenuOptions() {
+  return [
+    {
+      label: "📢掲載について",
+      text: "掲載について",
+    },
+    {
+      label: "💰料金について",
+      text: "料金について",
+    },
+    {
+      label: "📝登録方法",
+      text: "登録方法",
+    },
+    {
+      label: "👨‍💼スタッフに相談",
+      text: "スタッフに相談",
+    },
+  ];
+}
+
 function commonOptions() {
   return [
     {
@@ -303,25 +357,78 @@ function commonOptions() {
   ];
 }
 
+function listingAnswerOptions() {
+  return [
+    {
+      label: "📝登録方法",
+      text: "登録方法",
+    },
+    {
+      label: "✨使える機能",
+      text: "使える機能",
+    },
+    {
+      label: "👨‍💼スタッフに相談",
+      text: "スタッフに相談",
+    },
+    {
+      label: "🏠メニュー",
+      text: "メニュー",
+    },
+  ];
+}
+
+function priceOptions() {
+  return [
+    {
+      label: "📝登録方法",
+      text: "登録方法",
+    },
+    {
+      label: "✨使える機能",
+      text: "使える機能",
+    },
+    {
+      label: "👨‍💼スタッフに相談",
+      text: "スタッフに相談",
+    },
+    {
+      label: "🏠メニュー",
+      text: "メニュー",
+    },
+  ];
+}
+
 async function replyTopMenu(replyToken, greeting = false) {
-  const text = greeting
-    ? `友だち追加ありがとうございます😊
-CareLinkです。
+  if (greeting) {
+    await replyText(
+      replyToken,
+      `友だち追加ありがとうございます😊
+CareLinkお問い合わせ窓口です。
 
-施設掲載について、気になる内容を下から選んでください。
-迷った場合は、いつでもスタッフへご相談いただけます。`
-    : `お問い合わせありがとうございます😊
+施設掲載や料金、登録方法についてご案内します。
+気になる内容を下から選んでください。
 
-気になる内容に近いものを、下から選んでください。
-迷った場合は「スタッフに相談」からお気軽にご相談ください。`;
+当てはまる項目がない場合は、スタッフへ直接ご相談いただけます。`,
+      greetingMenuOptions()
+    );
 
-  await replyText(replyToken, text, topMenuOptions());
+    return;
+  }
+
+  await replyText(
+    replyToken,
+    `メニューに戻りました。
+
+続けて確認したい内容を、下から選んでください。`,
+    topMenuOptions()
+  );
 }
 
 async function replyListingStep(replyToken) {
   await replyText(
     replyToken,
-    `掲載をご検討いただきありがとうございます😊
+    `掲載をご検討いただきありがとうございます。
 
 ご案内内容を合わせるため、施設・事業所に近いものを選んでください。`,
     [
@@ -349,94 +456,84 @@ async function replyListingAnswer(replyToken, category) {
   let text;
 
   if (category === "美容サロン系") {
-    text = `美容サロン系ですね😊
+    text = `以下のような美容関連施設を掲載できます。
 
-CareLinkでは、美容サロン、アイラッシュ、ネイル、リラク、エステ、美容クリニックなどを掲載できます。
+・美容サロン
+・アイラッシュサロン
+・ネイルサロン
+・リラクゼーション
+・エステサロン
+・美容クリニック
 
-掲載料・初期費用・予約手数料は無料です。`;
+掲載料・初期費用・予約手数料は無料です。
+
+上記以外の業種も、お気軽にご相談ください。`;
   } else if (category === "医療・治療院系") {
-    text = `医療・治療院系ですね😊
+    text = `以下のような医療・治療院関連施設を掲載できます。
 
-CareLinkでは、鍼灸院、整骨院・接骨院、整体院、歯科クリニックなどを掲載できます。
+・鍼灸院
+・整骨院、接骨院
+・整体院
+・歯科クリニック
 
-掲載料・初期費用・予約手数料は無料です。`;
+掲載料・初期費用・予約手数料は無料です。
+
+対象になるか分からない場合も、お気軽にご相談ください。`;
   } else if (category === "介護・福祉系") {
-    text = `介護・福祉系ですね😊
+    text = `介護・福祉関連の施設も掲載対象です。
 
-CareLinkでは、介護施設やデイサービスなども掲載対象です。
+たとえば、以下のような施設をご相談いただけます。
 
-施設内容に合わせて詳しくご案内しますので、気になる点はお気軽にご相談ください。`;
+・介護施設
+・デイサービス
+・福祉関連事業所
+
+施設内容によってご案内が異なるため、詳しくはスタッフが確認します。`;
   } else {
-    text = `ありがとうございます😊
+    text = `掲載対象として案内されていない業種も、ご相談いただけます。
 
-掲載対象として案内されていない業種もご相談いただけます。
-施設・事業内容をスタッフへお知らせください。`;
+施設名や事業内容をお送りいただければ、スタッフが確認します。`;
   }
 
-  await replyText(replyToken, text, [
-    {
-      label: "📝登録方法",
-      text: "登録方法",
-    },
-    {
-      label: "✨使える機能",
-      text: "使える機能",
-    },
-    {
-      label: "👨‍💼スタッフに相談",
-      text: "スタッフに相談",
-    },
-    {
-      label: "🏠メニュー",
-      text: "メニュー",
-    },
-  ]);
+  await replyText(
+    replyToken,
+    text,
+    listingAnswerOptions()
+  );
 }
 
 async function replyPrice(replyToken) {
   await replyText(
     replyToken,
-    `料金についてですね😊
+    `費用面、気になりますよね。
 
-CareLinkは、掲載料・初期費用・予約手数料が無料です。
+CareLinkでは、以下の費用はかかりません。
 
-最低契約期間や解約金もなく、クレジットカード登録も不要です。
-安心して掲載を始めていただけます。`,
-    [
-      {
-        label: "📝登録方法",
-        text: "登録方法",
-      },
-      {
-        label: "✨使える機能",
-        text: "使える機能",
-      },
-      {
-        label: "👨‍💼スタッフに相談",
-        text: "スタッフに相談",
-      },
-      {
-        label: "🏠メニュー",
-        text: "メニュー",
-      },
-    ]
+・掲載料
+・初期費用
+・予約手数料
+・解約金
+
+最低契約期間はなく、クレジットカード登録も不要です。`,
+    priceOptions()
   );
 }
 
 async function replyRegistration(replyToken) {
   await replyText(
     replyToken,
-    `登録方法についてですね😊
+    `登録は難しくありません。
 
 掲載開始までの流れはこちらです。
 
 1. 施設名・業種・連絡先を入力
-2. メールアドレスでアカウント作成
+2. メールアドレスでアカウントを作成
 3. 管理画面でメニューや写真を登録
 4. 公開ボタンから掲載開始
 
-登録は約3分、最短当日から掲載を開始できます。
-途中で迷った場合も、スタッフへお気軽にご相談ください。`,
+登録は約3分で、最短当日から掲載を開始できます。
+
+途中で迷った場合は、スタッフへご相談ください。`,
     commonOptions()
   );
 }
@@ -444,9 +541,8 @@ async function replyRegistration(replyToken) {
 async function replyFeaturesStep(replyToken) {
   await replyText(
     replyToken,
-    `使える機能についてですね😊
+    `CareLinkでは、予約受付から顧客管理まで、施設運営に使える機能を利用できます。
 
-CareLinkでは、掲載・予約・顧客管理などの機能を無料で利用できます。
 気になる機能を選んでください。`,
     [
       {
@@ -473,26 +569,50 @@ async function replyFeatureAnswer(replyToken, feature) {
   let text;
 
   if (feature === "予約・通知") {
-    text = `予約・通知機能ですね😊
+    text = `予約受付や通知に関する主な機能はこちらです。
 
-24時間のオンライン予約受付に対応しています。
-空き枠の自動計算、予約確認・リマインド・キャンセルのLINE通知、新規予約のリアルタイム通知も利用できます。`;
+・24時間オンライン予約
+・空き枠の自動計算
+・予約確認通知
+・リマインド通知
+・キャンセル通知
+・新規予約のリアルタイム通知
+
+予約対応の手間を減らしながら、受付漏れも防げます。`;
   } else if (feature === "集客・口コミ") {
-    text = `集客・口コミ機能ですね😊
+    text = `集客や情報発信に使える主な機能はこちらです。
 
-メニュー・料金・写真の掲載、口コミ・評価、クーポン管理を利用できます。
-お客様への情報発信や再来店のきっかけづくりに活用できます。`;
+・メニュー、料金の掲載
+・施設写真の掲載
+・口コミ、評価
+・クーポン管理
+
+新規のお客様への案内や、再来店のきっかけづくりに活用できます。`;
   } else if (feature === "顧客・スタッフ管理") {
-    text = `顧客・スタッフ管理ですね😊
+    text = `顧客やスタッフに関する主な機能はこちらです。
 
-顧客管理に加えて、スタッフごとの指名予約・指名料設定・ポートフォリオ掲載に対応しています。`;
+・顧客情報の管理
+・スタッフごとの指名予約
+・指名料の設定
+・スタッフのポートフォリオ掲載
+
+顧客対応とスタッフ管理を、まとめて行えます。`;
   } else {
-    text = `売上・分析機能ですね😊
+    text = `売上や利用状況を確認できる主な機能はこちらです。
 
-日別売上チャート、リピート率、顧客セグメントなどの分析機能を利用できます。`;
+・日別売上チャート
+・リピート率
+・顧客セグメント
+・予約状況の確認
+
+日々の運営状況を把握し、改善に活用できます。`;
   }
 
-  await replyText(replyToken, text, commonOptions());
+  await replyText(
+    replyToken,
+    text,
+    commonOptions()
+  );
 }
 
 async function startHandoff(replyToken, userId) {
@@ -500,10 +620,11 @@ async function startHandoff(replyToken, userId) {
 
   await replyText(
     replyToken,
-    `もちろんです😊
-担当者へおつなぎします。
+    `承知しました。
+担当スタッフへおつなぎします。
 
 確認したいことやお困りの内容を、1メッセージで送ってください。
+
 内容を確認後、順次対応いたします。`,
     [
       {
@@ -517,10 +638,10 @@ async function startHandoff(replyToken, userId) {
 async function completeHandoff(replyToken) {
   await replyText(
     replyToken,
-    `ご相談内容をお送りいただき、ありがとうございます😊
+    `ご相談内容をお送りいただき、ありがとうございます。
 
-受け付けが完了しました。
-担当者が確認のうえ、順次ご連絡いたしますので、少々お待ちください。`,
+受付が完了しました。
+担当スタッフが確認のうえ、順次ご連絡いたします。`,
     [
       {
         label: "🏠メニュー",
@@ -532,14 +653,16 @@ async function completeHandoff(replyToken) {
 
 const CLAUDE_SYSTEM_PROMPT = [
   "あなたはCareLinkのLINEお問い合わせ受付です。",
-  "ユーザーの自由入力を短く受け止め、必ず既存メニューへ戻してください。",
   "CareLinkは美容・医療・福祉施設の検索・予約サービスです。",
+  "ユーザーの自由入力を短く丁寧に受け止めてください。",
+  "毎回同じ言い回しを使わず、質問内容に合わせて自然な導入文にしてください。",
   "掲載料・初期費用・予約手数料は無料です。",
   "不明な料金、契約条件、対応可否を推測して回答してはいけません。",
-  "質問は最大1つ、文章は短く丁寧にしてください。",
-  "冷たくならないよう、最初にユーザーの内容を一言受け止めてください。",
+  "長い項目の列挙が必要な場合は、読みやすい箇条書きを使用してください。",
+  "質問は最大1つにしてください。",
+  "必ず既存メニューへ誘導してください。",
   "出力はJSONのみです。",
-  '{"text":"短い返信","options":["掲載について","料金について","登録方法","スタッフに相談"]}',
+  '{"text":"短く自然な返信","options":["掲載について","料金について","登録方法","スタッフに相談"]}',
 ].join("\n");
 
 function parseClaudeJson(raw) {
@@ -552,20 +675,68 @@ function parseClaudeJson(raw) {
       return null;
     }
 
-    return JSON.parse(value.slice(start, end + 1));
+    return JSON.parse(
+      value.slice(start, end + 1)
+    );
   } catch {
     return null;
   }
 }
 
-async function claudeFallback(replyToken, userId, input) {
+function normalizeClaudeOptions(options) {
+  const allowed = new Set([
+    "掲載について",
+    "料金について",
+    "登録方法",
+    "使える機能",
+    "スタッフに相談",
+    "メニュー",
+  ]);
+
+  if (!Array.isArray(options)) {
+    return topMenuOptions();
+  }
+
+  return options
+    .map((option) => canonicalizeInput(option))
+    .filter((option) => allowed.has(option))
+    .slice(0, 4)
+    .map((option) => ({
+      label: option,
+      text: option,
+    }));
+}
+
+async function claudeFallback(
+  replyToken,
+  userId,
+  input
+) {
   if (!CLAUDE_API_KEY) {
     await replyText(
       replyToken,
-      `お問い合わせありがとうございます😊
+      `お問い合わせありがとうございます。
 
-内容に近い項目を、下から選んでください。`,
-      topMenuOptions()
+内容に近い項目を、下から選んでください。
+当てはまるものがない場合は、スタッフへご相談いただけます。`,
+      [
+        {
+          label: "掲載について",
+          text: "掲載について",
+        },
+        {
+          label: "料金について",
+          text: "料金について",
+        },
+        {
+          label: "登録方法",
+          text: "登録方法",
+        },
+        {
+          label: "スタッフに相談",
+          text: "スタッフに相談",
+        },
+      ]
     );
 
     return;
@@ -576,7 +747,7 @@ async function claudeFallback(replyToken, userId, input) {
       "https://api.anthropic.com/v1/messages",
       {
         model: CLAUDE_MODEL,
-        max_tokens: 350,
+        max_tokens: 450,
         system: CLAUDE_SYSTEM_PROMPT,
         messages: [
           {
@@ -602,33 +773,20 @@ async function claudeFallback(replyToken, userId, input) {
 
     const parsed = parseClaudeJson(raw);
 
-    const allowed = new Set([
-      "掲載について",
-      "料金について",
-      "登録方法",
-      "使える機能",
-      "スタッフに相談",
-      "メニュー",
-    ]);
-
-    const options = Array.isArray(parsed?.options)
-      ? parsed.options
-          .map((option) => canonicalizeInput(option))
-          .filter((option) => allowed.has(option))
-          .slice(0, 4)
-          .map((option) => ({
-            label: option,
-            text: option,
-          }))
-      : topMenuOptions();
+    const options = normalizeClaudeOptions(
+      parsed?.options
+    );
 
     await replyText(
       replyToken,
       parsed?.text ||
-        `お問い合わせありがとうございます😊
+        `お問い合わせありがとうございます。
 
-内容に近い項目を、下から選んでください。`,
-      options.length ? options : topMenuOptions()
+内容に近い項目を、下から選んでください。
+当てはまるものがない場合は、スタッフへご相談いただけます。`,
+      options.length > 0
+        ? options
+        : topMenuOptions()
     );
   } catch (error) {
     console.error(
@@ -638,11 +796,23 @@ async function claudeFallback(replyToken, userId, input) {
 
     await replyText(
       replyToken,
-      `うまく内容を確認できませんでした🙇‍♀️
+      `申し訳ありません。
+現在、内容をうまく確認できませんでした。
 
-近い項目を選ぶか、スタッフへお気軽にご相談ください。`,
+近い項目を選ぶか、スタッフへご相談ください。`,
       [
-        ...topMenuOptions().slice(0, 3),
+        {
+          label: "📢掲載について",
+          text: "掲載について",
+        },
+        {
+          label: "💰料金について",
+          text: "料金について",
+        },
+        {
+          label: "📝登録方法",
+          text: "登録方法",
+        },
         {
           label: "👨‍💼スタッフに相談",
           text: "スタッフに相談",
@@ -652,11 +822,35 @@ async function claudeFallback(replyToken, userId, input) {
   }
 }
 
+function isListingCategory(input) {
+  return [
+    "美容サロン系",
+    "医療・治療院系",
+    "介護・福祉系",
+    "その他の業種",
+  ].includes(input);
+}
+
+function isFeatureCategory(input) {
+  return [
+    "予約・通知",
+    "集客・口コミ",
+    "顧客・スタッフ管理",
+    "売上・分析",
+  ].includes(input);
+}
+
 app.post("/webhook", async (req, res) => {
   if (!validateLineSignature(req)) {
-    return res.status(401).send("Invalid signature");
+    return res
+      .status(401)
+      .send("Invalid signature");
   }
 
+  /**
+   * LINEへは先に200を返し、
+   * 後続処理を継続します。
+   */
   res.status(200).send("OK");
 
   const events = Array.isArray(req.body?.events)
@@ -665,19 +859,32 @@ app.post("/webhook", async (req, res) => {
 
   for (const event of events) {
     try {
-      const userId = event.source?.userId || "";
-      const replyToken = event.replyToken;
+      const userId =
+        event.source?.userId || "";
 
+      const replyToken =
+        event.replyToken;
+
+      /**
+       * 友だち追加時
+       */
       if (event.type === "follow") {
         resetState(userId);
 
         await showLoading(userId, 5);
-        await sleep(700);
-        await replyTopMenu(replyToken, true);
+        await sleep(800);
+
+        await replyTopMenu(
+          replyToken,
+          true
+        );
 
         continue;
       }
 
+      /**
+       * テキスト以外は処理しません。
+       */
       if (
         event.type !== "message" ||
         event.message?.type !== "text"
@@ -685,26 +892,49 @@ app.post("/webhook", async (req, res) => {
         continue;
       }
 
-      await showLoading(userId, 5);
-      await sleep(700);
+      const input = canonicalizeInput(
+        event.message.text
+      );
 
-      const input = canonicalizeInput(event.message.text);
       const state = getState(userId);
 
-      await saveLog(userId, input, state.flow);
+      await saveLog(
+        userId,
+        input,
+        state.flow
+      );
 
+      /**
+       * 固定返信前の入力中表示
+       */
+      await showLoading(userId, 5);
+      await sleep(800);
+
+      /**
+       * メニュー復帰
+       */
       if (input === "メニュー") {
         resetState(userId);
-        await replyTopMenu(replyToken);
+
+        await replyTopMenu(
+          replyToken,
+          false
+        );
+
         continue;
       }
 
+      /**
+       * スタッフ相談内容の受信
+       */
       if (state.flow === "HANDOFF_WAIT") {
-        const profile = await getLineProfile(userId);
+        const profile =
+          await getLineProfile(userId);
 
         await notifySlack({
           userId,
-          displayName: profile?.displayName,
+          displayName:
+            profile?.displayName,
           message: input,
           flow: state.flow,
         });
@@ -716,52 +946,157 @@ app.post("/webhook", async (req, res) => {
         );
 
         resetState(userId);
-        await completeHandoff(replyToken);
+
+        await completeHandoff(
+          replyToken
+        );
 
         continue;
       }
 
+      /**
+       * スタッフ相談開始
+       */
       if (input === "スタッフに相談") {
-        await startHandoff(replyToken, userId);
+        await startHandoff(
+          replyToken,
+          userId
+        );
+
         continue;
       }
 
+      /**
+       * 掲載カテゴリ選択開始
+       */
       if (input === "掲載について") {
-        setState(userId, "LISTING_CATEGORY");
-        await replyListingStep(replyToken);
+        setState(
+          userId,
+          "LISTING_CATEGORY"
+        );
+
+        await replyListingStep(
+          replyToken
+        );
+
         continue;
       }
 
-      if (state.flow === "LISTING_CATEGORY") {
+      /**
+       * 掲載カテゴリ回答
+       */
+      if (
+        state.flow === "LISTING_CATEGORY" &&
+        isListingCategory(input)
+      ) {
         resetState(userId);
-        await replyListingAnswer(replyToken, input);
+
+        await replyListingAnswer(
+          replyToken,
+          input
+        );
+
         continue;
       }
 
+      /**
+       * 掲載カテゴリ選択中に
+       * 想定外の文字が来た場合
+       */
+      if (
+        state.flow === "LISTING_CATEGORY"
+      ) {
+        resetState(userId);
+
+        await claudeFallback(
+          replyToken,
+          userId,
+          input
+        );
+
+        continue;
+      }
+
+      /**
+       * 料金
+       */
       if (input === "料金について") {
         resetState(userId);
-        await replyPrice(replyToken);
+
+        await replyPrice(
+          replyToken
+        );
+
         continue;
       }
 
+      /**
+       * 登録方法
+       */
       if (input === "登録方法") {
         resetState(userId);
-        await replyRegistration(replyToken);
+
+        await replyRegistration(
+          replyToken
+        );
+
         continue;
       }
 
+      /**
+       * 機能カテゴリ選択開始
+       */
       if (input === "使える機能") {
-        setState(userId, "FEATURE_CATEGORY");
-        await replyFeaturesStep(replyToken);
+        setState(
+          userId,
+          "FEATURE_CATEGORY"
+        );
+
+        await replyFeaturesStep(
+          replyToken
+        );
+
         continue;
       }
 
-      if (state.flow === "FEATURE_CATEGORY") {
+      /**
+       * 機能カテゴリ回答
+       */
+      if (
+        state.flow === "FEATURE_CATEGORY" &&
+        isFeatureCategory(input)
+      ) {
         resetState(userId);
-        await replyFeatureAnswer(replyToken, input);
+
+        await replyFeatureAnswer(
+          replyToken,
+          input
+        );
+
         continue;
       }
 
+      /**
+       * 機能カテゴリ選択中に
+       * 想定外の文字が来た場合
+       */
+      if (
+        state.flow === "FEATURE_CATEGORY"
+      ) {
+        resetState(userId);
+
+        await claudeFallback(
+          replyToken,
+          userId,
+          input
+        );
+
+        continue;
+      }
+
+      /**
+       * それ以外の自由入力はClaudeへ送ります。
+       */
       await claudeFallback(
         replyToken,
         userId,
@@ -776,7 +1111,9 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
-const PORT = Number(process.env.PORT || 3000);
+const PORT = Number(
+  process.env.PORT || 3000
+);
 
 app.listen(PORT, () => {
   console.log(
