@@ -60,14 +60,20 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     updates.hired_at = new Date().toISOString();
   }
 
+  // Include facility_id in WHERE as defence-in-depth (CAS guard against stale ownership read /
+  // TOCTOU between the check above and this update). .maybeSingle(): 0行（TOCTOUで対象が他施設に
+  // 変わった等）を not found として扱う。.single() だと0行→PGRST116で if(error)→500 に化ける
+  // （menus/[id]・staff/[id] 等の同型 [id] ルートと統一）。
   const { data: application, error } = await admin
     .from('job_applications')
     .update(updates)
     .eq('id', params.id)
+    .eq('facility_id', existing.facility_id)
     .select('*, job_postings(title)')
-    .single();
+    .maybeSingle();
 
   if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+  if (!application) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { ua } = getRequestContext(req);
   void writeAuditLog({

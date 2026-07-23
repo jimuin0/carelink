@@ -97,7 +97,6 @@ export async function POST(request: NextRequest) {
         ? adminSupabase.from('line_user_links').delete().eq('line_user_id', lineUserId)
         : Promise.resolve({ error: null }), // 未連携＝対象行なし。結果チェックの {error} 形に揃える。
       adminSupabase.from('favorites').delete().eq('user_id', user.id),
-      adminSupabase.from('favorites').delete().eq('user_id', user.id),
       adminSupabase.from('user_points').delete().eq('user_id', user.id),
       adminSupabase.from('push_subscriptions').delete().eq('user_id', user.id),
       adminSupabase.from('referral_codes').delete().eq('user_id', user.id),

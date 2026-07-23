@@ -187,7 +187,9 @@ export async function GET(request: Request) {
     await logCronRun('weekly-report', 'success', startedAt, { processed: emailsSent, skipped: emailsSkipped, meta: { start, end, optedOut } });
     // 送達失敗を run 単位で集約 Slack 通知（0 件は no-op）。
     alertDeliveryFailures('weekly-report', deliveryFailures, { emailsSent });
-    return NextResponse.json({ emailsSent, start, end, emailsSkipped, optedOut });
+    // processed/skipped は他 cron ルート（daily-summary 等）と揃えた共通レスポンス形式。
+    // emailsSent/emailsSkipped は本ルート固有の従来フィールド名（既存テストが参照するため維持）。
+    return NextResponse.json({ processed: emailsSent, skipped: emailsSkipped, emailsSent, start, end, emailsSkipped, optedOut });
   } catch (e) {
     console.error('[weekly-report] Error:', e);
     await logCronRun('weekly-report', 'error', startedAt, { error_msg: e instanceof Error ? e.message : String(e) });
