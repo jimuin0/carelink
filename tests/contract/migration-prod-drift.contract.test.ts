@@ -187,13 +187,8 @@ const KNOWN_PROD_ONLY_COLUMNS: ReadonlySet<string> = new Set([]);
 const KNOWN_PENDING_DEPLOYMENT_FUNCTIONS: ReadonlySet<string> = new Set([
   // 2026-06-21: change_booking_atomic（PR #218）は本番適用済み＝database.types.ts に反映済みのため除去。
   // 2026-06-29: get_public_constraints（20260629000005）／2026-07-04: cleanup_old_cron_report_sends
-  //   （M-1・20260704000010）はいずれも本番 apply ＋ database.types.ts 再生成を完了し types に反映済みの
-  //   ため本リストから削除＝関数ドリフト 0。
-  // 2026-07-22: enqueue_moderation（20260722000001・監査H2/H3 low の原子的 dedup）は
-  //   デプロイ順序の待機窓に在る＝コード(report/flag-reviews の rpc)は prod に関数が存在してから動く。
-  //   神原さんが DDL を prod へ適用し database.types.ts を再生成したら本行を削除すること
-  //   （それまでは本 PR をマージしない・適用後にドリフト 0 へ戻す明示宣言）。
-  'enqueue_moderation',
+  //   （M-1・20260704000010）／2026-07-23: enqueue_moderation（20260722000001）はいずれも本番 apply ＋
+  //   database.types.ts 再生成を完了し types に反映済みのため本リストから削除＝関数ドリフト 0。
 ]);
 
 function migrationDefinedTables(): Set<string> {
@@ -274,7 +269,14 @@ function prodFunctionsFromTypes(): Set<string> {
     if (/^ {4}Functions: \{/.test(line)) { inFns = true; continue; }
     if (/^ {4}Enums: \{/.test(line)) { inFns = false; continue; }
     if (!inFns) continue;
-    const m = /^ {6}([a-z_][a-z0-9_]*): \{/.exec(line);
+    // 関数名キーの行は必ず 6 スペースインデントで、値の形は supabase gen types のバージョン・
+    // 関数の複雑さにより複数パターンがある（2026-07-23 実データで確認済み）:
+    //   (a) "      name: {"                              複数行展開（一般的な複雑シグネチャ）
+    //   (b) "      name: { Args: ...; Returns: ... }"     1行完結（引数が少ない単純シグネチャ）
+    //   (c) "      name:"（次行が "        | {"）          ユニオン型（本番に複数オーバーロードが実在）
+    // 一方 Args/Returns 等のプロパティ行は必ず 8 スペース以上のインデントになるため、
+    // 「6スペース + 識別子 + コロン」だけで関数名行を一意に判別できる（値の形は問わない）。
+    const m = /^ {6}([a-z_][a-z0-9_]*):/.exec(line);
     if (m) fns.add(m[1]);
   }
   return fns;
