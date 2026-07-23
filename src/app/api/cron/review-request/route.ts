@@ -1,14 +1,15 @@
 /**
  * 来店後レビュー依頼 Cron（v8.6）
  * GET /api/cron/review-request
- * 完了予約の24時間後にメール+LINEでレビュー依頼を送信
+ * 完了予約の24時間後にメールでレビュー依頼を送信
+ * 【2026年7月23日 神原さん決定】LINE送信は撤去。メールは元々全予約に無条件送信していたため
+ * LINEは連携済み顧客への完全な重複送信でしかなく、撤去しても到達率は変わらない
+ * （むしろ二重通知が無くなる）。CareLink自社LINEチャネルからの自動配信量を削減する。
  */
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Resend } from 'resend';
-import { sendLineText } from '@/lib/line';
-import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { escSubject, esc } from '@/lib/email';
 import { logCronRun } from '@/lib/cron-logger';
 import { checkCronAuth } from '@/lib/cron-auth';
@@ -59,12 +60,12 @@ export async function GET(request: Request) {
     // 「bookings.length === CONSIDER_LIMIT」検知も 2000 に到達し得ず死んでいた。
     // 他 cron(booking-reminder 等)と同じ fetchAllPaged でページングし、真に CONSIDER_LIMIT
     // まで取得することで取りこぼしと検知ロジックの両方を根治する。
-    type BookingRow = { id: string; email: string | null; customer_name: string | null; user_id: string | null; facility_id: string; updated_at: string };
+    type BookingRow = { id: string; email: string | null; customer_name: string | null; facility_id: string; updated_at: string };
     const { rows: bookings, error: bookingsErr } = await fetchAllPaged<BookingRow>(
       async (offset, limit) => {
         const { data, error } = await supabase
           .from('bookings')
-          .select('id, email, customer_name, user_id, facility_id, updated_at')
+          .select('id, email, customer_name, facility_id, updated_at')
           .eq('status', 'completed')
           .gte('updated_at', staleAfter)
           .lte('updated_at', minAgeBefore)
@@ -145,14 +146,14 @@ export async function GET(request: Request) {
 
       const reviewUrl = `https://carelink-jp.com/facility/${facility.slug}#review`;
 
-      // 送信を試みたチャネルと、実際に届いたチャネルを記録する。
       // claim を先に立てる方式は二重送信を防ぐ一方、送信が一過性失敗すると sent_at が
-      // 立ったまま二度と再送されない（silent な恒久 miss）。そこで「試行したが 1 つも
+      // 立ったまま二度と再送されない（silent な恒久 miss）。そこで「試行したが
       // 届かなかった」場合は claim を解放（sent_at→null）し、翌 run で再送できるようにする。
       let attempted = false;
       let delivered = false;
 
-      // メール送信
+      // メール送信（唯一の通知チャネル。LINEは全予約に無条件送信するメールへの完全な
+      // 重複送信でしかなかったため撤去した＝到達率は不変）。
       if (booking.email && process.env.RESEND_API_KEY) {
         attempted = true;
         const resend = new Resend(process.env.RESEND_API_KEY);
@@ -166,28 +167,6 @@ export async function GET(request: Request) {
           delivered = true;
         } catch (err) {
           console.error('[review-request] email send failed', { bookingId: booking.id, err });
-        }
-      }
-
-      // LINE通知
-      if (booking.user_id && process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK) {
-        // 【監査C2】連携の単一ソース profiles.line_user_id で解決（line_user_links.user_id は常にNULL）。
-        const customerLineUserId = await resolveLineUserIdForUser(supabase, booking.user_id);
-
-        if (customerLineUserId) {
-          attempted = true;
-          try {
-            // sendLineText はリトライ上限到達時に throw せず false を返す。戻り値を無視して
-            // delivered=true に固定すると、配信失敗でも claim 解放（再送）が発火せず sent_at が
-            // 立ったまま二度と再送されない（silent な恒久 miss）。戻り値で delivered を確定する。
-            const ok = await sendLineText(
-              customerLineUserId,
-              `✨ ${facility.name}へのご来店ありがとうございました！\n\n口コミを投稿すると50ポイントプレゼント🎁\n\n👇 口コミを書く\n${reviewUrl}`
-            );
-            if (ok) delivered = true;
-          } catch (err) {
-            console.error('[review-request] LINE send failed', { bookingId: booking.id, err });
-          }
         }
       }
 
