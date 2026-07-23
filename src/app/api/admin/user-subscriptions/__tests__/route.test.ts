@@ -297,9 +297,11 @@ test('PATCH: ステータス変更 active→cancelled（解約・許可遷移）
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'cancelled' }, error: null })),
-            maybeSingle: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'cancelled' }, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'cancelled' }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'cancelled' }, error: null })),
+            }),
           }),
         }),
       }),
@@ -318,9 +320,11 @@ test('PATCH: ステータス変更 cancelled→active（誤解約の復活・許
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
-            maybeSingle: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: SUB_UUID, status: 'active' }, error: null })),
+            }),
           }),
         }),
       }),
@@ -363,9 +367,11 @@ test('PATCH: ステータス変更DB失敗 → 500', async () => {
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
-            maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: { message: 'DB error' } })),
+            }),
           }),
         }),
       }),
@@ -387,9 +393,11 @@ test('PATCH: ステータス変更で更新0行（verify後にTOCTOU削除）→
     return {
       update: jest.fn().mockReturnValue({
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: null, error: null })),
-            maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: null, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: null, error: null })),
+            }),
           }),
         }),
       }),

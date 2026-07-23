@@ -182,9 +182,12 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
+    // Include facility_id in WHERE as defence-in-depth (CAS guard against stale ownership read /
+    // TOCTOU between the checkAdminMembership call above and this update).
     const { data, error } = await admin.from('user_subscriptions')
       .update({ status: statusParsed.data.status })
       .eq('id', statusParsed.data.subscription_id)
+      .eq('facility_id', sub.facility_id)
       .select().maybeSingle();
     if (error) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
     if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 });

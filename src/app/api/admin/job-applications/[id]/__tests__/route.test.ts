@@ -63,8 +63,11 @@ function updateChain(data: unknown, error: unknown = null) {
   return {
     update: jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
-        select: jest.fn().mockReturnValue({
-          single: jest.fn(() => Promise.resolve({ data, error })),
+        eq: jest.fn().mockReturnValue({
+          select: jest.fn().mockReturnValue({
+            single: jest.fn(() => Promise.resolve({ data, error })),
+            maybeSingle: jest.fn(() => Promise.resolve({ data, error })),
+          }),
         }),
       }),
     }),
@@ -141,6 +144,21 @@ test('PATCH: DB更新失敗 → 500', async () => {
   expect(res.status).toBe(500);
 });
 
+test('PATCH: 更新0行（verify後にTOCTOUで他施設化/削除）→ 404', async () => {
+  // .maybeSingle() が error なし・data null（0行）を返すケース。ownership 確認後に facility_id
+  // が変わる/削除される TOCTOU 等で発生。defence-in-depth の facility_id CAS ガードが機能した
+  // 場合の 404 分岐（menus/[id] 等の同型ルートと同一パターン）の回帰防止。
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return updateChain(null, null);
+  });
+  const res = await PATCH(makeRequest({ status: 'reviewing' }), makeProps());
+  expect(res.status).toBe(404);
+});
+
 test('PATCH: 正常更新 → 200 with application', async () => {
   setupOwnership();
   const res = await PATCH(makeRequest({ status: 'interview_scheduled', notes: 'meeting at 14:00' }), makeProps());
@@ -209,8 +227,11 @@ test('PATCH: referral_fee_yen が数値 → Math.max(0, ...) で保存', async (
     return {
       update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+            }),
           }),
         }),
       };}),
@@ -230,8 +251,11 @@ test('PATCH: referral_fee_yen が非数値 → null で保存', async () => {
     return {
       update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+            }),
           }),
         }),
       };}),
@@ -251,8 +275,11 @@ test('PATCH: notes が非文字列 → null で保存', async () => {
     return {
       update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+            }),
           }),
         }),
       };}),
@@ -272,8 +299,11 @@ test('PATCH: status=hired が既に hired → hired_at は更新しない', asyn
     return {
       update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
         eq: jest.fn().mockReturnValue({
-          select: jest.fn().mockReturnValue({
-            single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+            }),
           }),
         }),
       };}),
