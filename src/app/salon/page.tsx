@@ -1,24 +1,24 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import FAQ from '@/components/FAQ';
-import HpbSimulator from '@/components/salon/HpbSimulator';
+import SavingsSimulator from '@/components/salon/SavingsSimulator';
 
 export const metadata: Metadata = {
   // ルート layout の title.template '%s | CareLink' が自動付与するため「| CareLink」は付けない（二重化防止）。
   // openGraph.title はテンプレ非適用のためフルタイトルのまま維持する。
   title: '施設を掲載しませんか？',
-  description: 'CareLink（ケアリンク）は掲載料無料の美容・医療・福祉ポータルサイト。HPBと同等機能が完全無料。最短3分で掲載登録完了。',
+  description: 'CareLink（ケアリンク）は掲載料無料の美容・医療・福祉ポータルサイト。大手ポータルと同等機能が完全無料。最短3分で掲載登録完了。',
   alternates: { canonical: '/salon' },
   openGraph: {
     title: '施設を掲載しませんか？ | CareLink',
-    description: '掲載料無料。HPBと同等機能が0円。登録3分・すぐに集客開始。',
+    description: '掲載料無料。大手ポータルと同等機能が0円。登録3分・すぐに集客開始。',
     type: 'website',
   },
 };
 
 const faqItems = [
   { question: '本当に無料ですか？追加料金は？', answer: '完全無料です。初期費用・月額費用・成果報酬・予約手数料など一切かかりません。今後も基本機能は永久無料です。' },
-  { question: 'HPBとの違いは？', answer: 'HPBは月額数万〜数十万円かかりますが、CareLinkは同等機能が完全無料。LINE予約通知・顧客分析・リアルタイム予約管理など、HPBにない機能もあります。' },
+  { question: '大手ポータルとの違いは？', answer: '大手ポータルは月額数万〜数十万円かかる場合がありますが、CareLinkは同等機能が完全無料。LINE予約通知・顧客分析・リアルタイム予約管理など、独自の機能もあります。' },
   { question: '掲載開始までどのくらい？', answer: '登録後すぐにメニュー・写真を登録でき、準備ができたら自分で「公開」ボタンを押すだけ。最短当日に掲載開始できます。' },
   { question: 'いつでもやめられますか？', answer: 'はい。管理画面から「非公開」にするだけ。違約金・解約金は一切ありません。' },
   { question: 'どんな業種が掲載できますか？', answer: '美容サロン・アイラッシュ・鍼灸院・整骨院・介護施設・病院・クリニックなど。対象か不明な場合はお問い合わせください。' },
@@ -33,7 +33,7 @@ export default function SalonPage() {
         <div className="section-container text-center">
           <p className="text-sky-200 text-sm font-medium mb-3">掲載料・予約手数料 完全無料</p>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 leading-tight">
-            HPBと同じ機能が
+            大手ポータルと同じ機能が
             <br />
             <span className="text-amber-300">ずっと0円</span>
           </h1>
@@ -54,7 +54,7 @@ export default function SalonPage() {
         </div>
       </section>
 
-      {/* HPB比較 */}
+      {/* 他社比較 */}
       <section className="bg-white">
         <div className="section-container">
           <h2 className="section-title">他社サービスとの比較</h2>
@@ -199,18 +199,18 @@ export default function SalonPage() {
         </div>
       </section>
 
-      {/* HPBシミュレーター */}
+      {/* 節約シミュレーター */}
       <section className="bg-gray-50">
         <div className="section-container">
           <h2 className="section-title">今すぐいくら節約できるか試してみる</h2>
-          <HpbSimulator />
+          <SavingsSimulator />
         </div>
       </section>
 
       {/* CTA */}
       <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
         <div className="section-container text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold mb-4">HPBに払っている月額を0円に</h2>
+          <h2 className="text-2xl sm:text-3xl font-bold mb-4">大手ポータルに払っている月額を0円に</h2>
           <p className="text-sky-100 mb-8">同じ機能が完全無料。リスクゼロで始められます。</p>
           <Link href="/register" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-sky-700 font-bold rounded-lg text-lg hover:bg-sky-50 transition-all shadow-lg">
             無料で掲載登録する
