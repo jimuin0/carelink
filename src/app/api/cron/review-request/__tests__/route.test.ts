@@ -8,22 +8,21 @@
  *   - CAS guard (is null check) prevents double-send
  *   - Fetches facility name/slug
  *   - Sends review request email via Resend
- *   - Sends LINE notification with review URL
  *   - HTML escapes facility & customer names (XSS prevention)
  *   - Includes 50pt bonus mention
- *   - Handles missing email/LINE gracefully
+ *   - Handles missing email gracefully
  *   - Time budget guard defers remaining work to next run (timeout-proof)
- *   - Releases claim (sent_at→null) when every attempted channel fails (no permanent miss)
+ *   - Releases claim (sent_at→null) when the attempted channel fails (no permanent miss)
  *   - Logs cron execution
+ *
+ * 【2026年7月23日】LINE送信を撤去（メールは元々全予約に無条件送信しており、LINEは
+ * 連携済み顧客への完全な重複送信でしかなかったため）。関連テストも削除した。
  */
 
 jest.mock('@/lib/cron-auth', () => ({
   checkCronAuth: jest.fn(() => null),
 }));
 jest.mock('@/lib/cron-logger');
-jest.mock('@/lib/line');
-// 【監査C2】連携解決は helper 経由（profiles.line_user_id 単一ソース）。DB モックから切り離す。
-jest.mock('@/lib/line-link', () => ({ resolveLineUserIdForUser: jest.fn().mockResolvedValue(null) }));
 jest.mock('@/lib/email');
 jest.mock('resend');
 
@@ -37,14 +36,12 @@ jest.mock('@supabase/supabase-js', () => ({
 
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
-import { sendLineText } from '@/lib/line';
 import { esc, escSubject } from '@/lib/email';
 import { GET } from '../route';
 
 let mockBookingsSelect: jest.Mock;
 let mockBookingsUpdate: jest.Mock;
 let mockFacilitiesSelect: jest.Mock;
-let mockLineLinkSelect: jest.Mock;
 
 // Build the bookings SELECT chain: .select().eq().gte().lte().is().order().range(offset, to) → { data }
 // fetchAllPaged により .limit() ではなく .range() でページングされる（1000件PostgREST上限の
@@ -83,12 +80,10 @@ function bookingsUpdate(claimedData: any[] = [{ id: 'booking-1' }], releaseError
 function setupDefaultMocks(
   bookingsFound: number = 1,
   facilityFound: boolean = true,
-  lineLinkFound: boolean = true,
   emailSendFails: boolean = false
 ) {
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (logCronRun as jest.Mock).mockResolvedValue(undefined);
-  (sendLineText as jest.Mock).mockResolvedValue(undefined);
   (esc as jest.Mock).mockImplementation((s) => s?.replace(/</g, '&lt;') || '');
   (escSubject as jest.Mock).mockImplementation((s) => s);
 
@@ -98,13 +93,11 @@ function setupDefaultMocks(
           id: `booking-${i + 1}`,
           email: 'customer@example.com',
           customer_name: 'John Doe',
-          user_id: 'user-123',
           facility_id: 'fac-abc',
           updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
         }))
       : [];
   const facilitiesData = facilityFound ? { name: 'Salon ABC', slug: 'salon-abc' } : null;
-  const lineLinkData = lineLinkFound ? { line_user_id: 'line-user-123' } : null;
 
   mockBookingsSelect = bookingsSelectChain(bookingsData);
   // Claim returns the row whose id matches (each booking can be claimed).
@@ -116,16 +109,6 @@ function setupDefaultMocks(
     }),
   });
 
-  mockLineLinkSelect = jest.fn().mockReturnValue({
-    eq: jest.fn().mockReturnValue({
-      maybeSingle: jest.fn().mockResolvedValue({ data: lineLinkData }),
-    }),
-  });
-
-  // 【監査C2】顧客の連携解決は profiles.line_user_id（helper）。lineLinkData を反映する。
-  const { resolveLineUserIdForUser } = require('@/lib/line-link');
-  (resolveLineUserIdForUser as jest.Mock).mockResolvedValue(lineLinkData?.line_user_id ?? null);
-
   mockFrom.mockImplementation((table: string) => {
     if (table === 'bookings') {
       return {
@@ -135,10 +118,6 @@ function setupDefaultMocks(
     } else if (table === 'facility_profiles') {
       return {
         select: mockFacilitiesSelect,
-      };
-    } else if (table === 'line_user_links') {
-      return {
-        select: mockLineLinkSelect,
       };
     }
     return {};
@@ -162,7 +141,6 @@ beforeEach(() => {
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   process.env.CRON_SECRET = 'cron-secret';
   process.env.RESEND_API_KEY = 'resend-key';
-  process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK = 'line-token';
 });
 
 function makeRequest(cronSecret: string = 'cron-secret') {
@@ -306,7 +284,6 @@ describe('GET /api/cron/review-request', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
       if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       return {};
     });
 
@@ -332,7 +309,7 @@ describe('GET /api/cron/review-request', () => {
   });
 
   test('H-3: facility取得がerror → claim解放して翌run再送（500にせず個別skip）', async () => {
-    setupDefaultMocks(1, true, false, false);
+    setupDefaultMocks(1, true, false);
     // facility_profiles だけ一過性 error に差し替え（bookings の claim/release mock は維持）。
     const facErrSelect = jest.fn().mockReturnValue({
       eq: jest.fn().mockReturnValue({
@@ -342,7 +319,6 @@ describe('GET /api/cron/review-request', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'facility_profiles') return { select: facErrSelect };
       if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       return {};
     });
 
@@ -412,46 +388,20 @@ describe('GET /api/cron/review-request', () => {
     expect(call[0].html).toContain('50ポイント');
   });
 
-  test('email send failure but LINE succeeds → delivered, no release', async () => {
-    setupDefaultMocks(1, true, true, true);
-    // sendLineText returns true on successful delivery (it resolves false on failure,
-    // never throws unless the token env is unset). A successful LINE send must resolve true.
-    (sendLineText as jest.Mock).mockResolvedValue(true);
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.processed).toBe(1);
-    // no release call: only the claim update payload (a date), never null
-    const nullReleases = mockBookingsUpdate.mock.calls.filter(
-      (c: any[]) => c[0].review_request_sent_at === null
-    );
-    expect(nullReleases.length).toBe(0);
-  });
-
   test('all attempted channels fail → releases claim (sent_at→null) for retry', async () => {
-    // email present + fails, user_id present but no LINE link → both attempted, none delivered
+    // email present + fails → attempted かつ未配信 → claim 解放。
     const data = [{
       id: 'booking-1',
       email: 'c@example.com',
       customer_name: 'A',
-      user_id: 'user-1',
       facility_id: 'fac-abc',
       updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
     }];
     mockBookingsSelect = bookingsSelectChain(data);
     mockBookingsUpdate = bookingsUpdate([{ id: 'booking-1' }]);
-    (sendLineText as jest.Mock).mockResolvedValue(undefined);
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
       if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-      // LINE link missing → LINE not attempted
-      if (table === 'line_user_links') return {
-        select: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
-        }),
-      };
       return {};
     });
     const { Resend } = require('resend');
@@ -475,7 +425,7 @@ describe('GET /api/cron/review-request', () => {
     const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const data = [{
       id: 'booking-1', email: 'c@example.com', customer_name: 'A',
-      user_id: null, facility_id: 'fac-abc',
+      facility_id: 'fac-abc',
       updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
     }];
     mockBookingsSelect = bookingsSelectChain(data);
@@ -533,62 +483,6 @@ describe('GET /api/cron/review-request', () => {
     warnSpy.mockRestore();
   });
 
-  test('sends LINE notification when user_id exists', async () => {
-    setupDefaultMocks(1, true, true);
-
-    await GET(makeRequest() as any);
-
-    expect(sendLineText).toHaveBeenCalled();
-  });
-
-  test('LINE message includes facility name', async () => {
-    setupDefaultMocks(1, true, true);
-
-    await GET(makeRequest() as any);
-
-    const call = (sendLineText as jest.Mock).mock.calls[0];
-    expect(call[1]).toContain('Salon ABC');
-  });
-
-  test('LINE message includes review URL', async () => {
-    setupDefaultMocks(1, true, true);
-
-    await GET(makeRequest() as any);
-
-    const call = (sendLineText as jest.Mock).mock.calls[0];
-    expect(call[1]).toContain('salon-abc');
-  });
-
-  test('LINE message includes 50pt bonus', async () => {
-    setupDefaultMocks(1, true, true);
-
-    await GET(makeRequest() as any);
-
-    const call = (sendLineText as jest.Mock).mock.calls[0];
-    expect(call[1]).toContain('50ポイント');
-  });
-
-  test('LINE send failure but email succeeds → delivered, no release', async () => {
-    setupDefaultMocks(1, true, true, false);
-    (sendLineText as jest.Mock).mockRejectedValue(new Error('LINE down'));
-
-    const res = await GET(makeRequest() as any);
-
-    expect(res.status).toBe(200);
-    const json = await res.json();
-    expect(json.processed).toBe(1);
-  });
-
-  test('skips LINE if line_user_id not found', async () => {
-    setupDefaultMocks(1, true, false);
-
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-
-    expect(sendLineText).not.toHaveBeenCalled();
-  });
-
   test('logs cron execution with sent count', async () => {
     setupDefaultMocks(1);
 
@@ -626,7 +520,7 @@ describe('GET /api/cron/review-request', () => {
   test('skips email if booking.email missing', async () => {
     const data = [{
       id: 'booking-1', email: null, customer_name: 'A',
-      user_id: 'user-123', facility_id: 'fac-abc',
+      facility_id: 'fac-abc',
       updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
     }];
     mockBookingsSelect = bookingsSelectChain(data);
@@ -634,7 +528,6 @@ describe('GET /api/cron/review-request', () => {
     mockFrom.mockImplementation((table: string) => {
       if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
       if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
       return {};
     });
 
@@ -651,21 +544,10 @@ describe('GET /api/cron/review-request', () => {
     expect(res.status).toBe(200);
   });
 
-  test('skips LINE if no token', async () => {
-    delete process.env.LINE_CHANNEL_ACCESS_TOKEN_CARELINK;
-    setupDefaultMocks(1);
-
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-
-    expect(sendLineText).not.toHaveBeenCalled();
-  });
-
   test('customer_name null → fallback to お客', async () => {
     const data = [{
       id: 'b-noname', email: 'c@example.com', customer_name: null,
-      user_id: null, facility_id: 'fac-abc',
+      facility_id: 'fac-abc',
       updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
     }];
     mockBookingsSelect = bookingsSelectChain(data);
@@ -678,26 +560,6 @@ describe('GET /api/cron/review-request', () => {
 
     await GET(makeRequest() as any);
     expect(esc).toHaveBeenCalledWith('お客');
-  });
-
-  test('booking.user_id null → no LINE lookup', async () => {
-    const data = [{
-      id: 'b-no-uid', email: 'c@example.com', customer_name: 'A',
-      user_id: null, facility_id: 'fac-abc',
-      updated_at: new Date(Date.now() - 36 * 60 * 60 * 1000).toISOString(),
-    }];
-    mockBookingsSelect = bookingsSelectChain(data);
-    mockBookingsUpdate = bookingsUpdate([{ id: 'b-no-uid' }]);
-    mockFrom.mockImplementation((table: string) => {
-      if (table === 'bookings') return { select: mockBookingsSelect, update: mockBookingsUpdate };
-      if (table === 'facility_profiles') return { select: mockFacilitiesSelect };
-      if (table === 'line_user_links') return { select: mockLineLinkSelect };
-      return {};
-    });
-    (sendLineText as jest.Mock).mockClear();
-
-    await GET(makeRequest() as any);
-    expect(sendLineText).not.toHaveBeenCalled();
   });
 
   test('EMAIL_FROM env override → uses custom from', async () => {
