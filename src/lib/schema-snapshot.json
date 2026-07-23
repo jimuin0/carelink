@@ -344,6 +344,7 @@
     "menu_count",
     "min_price",
     "name",
+    "nearest_station",
     "photo_count",
     "prefecture",
     "rating_avg",

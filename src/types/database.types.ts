@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.4"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       ab_test_events: {
@@ -5385,6 +5360,7 @@ export type Database = {
           menu_count: number | null
           min_price: number | null
           name: string | null
+          nearest_station: string | null
           photo_count: number | null
           prefecture: string | null
           rating_avg: number | null
@@ -5743,6 +5719,7 @@ export type Database = {
         | { Args: { schema_name: string; table_name: string }; Returns: string }
         | { Args: { table_name: string }; Returns: string }
       enablelongtransactions: { Args: never; Returns: string }
+      enqueue_moderation: { Args: { p_items: Json }; Returns: number }
       equals: { Args: { geom1: unknown; geom2: unknown }; Returns: boolean }
       find_bulk_review_ips: {
         Args: { p_since: string; p_threshold: number }
@@ -5983,40 +5960,77 @@ export type Database = {
         Args: { p_facility_id: string; p_ids: string[] }
         Returns: undefined
       }
-      search_facilities_nearby: {
-        Args: {
-          limit_count?: number
-          radius_km?: number
-          type_filter?: string
-          user_lat: number
-          user_lng: number
-        }
-        Returns: {
-          access_info: string
-          business_hours: Json
-          business_type: string
-          catch_copy: string
-          city: string
-          coupon_count: number
-          distance_km: number
-          google_rating: number
-          google_review_count: number
-          id: string
-          latitude: number
-          longitude: number
-          main_photo_url: string
-          max_price: number
-          menu_count: number
-          min_price: number
-          name: string
-          photo_count: number
-          prefecture: string
-          rating_avg: number
-          rating_count: number
-          seat_count: number
-          slug: string
-        }[]
-      }
+      search_facilities_nearby:
+        | {
+            Args: {
+              limit_count?: number
+              radius_km?: number
+              type_filter?: string
+              user_lat: number
+              user_lng: number
+            }
+            Returns: {
+              access_info: string
+              business_hours: Json
+              business_type: string
+              catch_copy: string
+              city: string
+              coupon_count: number
+              distance_km: number
+              google_rating: number
+              google_review_count: number
+              id: string
+              latitude: number
+              longitude: number
+              main_photo_url: string
+              max_price: number
+              menu_count: number
+              min_price: number
+              name: string
+              photo_count: number
+              prefecture: string
+              rating_avg: number
+              rating_count: number
+              seat_count: number
+              slug: string
+            }[]
+          }
+        | {
+            Args: {
+              features_filter?: string[]
+              keyword_filter?: string
+              limit_count?: number
+              radius_km?: number
+              type_filter?: string
+              user_lat: number
+              user_lng: number
+            }
+            Returns: {
+              access_info: string
+              business_hours: Json
+              business_type: string
+              catch_copy: string
+              city: string
+              coupon_count: number
+              distance_km: number
+              google_rating: number
+              google_review_count: number
+              id: string
+              latitude: number
+              longitude: number
+              main_photo_url: string
+              max_price: number
+              menu_count: number
+              min_price: number
+              name: string
+              photo_count: number
+              prefecture: string
+              rating_avg: number
+              rating_count: number
+              seat_count: number
+              slug: string
+            }[]
+          }
       set_review_pickup_atomic: {
         Args: { p_facility_id: string; p_review_id: string }
         Returns: undefined
@@ -6766,9 +6780,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
