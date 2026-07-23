@@ -40,7 +40,7 @@ const features = [
   },
   {
     title: 'LINE通知',
-    desc: '予約確認・リマインド・キャンセルをLINEで自動通知。HPBにはない機能。',
+    desc: '予約確認・リマインド・キャンセルをLINEで自動通知。大手ポータルにはない機能。',
     details: ['予約確認通知', 'リマインド通知', 'キャンセル通知', 'フォロー自動応答'],
   },
   {
@@ -70,7 +70,7 @@ export default function DemoPage() {
             CareLink 管理画面でできること
           </h1>
           <p className="text-sky-100 text-lg mb-8">
-            HPBと同等以上の機能が、全部無料で使えます
+            大手ポータルと同等以上の機能が、全部無料で使えます
           </p>
         </div>
       </section>
@@ -126,7 +126,7 @@ export default function DemoPage() {
               無料で掲載登録する
             </Link>
             <Link href="/salon" className="inline-flex items-center justify-center px-8 py-4 border-2 border-white text-white font-bold rounded-lg hover:bg-white/10 transition-all">
-              HPBとの比較を見る
+              他社との比較を見る
             </Link>
           </div>
         </div>

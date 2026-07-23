@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 
-export default function HpbSimulator() {
+export default function SavingsSimulator() {
   const [monthlyFee, setMonthlyFee] = useState(30000);
   const [bookingsPerMonth, setBookingsPerMonth] = useState(50);
   const [feePerBooking, setFeePerBooking] = useState(200);
