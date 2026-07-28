@@ -21,7 +21,7 @@ process.env.RESEND_API_KEY = 'test-resend-key';
 process.env.EMAIL_FROM = 'Test <test@example.com>';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest } = require('../email');
+const { sendBookingConfirmation, sendBookingReminder, sendBookingConfirmed, sendBookingRescheduled, sendBookingCancelled, sendNewBookingNotification, sendNewReviewNotification, sendNewInquiryNotification, sendBookingCancellationToFacility, sendBookingStatusUpdate, generateUnsubscribeToken, sendWelcomeEmail, sendOnboardingFollowEmail, sendFavoritesDigest, sendDailySummaryEmail, sendWeeklyReportEmail, sendTimeAdjustRequest, sendInquiryReply } = require('../email');
 
 const baseData = {
   customerName: 'テスト太郎',
@@ -181,6 +181,43 @@ describe('sendNewReviewNotification', () => {
 });
 
 // 【2026年7月10日 恒久根治】施設への問い合わせがオーナーに届かない構造的欠陥の修正。
+// 【2026年7月28日 新設】問い合わせ返信。差出人が運営アドレスに固定されること、
+// 問い合わせ者が返信したら運営に戻る replyTo が付くことを退行させない。
+describe('sendInquiryReply', () => {
+  const replyData = {
+    to: 'customer@example.com',
+    inquirerName: 'テスト花子',
+    body: 'お問い合わせありがとうございます。',
+  };
+
+  test('問い合わせ者へ送信し差出人は運営アドレスになる', async () => {
+    await sendInquiryReply(replyData);
+    expect(mockSend).toHaveBeenCalledTimes(1);
+    const args = mockSend.mock.calls[0][0];
+    expect(args.to).toBe('customer@example.com');
+    expect(args.from).toBe('Test <test@example.com>');
+    expect(args.html).toContain('テスト花子');
+    expect(args.html).toContain('お問い合わせありがとうございます。');
+  });
+
+  test('replyTo 未指定なら差出人と同じアドレスに返信が戻る', async () => {
+    await sendInquiryReply(replyData);
+    expect(mockSend.mock.calls[0][0].replyTo).toBe('Test <test@example.com>');
+  });
+
+  test('replyTo 指定時はその宛先に返信が戻る', async () => {
+    await sendInquiryReply({ ...replyData, replyTo: 'support@carelink-jp.com' });
+    expect(mockSend.mock.calls[0][0].replyTo).toBe('support@carelink-jp.com');
+  });
+
+  test('本文はエスケープされる（HTML 注入を防ぐ）', async () => {
+    await sendInquiryReply({ ...replyData, body: '<script>alert(1)</script>' });
+    const html = mockSend.mock.calls[0][0].html;
+    expect(html).not.toContain('<script>');
+    expect(html).toContain('&lt;script&gt;');
+  });
+});
+
 describe('sendNewInquiryNotification', () => {
   const inquiryData = {
     facilityEmail: 'salon@example.com',
@@ -299,9 +336,13 @@ describe('RESEND_API_KEY未設定時', () => {
     jest.mock('resend', () => ({ Resend: jest.fn() }));
     jest.mock('@sentry/nextjs', () => ({ captureException: jest.fn() }), { virtual: true });
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { sendBookingConfirmation: freshSend, sendBookingRescheduled: freshReschedule, sendDailySummaryEmail: freshSummary, sendWeeklyReportEmail: freshWeekly } = require('../email');
+    const { sendBookingConfirmation: freshSend, sendBookingRescheduled: freshReschedule, sendDailySummaryEmail: freshSummary, sendWeeklyReportEmail: freshWeekly, sendInquiryReply: freshReply } = require('../email');
     await freshSend(baseData);
     await freshReschedule(baseData); // resend 未生成で早期 return（送信されない）
+
+    // 問い合わせ返信も同様に false を返す（呼び出し元はこれを見て「送信済み」と記録しない）。
+    const okReply = await freshReply({ to: 'c@example.com', inquirerName: 'X', body: 'y' });
+    expect(okReply).toBe(false);
 
     // Resend 未生成のため送信されない。サマリー/週次メールは false を返す（!resend 分岐）。
     const ok = await freshSummary({

@@ -169,6 +169,9 @@ const QUEUEABLE_EMAIL_CONTEXTS = new Set([
   'new_review_notification',
   'new_inquiry_notification',
   'welcome',
+  // 問い合わせへの返信は「送ったつもりで届いていない」が最も致命的（相手は返事を待ち続ける）。
+  // 失敗時は webhook-retry cron に載せて自動再送する（2026年7月28日 追加）。
+  'inquiry_reply',
 ]);
 
 /**
@@ -399,6 +402,41 @@ export async function sendNewReviewNotification(data: {
  * Slack通知(type=facility_inquiry)は既に存在するが、施設オーナーが必ずSlackを見ているとは
  * 限らないため、確実に届く経路としてメール通知を新設する。
  */
+/**
+ * お問い合わせへの返信（運営 → 問い合わせ者）。
+ *
+ * 【2026年7月28日 新設・恒久根治】管理画面の返信ボタンは mailto: リンクで、担当者の
+ * メールアプリを開くだけだった。そのため返信は個人の Gmail アカウントから送られ、
+ * 問い合わせ者には運営の個人アドレスが差出人として見えていた（/legal に記載した
+ * support@carelink-jp.com に問い合わせたのに別アドレスから返信が来る状態）。
+ * ここから送れば差出人は常に EMAIL_FROM（carelink-jp.com の検証済みドメイン）に固定される。
+ *
+ * replyTo に運営アドレスを入れるのは、問い合わせ者が返信したときに
+ * Cloudflare Email Routing 経由で運営に届く経路を保つため。
+ */
+export async function sendInquiryReply(data: {
+  to: string;
+  inquirerName: string;
+  body: string;
+  replyTo?: string;
+}): Promise<boolean> {
+  const resend = getResend();
+  if (!resend) return false;
+  return safeSend(resend, {
+    from: FROM,
+    to: data.to,
+    // 問い合わせ者が返信したら運営に戻るようにする（未指定なら FROM のまま）。
+    replyTo: data.replyTo || FROM,
+    subject: escSubject('【CareLink】お問い合わせへのご返信'),
+    html: wrapHtml(`
+      <p>${esc(data.inquirerName)} 様</p>
+      <p>CareLink へお問い合わせいただきありがとうございます。</p>
+      <div style="white-space:pre-wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:16px;margin:16px 0;">${esc(data.body)}</div>
+      <p style="color:#64748b;font-size:13px;">このメールにそのまま返信していただけます。</p>
+    `),
+  }, 'inquiry_reply');
+}
+
 export async function sendNewInquiryNotification(data: {
   facilityEmail: string;
   facilityName: string;

@@ -43,6 +43,9 @@ export default function AdminInquiriesPage() {
   const [editingNotes, setEditingNotes] = useState<Record<string, string>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  // 返信本文（問い合わせIDごと）と送信中の対象。
+  const [replyBodies, setReplyBodies] = useState<Record<string, string>>({});
+  const [replyingId, setReplyingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const supabase = createBrowserSupabaseClient();
@@ -81,6 +84,36 @@ export default function AdminInquiriesPage() {
       load();
     } finally {
       setSavingId(null);
+    }
+  };
+
+  /**
+   * 【2026年7月28日 新設】問い合わせへの返信を CareLink から直接送る。
+   * 以前は mailto: リンクで担当者のメールアプリを開いており、返信が担当者個人の
+   * アドレスから送られていた（/legal に support@carelink-jp.com を載せているのに
+   * 別アドレスから返事が届く状態）。API 経由なら差出人が必ず運営アドレスに固定される。
+   */
+  const sendReply = async (id: string) => {
+    const body = (replyBodies[id] ?? '').trim();
+    if (!body || replyingId) return;
+    setReplyingId(id);
+    try {
+      const res = await fetch(`/api/admin/inquiries/${id}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      });
+      if (!res.ok) {
+        // 送信失敗時は本文を消さない（書き直しをさせない）。
+        const data = await res.json().catch(() => null);
+        setToast({ type: 'error', message: data?.error || '返信の送信に失敗しました' });
+        return;
+      }
+      setToast({ type: 'success', message: '返信を送信しました' });
+      setReplyBodies((prev) => ({ ...prev, [id]: '' }));
+      load();
+    } finally {
+      setReplyingId(null);
     }
   };
 
@@ -214,17 +247,40 @@ export default function AdminInquiriesPage() {
                     </button>
                   </div>
 
-                  {/* メール返信リンク */}
-                  {c.email && (
-                    <a
-                      href={`mailto:${c.email}?subject=Re: お問い合わせの件&body=%0A%0A--- 元のメッセージ ---%0A${encodeURIComponent(c.message || '')}`}
-                      className="btn-primary gap-1.5 text-sm !px-4 !py-2"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                      </svg>
-                      メールで返信
-                    </a>
+                  {/* 返信フォーム（CareLink から直接送信・差出人は運営アドレスに固定） */}
+                  {c.email ? (
+                    <div className="border-t border-gray-100 pt-4">
+                      <label htmlFor={`reply-${c.id}`} className="block text-xs font-bold text-gray-600 mb-1.5">
+                        {c.name} 様に返信
+                      </label>
+                      <textarea
+                        id={`reply-${c.id}`}
+                        value={replyBodies[c.id] ?? ''}
+                        onChange={(e) => setReplyBodies((prev) => ({ ...prev, [c.id]: e.target.value }))}
+                        rows={5}
+                        className="form-input w-full text-sm"
+                      />
+                      <div className="flex items-center justify-between gap-3 mt-2 flex-wrap">
+                        <p className="text-xs text-gray-400">
+                          差出人は CareLink 運営アドレスになります（{c.email} 宛）
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => sendReply(c.id)}
+                          disabled={!(replyBodies[c.id] ?? '').trim() || replyingId === c.id}
+                          className="btn-primary gap-1.5 text-sm !px-4 !py-2 disabled:opacity-50"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                          </svg>
+                          {replyingId === c.id ? '送信中...' : '返信を送信'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="border-t border-gray-100 pt-4 text-xs text-gray-400">
+                      メールアドレスの登録が無いため、この問い合わせにはメール返信できません。
+                    </p>
                   )}
                 </div>
               )}
