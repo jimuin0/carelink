@@ -72,8 +72,20 @@ function LoginContent() {
     router.refresh();
   };
 
+  // 【2026年7月28日】ヘッダーの「店舗ログイン」から来た場合（redirect=/admin）は、
+  // 客用ログインと同じ画面に見えて「ここで合っているのか」が分からなかった。
+  // h1 は SSR 維持のため触らず（上のコメント参照）、この補足行で着地点を明示する。
+  const isStoreLogin = redirect.startsWith('/admin');
+
   return (
     <>
+          {isStoreLogin && (
+            <p className="-mt-4 mb-6 text-center text-sm text-sky-700 bg-sky-50 rounded-lg px-4 py-2.5">
+              施設オーナーさま向けのログインです。
+              <br />
+              ログイン後、管理画面へ移動します。
+            </p>
+          )}
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
             <div>
               <label htmlFor="login-email" className="form-label">メールアドレス</label>

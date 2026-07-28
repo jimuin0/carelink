@@ -47,7 +47,19 @@ export default function Header() {
             >
               施設掲載
             </Link>
+            {/* 【2026年7月28日・神原さん判断で追加】掲載中の店舗オーナーが管理画面へ入る導線を
+                ヘッダーに常設する。従来は未ログイン時に店舗用の入口が一切無く、ログイン後も
+                アイコンメニューを開かないと「管理画面」リンクに気づけなかった。
+                redirect=/admin を付けるのでログイン後そのまま管理画面に着地する。
+                ログイン済みの場合は /auth/login が既存セッションを検知して即 /admin へ送る
+                （src/app/auth/login/page.tsx の初回マウント時 replace）ため、常時表示でよい。 */}
             <div className="flex items-center gap-2 pl-2 border-l border-gray-200">
+              <Link
+                href="/auth/login?redirect=/admin"
+                className="text-sm text-gray-500 hover:text-primary font-medium transition-colors whitespace-nowrap"
+              >
+                店舗ログイン
+              </Link>
               <Link href="/auth/signup" className="text-sm text-gray-700 hover:text-primary font-medium transition-colors">
                 会員登録
               </Link>
@@ -115,6 +127,14 @@ export default function Header() {
               onClick={() => setIsOpen(false)}
             >
               施設掲載はこちら
+            </Link>
+            {/* デスクトップと同じく、掲載中の店舗オーナー向けの管理画面入口。 */}
+            <Link
+              href="/auth/login?redirect=/admin"
+              className="text-gray-500 font-medium hover:text-primary transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              店舗ログイン
             </Link>
           </nav>
         </div>
