@@ -12,6 +12,7 @@ import {
 } from '@/lib/schema-drift';
 import snapshot from '@/lib/schema-snapshot.json';
 import constraintsSnapshot from '@/lib/schema-constraints-snapshot.json';
+import { businessTypes } from '@/lib/constants';
 
 /** 古い claim 行の掃除しきい値（この期間より古い claim は削除対象）。 */
 const CLAIM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -63,12 +64,41 @@ export async function GET(request: Request) {
     constraintMissing = cd.missing;
   }
 
+  // 【2026年7月29日 追加・値ドリフト監視】
+  // business_type は検索・カテゴリ導線・/type/* の結合キーだが、DB に CHECK 制約が無い。
+  // 実際に本番で正規タクソノミー外の値（「まつげ・眉毛サロン」「hair_salon」）が保存され、
+  // 施設は存在するのにトップのカテゴリタイル・悩みナビ・特集バナーが全て 0 件になり、
+  // 掲載施設へ到達する導線が消えていた（誰も気づけない無音の断線）。
+  // 保存の入口は塞いだが、DDL・手動投入・将来の別経路で再びズレうるため、
+  // 列や制約と同じようにここで「値」のドリフトも見張る。
+  let businessTypeDrift: string[] = [];
+  const { data: btRows, error: btError } = await admin
+    .from('facility_profiles')
+    .select('business_type');
+  if (btError) {
+    alertWarning(
+      'schema-drift-check: business_type 取得失敗（業種タクソノミーのドリフト監視が無効化）',
+      { route: '/api/cron/schema-drift-check', extra: { errorMessage: btError.message } },
+    );
+  } else {
+    const values = (btRows ?? []) as { business_type: string | null }[];
+    businessTypeDrift = [
+      ...new Set(
+        values
+          .map((r) => r.business_type)
+          .filter((v): v is string => !!v)
+          .filter((v) => !businessTypes.includes(v)),
+      ),
+    ];
+  }
+
   const driftCount =
     contaminated.length +
     missing.length +
     colDrift.length +
     constraintExtra.length +
-    constraintMissing.length;
+    constraintMissing.length +
+    businessTypeDrift.length;
 
   // 【claim-first 設計・2026-07-17】
   // cron は三重化（GitHub Actions + pg_cron + Render）で同一スケジュール(JST 02:40)に
@@ -85,7 +115,7 @@ export async function GET(request: Request) {
     // drift 内容の安定した指紋。computeDrift/computeConstraintDrift は結果を常にソート済みで
     // 返す純粋関数のため、同一ドリフトなら常に同じ JSON 文字列＝同じハッシュになる。
     const driftFingerprint = createHash('sha256')
-      .update(JSON.stringify({ contaminated, missing, colDrift, constraintExtra, constraintMissing }))
+      .update(JSON.stringify({ contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift }))
       .digest('hex')
       .slice(0, 16);
     const claimDate = startedAt.toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
@@ -117,10 +147,10 @@ export async function GET(request: Request) {
 
     if (shouldAlert) {
       alertWarning(
-        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length}`,
+        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length} / 業種値ドリフト${businessTypeDrift.length}`,
         {
           route: '/api/cron/schema-drift-check',
-          extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing },
+          extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift },
         },
       );
     }
@@ -151,6 +181,7 @@ export async function GET(request: Request) {
       colDrift,
       constraintExtra,
       constraintMissing,
+      businessTypeDrift,
       constraintCheckSkipped,
       alertDeduped,
     },
@@ -163,6 +194,7 @@ export async function GET(request: Request) {
     colDrift,
     constraintExtra,
     constraintMissing,
+    businessTypeDrift,
     constraintCheckSkipped,
   });
 }

@@ -18,12 +18,19 @@ jest.mock('@/lib/schema-drift', () => ({
 
 const mockRpc = jest.fn();
 const mockClaimInsert = jest.fn();
+// facility_profiles.select('business_type') の戻り。既定は正規タクソノミー内の値のみ。
+const mockBusinessTypeSelect = jest.fn(() =>
+  Promise.resolve({ data: [{ business_type: 'ネイル・まつげサロン' }], error: null }),
+);
 const mockClaimDeleteEq = jest.fn();
 const mockClaimDeleteLt = jest.fn();
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({
     rpc: mockRpc,
     from: (table: string) => ({
+      // business_type の値ドリフト監視（facility_profiles.select('business_type')）。
+      // 既定は正規タクソノミー内の値のみ＝ドリフト0件で、既存テストの期待に影響しない。
+      select: () => mockBusinessTypeSelect(table),
       insert: (row: unknown) => mockClaimInsert(table, row),
       // 掃除 delete は .eq('job_name', 自ジョブ) → .lt('claimed_at', ...) の chain
       //（job_name 限定＝他 cron の claim 行を越境削除しない）
@@ -218,4 +225,92 @@ describe('claim-first 重複防止（三重化cronの同時発火対策）', () 
     const thirdKey = mockClaimInsert.mock.calls[0][1].claim_key;
     expect(thirdKey).not.toBe(firstKey);
   });
+});
+
+// 【2026年7月29日 追加】business_type の値ドリフト監視。
+// business_type は検索・カテゴリ導線・/type/* の結合キーだが DB に CHECK 制約が無く、
+// 本番で正規タクソノミー外の値（「まつげ・眉毛サロン」「hair_salon」）が保存された結果、
+// 施設は存在するのにトップのカテゴリタイル等が全て0件になり到達不能になっていた。
+// 保存の入口は塞いだが、DDL・手動投入で再びズレうるため、ここで検知し続ける。
+describe('business_type の値ドリフト監視', () => {
+  test('正規タクソノミー外の値を検知して driftCount に加算する', async () => {
+    (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    mockBusinessTypeSelect.mockResolvedValueOnce({
+      data: [
+        { business_type: 'ネイル・まつげサロン' }, // 正規（検知しない）
+        { business_type: 'まつげ・眉毛サロン' },   // ドリフト
+        { business_type: 'hair_salon' },           // ドリフト
+      ],
+      error: null,
+    });
+
+    const res = await GET(req());
+    const json = await res.json();
+
+    expect(json.businessTypeDrift).toEqual(
+      expect.arrayContaining(['まつげ・眉毛サロン', 'hair_salon']),
+    );
+    expect(json.businessTypeDrift).not.toContain('ネイル・まつげサロン');
+    expect(json.driftCount).toBe(2);
+    expect(alertWarning).toHaveBeenCalled();
+  });
+
+  test('全て正規タクソノミー内なら検知しない（誤検知しない）', async () => {
+    (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    mockBusinessTypeSelect.mockResolvedValueOnce({
+      data: [{ business_type: '鍼灸院・整骨院' }, { business_type: 'ヘアサロン' }],
+      error: null,
+    });
+
+    const res = await GET(req());
+    const json = await res.json();
+
+    expect(json.businessTypeDrift).toEqual([]);
+    expect(json.driftCount).toBe(0);
+  });
+
+  test('null の business_type は検知対象外（未設定を異常扱いしない）', async () => {
+    (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    mockBusinessTypeSelect.mockResolvedValueOnce({
+      data: [{ business_type: null }, { business_type: 'ヘアサロン' }],
+      error: null,
+    });
+
+    const res = await GET(req());
+    const json = await res.json();
+
+    expect(json.businessTypeDrift).toEqual([]);
+  });
+
+  // 監視自体が壊れても cron 本体は止めない（列・制約の監視は継続させる）。
+  test('取得失敗時は警告を出しつつ本体は success を返す', async () => {
+    (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    mockBusinessTypeSelect.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(200);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('business_type 取得失敗'),
+      expect.anything(),
+    );
+  });
+});
+
+// data も error も null（施設0件などで PostgREST が data:null を返す）ケース。
+// ここで落ちると監視ごと止まるため、空配列として扱えることを固定する。
+test('business_type: data が null でも空配列として扱う', async () => {
+  (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+  (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+  mockBusinessTypeSelect.mockResolvedValueOnce({ data: null, error: null });
+
+  const res = await GET(req());
+  const json = await res.json();
+
+  expect(res.status).toBe(200);
+  expect(json.businessTypeDrift).toEqual([]);
 });

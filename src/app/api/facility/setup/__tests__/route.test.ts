@@ -39,7 +39,7 @@ let mockPhotoInsert: jest.Mock;
 // salonFound 時のリッチデータ（register 全項目の引き継ぎ・写真転送を検証するため）。
 const SALON_FULL = {
   facility_name: 'Salon from DB',
-  business_type: 'nail',
+  business_type: 'ネイル・まつげサロン',
   phone: '03-1234-5678',
   address: '東京都渋谷区',
   postal_code: '150-0001',
@@ -191,7 +191,7 @@ describe('POST /api/facility/setup', () => {
     );
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(403);
@@ -201,7 +201,7 @@ describe('POST /api/facility/setup', () => {
     (checkRateLimit as jest.Mock).mockResolvedValue(true);
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(429);
@@ -211,7 +211,7 @@ describe('POST /api/facility/setup', () => {
     setupDefaultMocks(false);
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(401);
@@ -221,7 +221,7 @@ describe('POST /api/facility/setup', () => {
     setupDefaultMocks(true, true);
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(200);
@@ -257,7 +257,7 @@ describe('POST /api/facility/setup', () => {
     });
 
     const res = await POST(
-      makeRequest({ facility_name: 'New Store', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'New Store', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(200);
@@ -269,7 +269,7 @@ describe('POST /api/facility/setup', () => {
 
   test('missing facility_name → 400', async () => {
     const res = await POST(
-      makeRequest({ business_type: 'nail' }) as any
+      makeRequest({ business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(400);
@@ -293,7 +293,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: '未設定の施設',
-        business_type: 'eyelash',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -303,19 +303,32 @@ describe('POST /api/facility/setup', () => {
   test('facility_name > 100 chars → truncated', async () => {
     const longName = 'x'.repeat(150);
     const res = await POST(
-      makeRequest({ facility_name: longName, business_type: 'nail' }) as any
+      makeRequest({ facility_name: longName, business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(200);
   });
 
-  test('business_type > 50 chars → truncated', async () => {
+  // 【2026年7月29日 仕様変更】business_type は検索・カテゴリ導線・/type/* の結合キーであり、
+  // 正規タクソノミー外の値が入ると「施設は存在するのに到達できない」無音の断線を招く
+  // （本番で実際に発生）。長すぎる値を切り詰めて通すのではなく、選択肢外は 400 で拒否する。
+  test('business_type が正規タクソノミー外 → 400（切り詰めて通さない）', async () => {
     const longType = 'x'.repeat(100);
     const res = await POST(
       makeRequest({ facility_name: 'Test', business_type: longType }) as any
     );
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
+  });
+
+  test('business_type が実在しない業種名 → 400', async () => {
+    const res = await POST(
+      makeRequest({ facility_name: 'Test', business_type: '整体サロン' }) as any
+    );
+
+    expect(res.status).toBe(400);
+    expect(mockFacilityInsert).not.toHaveBeenCalled();
   });
 
   test('phone > 20 chars → truncated', async () => {
@@ -323,7 +336,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: 'Test',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
         phone: longPhone,
       }) as any
     );
@@ -336,7 +349,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: 'Test',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
         address: longAddr,
       }) as any
     );
@@ -348,7 +361,7 @@ describe('POST /api/facility/setup', () => {
     setupDefaultMocks(true, false, false, true);
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(500);
@@ -358,7 +371,7 @@ describe('POST /api/facility/setup', () => {
     setupDefaultMocks(true, false, false, false, true);
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(500);
@@ -367,7 +380,7 @@ describe('POST /api/facility/setup', () => {
 
   test('successful setup → 200 with facilityId and slug', async () => {
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     expect(res.status).toBe(200);
@@ -381,7 +394,7 @@ describe('POST /api/facility/setup', () => {
     await POST(
       makeRequest({
         facility_name: 'My Salon',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -389,7 +402,7 @@ describe('POST /api/facility/setup', () => {
     expect(insertCall[0]).toMatchObject({
       status: 'draft',
       name: 'My Salon',
-      business_type: 'nail',
+      business_type: 'ネイル・まつげサロン',
     });
   });
 
@@ -397,7 +410,7 @@ describe('POST /api/facility/setup', () => {
     await POST(
       makeRequest({
         facility_name: 'Test',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -414,7 +427,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: 'Test Salon',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -426,7 +439,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: 'Salon A',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -439,7 +452,7 @@ describe('POST /api/facility/setup', () => {
     await POST(
       makeRequest({
         facility_name: 'Test',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -460,7 +473,7 @@ describe('POST /api/facility/setup', () => {
     (sendWelcomeEmail as jest.Mock).mockReturnValueOnce(pending);
 
     const postPromise = POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
     let settled = false;
     void postPromise.then(() => { settled = true; });
@@ -486,7 +499,7 @@ describe('POST /api/facility/setup', () => {
       },
     });
 
-    await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
 
     // Email should not be called or should handle null email
   });
@@ -497,7 +510,7 @@ describe('POST /api/facility/setup', () => {
     });
 
     const res = await POST(
-      makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any
     );
 
     // Should be caught and return 500
@@ -508,7 +521,7 @@ describe('POST /api/facility/setup', () => {
 
     await POST(
       makeRequest(
-        { facility_name: 'Test', business_type: 'nail' },
+        { facility_name: 'Test', business_type: 'ネイル・まつげサロン' },
         '192.168.1.1'
       ) as any
     );
@@ -523,7 +536,7 @@ describe('POST /api/facility/setup', () => {
 
     await POST(
       makeRequest(
-        { facility_name: 'Test', business_type: 'nail' },
+        { facility_name: 'Test', business_type: 'ネイル・まつげサロン' },
         '10.0.0.1, 192.168.1.1'
       ) as any
     );
@@ -549,7 +562,7 @@ describe('POST /api/facility/setup', () => {
     const req = new Request('http://localhost/api/facility/setup', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ facility_name: 'T', business_type: 'nail' }),
+      body: JSON.stringify({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }),
     });
     await POST(req as any);
     const call = (checkRateLimit as jest.Mock).mock.calls[0];
@@ -560,7 +573,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: 'T',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
         phone: '03-1111-2222',
         prefecture: '東京都',
         city: '渋谷区',
@@ -577,7 +590,7 @@ describe('POST /api/facility/setup', () => {
 
   test('facility_name with only special chars → slug fallback facility-Date.now()', async () => {
     const res = await POST(
-      makeRequest({ facility_name: '!!!', business_type: 'nail' }) as any
+      makeRequest({ facility_name: '!!!', business_type: 'ネイル・まつげサロン' }) as any
     );
     const json = await res.json();
     expect(json.slug).toMatch(/^facility-\d+-/);
@@ -587,7 +600,7 @@ describe('POST /api/facility/setup', () => {
     setupDefaultMocks(true, false, false, false, true, true);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     const res = await POST(
-      makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }) as any
     );
     expect(res.status).toBe(500);
     expect(consoleSpy).toHaveBeenCalled();
@@ -604,14 +617,14 @@ describe('POST /api/facility/setup', () => {
         }),
       },
     });
-    await POST(makeRequest({ facility_name: 'T', business_type: 'nail' }) as any);
+    await POST(makeRequest({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }) as any);
     expect(sendWelcomeEmail).not.toHaveBeenCalled();
   });
 
   test('sendWelcomeEmail rejects → safeCaptureException called silently', async () => {
     (sendWelcomeEmail as jest.Mock).mockRejectedValue(new Error('SMTP down'));
     const res = await POST(
-      makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }) as any
     );
     expect(res.status).toBe(200);
   });
@@ -619,7 +632,7 @@ describe('POST /api/facility/setup', () => {
   test('sendWelcomeEmail が false を返す（送達失敗）→ 無音化せず可視化するのみ（200のまま）', async () => {
     (sendWelcomeEmail as jest.Mock).mockResolvedValueOnce(false);
     const res = await POST(
-      makeRequest({ facility_name: 'T', business_type: 'nail' }) as any
+      makeRequest({ facility_name: 'T', business_type: 'ネイル・まつげサロン' }) as any
     );
     expect(res.status).toBe(200);
     await new Promise((resolve) => setImmediate(resolve));
@@ -631,7 +644,7 @@ describe('POST /api/facility/setup', () => {
     const res = await POST(
       makeRequest({
         facility_name: '未設定の施設', // triggers salon lookup
-        business_type: 'eyelash',
+        business_type: 'ネイル・まつげサロン',
         phone: '090-1111-2222',
         address: 'orig address',
       }) as any
@@ -652,7 +665,7 @@ describe('POST /api/facility/setup', () => {
     await POST(
       makeRequest({
         facility_name: '未設定の施設',
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
 
@@ -661,27 +674,27 @@ describe('POST /api/facility/setup', () => {
 
   // Branch coverage: line 77 — business_type falsy → right side (salonData.business_type) used
   test('business_type が空文字 → salonData.business_type にフォールバック (line 77 right branch)', async () => {
-    setupDefaultMocks(true, false, true); // salonFound = true; salonData.business_type = 'nail'
+    setupDefaultMocks(true, false, true); // salonFound = true; salonData.business_type = 'ネイル・まつげサロン'
     const res = await POST(
       makeRequest({
         facility_name: '未設定の施設', // triggers salon lookup
-        business_type: '',            // falsy → salonData.business_type ('nail') used at line 77
+        business_type: '',            // falsy → salonData.business_type ('ネイル・まつげサロン') used at line 77
       }) as any
     );
     // salonData.business_type fills in, so validation passes → 200
     expect(res.status).toBe(200);
     const call = mockFacilityInsert.mock.calls[0];
-    // business_type should come from salonData ('nail')
-    expect(call[0].business_type).toBe('nail');
+    // business_type should come from salonData ('ネイル・まつげサロン')
+    expect(call[0].business_type).toBe('ネイル・まつげサロン');
   });
 
   // Branch coverage: line 76 — facility_name falsy (empty) → right side (salonData.facility_name) used
   test('facility_name が空文字 → salonData.facility_name にフォールバック (line 76 right branch)', async () => {
-    setupDefaultMocks(true, false, true); // salonData.facility_name = 'Salon from DB', salonData.business_type = 'nail'
+    setupDefaultMocks(true, false, true); // salonData.facility_name = 'Salon from DB', salonData.business_type = 'ネイル・まつげサロン'
     const res = await POST(
       makeRequest({
         facility_name: '',  // !facility_name is true → triggers salon lookup; then '' || salonData.facility_name uses right side
-        business_type: 'nail',
+        business_type: 'ネイル・まつげサロン',
       }) as any
     );
     expect(res.status).toBe(200);
@@ -694,7 +707,7 @@ describe('POST /api/facility/setup', () => {
 
   test('salon あり → register 入力を facility に完全移送する（営業時間自由文/特徴/PR/席数/駐車場/写真URL）', async () => {
     setupDefaultMocks(true, false, true); // SALON_FULL
-    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
     expect(res.status).toBe(200);
     const f = mockFacilityInsert.mock.calls[0][0];
     expect(f.postal_code).toBe('150-0001');
@@ -718,14 +731,14 @@ describe('POST /api/facility/setup', () => {
 
   test('写真転送が失敗しても施設作成は成立（best-effort・200）', async () => {
     setupDefaultMocks(true, false, true, false, false, false, { photoInsertFails: true });
-    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
     expect(res.status).toBe(200);
     expect(mockPhotoInsert).toHaveBeenCalled();
   });
 
   test('salon はあるが photo_urls が空/未配列 → 写真転送はスキップ', async () => {
     setupDefaultMocks(true, false, true, false, false, false, { salonData: { ...SALON_FULL, photo_urls: null } });
-    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
     expect(res.status).toBe(200);
     expect(mockPhotoInsert).not.toHaveBeenCalled();
   });
@@ -734,7 +747,7 @@ describe('POST /api/facility/setup', () => {
     setupDefaultMocks(true, false, true, false, false, false, {
       salonData: { ...SALON_FULL, photo_urls: ['https://ok.example/a.jpg', '', 123, null] },
     });
-    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
     expect(res.status).toBe(200);
     const photoRows = mockPhotoInsert.mock.calls[0][0];
     expect(photoRows).toHaveLength(1);
@@ -743,9 +756,9 @@ describe('POST /api/facility/setup', () => {
 
   test('salon の seat_count/features が非数値・非配列 → null/[] に安全化', async () => {
     setupDefaultMocks(true, false, true, false, false, false, {
-      salonData: { facility_name: 'S', business_type: 'nail', seat_count: 'x', features: 'y', has_parking: null, photo_urls: [] },
+      salonData: { facility_name: 'S', business_type: 'ネイル・まつげサロン', seat_count: 'x', features: 'y', has_parking: null, photo_urls: [] },
     });
-    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'nail' }) as any);
+    const res = await POST(makeRequest({ facility_name: 'Test', business_type: 'ネイル・まつげサロン' }) as any);
     expect(res.status).toBe(200);
     const f = mockFacilityInsert.mock.calls[0][0];
     expect(f.seat_count).toBeNull();
@@ -756,7 +769,7 @@ describe('POST /api/facility/setup', () => {
 
   test('user に email が無い → salon 取得せず body 値で作成（user.email 分岐）', async () => {
     setupDefaultMocks(true, false, false, false, false, false, { userEmail: null });
-    const res = await POST(makeRequest({ facility_name: 'ノーメール施設', business_type: 'nail' }) as any);
+    const res = await POST(makeRequest({ facility_name: 'ノーメール施設', business_type: 'ネイル・まつげサロン' }) as any);
     expect(res.status).toBe(200);
     expect(mockSalonSelect).not.toHaveBeenCalled();
     const f = mockFacilityInsert.mock.calls[0][0];
