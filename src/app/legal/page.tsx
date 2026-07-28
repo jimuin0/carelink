@@ -19,7 +19,9 @@ export default function LegalPage() {
             <Row label="代表者" value="神原良祐" />
             <Row label="所在地" value="大阪府豊中市（詳細はお問い合わせください）" />
             <Row label="電話番号" value={<>請求があった場合には遅滞なく開示いたします。<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりご連絡ください。</>} />
-            <Row label="メールアドレス" value={<>請求があった場合には遅滞なく開示いたします。<Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>よりご連絡ください。</>} />
+            {/* 特商法施行規則の「請求時開示」の特例は住所・電話番号の省略救済であり、
+                電子メールアドレスは常時表示が必要という実務理解に合わせる（2026年7月28日是正）。 */}
+            <Row label="メールアドレス" value={<>support@carelink-jp.com<br /><Link href="/contact" className="text-primary hover:underline">お問い合わせフォーム</Link>からもご連絡いただけます。</>} />
             <Row label="サービスURL" value="https://carelink-jp.com" />
             <Row label="販売価格" value="各サービス・施設ページに表示された金額（消費税込）" />
             <Row label="商品代金以外の必要料金" value="インターネット接続料金、通信料等はお客様のご負担となります。" />

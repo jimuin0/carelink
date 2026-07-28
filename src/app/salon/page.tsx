@@ -17,7 +17,9 @@ export const metadata: Metadata = {
 };
 
 const faqItems = [
-  { question: '本当に無料ですか？追加料金は？', answer: '完全無料です。初期費用・月額費用・成果報酬・予約手数料など一切かかりません。今後も基本機能は永久無料です。' },
+  // 将来の有料オプション追加時に「無料と言われて登録したのに」という期待値のズレが起きないよう、
+  // 先回りで告知しておく（後出しの不利益変更を構造的に禁じる約束にする）。
+  { question: '本当に無料ですか？追加料金は？', answer: '完全無料です。初期費用・月額費用・成果報酬・予約手数料など一切かかりません。今後も基本機能は永久無料です。将来的に上位機能の有料オプションを追加する場合は事前にご案内し、すでに掲載中の施設さまに不利益となる変更は行いません。' },
   { question: '大手ポータルとの違いは？', answer: '大手ポータルは月額数万〜数十万円かかる場合がありますが、CareLinkは同等機能が完全無料。LINE予約通知・顧客分析・リアルタイム予約管理など、独自の機能もあります。' },
   { question: '掲載開始までどのくらい？', answer: '登録後すぐにメニュー・写真を登録でき、準備ができたら自分で「公開」ボタンを押すだけ。最短当日に掲載開始できます。' },
   { question: 'いつでもやめられますか？', answer: 'はい。管理画面から「非公開」にするだけ。違約金・解約金は一切ありません。' },
@@ -45,12 +47,9 @@ export default function SalonPage() {
             今すぐ無料で掲載する
           </Link>
           <p className="text-sky-200 text-xs mt-3">3分で登録完了 ・ クレジットカード不要</p>
-          <p className="text-sky-300 text-xs mt-2">
-            さらに高度な機能が必要な方は{' '}
-            <Link href="/salon/premium" className="underline hover:text-white transition-colors">
-              プレミアムプランを見る →
-            </Link>
-          </p>
+          {/* 【ローンチ時非公開】決済手段（Stripe/PAY.JP）未導入のため、有料プラン（/salon/premium）
+              への導線を外している。決済導入時にこのリンクと premium ページの LAUNCH_HIDDEN を
+              戻すだけで復活する（featured-ads と同じ可逆方式）。 */}
         </div>
       </section>
 
@@ -167,26 +166,21 @@ export default function SalonPage() {
         </div>
       </section>
 
-      {/* 導入事例 */}
+      {/* 現在の掲載状況（2026年7月28日・恒久是正）
+          以前ここには「電話予約68%削減」「リピート率+17%」等の数値を、実在しない施設
+          （吹田・箕面）の導入成果として掲載していた。本番DBの実データと照合して虚偽と確定した
+          ため全削除。実績値をこのページにハードコードすることは今後もしない（実態と乖離する
+          経路を構造的に断つ）。実数は /salon/cases が DB から自動取得して表示する。 */}
       <section className="bg-sky-50">
         <div className="section-container text-center">
-          <h2 className="section-title">導入事例・お客様の声</h2>
-          <p className="text-gray-500 text-sm mb-6">実際に導入した施設の成果をご覧ください。</p>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6 text-left">
-            {[
-              { q: '電話予約', v: '68%削減', sub: '豊中の鍼灸院' },
-              { q: 'リピート率', v: '+17%', sub: '吹田の整体院' },
-              { q: '口コミ件数', v: '0→15件', sub: '箕面のエステサロン（2ヶ月）' },
-            ].map((item) => (
-              <div key={item.q} className="bg-white rounded-xl p-5 shadow-sm">
-                <p className="text-xs text-gray-500 mb-1">{item.q}</p>
-                <p className="text-2xl font-bold text-sky-700">{item.v}</p>
-                <p className="text-xs text-gray-500 mt-1">{item.sub}</p>
-              </div>
-            ))}
-          </div>
+          <h2 className="section-title">CareLink はまだ始まったばかりです</h2>
+          <p className="text-gray-600 text-sm max-w-2xl mx-auto leading-relaxed mb-6">
+            2026年3月に公開したばかりで、いま掲載されているのは運営元自身が営む施設です。
+            華々しい導入実績はまだありません。だからこそ掲載料も予約手数料も無料で、
+            合わなければいつでも非公開にできる形にしています。
+          </p>
           <Link href="/salon/cases" className="inline-flex items-center gap-2 text-sky-700 font-bold hover:underline">
-            詳しい事例を見る →
+            現在の掲載状況を見る →
           </Link>
         </div>
       </section>

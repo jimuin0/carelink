@@ -72,7 +72,22 @@ export default function SymptomCheckerPage() {
     <div className="min-h-screen bg-white">
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
         <h1 className="text-2xl sm:text-3xl font-bold text-center mb-3">症状チェッカー</h1>
-        <p className="text-sm text-gray-500 text-center mb-8">お悩みの症状を選択すると、対応できる店舗が見つかります</p>
+        <p className="text-sm text-gray-500 text-center mb-4">お悩みの症状を選択すると、対応できる店舗が見つかります</p>
+
+        {/* 【医療上の免責・必須】この機能は「椎間板ヘルニア」「自律神経失調症」等の疾患名を選択させる
+            設計のため、利用者が診断を受けたと誤認する余地がある。医師法・医療広告ガイドライン
+            （およびあはき法）の観点から、診断ではないこと・受診勧奨を検索前に必ず明示する。
+            結果表示後ではなく入口に置くのは、選択操作を始める前に認識させる必要があるため。 */}
+        <div
+          className="mb-8 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3"
+          role="note"
+        >
+          <p className="text-xs text-amber-900 leading-relaxed">
+            この症状チェッカーは、施設を探すための参考情報であり、医学的な診断ではありません。
+            症状が続く場合、強い痛みや発熱をともなう場合、急に悪化した場合は、自己判断せず医療機関を受診してください。
+            治療の効果や結果を保証するものではありません。
+          </p>
+        </div>
 
         <div className="space-y-6 mb-8">
           {BODY_PARTS.map((part) => (

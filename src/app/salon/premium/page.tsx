@@ -1,10 +1,26 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { notFound } from 'next/navigation';
+
+/**
+ * 【2026年7月28日・ローンチ時非公開】
+ * このページは スタンダード ¥9,800/月 の有料プランと「Stripe決済統合」機能を販売表示していたが、
+ * 実態は決済手段（Stripe/PAY.JP）が未導入で、申込みも課金も処理できない状態だった
+ * （/api/health の実測でも stripe は not_configured、/legal も「当サービスは決済を代行しません」と明記）。
+ * 販売できない商品を販売表示し続けることは景品表示法上のリスクであり、
+ * 有料掲載枠（featured-ads・PR#523）と全く同じ理由・同じ可逆方式で非公開にする。
+ *
+ * 決済を導入する際は LAUNCH_HIDDEN を false に戻し、/salon の導線リンクを復活させるだけでよい
+ * （プラン定義・比較表・FAQ は下にそのまま温存してある＝作り直し不要）。
+ */
+const LAUNCH_HIDDEN = true;
 
 export const metadata: Metadata = {
   title: 'プレミアムプラン | CareLink',
   description: 'CareLink プレミアムプランで集客力を最大化。優先表示・高度分析・カスタムドメイン・無制限スタッフ登録など上位機能をご利用いただけます。',
   alternates: { canonical: '/salon/premium' },
+  // 非公開中は検索エンジンにインデックスさせない（notFound と併せた二重防御）。
+  robots: { index: false, follow: false },
 };
 
 const FREE_FEATURES = [
@@ -121,6 +137,9 @@ function Check({ ok }: { ok: boolean | string }) {
 }
 
 export default function PremiumPage() {
+  // 決済未導入の間は 404 を返す（URL 直打ち・既存の被リンク経由でも販売表示に到達させない）。
+  if (LAUNCH_HIDDEN) notFound();
+
   return (
     <div className="bg-gray-50 min-h-screen">
       {/* Hero */}
