@@ -12,6 +12,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { verifyRecaptcha } from '@/lib/recaptcha';
+import { findMedicalAdViolations } from '@/lib/medical-ad-guard';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { sendPushToFacilityOwners } from '@/lib/push';
 import { sendNewReviewNotification } from '@/lib/email';
@@ -123,6 +124,12 @@ export async function POST(request: Request) {
       parsed.data.rating_cleanliness + parsed.data.rating_explanation) / 5
   );
 
+  // 【2026年7月28日】医療広告ガイドライン上の禁止表現（「必ず治る」「日本一」等）を含む
+  // 口コミは is_flagged を立てて公開前に運営の審査へ回す。
+  // 施設の PR 文言と違って投稿を拒否しないのは、来院者の善意の投稿を誤検知で弾かないため。
+  // 医療機関では体験談の掲載自体が制限されるため、検知した口コミは必ず人が判断する。
+  const medicalAdViolations = findMedicalAdViolations(parsed.data.comment);
+
   const { data: review, error } = await supabase
     .from('facility_reviews')
     .insert({
@@ -137,6 +144,7 @@ export async function POST(request: Request) {
       comment: parsed.data.comment || null,
       photo_urls: parsed.data.photo_urls?.length ? parsed.data.photo_urls : null,
       reviewer_ip: ip,
+      ...(medicalAdViolations.length > 0 ? { is_flagged: true } : {}),
       // facility_reviews.user_id は投稿者本人によるレビュー編集・削除の判定に使う
       // （2026年7月6日DDL追加、ALTER TABLE facility_reviews ADD COLUMN user_id）。
       ...(user ? { user_id: user.id, is_verified_visit: isVerifiedVisit } : {}),
@@ -146,6 +154,27 @@ export async function POST(request: Request) {
 
   if (error) {
     return NextResponse.json({ error: '投稿に失敗しました' }, { status: 500 });
+  }
+
+  // 医療広告ガイドライン上の禁止表現を検知した口コミは審査キューへ載せる。
+  // is_flagged を立てるだけだと /admin/moderation に現れず、誰も気づかないまま
+  // 表示され続ける（flag-reviews cron が enqueue まで行うのと同じ理由）。
+  // 投稿自体は成功しているため fire-and-forget（失敗しても投稿は巻き戻さない）。
+  if (medicalAdViolations.length > 0) {
+    void supabase.rpc('enqueue_moderation', {
+      p_items: [{
+        content_type: 'review',
+        content_id: review.id,
+        facility_id: parsed.data.facility_id,
+        reporter_id: null, // 自動検知（人間の通報者なし）
+        report_reason: `医療広告ガイドラインの禁止表現: ${medicalAdViolations.map((v) => v.term).join('、')}`,
+        auto_flags: ['medical_ad'],
+      }],
+    }).then(({ error: enqueueError }) => {
+      if (enqueueError) {
+        console.error('[review] medical-ad moderation enqueue failed:', enqueueError.message);
+      }
+    });
   }
 
   // ポイント付与（fire-and-forget）— 来店確認済み(completed 予約あり)のユーザーに限る。

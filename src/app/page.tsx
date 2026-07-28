@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
 import { HomeBelowFold, StickySignupCta } from '@/components/home/DynamicHomeSections';
+import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
 export const metadata: Metadata = {
   title: 'CareLink | ネットでかんたんサロン予約 - ヘア・ネイル・エステ・リラク・美容クリニック',
@@ -24,7 +25,12 @@ const categories = [
   { name: 'ピラティス', type: 'ピラティス' },
 ];
 
-export default function Home() {
+// 実掲載エリアは頻繁には変わらないため、1時間ごとの再生成で十分（毎リクエストのDB負荷を避ける）。
+export const revalidate = 3600;
+
+export default async function Home() {
+  const { areas: availableAreas } = await getAvailableAreasAndTypes();
+
   return (
     <div className="min-h-screen bg-white">
       {/* ===== Hero Section ===== */}
@@ -78,6 +84,17 @@ export default function Home() {
                 <p className="text-tiny sm:text-xs text-white mt-0.5">ネット予約対応</p>
               </div>
             </div>
+
+            {/* 【2026年7月28日】現在の対応エリアを正直に示す。
+                47都道府県の検索UIを備えている一方で実掲載は限られるため、
+                何も告げずに検索させると「探した結果0件」で初回体験を壊す。
+                エリア名は DB の実在値から取得するので、掲載が増えれば自動で追随する
+                （ハードコードすると必ず実態とズレる）。 */}
+            {availableAreas.length > 0 && (
+              <p className="text-white/70 text-xs mt-4">
+                現在のご紹介エリア：{availableAreas.join('・')}（順次拡大中）
+              </p>
+            )}
 
             {/* AI症状チェッカー */}
             <div className="mt-4">

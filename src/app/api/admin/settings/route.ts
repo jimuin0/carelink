@@ -8,6 +8,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { checkPublishReadiness } from '@/lib/facility-publish-gate';
+import { validateFacilityPrText } from '@/lib/medical-ad-guard';
 
 const TIME_REGEX = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -146,6 +147,17 @@ export async function PATCH(request: NextRequest) {
       if (hours && hours.close <= hours.open) {
         return NextResponse.json({ error: `${day}の閉店時間は開店時間より後にしてください` }, { status: 400 });
       }
+    }
+  }
+
+  // 【2026年7月28日】医療広告ガイドライン・あはき法の禁止表現を公開前に弾く。
+  // CareLink は医療・福祉を横断するため、施設が自由入力した PR 文言をそのまま公開すると
+  // 場の提供者にとどまらず「広告を行った者」として連帯責任を問われうる。
+  // 事後モデレーションでは一度公開されてしまうため、保存の入口で拒否する（発症前予防）。
+  for (const field of ['catch_copy', 'description'] as const) {
+    const check = validateFacilityPrText(parsed.data[field]);
+    if (!check.ok) {
+      return NextResponse.json({ error: check.message }, { status: 400 });
     }
   }
 
