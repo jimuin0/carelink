@@ -297,6 +297,29 @@ export async function getLatestFacilities(limit = 6) {
   return { facilities: (data || []) as FacilityCardData[], error };
 }
 
+/**
+ * 実際に公開施設が存在する都道府県・業種を返す（検索0件時の再検索候補に使う）。
+ *
+ * 【2026年7月28日・恒久是正】検索0件画面は「人気の検索」として東京都・愛知県・福岡県・
+ * 神奈川県などを固定表示していたが、これらのエリアには実際には掲載施設が1件も無く、
+ * 押しても再び0件になる（0件→0件の連鎖で離脱する）状態だった。
+ * 候補をハードコードする限り掲載実態と必ずいつか乖離するため、DB から実在する値だけを
+ * 引く構造にして、乖離する経路そのものを断つ。
+ */
+export async function getAvailableAreasAndTypes(): Promise<{ areas: string[]; types: string[] }> {
+  const supabase = createServerSupabaseClient();
+  const { data } = await supabase
+    .from(CARD_VIEW)
+    .select('prefecture, business_type')
+    .eq('status', 'published');
+
+  const rows = (data || []) as { prefecture: string | null; business_type: string | null }[];
+  // null / 空文字を候補に出すとリンク先が壊れるため除外する。
+  const areas = [...new Set(rows.map((r) => r.prefecture).filter((v): v is string => !!v))];
+  const types = [...new Set(rows.map((r) => r.business_type).filter((v): v is string => !!v))];
+  return { areas, types };
+}
+
 // Check which facilities have availability on a given date/time
 export async function getAvailableFacilityIds(
   facilityIds: string[],

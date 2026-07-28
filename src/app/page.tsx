@@ -97,7 +97,11 @@ export default function Home() {
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-white/10 hover:bg-white/20 border border-white/25 rounded-full text-white text-xs font-medium transition-all"
               >
                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zm4.24 16L12 15.45 7.77 18l1.12-4.81-3.73-3.23 4.92-.42L12 5l1.92 4.53 4.92.42-3.73 3.23L16.23 18z"/></svg>
-                無料会員登録でポイントGET
+                {/* 【2026年7月28日・是正】以前は「無料会員登録でポイントGET」と表示していたが、
+                    会員登録時にポイントを付与する実装は存在しない（付与は予約完了時のみ＝
+                    api/booking/route.ts の user_points 加算）。登録した時点でポイントが付くと
+                    誤認させる守れない約束だったため、実装どおりの表現に改める。 */}
+                無料会員登録・予約でポイント還元
               </Link>
             </div>
           </div>

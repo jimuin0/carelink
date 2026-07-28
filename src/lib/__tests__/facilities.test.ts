@@ -36,6 +36,7 @@ import {
   getFeaturedFacilities,
   getNearbyFacilities,
   getAvailableFacilityIds,
+  getAvailableAreasAndTypes,
   getFacilityCancelPolicy,
 } from '../facilities';
 
@@ -345,6 +346,57 @@ describe('getLatestFacilities', () => {
     mockFrom.mockReturnValue(chain);
     await getLatestFacilities(6);
     expect(chain.order).toHaveBeenCalledWith('id', { ascending: true });
+  });
+});
+
+// 【2026年7月28日・恒久是正の回帰防止】検索0件画面の再検索候補は、以前は東京都・愛知県など
+// 掲載施設が1件も無いエリアを固定表示しており、押しても再び0件になる（0件→0件の連鎖）状態だった。
+// 候補を DB の実在値だけから引くことで乖離経路を断つのが本関数の目的なので、
+// 「実在値だけを返す」「重複を潰す」「null/空を候補にしない」を退行させないよう固定する。
+describe('getAvailableAreasAndTypes', () => {
+  // この関数は .eq() が終端（await される）ため、fluent() ではなく eq が Promise を返すモックを使う。
+  function eqTerminal(resolvedValue: unknown) {
+    const eq = jest.fn(() => Promise.resolve(resolvedValue));
+    const select = jest.fn(() => ({ eq }));
+    return { select, eq };
+  }
+
+  test('公開施設が実在する都道府県・業種のみを重複なしで返す', async () => {
+    const chain = eqTerminal({
+      data: [
+        { prefecture: '大阪府', business_type: '鍼灸・整骨院' },
+        { prefecture: '大阪府', business_type: 'まつげ・眉毛サロン' },
+        { prefecture: '大阪府', business_type: '鍼灸・整骨院' },
+      ],
+    });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getAvailableAreasAndTypes();
+    expect(result.areas).toEqual(['大阪府']);
+    expect(result.types).toEqual(['鍼灸・整骨院', 'まつげ・眉毛サロン']);
+    // 非公開（draft 等）の施設を候補に混ぜない。
+    expect(chain.eq).toHaveBeenCalledWith('status', 'published');
+  });
+
+  test('null・空文字はリンク先が壊れるため候補から除外する', async () => {
+    const chain = eqTerminal({
+      data: [
+        { prefecture: null, business_type: '' },
+        { prefecture: '大阪府', business_type: '鍼灸・整骨院' },
+      ],
+    });
+    mockFrom.mockReturnValue(chain);
+
+    const result = await getAvailableAreasAndTypes();
+    expect(result.areas).toEqual(['大阪府']);
+    expect(result.types).toEqual(['鍼灸・整骨院']);
+  });
+
+  test('取得失敗（data が null）でも空配列を返し画面を壊さない', async () => {
+    mockFrom.mockReturnValue(eqTerminal({ data: null, error: { message: 'boom' } }));
+
+    const result = await getAvailableAreasAndTypes();
+    expect(result).toEqual({ areas: [], types: [] });
   });
 });
 

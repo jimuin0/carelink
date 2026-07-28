@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import Link from 'next/link';
 import type { Metadata } from 'next';
-import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds, getFeaturedFacilities } from '@/lib/facilities';
+import { searchFacilities, getMonthlyBookingCounts, getAvailableFacilityIds, getFeaturedFacilities, getAvailableAreasAndTypes } from '@/lib/facilities';
 import SearchBar from '@/components/search/SearchBar';
 import Pagination from '@/components/search/Pagination';
 import SearchFilters from '@/components/search/SearchFilters';
@@ -84,6 +84,11 @@ export default async function SearchPage(props: Props) {
   const featuredFacilities = (params.page || 1) === 1
     ? await getFeaturedFacilities(searchParams.type, searchParams.area)
     : [];
+
+  // 0件のときだけ、再検索候補として「実際に掲載のあるエリア・業種」を引く。
+  // 結果があるときは不要なクエリを発生させない（0件時のみの追加コスト）。
+  const { areas: availableAreas, types: availableTypes } =
+    facilities.length === 0 ? await getAvailableAreasAndTypes() : { areas: [], types: [] };
 
   // 緊急性シグナル: 当月予約件数 + 空き検索
   const facilityIds = facilities.map((f) => f.id);
@@ -229,30 +234,33 @@ export default async function SearchPage(props: Props) {
                   </div>
                 </div>
 
-                {/* 人気エリア・業種 */}
-                <div className="bg-white rounded-xl p-6">
-                  <h3 className="text-sm font-bold text-gray-700 mb-4">人気の検索</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {['大阪府', '東京都', '愛知県', '福岡県', '神奈川県'].map((area) => (
-                      <Link
-                        key={area}
-                        href={`/search?area=${encodeURIComponent(area)}`}
-                        className="px-3 py-1.5 bg-sky-50 text-sky-700 text-xs font-medium rounded-full hover:bg-sky-100 transition-colors"
-                      >
-                        {area}
-                      </Link>
-                    ))}
-                    {['まつげ', '鍼灸院', '整骨院', 'ネイル', 'エステ'].map((type) => (
-                      <Link
-                        key={type}
-                        href={`/search?type=${encodeURIComponent(type)}`}
-                        className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full hover:bg-gray-200 transition-colors"
-                      >
-                        {type}
-                      </Link>
-                    ))}
+                {/* 掲載のあるエリア・業種（DB の実在値のみ。ハードコードすると 0件→0件 の連鎖を招く） */}
+                {(availableAreas.length > 0 || availableTypes.length > 0) && (
+                  <div className="bg-white rounded-xl p-6">
+                    <h3 className="text-sm font-bold text-gray-700 mb-1">掲載のあるエリア・業種から探す</h3>
+                    <p className="text-xs text-gray-400 mb-4">現在ご紹介できる施設があるのは以下です。</p>
+                    <div className="flex flex-wrap gap-2">
+                      {availableAreas.map((area) => (
+                        <Link
+                          key={area}
+                          href={`/search?area=${encodeURIComponent(area)}`}
+                          className="px-3 py-1.5 bg-sky-50 text-sky-700 text-xs font-medium rounded-full hover:bg-sky-100 transition-colors"
+                        >
+                          {area}
+                        </Link>
+                      ))}
+                      {availableTypes.map((type) => (
+                        <Link
+                          key={type}
+                          href={`/search?type=${encodeURIComponent(type)}`}
+                          className="px-3 py-1.5 bg-gray-100 text-gray-600 text-xs font-medium rounded-full hover:bg-gray-200 transition-colors"
+                        >
+                          {type}
+                        </Link>
+                      ))}
+                    </div>
                   </div>
-                </div>
+                )}
 
                 {/* 施設掲載CTA */}
                 <div className="bg-gradient-to-r from-sky-50 to-indigo-50 rounded-xl p-6 flex items-center justify-between gap-4 flex-wrap">

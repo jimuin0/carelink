@@ -19,8 +19,13 @@ const categories = [
   { name: 'ピラティス', type: 'ピラティス' },
 ];
 
+// 【2026年7月28日・恒久是正】バナー文言に季節（「春の」等）を書かない。
+// 実際に7月末の時点で「春のヘアチェンジ特集」が表示され続けており、
+// 放置すれば必ずどこかの時期に季節外れになる＝更新されていない印象を与える構造だった。
+// 季節ごとに差し替える運用は人手に依存して必ず抜けるため、通年で成立する文言にして
+// ズレる経路自体を無くす（季節企画をやるなら DB 等のデータ駆動で期間指定して出すこと）。
 const featureBanners = [
-  { title: '春のヘアチェンジ特集', subtitle: 'イメチェンするなら今がチャンス', image: '/images/banner-hair.webp', href: '/search?keyword=ヘアカラー カット', color: 'from-transparent via-transparent to-black/60' },
+  { title: 'ヘアチェンジ特集', subtitle: 'イメチェンするなら今がチャンス', image: '/images/banner-hair.webp', href: '/search?keyword=ヘアカラー カット', color: 'from-transparent via-transparent to-black/60' },
   { title: '疲れたカラダにご褒美リラク', subtitle: '至福のひとときを見つけよう', image: '/images/banner-relax.webp', href: '/search?type=リラクサロン', color: 'from-transparent via-transparent to-black/60' },
   { title: '理想の目元をつくる', subtitle: 'まつ毛パーマ・エクステ特集', image: '/images/banner-eyelash.webp', href: '/search?type=ネイル・まつげサロン', color: 'from-transparent via-transparent to-black/60' },
 ];
