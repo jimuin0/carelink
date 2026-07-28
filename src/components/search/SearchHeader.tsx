@@ -35,7 +35,18 @@ export default function SearchHeader() {
             >
               エリア
             </Link>
+            {/* 【2026年7月28日・神原さん判断で追加】掲載中の店舗オーナーの管理画面入口。
+                トップ(/)・検索・施設ページはこの SearchHeader を使うため、来訪者向けの
+                Header 側だけに置くと、トップから来た店舗オーナーが辿り着けないままになる。
+                一般のお客様には不要な導線なので、業種ナビより弱いトーンで置く。
+                redirect=/admin によりログイン後そのまま管理画面へ着地する。 */}
             <div className="ml-2 pl-2 border-l border-gray-200 shrink-0 flex items-center gap-2">
+              <Link
+                href="/auth/login?redirect=/admin"
+                className="text-gray-400 hover:text-primary text-[12px] whitespace-nowrap transition-colors"
+              >
+                店舗ログイン
+              </Link>
               <LocaleSwitcher />
               <AuthButton />
             </div>
@@ -88,6 +99,14 @@ export default function SearchHeader() {
               onClick={() => setIsOpen(false)}
             >
               エリアから探す
+            </Link>
+            {/* デスクトップと同じく店舗オーナー向けの管理画面入口（区切って弱いトーンで置く）。 */}
+            <Link
+              href="/auth/login?redirect=/admin"
+              className="text-gray-400 hover:text-primary text-xs px-3 py-2 mt-1 border-t border-gray-100 transition-colors"
+              onClick={() => setIsOpen(false)}
+            >
+              店舗ログイン
             </Link>
           </nav>
         </div>

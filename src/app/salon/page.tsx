@@ -33,15 +33,19 @@ export default function SalonPage() {
       {/* Hero */}
       <section className="bg-gradient-to-br from-sky-600 to-sky-800 text-white">
         <div className="section-container text-center">
+          {/* 【2026年7月28日】ファーストビューの主語を他社から自社へ変える。
+              以前は「大手ポータルと同じ機能が」と他社を基準にした表現で、
+              第一印象で語るべき自社の価値が他社の引き立て役になっていた。
+              比較表は下部セクションに残し、ここでは CareLink 自身が何を提供するかだけを述べる。 */}
           <p className="text-sky-200 text-sm font-medium mb-3">掲載料・予約手数料 完全無料</p>
           <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold mb-6 leading-tight">
-            大手ポータルと同じ機能が
+            予約管理から集客まで、
             <br />
-            <span className="text-amber-300">ずっと0円</span>
+            <span className="text-amber-300">ぜんぶ0円ではじめる</span>
           </h1>
           <p className="text-sky-100 text-lg sm:text-xl mb-8">
             オンライン予約・口コミ・クーポン・顧客管理・LINE通知。<br className="hidden sm:block" />
-            全部無料で使えるサロン予約プラットフォーム。
+            サロン運営に必要な機能を、ひとつの管理画面で。
           </p>
           <Link href="/register" className="inline-flex items-center gap-2 px-8 py-4 bg-white text-sky-700 font-bold rounded-lg text-lg hover:bg-sky-50 transition-all shadow-lg">
             今すぐ無料で掲載する
