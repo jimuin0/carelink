@@ -149,6 +149,35 @@ test('PATCH: booking_buffer_minutes > 120 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+// ─── 医療広告ガイドライン（2026年7月28日 追加） ─────────────────────────────
+// 施設の自由入力 PR 文言をそのまま公開すると、CareLink 自身が「広告を行った者」として
+// 連帯責任を問われうる。事後モデレーションでは一度公開されてしまうため入口で拒否する。
+test('PATCH: catch_copy に医療広告の禁止表現 → 400（公開前に拒否）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: 'test', catch_copy: '必ず治る施術です' }));
+  expect(res.status).toBe(400);
+  const json = await res.json();
+  expect(json.error).toContain('必ず治る');
+});
+
+test('PATCH: description に医療広告の禁止表現 → 400', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  const res = await PATCH(makePatchRequest({ name: 'test', description: '日本一の技術力' }));
+  expect(res.status).toBe(400);
+});
+
+// 誤検知でまっとうな施設紹介を弾かないこと（弾きすぎも実害）。
+test('PATCH: 通常の PR 文言は通る', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ facility_id: FACILITY_UUID }));
+  mockAdminFrom.mockReturnValue(updateChain());
+  const res = await PATCH(makePatchRequest({
+    name: 'test',
+    catch_copy: '駅から徒歩5分、丁寧な施術が評判です',
+    description: '国家資格を持つ施術者が担当します',
+  }));
+  expect(res.status).toBe(200);
+});
+
 // ─── Status action ────────────────────────────────────────────────────────────
 
 test('PATCH: ?action=status published（必須項目充足）→ 200', async () => {

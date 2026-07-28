@@ -39,6 +39,7 @@ import { POST } from '../route';
 let mockGetUser: jest.Mock;
 let mockSelect: jest.Mock;
 let mockInsert: jest.Mock;
+let mockRpc: jest.Mock;
 
 function setupDefaultMocks(hasUser: boolean = true, hasRecentReview: boolean = false, hasCompletedBooking: boolean = true) {
   mockGetUser = jest.fn().mockResolvedValue({
@@ -433,14 +434,18 @@ describe('POST /api/review', () => {
         }
       });
 
+      // 医療広告ガイドライン違反の口コミを審査キューへ載せる enqueue_moderation 用。
+      mockRpc = jest.fn().mockResolvedValue({ error: null });
+
       const { createServerClient } = require('@supabase/ssr');
       createServerClient.mockReturnValue({
         auth: { getUser: mockGetUser },
         from: fromRouter,
+        rpc: mockRpc,
       });
 
       const { createServiceRoleClient } = require('@/lib/supabase-server');
-      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter });
+      (createServiceRoleClient as jest.Mock).mockReturnValue({ from: fromRouter, rpc: mockRpc });
 
       const { cookies } = require('next/headers');
       cookies.mockResolvedValue({ getAll: jest.fn(() => []) });
@@ -457,6 +462,53 @@ describe('POST /api/review', () => {
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(json.id).toBeDefined();
+    });
+
+    // ─── 医療広告ガイドライン（2026年7月28日 追加） ───────────────────────────
+    // 医療機関では体験談の掲載自体が制限されるため、禁止表現を含む口コミは公開のまま
+    // 放置せず必ず人が判断できる状態にする。ただし投稿は拒否しない（誤検知で善意の
+    // 投稿者を弾かないため）。
+    test('禁止表現を含む口コミは is_flagged を立てて審査へ回す', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+
+      const res = await POST(makeRequest({ ...bizReview, comment: 'ここに通えば必ず治ると言われました' }));
+
+      expect(res.status).toBe(200); // 投稿自体は成功させる
+      expect(mockInsert).toHaveBeenCalledWith(expect.objectContaining({ is_flagged: true }));
+    });
+
+    test('禁止表現を含む口コミは moderation_queue に登録される', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+
+      await POST(makeRequest({ ...bizReview, comment: '日本一の技術でした' }));
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(mockRpc).toHaveBeenCalledWith('enqueue_moderation', expect.objectContaining({
+        p_items: expect.arrayContaining([
+          expect.objectContaining({ content_type: 'review', auto_flags: ['medical_ad'] }),
+        ]),
+      }));
+    });
+
+    // 審査キュー投入の失敗で投稿を巻き戻さない（fire-and-forget 契約）。
+    test('審査キュー投入に失敗しても投稿は成功のまま', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+      mockRpc.mockResolvedValue({ error: { message: 'rpc failed' } });
+
+      const res = await POST(makeRequest({ ...bizReview, comment: '必ず治ると言われました' }));
+      await new Promise(r => setTimeout(r, 10));
+
+      expect(res.status).toBe(200);
+    });
+
+    test('通常の口コミは is_flagged を立てず審査にも回さない', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false });
+
+      const res = await POST(makeRequest({ ...bizReview, comment: '肩こりが楽になりました' }));
+
+      expect(res.status).toBe(200);
+      expect(mockInsert).toHaveBeenCalledWith(expect.not.objectContaining({ is_flagged: true }));
+      expect(mockRpc).not.toHaveBeenCalledWith('enqueue_moderation', expect.anything());
     });
 
     test('口コミ投稿成功時 push_on_review=true → 施設オーナーへ Push を送る', async () => {
