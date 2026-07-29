@@ -3,7 +3,7 @@ import Link from 'next/link';
 
 export const metadata: Metadata = {
   title: '管理画面デモ | CareLink',
-  description: 'CareLinkの管理画面を紹介します。予約管理・顧客分析・メニュー管理・LINE通知など、全機能が無料で使えます。',
+  description: 'CareLinkの管理画面を紹介します。予約管理・顧客分析・メニュー管理・売上分析など、全機能が無料で使えます。',
   alternates: { canonical: '/salon/demo' },
 };
 
@@ -37,11 +37,6 @@ const features = [
     title: 'クーポン管理',
     desc: '新規限定・リピーター向け・期間限定など、タイプ別のクーポンを発行。',
     details: ['新規/リピート/期間限定/全員', '割引率・固定額・特別価格', '対象メニュー指定'],
-  },
-  {
-    title: 'LINE通知',
-    desc: '予約確認・リマインド・キャンセルをLINEで自動通知。大手ポータルにはない機能。',
-    details: ['予約確認通知', 'リマインド通知', 'キャンセル通知', 'フォロー自動応答'],
   },
   {
     title: 'リアルタイム通知',
