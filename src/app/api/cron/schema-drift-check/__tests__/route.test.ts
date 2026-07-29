@@ -28,9 +28,10 @@ jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({
     rpc: mockRpc,
     from: (table: string) => ({
-      // business_type の値ドリフト監視（facility_profiles.select('business_type')）。
+      // business_type の値ドリフト監視（facility_profiles.select('business_type').range(...)）。
+      // fetchAllPaged 経由で .range(offset, limit) まで chain されるため range() を挟む。
       // 既定は正規タクソノミー内の値のみ＝ドリフト0件で、既存テストの期待に影響しない。
-      select: () => mockBusinessTypeSelect(table),
+      select: () => ({ range: () => mockBusinessTypeSelect(table) }),
       insert: (row: unknown) => mockClaimInsert(table, row),
       // 掃除 delete は .eq('job_name', 自ジョブ) → .lt('claimed_at', ...) の chain
       //（job_name 限定＝他 cron の claim 行を越境削除しない）

@@ -11,6 +11,7 @@ import { isAllowedStorageUrl } from '@/lib/storage-url-guard';
 import { phoneField as sharedPhoneField } from '@/lib/phone';
 import { verifyRecaptcha } from '@/lib/recaptcha';
 import { sendNotify } from '@/lib/notify';
+import { businessTypes } from '@/lib/constants';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +35,13 @@ export const dynamic = 'force-dynamic';
 const salonInsertSchema = z.object({
   // .trim(): 前後空白を除去してから長さを検証・保存する（スペースのみの入力を弾く恒久対応）。
   facility_name: z.string().trim().min(1).max(200),
-  business_type: z.string().min(1).max(50),
+  // 【2026年7月29日・恒久根治】business_type は検索・カテゴリ導線・/type/* の結合キー。
+  // UI（/register）は businessTypes の <select> で選択肢を制限しているが、サーバー側は
+  // 自由文字列を受理していたため、直接APIを叩けば正規タクソノミー外の値を保存できた。
+  // 保存された不正値は /register/complete → /admin/onboarding の遷移リンクにそのまま
+  // 埋め込まれ、facility/setup 側の業種検証（後日追加）で恒久的に400を返し続ける
+  // 無限ループの発生源になる。入口を UI と同じ選択肢に揃えて、ズレる経路自体を断つ。
+  business_type: z.enum(businessTypes as [string, ...string[]]),
   representative_name: z.string().trim().min(1).max(100),
   contact_name: z.string().trim().min(1).max(100),
   email: z.string().email().max(254),

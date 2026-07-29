@@ -28,7 +28,7 @@ function makeRequest() {
 function chain(resolved: unknown) {
   const p = Promise.resolve(resolved);
   const obj: Record<string, unknown> = {
-    select: () => obj, eq: () => obj, gte: () => obj, lte: () => obj, in: () => obj, limit: () => obj,
+    select: () => obj, eq: () => obj, gte: () => obj, lte: () => obj, in: () => obj, limit: () => obj, range: () => obj,
     insert: () => obj, delete: () => obj,
     maybeSingle: () => Promise.resolve(resolved),
     then: (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) => p.then(onF, onR),

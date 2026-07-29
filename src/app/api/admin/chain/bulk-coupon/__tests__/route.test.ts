@@ -348,6 +348,26 @@ test('POST: discount_value 未指定 (undefined) → null に変換されて 201
   expect(res.status).toBe(201);
 });
 
+// ─── SSOT統一（相互必須チェック・2026-07-29）─────────────────────────────────
+// 単体発行(admin/coupons)と同じ coupon-validation.ts の相互必須ルールを共有する。
+// 従来は discount_type の型チェックのみで、fixed/percentage で discount_value 未指定
+// でもクーポンが作成できてしまっていた（作成後は無割引になる機能不全の発生源）。
+
+test('POST: fixed で discount_value 未指定 → 400（相互必須違反）', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'fixed', discount_value: undefined })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: percentage で discount_value 未指定 → 400（相互必須違反）', async () => {
+  const res = await POST(makeRequest({ name: 'x', discount_type: 'percentage', facility_ids: [FACILITY_A] }));
+  expect(res.status).toBe(400);
+});
+
+test('POST: special_price で special_price 未指定 → 400（相互必須違反）', async () => {
+  const res = await POST(makeRequest(validBody({ discount_type: 'special_price', discount_value: undefined })));
+  expect(res.status).toBe(400);
+});
+
 test('POST: x-forwarded-for ヘッダあり → IP抽出', async () => {
   setupSuccess();
   (checkRateLimit as jest.Mock).mockClear();
