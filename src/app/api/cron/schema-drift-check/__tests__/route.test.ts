@@ -24,6 +24,10 @@ const mockBusinessTypeSelect = jest.fn(() =>
 );
 const mockClaimDeleteEq = jest.fn();
 const mockClaimDeleteLt = jest.fn();
+// 口コミ真正性監視（facility_reviews の count クエリ2本）。既定は 0 件＝ドリフト無しで、
+// 既存テストの期待（driftCount / 通知内容）に影響しない。
+const mockReviewIplessCount = jest.fn(() => Promise.resolve({ count: 0, error: null }));
+const mockReviewUnbackedCount = jest.fn(() => Promise.resolve({ count: 0, error: null }));
 jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({
     rpc: mockRpc,
@@ -31,7 +35,17 @@ jest.mock('@/lib/supabase-server', () => ({
       // business_type の値ドリフト監視（facility_profiles.select('business_type').range(...)）。
       // fetchAllPaged 経由で .range(offset, limit) まで chain されるため range() を挟む。
       // 既定は正規タクソノミー内の値のみ＝ドリフト0件で、既存テストの期待に影響しない。
-      select: () => ({ range: () => mockBusinessTypeSelect(table) }),
+      // facility_reviews は count クエリで、
+      //   .select(...).is('reviewer_ip', null)                      … サイト外投入
+      //   .select(...).eq('is_verified_visit', true).is('user_id', null) … 裏付け無し来店確認済み
+      // の2形の chain を張るため、テーブル名で返す chain を切り替える。
+      select: () =>
+        table === 'facility_reviews'
+          ? {
+              is: () => mockReviewIplessCount(),
+              eq: () => ({ is: () => mockReviewUnbackedCount() }),
+            }
+          : { range: () => mockBusinessTypeSelect(table) },
       insert: (row: unknown) => mockClaimInsert(table, row),
       // 掃除 delete は .eq('job_name', 自ジョブ) → .lt('claimed_at', ...) の chain
       //（job_name 限定＝他 cron の claim 行を越境削除しない）
@@ -79,6 +93,14 @@ beforeEach(() => {
   // デフォルト: claim insert 成功・cleanup delete 成功（fail-open/deduped の各テストで上書きする）
   mockClaimInsert.mockResolvedValue({ error: null });
   mockClaimDeleteLt.mockResolvedValue({ error: null });
+  // jest.clearAllMocks() は calls を消すだけで mockImplementation() を戻さない。
+  // maxRows テストが 100000 件を返す実装を差し込むため、明示的に既定へ戻さないと
+  // 後続テストがその実装を引き継ぎ、テスト順序に依存した偽の失敗/成功が起きる。
+  mockBusinessTypeSelect.mockImplementation(() =>
+    Promise.resolve({ data: [{ business_type: 'ネイル・まつげサロン' }], error: null }),
+  );
+  mockReviewIplessCount.mockImplementation(() => Promise.resolve({ count: 0, error: null }));
+  mockReviewUnbackedCount.mockImplementation(() => Promise.resolve({ count: 0, error: null }));
 });
 
 test('cron auth NG → そのレスポンス', async () => {
@@ -331,4 +353,85 @@ test('business_type: data が null でも空配列として扱う', async () => 
 
   expect(res.status).toBe(200);
   expect(json.businessTypeDrift).toEqual([]);
+});
+
+/**
+ * 【口コミ真正性の値監視・2026年7月29日】
+ * 本番 facility_reviews に、サイト経由でない口コミ13件が一括 INSERT され、
+ * 公開ページに ★4.6〜4.8 として表示されていた（うち3件は裏付けの無い「来店確認済み」）。
+ * 入口は CHECK 制約（20260729000002）で塞ぐが、制約が外された場合・DDL 未適用の環境で
+ * 無音にならないよう、値としても見張る。その分岐をここで固定する。
+ */
+describe('口コミ真正性の値監視', () => {
+  beforeEach(() => {
+    setRpc({ data: [], error: null }, { data: [], error: null });
+    (computeDrift as jest.Mock).mockReturnValue(EMPTY_COL_DRIFT);
+    (computeConstraintDrift as jest.Mock).mockReturnValue(EMPTY_CONSTRAINT_DRIFT);
+  });
+
+  test('両方0件 → ドリフト無し・通知なし', async () => {
+    const json = await (await GET(req())).json();
+    expect(json.reviewAuthenticityDrift).toEqual([]);
+    expect(json.driftCount).toBe(0);
+    expect(alertWarning).not.toHaveBeenCalled();
+  });
+
+  test('reviewer_ip 欠落あり → ドリフト検知して通知', async () => {
+    mockReviewIplessCount.mockResolvedValueOnce({ count: 13, error: null });
+    const json = await (await GET(req())).json();
+    expect(json.reviewAuthenticityDrift).toEqual(['reviewer_ip欠落:13件']);
+    expect(json.driftCount).toBe(1);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('口コミ真正性1'),
+      expect.anything(),
+    );
+  });
+
+  test('来店確認済みだが user_id 無し → ドリフト検知', async () => {
+    mockReviewUnbackedCount.mockResolvedValueOnce({ count: 3, error: null });
+    const json = await (await GET(req())).json();
+    expect(json.reviewAuthenticityDrift).toEqual(['来店確認済みだがuser_id無し:3件']);
+    expect(json.driftCount).toBe(1);
+  });
+
+  test('両方該当 → 2件とも報告する（片方で止めない）', async () => {
+    mockReviewIplessCount.mockResolvedValueOnce({ count: 13, error: null });
+    mockReviewUnbackedCount.mockResolvedValueOnce({ count: 3, error: null });
+    const json = await (await GET(req())).json();
+    expect(json.reviewAuthenticityDrift).toEqual([
+      'reviewer_ip欠落:13件',
+      '来店確認済みだがuser_id無し:3件',
+    ]);
+    expect(json.driftCount).toBe(2);
+  });
+
+  // count が null（PostgREST が件数を返さない場合）で NaN や誤検知にならないこと。
+  test('count が null なら 0 件扱い', async () => {
+    mockReviewIplessCount.mockResolvedValueOnce({ count: null, error: null });
+    mockReviewUnbackedCount.mockResolvedValueOnce({ count: null, error: null });
+    const json = await (await GET(req())).json();
+    expect(json.reviewAuthenticityDrift).toEqual([]);
+  });
+
+  // 監視が壊れても cron 本体は止めない（列・制約の監視は継続させる）。
+  test('取得失敗時は警告を出しつつ本体は success', async () => {
+    mockReviewIplessCount.mockResolvedValueOnce({ count: null, error: { message: 'boom' } });
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('口コミ真正性の取得失敗'),
+      expect.anything(),
+    );
+    expect((await res.json()).reviewAuthenticityDrift).toEqual([]);
+  });
+
+  test('2本目だけ失敗しても警告する（片方成功で握り潰さない）', async () => {
+    mockReviewUnbackedCount.mockResolvedValueOnce({ count: null, error: { message: 'boom2' } });
+    const res = await GET(req());
+    expect(res.status).toBe(200);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('口コミ真正性の取得失敗'),
+      expect.anything(),
+    );
+  });
 });

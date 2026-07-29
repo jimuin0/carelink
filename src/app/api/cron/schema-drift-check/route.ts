@@ -110,13 +110,51 @@ export async function GET(request: Request) {
     ];
   }
 
+  // 【2026年7月29日 追加・口コミ真正性の値監視】
+  // 本番 facility_reviews に、サイト経由でない口コミ13件が一括 INSERT され、
+  // rating_avg 経由で公開ページに ★4.6〜4.8 として出ていた（うち3件は裏付けの無い
+  // 「来店確認済み」バッジ付き）。投稿の唯一の入口 /api/review は reviewer_ip を必ず書き
+  // （getClientIp は取得不能時も 'unknown' を返す）、is_verified_visit はログイン済みかつ
+  // completed 予約がある場合しか true にしない。よって
+  //   (a) reviewer_ip IS NULL、(b) is_verified_visit かつ user_id なし
+  // は正規経路では原理的に発生せず、出現＝out-of-band な直接投入を意味する。
+  // 入口は CHECK 制約（20260729000002）で塞ぐが、制約が外された場合・DDL 未適用の環境で
+  // 無音にならないよう、値としてもここで見張る（列・制約と同じ扱い）。
+  // count 指定の head クエリのため PostgREST の db-max-rows の影響を受けない。
+  const reviewAuthenticityDrift: string[] = [];
+  const [iplessRes, unbackedRes] = await Promise.all([
+    admin.from('facility_reviews').select('id', { count: 'exact', head: true }).is('reviewer_ip', null),
+    admin
+      .from('facility_reviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('is_verified_visit', true)
+      .is('user_id', null),
+  ]);
+  if (iplessRes.error || unbackedRes.error) {
+    alertWarning('schema-drift-check: 口コミ真正性の取得失敗（サイト外投入の監視が無効化）', {
+      route: '/api/cron/schema-drift-check',
+      extra: {
+        iplessError: iplessRes.error?.message ?? null,
+        unbackedError: unbackedRes.error?.message ?? null,
+      },
+    });
+  } else {
+    if ((iplessRes.count ?? 0) > 0) {
+      reviewAuthenticityDrift.push(`reviewer_ip欠落:${iplessRes.count}件`);
+    }
+    if ((unbackedRes.count ?? 0) > 0) {
+      reviewAuthenticityDrift.push(`来店確認済みだがuser_id無し:${unbackedRes.count}件`);
+    }
+  }
+
   const driftCount =
     contaminated.length +
     missing.length +
     colDrift.length +
     constraintExtra.length +
     constraintMissing.length +
-    businessTypeDrift.length;
+    businessTypeDrift.length +
+    reviewAuthenticityDrift.length;
 
   // 【claim-first 設計・2026-07-17】
   // cron は三重化（GitHub Actions + pg_cron + Render）で同一スケジュール(JST 02:40)に
@@ -133,7 +171,7 @@ export async function GET(request: Request) {
     // drift 内容の安定した指紋。computeDrift/computeConstraintDrift は結果を常にソート済みで
     // 返す純粋関数のため、同一ドリフトなら常に同じ JSON 文字列＝同じハッシュになる。
     const driftFingerprint = createHash('sha256')
-      .update(JSON.stringify({ contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift }))
+      .update(JSON.stringify({ contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift, reviewAuthenticityDrift }))
       .digest('hex')
       .slice(0, 16);
     const claimDate = startedAt.toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
@@ -165,10 +203,10 @@ export async function GET(request: Request) {
 
     if (shouldAlert) {
       alertWarning(
-        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length} / 業種値ドリフト${businessTypeDrift.length}`,
+        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length} / 業種値ドリフト${businessTypeDrift.length} / 口コミ真正性${reviewAuthenticityDrift.length}`,
         {
           route: '/api/cron/schema-drift-check',
-          extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift },
+          extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift, reviewAuthenticityDrift },
         },
       );
     }
@@ -200,6 +238,7 @@ export async function GET(request: Request) {
       constraintExtra,
       constraintMissing,
       businessTypeDrift,
+      reviewAuthenticityDrift,
       constraintCheckSkipped,
       alertDeduped,
     },
@@ -213,6 +252,7 @@ export async function GET(request: Request) {
     constraintExtra,
     constraintMissing,
     businessTypeDrift,
+    reviewAuthenticityDrift,
     constraintCheckSkipped,
   });
 }
