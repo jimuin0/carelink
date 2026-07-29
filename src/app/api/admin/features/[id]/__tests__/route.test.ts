@@ -134,6 +134,40 @@ test('PATCH: sort_order > 9999 → 400', async () => {
   expect(res.status).toBe(400);
 });
 
+// ─── href/image_url スキーム検証（2026年7月29日）─────────────────────────
+test('PATCH: image_url が http://（非https） → 400', async () => {
+  const res = await PATCH(makeRequest('PATCH', { image_url: 'http://example.com/img.jpg' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: href が javascript: スキーム → 400', async () => {
+  const res = await PATCH(makeRequest('PATCH', { href: 'javascript:alert(1)' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: href がプロトコル相対URL(//evil.com) → 400（ホスト差し替え防止）', async () => {
+  const res = await PATCH(makeRequest('PATCH', { href: '//evil.com/phish' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: href が https:// → 200', async () => {
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, href: 'https://example.com/campaign' }));
+  const res = await PATCH(makeRequest('PATCH', { href: 'https://example.com/campaign' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: href がサイト内相対パス(/search?...) → 200', async () => {
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, href: '/search?keyword=春カラー' }));
+  const res = await PATCH(makeRequest('PATCH', { href: '/search?keyword=春カラー' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
+test('PATCH: href 未指定 → 200（optional維持）', async () => {
+  mockAdminFrom.mockReturnValue(updateChain({ id: FEATURE_UUID, title: 'test' }));
+  const res = await PATCH(makeRequest('PATCH', { title: 'test' }), makeProps());
+  expect(res.status).toBe(200);
+});
+
 // ─── DB paths ─────────────────────────────────────────────────────────────────
 
 test('PATCH: DB更新失敗 → 500', async () => {
