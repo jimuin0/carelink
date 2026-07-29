@@ -38,7 +38,7 @@ setup('provision test owner and authenticate', async ({ page }) => {
     .insert({
       name: `E2Eテスト店舗_${ts}`,
       slug: `e2e-admin-${ts}`,
-      business_type: 'hair_salon',
+      business_type: 'ヘアサロン',
       prefecture: '東京都',
       city: 'テスト市',
       address: 'テスト1-1-1',

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { z } from 'zod';
-import { UUID_REGEX } from '@/lib/constants';
+import { UUID_REGEX, businessTypes } from '@/lib/constants';
 import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -19,7 +19,11 @@ const businessHoursDaySchema = z.union([
 
 const settingsSchema = z.object({
   name: z.string().min(1).max(100),
-  business_type: z.string().max(50).optional().nullable(),
+  // 【2026年7月29日・恒久根治】business_type は検索・カテゴリ導線・SEOページの結合キー。
+  // 任意文字列を許すと正規タクソノミー外の値が保存され、施設は存在するのに
+  // トップのカテゴリタイル・/type/* から到達できなくなる（本番で実際に発生した無音の断線）。
+  // 保存の入口で選択肢を強制し、ズレる経路そのものを塞ぐ。
+  business_type: z.enum(businessTypes as [string, ...string[]]).optional().nullable(),
   catch_copy: z.string().max(200).optional().nullable(),
   description: z.string().max(2000).optional().nullable(),
   postal_code: z.string().max(8).optional().nullable(),

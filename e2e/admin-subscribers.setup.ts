@@ -27,7 +27,7 @@ setup('provision owner with an active subscriber', async ({ page }) => {
 
   // 公開施設
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
-    name: `E2E契約者店舗_${ts}`, slug: `e2e-subs-${ts}`, business_type: 'hair_salon',
+    name: `E2E契約者店舗_${ts}`, slug: `e2e-subs-${ts}`, business_type: 'ヘアサロン',
     prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);

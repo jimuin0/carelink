@@ -10,6 +10,7 @@ import { alertCaughtError } from '@/lib/alert';
 import { sendWelcomeEmail } from '@/lib/email';
 import { checkCsrf } from '@/lib/csrf';
 import { mutationRateLimit, checkRateLimit } from "@/lib/rate-limit";
+import { businessTypes } from '@/lib/constants';
 import { getClientIp } from "@/lib/client-ip";
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { createServerSupabaseAuthClient } from '@/lib/supabase-server-auth';
@@ -89,6 +90,19 @@ export async function POST(request: NextRequest) {
     }
     facility_name = String(facility_name).slice(0, 100);
     business_type = String(business_type).slice(0, 50);
+
+    // 【2026年7月29日・恒久根治】business_type は検索・カテゴリ導線・SEOページの結合キーだが
+    // DB に CHECK 制約が無く、任意の文字列を保存できていた。実際に本番で「まつげ・眉毛サロン」
+    // 「hair_salon」のような正規タクソノミー外の値が保存され、トップページのカテゴリタイル・
+    // 悩みナビ・特集バナー・/type/* が全て 0 件になり、掲載施設に到達する導線が消えていた
+    // （施設は存在するのに誰も辿り着けない無音の断線）。
+    // 値の妥当性は保存の入口で検証し、ズレた値がそもそも入らないようにする。
+    if (!businessTypes.includes(business_type)) {
+      return NextResponse.json(
+        { error: `業種は次のいずれかを選択してください：${businessTypes.join('、')}` },
+        { status: 400 },
+      );
+    }
     if (phone) phone = String(phone).slice(0, 20);
     if (prefecture) prefecture = String(prefecture).slice(0, 20);
     if (city) city = String(city).slice(0, 50);

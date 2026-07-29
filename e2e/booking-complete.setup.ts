@@ -30,7 +30,7 @@ setup('seed bookable facility', async () => {
     .insert({
       name: `E2E予約店舗_${ts}`,
       slug,
-      business_type: 'hair_salon',
+      business_type: 'ヘアサロン',
       prefecture: '東京都',
       city: 'テスト市',
       address: 'テスト1-1-1',
