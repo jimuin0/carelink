@@ -13,6 +13,7 @@ import { alertDeliveryFailures } from '@/lib/alert';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { todayJst, addDays } from '@/lib/admin-date';
 import { sendWeeklyReportEmail } from '@/lib/email';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -54,18 +55,33 @@ async function sendWeeklyReports(
     byFacility.set(id, acc);
   }
 
-  const { data: optedOut, error: optedOutErr } = await supabase
-    .from('facility_notification_settings')
-    .select('facility_id')
-    .eq('email_weekly_report', false);
-  // opt-out 一覧の取得に失敗した場合、error を握り潰すと optedOut=null → optedOutSet が空になり、
+  // facility_notification_settings は PostgREST の db-max-rows(既定1000) 対象のテーブルセレクトの
+  // ため、施設数が1000件を超えると単純な .select() では後半の opt-out 行が無音で取りこぼされ、
+  // 明示的に OFF にした施設にも週次レポートを送ってしまう（fail-open な誤送信）。fetchAllPaged で
+  // 全件取得し、failOnTruncation で「全件取得できなかった」ことをそのまま error 扱いにする
+  // （下の fail-closed 方針＝取得を確定できない時は run を中止、と一貫させる）。
+  const { rows: optedOut, error: optedOutErr } = await fetchAllPaged<{ facility_id: string }>(
+    async (offset, limit) => {
+      const res = await supabase
+        .from('facility_notification_settings')
+        .select('facility_id')
+        .eq('email_weekly_report', false)
+        .range(offset, offset + limit - 1);
+      return { data: res.data, error: res.error };
+    },
+    { failOnTruncation: true },
+  );
+  // opt-out 一覧の取得に失敗した場合、error を握り潰すと optedOut=[] → optedOutSet が空になり、
   // email_weekly_report=false（明示 OFF）の施設にも週次レポートを送ってしまう（fail-open な誤送信）。
   // 送信対象は opt-out 方式で「設定行が無い＝送る」ため、opt-out 集合が欠けると影響が全体に及ぶ。
   // fail-closed 化：opt-out を確定できない時はこの run の送信を中止し、error として可視化する。
   if (optedOutErr) {
-    throw new Error(`facility_notification_settings fetch failed: ${optedOutErr.message}`);
+    // fetchAllPaged が返す error は Supabase のクエリエラー（必ず message を持つ）か、
+    // failOnTruncation で生成した Error（同じく必ず message を持つ）のいずれかのみ。
+    // 到達しないフォールバックは書かない（bulk-coupon/route.ts と同方針）。
+    throw new Error(`facility_notification_settings fetch failed: ${(optedOutErr as { message: string }).message}`);
   }
-  const optedOutSet = new Set((optedOut as { facility_id: string }[] | null ?? []).map((r) => r.facility_id));
+  const optedOutSet = new Set(optedOut.map((r) => r.facility_id));
 
   // 監査P2: 従来は施設ごとにfacility_members→profiles→facility_profilesの3クエリを
   // ループ内で直列発行していた(O(N))。施設数増加でVercel関数のmaxDuration(60s)を超えて

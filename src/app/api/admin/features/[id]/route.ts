@@ -8,11 +8,16 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 
+// POST(route.ts)と同じ理由・同じ設計（SafeHtmlContent.tsx の href 検証と同方針）で、
+// image_url/href に javascript:/data: 等の危険スキームを許さないホワイトリスト方式にする。
+const SAFE_HREF_PATTERN = /^(?:https:\/\/|\/(?!\/))/;
+
 const featureUpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   subtitle: z.string().max(300).optional().nullable(),
-  image_url: z.string().url().max(500).optional().nullable().or(z.literal('')),
-  href: z.string().max(300).optional().nullable(),
+  image_url: z.string().url().max(500).startsWith('https://').optional().nullable().or(z.literal('')),
+  href: z.string().max(300).optional().nullable()
+    .refine((v) => !v || SAFE_HREF_PATTERN.test(v), '不正なリンク先です'),
   is_active: z.boolean().optional(),
   sort_order: z.number().int().min(0).max(9999).optional(),
 });

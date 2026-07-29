@@ -15,6 +15,7 @@ jest.mock('@/lib/hpb-menu', () => ({
   setFacilitySlnId: jest.fn(),
   updateHpbMenuOverride: jest.fn(),
 }));
+jest.mock('@/lib/audit-logger', () => ({ writeAuditLog: jest.fn() }));
 
 const FACILITY_UUID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
@@ -39,6 +40,7 @@ import {
   setFacilitySlnId,
   updateHpbMenuOverride,
 } from '@/lib/hpb-menu';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 function makeReq(method: string, facilityId: string | null = FACILITY_UUID) {
   const url = new URL('http://localhost/api/admin/hpb-menus');
@@ -156,6 +158,13 @@ test('POST: 取得成功 → 200 with counts', async () => {
   const json = await res.json();
   expect(res.status).toBe(200);
   expect(json).toEqual({ sln_id: 'H1', fetched: 10, saved: 8, skipped: 2, failed: 0 });
+  // 監査ログ（2026年7月29日追加）: HPB取得の一括保存は重要操作のため記録する
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    userId: USER_ID,
+    facilityId: FACILITY_UUID,
+    action: 'update',
+    tableName: 'hpb_menu_durations',
+  }));
 });
 
 // ─── PUT (hpb_sln_id 設定) ───
@@ -186,6 +195,14 @@ test('PUT: 正常(英数字) → 200 set', async () => {
   const res = await PUT(makeBodyReq('PUT', { hpb_sln_id: 'H000537368' }));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({ hpb_sln_id: 'H000537368' });
+  // 監査ログ（2026年7月29日追加）: hpb_sln_id 設定は facility_profiles への重要な設定変更
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    userId: USER_ID,
+    facilityId: FACILITY_UUID,
+    action: 'update',
+    tableName: 'facility_profiles',
+    newValues: { hpb_sln_id: 'H000537368' },
+  }));
 });
 
 test('PUT: 空文字 → 200 で null(未設定に戻す)', async () => {
@@ -254,6 +271,15 @@ test('PATCH: 全項目指定で更新成功 → 200', async () => {
     description_override: '説明',
     is_hidden: false,
   });
+  // 監査ログ（2026年7月29日追加）: 手直し(override)は施設が表示するメニュー内容の変更
+  expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+    userId: USER_ID,
+    facilityId: FACILITY_UUID,
+    action: 'update',
+    tableName: 'hpb_menu_durations',
+    recordId: 'CP1',
+    newValues: patch,
+  }));
 });
 
 test('PATCH: 該当なし → 404', async () => {

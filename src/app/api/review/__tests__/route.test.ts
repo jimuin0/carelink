@@ -69,7 +69,7 @@ function setupDefaultMocks(hasUser: boolean = true, hasRecentReview: boolean = f
   const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
 
   const mockProfilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
-  const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });
+  const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn, eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) });
 
   const mockFacilitySingle = jest.fn().mockResolvedValue({ data: { name: 'テスト施設' } });
   const mockFacilityEq = jest.fn().mockReturnValue({ single: mockFacilitySingle });
@@ -357,6 +357,7 @@ describe('POST /api/review', () => {
       insertResult?: { data: { id: string } | null; error: { message: string } | null };
       ownerUserIds?: string[];
       ownerEmails?: (string | null)[];
+      displayName?: string | null;
     } = {}) {
       const {
         hasUser = true,
@@ -365,6 +366,7 @@ describe('POST /api/review', () => {
         insertResult = { data: { id: 'review-123' }, error: null },
         ownerUserIds = ['owner-1'],
         ownerEmails = ['owner@example.invalid'],
+        displayName = null,
       } = options;
 
       const mockGetUser = jest.fn().mockResolvedValue({
@@ -409,9 +411,12 @@ describe('POST /api/review', () => {
       const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersRoleFilter, in: mockMembersRoleFilter });
       const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
 
-      // profiles.select('email').in('id', [...])
+      // profiles.select('email').in('id', [...])（オーナー通知用）／
+      // profiles.select('display_name').eq('id', user.id).maybeSingle()（投稿者名なりすまし防止用）
       const mockProfilesIn = jest.fn().mockResolvedValue({ data: ownerEmails.map((e) => ({ email: e })) });
-      const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });
+      const mockProfilesMaybeSingle = jest.fn().mockResolvedValue({ data: displayName ? { display_name: displayName } : null });
+      const mockProfilesEq = jest.fn().mockReturnValue({ maybeSingle: mockProfilesMaybeSingle });
+      const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn, eq: mockProfilesEq });
 
       // facility_profiles.select('name').eq('id',...).single()
       const mockFacilitySingle = jest.fn().mockResolvedValue({ data: { name: 'テスト施設' } });
@@ -462,6 +467,37 @@ describe('POST /api/review', () => {
       const json = await res.json();
       expect(json.success).toBe(true);
       expect(json.id).toBeDefined();
+    });
+
+    // ─── reviewer_name なりすまし防止（2026年7月29日 追加） ───────────────────────
+    // ログイン済みユーザーが body の reviewer_name に他人の氏名を送っても、実際に保存される
+    // のは本人の profiles.display_name（設定済みの場合）。未ログイン・display_name未設定は
+    // 従来通り自由入力のまま（匿名口コミの仕様を維持）。
+    test('ログイン済み・display_name設定済み → bodyのreviewer_nameを無視しdisplay_nameを保存する', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, displayName: '本人太郎' });
+
+      const res = await POST(makeRequest({ ...bizReview, reviewer_name: '他人花子' }));
+
+      expect(res.status).toBe(200);
+      expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('本人太郎');
+    });
+
+    test('ログイン済み・display_name未設定 → bodyのreviewer_nameをそのまま保存する（フォールバック）', async () => {
+      setupBizMocks({ hasUser: true, hasRecentReview: false, hasCompletedBooking: false, displayName: null });
+
+      const res = await POST(makeRequest({ ...bizReview, reviewer_name: '自称山田' }));
+
+      expect(res.status).toBe(200);
+      expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('自称山田');
+    });
+
+    test('未ログイン → profilesを参照せずbodyのreviewer_nameをそのまま保存する（匿名投稿の仕様維持）', async () => {
+      setupBizMocks({ hasUser: false, hasRecentReview: false, hasCompletedBooking: false });
+
+      const res = await POST(makeRequest({ ...bizReview, reviewer_name: '匿名希望' }));
+
+      expect(res.status).toBe(200);
+      expect(mockInsert.mock.calls[0][0].reviewer_name).toBe('匿名希望');
     });
 
     // ─── 医療広告ガイドライン（2026年7月28日 追加） ───────────────────────────
@@ -670,7 +706,12 @@ describe('POST /api/review', () => {
         if (table === 'facility_reviews') return { select: dupSelect, insert: insertFn };
         if (table === 'bookings') return { select: bookingSelect };
         if (table === 'facility_members') return { select: nullMembersSelect };
-        return { select: jest.fn() };
+        // profiles 等、明示的にケースを書いていないテーブルへの select().eq().maybeSingle() /
+        // select().in() の両方に安全に応答する汎用フォールバック（未定義アクセスでの TypeError 防止）。
+        return { select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
+          in: jest.fn().mockResolvedValue({ data: null }),
+        }) };
       });
       (createServiceRoleClient as jest.Mock).mockReturnValue({ from: overrideFrom });
 
@@ -693,14 +734,19 @@ describe('POST /api/review', () => {
       const membersEq1 = jest.fn().mockReturnValue({ eq: membersRoleFilter, in: membersRoleFilter });
       const membersSelect = jest.fn().mockReturnValue({ eq: membersEq1 });
       const nullProfilesIn = jest.fn().mockResolvedValue({ data: null });
-      const nullProfilesSelect = jest.fn().mockReturnValue({ in: nullProfilesIn });
+      const nullProfilesSelect = jest.fn().mockReturnValue({ in: nullProfilesIn, eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) });
 
       const overrideFrom = jest.fn((table: string) => {
         if (table === 'facility_reviews') return { select: dupSelect, insert: insertFn };
         if (table === 'bookings') return { select: bookingSelect };
         if (table === 'facility_members') return { select: membersSelect };
         if (table === 'profiles') return { select: nullProfilesSelect };
-        return { select: jest.fn() };
+        // profiles 等、明示的にケースを書いていないテーブルへの select().eq().maybeSingle() /
+        // select().in() の両方に安全に応答する汎用フォールバック（未定義アクセスでの TypeError 防止）。
+        return { select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
+          in: jest.fn().mockResolvedValue({ data: null }),
+        }) };
       });
       (createServiceRoleClient as jest.Mock).mockReturnValue({ from: overrideFrom });
 
@@ -723,7 +769,7 @@ describe('POST /api/review', () => {
       const membersEq1 = jest.fn().mockReturnValue({ eq: membersRoleFilter, in: membersRoleFilter });
       const membersSelect = jest.fn().mockReturnValue({ eq: membersEq1 });
       const profilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
-      const profilesSelect = jest.fn().mockReturnValue({ in: profilesIn });
+      const profilesSelect = jest.fn().mockReturnValue({ in: profilesIn, eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) });
       const nullFacilitySingle = jest.fn().mockResolvedValue({ data: null });
       const nullFacilityEq = jest.fn().mockReturnValue({ single: nullFacilitySingle });
       const nullFacilitySelect = jest.fn().mockReturnValue({ eq: nullFacilityEq });
@@ -734,7 +780,12 @@ describe('POST /api/review', () => {
         if (table === 'facility_members') return { select: membersSelect };
         if (table === 'profiles') return { select: profilesSelect };
         if (table === 'facility_profiles') return { select: nullFacilitySelect };
-        return { select: jest.fn() };
+        // profiles 等、明示的にケースを書いていないテーブルへの select().eq().maybeSingle() /
+        // select().in() の両方に安全に応答する汎用フォールバック（未定義アクセスでの TypeError 防止）。
+        return { select: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }),
+          in: jest.fn().mockResolvedValue({ data: null }),
+        }) };
       });
       (createServiceRoleClient as jest.Mock).mockReturnValue({ from: overrideFrom });
 
@@ -1001,6 +1052,8 @@ describe('POST /api/review', () => {
         if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
         if (table === 'bookings') return { select: mockBookingSelect };
         if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+        // display_name 未設定として振る舞う安全なフォールバック（reviewer_name は既存の自由入力のまま）
+        if (table === 'profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
       });
 
       const { createServerClient } = require('@supabase/ssr');
@@ -1050,6 +1103,8 @@ describe('POST /api/review', () => {
         if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
         if (table === 'bookings') return { select: mockBookingSelect };
         if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+        // display_name 未設定として振る舞う安全なフォールバック（reviewer_name は既存の自由入力のまま）
+        if (table === 'profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
       });
 
       const { createServerClient } = require('@supabase/ssr');
@@ -1100,6 +1155,8 @@ describe('POST /api/review', () => {
         if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
         if (table === 'bookings') return { select: mockBookingSelect };
         if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+        // display_name 未設定として振る舞う安全なフォールバック（reviewer_name は既存の自由入力のまま）
+        if (table === 'profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
       });
 
       const { createServerClient } = require('@supabase/ssr');
@@ -1152,6 +1209,8 @@ describe('POST /api/review', () => {
         if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
         if (table === 'bookings') return { select: mockBookingSelect };
         if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+        // display_name 未設定として振る舞う安全なフォールバック（reviewer_name は既存の自由入力のまま）
+        if (table === 'profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
       });
 
       const { createServerClient } = require('@supabase/ssr');
@@ -1203,6 +1262,8 @@ describe('POST /api/review', () => {
         if (table === 'facility_reviews') return { select: mockDupSelect, insert: mockInsertFn };
         if (table === 'bookings') return { select: mockBookingSelect };
         if (table === 'user_points') return { select: mockPointsSelect, insert: mockPointsInsert };
+        // display_name 未設定として振る舞う安全なフォールバック（reviewer_name は既存の自由入力のまま）
+        if (table === 'profiles') return { select: jest.fn().mockReturnValue({ eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) }) };
       });
 
       const { createServerClient } = require('@supabase/ssr');
@@ -1257,7 +1318,7 @@ describe('POST /api/review', () => {
       const mockMembersEq1 = jest.fn().mockReturnValue({ eq: mockMembersRoleFilter, in: mockMembersRoleFilter });
       const mockMembersSelect = jest.fn().mockReturnValue({ eq: mockMembersEq1 });
       const mockProfilesIn = jest.fn().mockResolvedValue({ data: [{ email: 'owner@example.invalid' }] });
-      const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn });
+      const mockProfilesSelect = jest.fn().mockReturnValue({ in: mockProfilesIn, eq: jest.fn().mockReturnValue({ maybeSingle: jest.fn().mockResolvedValue({ data: null }) }) });
       const mockFacilitySingle = jest.fn().mockResolvedValue({ data: { name: 'テスト施設' } });
       const mockFacilityEq = jest.fn().mockReturnValue({ single: mockFacilitySingle });
       const mockFacilitySelect = jest.fn().mockReturnValue({ eq: mockFacilityEq });

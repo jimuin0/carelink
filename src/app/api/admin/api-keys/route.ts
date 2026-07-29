@@ -38,11 +38,20 @@ export async function POST(request: NextRequest) {
 
   if (!facility_id || typeof facility_id !== 'string') return NextResponse.json({ error: 'facility_id required' }, { status: 400 });
   if (!UUID_REGEX.test(facility_id)) return NextResponse.json({ error: 'Invalid facility_id' }, { status: 400 });
-  if (!name || typeof name !== 'string' || name.trim().length === 0) return NextResponse.json({ error: 'name required' }, { status: 400 });
-  if (!Array.isArray(scopes) || scopes.length === 0) return NextResponse.json({ error: 'scopes required' }, { status: 400 });
+  // 【2026年7月29日・恒久根治】name/scopes 双方に長さ上限が無く、DB列（name TEXT・scopes TEXT[]）も
+  // 無制限のため、任意長の巨大な name や同一 scope を大量重複させた scopes 配列をそのまま保存できていた。
+  if (!name || typeof name !== 'string' || name.trim().length === 0 || name.trim().length > 100) {
+    return NextResponse.json({ error: 'name must be 1-100 characters' }, { status: 400 });
+  }
+  if (!Array.isArray(scopes) || scopes.length === 0 || scopes.length > VALID_SCOPES.length) {
+    return NextResponse.json({ error: `scopes must be 1-${VALID_SCOPES.length} items` }, { status: 400 });
+  }
 
   const invalidScopes = scopes.filter((s) => !VALID_SCOPES.includes(s));
   if (invalidScopes.length > 0) return NextResponse.json({ error: `Invalid scopes: ${invalidScopes.join(', ')}` }, { status: 400 });
+
+  // 重複除去（同一 scope の水増しで上の件数上限チェックを見かけ上すり抜けさせない・保存データの正規化）。
+  const uniqueScopes = [...new Set(scopes)];
 
   // APIキー発行は owner のみ（神原さん確定: 鍵に関わる発行操作は持ち主限定。admin=任命従業員には発行させない）。
   const { data: mem } = await supabase
@@ -62,7 +71,7 @@ export async function POST(request: NextRequest) {
     name: name.trim(),
     key_hash: hash,
     key_prefix: prefix,
-    scopes,
+    scopes: uniqueScopes,
     created_by: user.id,
   }).select('id, name, key_prefix, scopes, is_active, last_used_at, expires_at, created_at').single();
 
@@ -75,7 +84,7 @@ export async function POST(request: NextRequest) {
     action: 'create',
     tableName: 'api_keys',
     recordId: newKey.id,
-    newValues: { name: name.trim(), scopes, key_prefix: prefix },
+    newValues: { name: name.trim(), scopes: uniqueScopes, key_prefix: prefix },
     ipAddress: auditIp,
     userAgent: ua,
   });

@@ -217,31 +217,53 @@ test('PATCH: レスポンスが { application: ... } 形式', async () => {
 
 // ─── 追加ブランチカバレッジ ───────────────────────────────────────────
 
-test('PATCH: referral_fee_yen が数値 → Math.max(0, ...) で保存', async () => {
+// 【2026年7月29日】referral_fee_yen の範囲外・非数値は静かに矯正せず 400 で明示的に拒否する
+// 仕様に変更（他の金額フィールドと同じ 0〜9,999,999円 の範囲チェック）。
+test('PATCH: referral_fee_yen が負数 → 400（範囲外を明示的に拒否）', async () => {
   let callNum = 0;
-  let captured: Record<string, unknown> | undefined;
   mockAdminFrom.mockImplementation(() => {
     callNum++;
     if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
-    if (callNum === 2) return membershipChain({ role: 'admin' });
-    return {
-      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
-        eq: jest.fn().mockReturnValue({
-          eq: jest.fn().mockReturnValue({
-            select: jest.fn().mockReturnValue({
-              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
-            }),
-          }),
-        }),
-      };}),
-    };
+    return membershipChain({ role: 'admin' });
   });
-  await PATCH(makeRequest({ referral_fee_yen: -100 }), makeProps());
-  expect(captured?.referral_fee_yen).toBe(0);
+  const res = await PATCH(makeRequest({ referral_fee_yen: -100 }), makeProps());
+  expect(res.status).toBe(400);
 });
 
-test('PATCH: referral_fee_yen が非数値 → null で保存', async () => {
+test('PATCH: referral_fee_yen が非数値 → 400（範囲外を明示的に拒否）', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    return membershipChain({ role: 'admin' });
+  });
+  const res = await PATCH(makeRequest({ referral_fee_yen: 'not-a-number' }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: referral_fee_yen が 9999999 を超える → 400', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    return membershipChain({ role: 'admin' });
+  });
+  const res = await PATCH(makeRequest({ referral_fee_yen: 10000000 }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: referral_fee_yen が整数でない(小数) → 400', async () => {
+  let callNum = 0;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    return membershipChain({ role: 'admin' });
+  });
+  const res = await PATCH(makeRequest({ referral_fee_yen: 100.5 }), makeProps());
+  expect(res.status).toBe(400);
+});
+
+test('PATCH: referral_fee_yen が範囲内 → 保存される', async () => {
   let callNum = 0;
   let captured: Record<string, unknown> | undefined;
   mockAdminFrom.mockImplementation(() => {
@@ -261,7 +283,33 @@ test('PATCH: referral_fee_yen が非数値 → null で保存', async () => {
       };}),
     };
   });
-  await PATCH(makeRequest({ referral_fee_yen: 'not-a-number' }), makeProps());
+  const res = await PATCH(makeRequest({ referral_fee_yen: 300000 }), makeProps());
+  expect(res.status).toBe(200);
+  expect(captured?.referral_fee_yen).toBe(300000);
+});
+
+test('PATCH: referral_fee_yen が null → クリアされる（明示的な null 送信は許可）', async () => {
+  let callNum = 0;
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockImplementation(() => {
+    callNum++;
+    if (callNum === 1) return existingChain({ facility_id: FACILITY_UUID, status: 'pending' });
+    if (callNum === 2) return membershipChain({ role: 'admin' });
+    return {
+      update: jest.fn((u: Record<string, unknown>) => { captured = u; return {
+        eq: jest.fn().mockReturnValue({
+          eq: jest.fn().mockReturnValue({
+            select: jest.fn().mockReturnValue({
+              single: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+              maybeSingle: jest.fn(() => Promise.resolve({ data: { id: APP_UUID }, error: null })),
+            }),
+          }),
+        }),
+      };}),
+    };
+  });
+  const res = await PATCH(makeRequest({ referral_fee_yen: null }), makeProps());
+  expect(res.status).toBe(200);
   expect(captured?.referral_fee_yen).toBeNull();
 });
 

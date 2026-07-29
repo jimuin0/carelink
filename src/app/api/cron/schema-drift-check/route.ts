@@ -13,6 +13,7 @@ import {
 import snapshot from '@/lib/schema-snapshot.json';
 import constraintsSnapshot from '@/lib/schema-constraints-snapshot.json';
 import { businessTypes } from '@/lib/constants';
+import { fetchAllPaged } from '@/lib/paginate';
 
 /** 古い claim 行の掃除しきい値（この期間より古い claim は削除対象）。 */
 const CLAIM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
@@ -72,19 +73,36 @@ export async function GET(request: Request) {
   // 保存の入口は塞いだが、DDL・手動投入・将来の別経路で再びズレうるため、
   // 列や制約と同じようにここで「値」のドリフトも見張る。
   let businessTypeDrift: string[] = [];
-  const { data: btRows, error: btError } = await admin
-    .from('facility_profiles')
-    .select('business_type');
+  // facility_profiles は PostgREST の db-max-rows(既定1000) 対象のテーブルセレクトのため、
+  // 単純な .select() のままだと施設数が1000件を超えた時点で後半の行が無音で取りこぼされ、
+  // それらの business_type にドリフトがあっても検知されなくなる（get_public_columns 等は
+  // jsonb_agg の RPC で1行返しのためこの制限を受けないが、これは通常テーブルセレクト）。
+  const { rows: btRows, error: btError, truncated: btTruncated } = await fetchAllPaged<{
+    business_type: string | null;
+  }>(async (offset, limit) => {
+    const res = await admin
+      .from('facility_profiles')
+      .select('business_type')
+      .range(offset, offset + limit - 1);
+    return { data: res.data, error: res.error };
+  });
   if (btError) {
     alertWarning(
       'schema-drift-check: business_type 取得失敗（業種タクソノミーのドリフト監視が無効化）',
-      { route: '/api/cron/schema-drift-check', extra: { errorMessage: btError.message } },
+      { route: '/api/cron/schema-drift-check', extra: { errorMessage: (btError as { message?: string }).message } },
     );
   } else {
-    const values = (btRows ?? []) as { business_type: string | null }[];
+    if (btTruncated) {
+      // maxRows 上限での打ち切り＝一部施設が未チェックのまま監視結果が返る。無音にせず
+      // 監視自体の信頼性低下として警報する（fail-safe：検知漏れの可能性を隠さない）。
+      alertWarning(
+        'schema-drift-check: business_type 取得が maxRows 上限で打ち切られた（一部施設が未チェック）',
+        { route: '/api/cron/schema-drift-check', extra: { checkedCount: btRows.length } },
+      );
+    }
     businessTypeDrift = [
       ...new Set(
-        values
+        btRows
           .map((r) => r.business_type)
           .filter((v): v is string => !!v)
           .filter((v) => !businessTypes.includes(v)),

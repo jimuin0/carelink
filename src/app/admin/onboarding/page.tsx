@@ -61,6 +61,17 @@ function OnboardingContent() {
 
       const businessType = searchParams.get('business_type') || '';
 
+      // 【2026年7月29日・恒久根治】business_type が空、または正規タクソノミー外
+      // （旧デフォルト値 '美容サロン・アイラッシュ' 自体が非正規値だった）の場合、
+      // 確認なしに不正値で自動作成を試みると facility/setup 側の業種検証で必ず 400 になり、
+      // ユーザーには理由不明のエラーだけが返る恒久ループになる。facility_name が
+      // 未指定の場合と同じ方針で、確認画面（フォーム）へ落として選び直させる。
+      if (!businessType || !businessTypes.includes(businessType)) {
+        setFacilityNameInput(facilityName);
+        setStatus('form');
+        return;
+      }
+
       // 施設セットアップAPI呼び出し（クエリ経由・従来通りの自動フロー）
       setStatus('creating');
 
@@ -69,7 +80,7 @@ function OnboardingContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           facility_name: facilityName,
-          business_type: businessType || '美容サロン・アイラッシュ',
+          business_type: businessType,
         }),
       });
 

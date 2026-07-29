@@ -108,19 +108,3 @@ export function getRequestContext(request: Request): { ip: string | null; ua: st
     ua: request.headers.get('user-agent') ?? null,
   };
 }
-
-/**
- * 差分（変更されたフィールドのみ）を抽出
- */
-export function diffValues(
-  oldObj: Record<string, unknown>,
-  newObj: Record<string, unknown>
-): { old: Record<string, unknown>; new: Record<string, unknown> } {
-  const changedKeys = Object.keys(newObj).filter(
-    (k) => JSON.stringify(oldObj[k]) !== JSON.stringify(newObj[k])
-  );
-  return {
-    old: Object.fromEntries(changedKeys.map((k) => [k, oldObj[k]])),
-    new: Object.fromEntries(changedKeys.map((k) => [k, newObj[k]])),
-  };
-}

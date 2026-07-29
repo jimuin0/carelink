@@ -120,6 +120,50 @@ test('POST: 不正なスコープ → 400 (権限昇格防止)', async () => {
   expect(res.status).toBe(400);
 });
 
+// ─── name/scopes 上限バリデーション（2026年7月29日）───────────────────────────
+test('POST: name が 101文字 → 400（上限超過）', async () => {
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: 'a'.repeat(101), scopes: ['bookings:read'] }) as any);
+  expect(res.status).toBe(400);
+});
+
+test('POST: name が 100文字 → 201（境界）', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  mockAdminFrom.mockReturnValue(insertChain({ id: KEY_UUID, name: 'a'.repeat(100), scopes: ['bookings:read'] }));
+  const res = await POST(makePostRequest({ facility_id: FACILITY_UUID, name: 'a'.repeat(100), scopes: ['bookings:read'] }) as any);
+  expect(res.status).toBe(201);
+});
+
+test('POST: scopes が VALID_SCOPES の件数(3件)を超える → 400（上限超過）', async () => {
+  const res = await POST(makePostRequest({
+    facility_id: FACILITY_UUID,
+    name: 'test',
+    scopes: ['bookings:read', 'customers:read', 'reviews:read', 'bookings:read'],
+  }) as any);
+  expect(res.status).toBe(400);
+});
+
+test('POST: 同一スコープを重複指定 → 重複除去して保存される', async () => {
+  mockAnonFrom.mockReturnValue(memberChain({ role: 'owner' }));
+  let captured: Record<string, unknown> | undefined;
+  mockAdminFrom.mockReturnValue({
+    insert: jest.fn((row: Record<string, unknown>) => {
+      captured = row;
+      return {
+        select: jest.fn().mockReturnValue({
+          single: jest.fn(() => Promise.resolve({ data: { id: KEY_UUID, ...row }, error: null })),
+        }),
+      };
+    }),
+  });
+  const res = await POST(makePostRequest({
+    facility_id: FACILITY_UUID,
+    name: 'test',
+    scopes: ['bookings:read', 'bookings:read'],
+  }) as any);
+  expect(res.status).toBe(201);
+  expect(captured?.scopes).toEqual(['bookings:read']);
+});
+
 test('POST: 非管理者メンバー → 403 (IDOR防止)', async () => {
   mockAnonFrom.mockReturnValue(memberChain(null));
   const res = await POST(makePostRequest() as any);

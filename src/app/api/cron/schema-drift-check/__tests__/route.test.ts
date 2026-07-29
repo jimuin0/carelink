@@ -28,9 +28,10 @@ jest.mock('@/lib/supabase-server', () => ({
   createServiceRoleClient: () => ({
     rpc: mockRpc,
     from: (table: string) => ({
-      // business_type の値ドリフト監視（facility_profiles.select('business_type')）。
+      // business_type の値ドリフト監視（facility_profiles.select('business_type').range(...)）。
+      // fetchAllPaged 経由で .range(offset, limit) まで chain されるため range() を挟む。
       // 既定は正規タクソノミー内の値のみ＝ドリフト0件で、既存テストの期待に影響しない。
-      select: () => mockBusinessTypeSelect(table),
+      select: () => ({ range: () => mockBusinessTypeSelect(table) }),
       insert: (row: unknown) => mockClaimInsert(table, row),
       // 掃除 delete は .eq('job_name', 自ジョブ) → .lt('claimed_at', ...) の chain
       //（job_name 限定＝他 cron の claim 行を越境削除しない）
@@ -283,6 +284,23 @@ describe('business_type の値ドリフト監視', () => {
     const json = await res.json();
 
     expect(json.businessTypeDrift).toEqual([]);
+  });
+
+  // fetchAllPaged が maxRows(既定100000) 上限で打ち切られた場合。ページが常に満杯(pageSize=1000)
+  // であり続けるモックで100回転させ、truncated=true を発生させる。
+  test('facility_profiles が maxRows 上限で打ち切られた場合、打ち切り自体を警報する', async () => {
+    (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    const fullPage = Array.from({ length: 1000 }, () => ({ business_type: 'ヘアサロン' }));
+    mockBusinessTypeSelect.mockImplementation(() => Promise.resolve({ data: fullPage, error: null }));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(200);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('maxRows 上限で打ち切られた'),
+      expect.anything(),
+    );
   });
 
   // 監視自体が壊れても cron 本体は止めない（列・制約の監視は継続させる）。

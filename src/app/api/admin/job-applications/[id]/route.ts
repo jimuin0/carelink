@@ -52,9 +52,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
   }
 
+  // 【2026年7月29日・恒久根治】referral_fee_yen(INT列)は下限のみ Math.max(0, ...) で
+  // 矯正しており、上限が無いまま任意の巨大数値を保存できていた（DB の integer 範囲=約21億は
+  // 超えれば 500 で弾かれるが、それ未満の非現実的な巨額の紹介手数料はそのまま通ってしまう）。
+  // 他の金額フィールド（coupon の discount_value 等）と同じ上限 9,999,999円で範囲外を明示的に拒否する。
+  if (referral_fee_yen !== undefined && referral_fee_yen !== null) {
+    if (typeof referral_fee_yen !== 'number' || !Number.isInteger(referral_fee_yen) || referral_fee_yen < 0 || referral_fee_yen > 9999999) {
+      return NextResponse.json({ error: '紹介手数料は0〜9,999,999円の範囲の整数で入力してください' }, { status: 400 });
+    }
+  }
+
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (status) updates.status = status;
-  if (referral_fee_yen !== undefined) updates.referral_fee_yen = typeof referral_fee_yen === 'number' ? Math.max(0, referral_fee_yen) : null;
+  if (referral_fee_yen !== undefined) updates.referral_fee_yen = referral_fee_yen;
   if (notes !== undefined) updates.notes = typeof notes === 'string' ? notes.slice(0, 2000) : null;
   if (status === 'hired' && existing.status !== 'hired') {
     updates.hired_at = new Date().toISOString();

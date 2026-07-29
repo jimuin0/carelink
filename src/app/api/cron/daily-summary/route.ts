@@ -11,6 +11,7 @@ import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { todayJst, addDays } from '@/lib/admin-date';
 import { sendDailySummaryEmail } from '@/lib/email';
+import { fetchAllPaged } from '@/lib/paginate';
 
 export const dynamic = 'force-dynamic';
 // 1クエリの集合集計なので低い既定上限でも足りるが、念のため明示。
@@ -26,18 +27,29 @@ async function sendDailySummaryEmails(
   supabase: ReturnType<typeof createServiceRoleClient>,
   dateStr: string,
 ): Promise<{ sent: number; failed: number; skipped: number }> {
-  const { data: optedIn, error: optedInErr } = await supabase
-    .from('facility_notification_settings')
-    .select('facility_id')
-    .eq('email_daily_summary', true);
-  // error を握り潰すと optedIn=null → 「ON 施設なし」と区別できず無音でメール送信全体が
+  // facility_notification_settings は PostgREST の db-max-rows(既定1000) 対象のテーブルセレクトの
+  // ため、施設数が1000件を超えると単純な .select() では後半の opt-in 行が無音で取りこぼされ、
+  // ON にしたのに日次サマリーが届かない施設が出る（silent miss）。fetchAllPaged で全件取得し、
+  // failOnTruncation で「全件取得できなかった」ことを下の error 分岐にそのまま合流させる。
+  const { rows: optedIn, error: optedInErr } = await fetchAllPaged<{ facility_id: string }>(
+    async (offset, limit) => {
+      const res = await supabase
+        .from('facility_notification_settings')
+        .select('facility_id')
+        .eq('email_daily_summary', true)
+        .range(offset, offset + limit - 1);
+      return { data: res.data, error: res.error };
+    },
+    { failOnTruncation: true },
+  );
+  // error を握り潰すと「ON 施設なし」と区別できず無音でメール送信全体が
   // skip される（設定 ON なのに届かない silent miss）。error を可視化して原因を追える様にする。
   if (optedInErr) {
     console.error('[daily-summary] facility_notification_settings fetch failed', { err: optedInErr });
     return { sent: 0, failed: 0, skipped: 0 };
   }
-  if (!optedIn || optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0 };
-  const facilityIds = (optedIn as { facility_id: string }[]).map((r) => r.facility_id);
+  if (optedIn.length === 0) return { sent: 0, failed: 0, skipped: 0 };
+  const facilityIds = optedIn.map((r) => r.facility_id);
 
   const { data: summaries, error: summariesErr } = await supabase
     .from('daily_revenue_summary')

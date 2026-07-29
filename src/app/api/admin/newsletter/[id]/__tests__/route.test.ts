@@ -337,6 +337,15 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.campaign).toBeDefined();
+      // 監査ログ（2026年7月29日追加）: キャンペーンの取り消しは重要な状態変更
+      const { writeAuditLog } = require('@/lib/audit-logger');
+      expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'cancel',
+        tableName: 'newsletter_campaigns',
+        recordId: CAMPAIGN_UUID,
+        oldValues: { status: 'scheduled' },
+        newValues: { status: 'cancelled' },
+      }));
     });
 
     test('draft campaign → 400 (not scheduled)', async () => {
@@ -416,6 +425,15 @@ describe('PATCH /api/admin/newsletter/[id]', () => {
       expect(res.status).toBe(200);
       const json = await res.json();
       expect(json.campaign).toBeDefined();
+      // 監査ログ（2026年7月29日追加）: draft→scheduled への遷移も重要な状態変更
+      const { writeAuditLog } = require('@/lib/audit-logger');
+      expect(writeAuditLog).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'update',
+        tableName: 'newsletter_campaigns',
+        recordId: CAMPAIGN_UUID,
+        oldValues: { status: 'draft' },
+        newValues: { status: 'scheduled' },
+      }));
     });
 
     test('scheduled campaign → 400 (not draft)', async () => {

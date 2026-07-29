@@ -128,6 +128,46 @@ test('POST: image_url が空文字 → 201', async () => {
   expect(res.status).toBe(201);
 });
 
+// ─── href/image_url スキーム検証（2026年7月29日）─────────────────────────
+// javascript:/data: 等の危険スキームで <a href>/<img src> 展開時に実行されうる欠陥の回帰防止。
+test('POST: image_url が http://（非https） → 400', async () => {
+  const res = await POST(makeRequest(validBody({ image_url: 'http://example.com/img.jpg' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: href が javascript: スキーム → 400', async () => {
+  const res = await POST(makeRequest(validBody({ href: 'javascript:alert(1)' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: href が data: スキーム → 400', async () => {
+  const res = await POST(makeRequest(validBody({ href: 'data:text/html,<script>alert(1)</script>' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: href がプロトコル相対URL(//evil.com) → 400（ホスト差し替え防止）', async () => {
+  const res = await POST(makeRequest(validBody({ href: '//evil.com/phish' })));
+  expect(res.status).toBe(400);
+});
+
+test('POST: href が https:// → 201', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'feature-1' }));
+  const res = await POST(makeRequest(validBody({ href: 'https://example.com/campaign' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: href がサイト内相対パス(/search?...) → 201', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'feature-1' }));
+  const res = await POST(makeRequest(validBody({ href: '/search?keyword=春カラー' })));
+  expect(res.status).toBe(201);
+});
+
+test('POST: href 未指定 → 201（optional維持）', async () => {
+  mockAdminFrom.mockReturnValue(insertSingle({ id: 'feature-1' }));
+  const res = await POST(makeRequest(validBody()));
+  expect(res.status).toBe(201);
+});
+
 test('POST: title が 201 文字 → 400', async () => {
   const res = await POST(makeRequest(validBody({ title: 'あ'.repeat(201) })));
   expect(res.status).toBe(400);
