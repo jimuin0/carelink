@@ -61,6 +61,21 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'キャンペーンの状態が変更されているため取り消せません' }, { status: 409 });
     }
+
+    {
+      const { ip: auditIp, ua } = getRequestContext(req);
+      void writeAuditLog({
+        userId: user.id,
+        action: 'cancel',
+        tableName: 'newsletter_campaigns',
+        recordId: params.id,
+        oldValues: { status: campaign.status },
+        newValues: { status: 'cancelled' },
+        ipAddress: auditIp,
+        userAgent: ua,
+      });
+    }
+
     return NextResponse.json({ campaign: updated[0] });
   }
 
@@ -80,6 +95,23 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     if (!updated || updated.length === 0) {
       return NextResponse.json({ error: 'キャンペーンの状態が変更されているため予約できません' }, { status: 409 });
     }
+
+    {
+      // AuditAction に 'schedule' 相当の値が無いため、状態遷移を表す 'update' で記録する
+      // （cancel は AuditAction に専用値があるため 'cancel' を使う）。
+      const { ip: auditIp, ua } = getRequestContext(req);
+      void writeAuditLog({
+        userId: user.id,
+        action: 'update',
+        tableName: 'newsletter_campaigns',
+        recordId: params.id,
+        oldValues: { status: campaign.status },
+        newValues: { status: 'scheduled' },
+        ipAddress: auditIp,
+        userAgent: ua,
+      });
+    }
+
     return NextResponse.json({ campaign: updated[0] });
   }
 
