@@ -5,7 +5,7 @@
 
 - フロント／API＝Next.js 15（App Router・Route Handler）/ デプロイ＝Vercel（本番 `https://carelink-jp.com`・`www.` はアペックスへ 301）
 - DB／認証＝Supabase（Postgres・Auth・Storage・RLS・RPC）
-- 定期実行＝GitHub Actions cron（`.github/workflows/cron.yml`・13 ジョブ）が `/api/cron/*` を Bearer 認証で叩く。オーナーニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）＝digest エンドポイント・専用ワークフロー・発火監視をすべて削除。配信は管理画面 `/admin/newsletters` からの手動送信のみ
+- 定期実行＝【Render Cron Jobs が実質の本番スケジューラ】（`render.yaml`・16 サービス）。GitHub Actions cron（`.github/workflows/cron.yml`）も残置しているが GitHub の間引きで実質ほぼ発火しない（下記「cron の現状」参照）。いずれも `/api/cron/*` を Bearer 認証で叩く。オーナーニュースレターの自動月次配信は廃止（神原さん確定 2026年7月2日「お知らせがある時のみ」）＝digest エンドポイント・専用ワークフロー・発火監視をすべて削除。配信は管理画面 `/admin/newsletters` からの手動送信のみ
 - 本番 Supabase project ref＝`xzafxiupbflvgbarrihe`（middleware の CSP connect-src に明記）
 
 ## 技術スタック
@@ -83,7 +83,7 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 - cron（`api/cron/`・GitHub Actions から Bearer 認証で起動）：下記スケジュール参照
 - Google 連携：`google-calendar` / Slack：`slack`
 
-## cron スケジュール（`.github/workflows/cron.yml`・UTC 指定／JST 併記）
+## cron スケジュール（SSOT＝`src/lib/cron-jobs.data.json`／`render.yaml` と `.github/workflows/cron.yml` に展開・UTC 指定／JST 併記）
 | path | cron(UTC) | JST |
 |------|-----------|-----|
 | booking-reminder | `0 15 * * *` | 毎日 00:00 |
@@ -103,8 +103,18 @@ Route Handler は原則 `withRoute` で包む。内部で以下を【この順�
 
 オーナーニュースレターの自動月次配信は廃止した（神原さん確定 2026年7月2日「お知らせがある時のみ」）。旧 `/api/cron/newsletter-digest` エンドポイント・専用ワークフロー `newsletter-digest.yml`・発火監視 `monthly-batch-watcher.yml` はすべて削除済み。全店に同一の全プラットフォーム集計（「新規予約 N」等）を一斉配信していた作りを根本から廃止した。ニュースレター配信は管理画面 `/admin/newsletters` で任意の件名・本文を作成し「今すぐ配信」する手動運用のみ（`api/admin/newsletter`・`api/admin/newsletter/[id]` action=send）。台帳テーブル `newsletter_send_log` は孤児化するが、`schema-drift-check` との整合のため DB・マイグレーション・スナップショットは残置（無害）。
 
-### 🔴 cron は現在三重化（GitHub Actions + pg_cron + Render Cron Jobs）＝移行中（2026年7月3日〜）
-public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・機能ごとに独立サービス・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）を新設済み（PR#382・origin/main内）。神原がRender Dashboard→Blueprintでデプロイし各ジョブの成功を確認するまでの間、GitHub Actions cron.yml と（ブリッジとして神原が実行済みの）pg_cron（Supabase側 `cron.job` に `carelink-*` prefixで15ジョブactive）を【あえて残置】（endpoint冪等で三重発火は無害だが無駄）。【Render稼働を実データ(Render UI)で確認できたら】、(1) GitHub Actions cron.yml/health-monitor.yml 廃止 (2) `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` で pg_cron 撤去、の順で一本化する（神原SQL・段階移行で空白を作らない）。新セッションでcronの挙動を調べる時は、まずどのスケジューラが実際に動いているか（Render Dashboard／GitHub Actions run history／`select * from cron.job`）を確認してから議論すること。
+### 🔴 cron の現状＝【Render が実働・GitHub Actions は保険として残置】（2026年7月29日 実データで確定）
+
+【経緯】public repo の GitHub Actions scheduled workflow は GitHub が有料/private を優先し大幅に間引く（実測で cron.yml 最大176分・health-monitor 最大283分の空白）。恒久解として `render.yaml`（Render Cron Jobs・機能ごとに独立サービス16本・SSOTは `src/lib/cron-jobs.data.json`、`src/__tests__/render-yaml-drift.test.ts` がドリフト検知）へ移行した（PR#382）。移行期間中は GitHub Actions + pg_cron + Render の三重化だったが、2026年7月29日に神原が `select cron.unschedule(jobname) from cron.job where jobname like 'carelink-%';` を実行し【pg_cron を撤去済み（15ジョブ全て解除・戻り値 true を確認）】。
+
+【現在の実態（2026年7月29日 実データで確定）】
+- 実働しているのは【Render のみ】。根拠＝(a) pg_cron 撤去後も cron_logs が正確な間隔で記録され続けている（webhook-retry 15分毎・cron-heartbeat 5分毎・flag-reviews 毎時）、(b) 同時刻に GitHub Actions cron.yml は【11時間42分間まったく発火していなかった】（最終 7月28日 15:59 UTC ／ 確認時 7月29日 03:41 UTC）。この2つから、規則正しい発火は Render 由来と確定できる。
+- GitHub Actions cron.yml / health-monitor.yml は【意図的に残置】。間引かれて不定期にしか動かないが、Render が停止した際の最後の保険になるため、ローンチが安定するまでは外さない（endpoint は冪等なので重複発火は無害）。
+- health-monitor.yml の Render 代替は `carelink-health-check`（`scripts/health-check.mjs`・5分毎）。
+
+【将来 GitHub Actions を撤去する場合の注意】`.github/workflows/cron.yml` を削除すると `src/__tests__/cron-jobs-drift.test.ts`（SSOT ↔ cron.yml の三重管理ドリフト検知）が丸ごと成立しなくなる。同テストの削除または render.yaml 基準への作り替えをセットで行うこと。ドリフト検知自体は `render-yaml-drift.test.ts` が引き継げる。
+
+【調査時の鉄則】新セッションで cron の挙動を調べる時は、まずどのスケジューラが実際に動いているかを実データで確認してから議論すること（Render Dashboard／`gh run list --workflow=cron.yml`／`select * from cron.job`／`cron_logs` の実記録）。なお `cron_logs` の `status='skipped'` は「処理対象0件＝正常」であり失敗ではない（集計時に error と混同しないこと）。
 
 ## DB スキーマ（主要テーブル・`src/lib/schema-snapshot.json` が正・全 104 テーブル）
 - 予約：`bookings` `booking_menus` `booking_waitlist` `booking_calendar_events` `facility_daily_capacity` `facility_booking_suspensions`
