@@ -44,6 +44,15 @@ export default function PrivacyPage() {
         </section>
 
         <section className="mb-8">
+          <h2 className="text-xl font-bold mb-4">第2条の2（要配慮個人情報について）</h2>
+          <p className="text-gray-600">
+            当事業者は現在、症状・既往歴・服薬状況など健康に関する情報（個人情報保護法上の「要配慮個人情報」）を
+            取得していません。将来これらを取得する機能を提供する場合は、あらかじめ本ポリシーを改定し、
+            取得の目的・範囲・ご本人の同意方法を明示します。
+          </p>
+        </section>
+
+        <section className="mb-8">
           <h2 className="text-xl font-bold mb-4">第3条（利用目的）</h2>
           <p className="text-gray-600 mb-2">取得した個人情報は、以下の目的で利用します。</p>
           <ul className="list-disc pl-6 text-gray-600 space-y-1">
@@ -72,7 +81,9 @@ export default function PrivacyPage() {
             <li>Vercel Inc.（米国）：Webホスティングの提供</li>
             <li>Google LLC（米国）：アクセス解析（Google Analytics 4）および認証連携</li>
             <li>Microsoft Corporation（米国）：ユーザー行動分析（Microsoft Clarity）</li>
-            <li>LINEヤフー株式会社（日本）：認証連携</li>
+            <li>LINEヤフー株式会社（日本）：認証連携およびメッセージ配信</li>
+            <li>Resend, Inc.（米国）：メール配信（予約確認・リマインド・お問い合わせ返信等。宛先メールアドレス・氏名・予約内容を含みます）</li>
+            <li>Anthropic PBC（米国）：AI機能（チャットサポート・症状の絞り込み提案・口コミ要約）。利用者が入力した文章および公開済みの口コミ本文を送信します</li>
           </ul>
           <p className="text-gray-600 mt-2 text-sm">
             外国にある第三者への個人データの提供にあたっては、個人情報保護法第28条に基づき、移転先国の個人情報保護制度および当該事業者が講じる安全管理措置を確認のうえ提供しています。各国制度の詳細は、個人情報保護委員会ウェブサイトをご参照ください。
@@ -103,7 +114,7 @@ export default function PrivacyPage() {
         </section>
 
         <section className="mb-8">
-          <h2 className="text-xl font-bold mb-4">第7条（Cookie・分析ツールの使用）</h2>
+          <h2 className="text-xl font-bold mb-4">第8条（Cookie・分析ツールの使用）</h2>
           <p className="text-gray-600 mb-2">
             本サービスでは、利便性向上およびアクセス解析のため、以下のツールを使用しています。
           </p>
