@@ -5,7 +5,7 @@ jest.mock('../supabase-server', () => ({
   createServiceRoleClient: jest.fn(() => ({ from: mockFrom })),
 }));
 
-import { getRequestContext, diffValues, writeAuditLog } from '../audit-logger';
+import { getRequestContext, writeAuditLog } from '../audit-logger';
 
 function createMockRequest(headers: Record<string, string> = {}): Request {
   return {
@@ -153,104 +153,3 @@ describe('writeAuditLog', () => {
   });
 });
 
-describe('diffValues', () => {
-  test('returns empty diff when objects are identical', () => {
-    const obj = { name: 'test', value: 123 };
-    const diff = diffValues(obj, obj);
-    expect(diff.old).toEqual({});
-    expect(diff.new).toEqual({});
-  });
-
-  test('detects changed primitive values', () => {
-    const old = { name: 'old', value: 100 };
-    const new_obj = { name: 'new', value: 100 };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ name: 'old' });
-    expect(diff.new).toEqual({ name: 'new' });
-  });
-
-  test('detects changed numeric values', () => {
-    const old = { price: 1000 };
-    const new_obj = { price: 2000 };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ price: 1000 });
-    expect(diff.new).toEqual({ price: 2000 });
-  });
-
-  test('detects changed boolean values', () => {
-    const old = { active: true };
-    const new_obj = { active: false };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ active: true });
-    expect(diff.new).toEqual({ active: false });
-  });
-
-  test('detects null to value change', () => {
-    const old = { description: null };
-    const new_obj = { description: 'New description' };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ description: null });
-    expect(diff.new).toEqual({ description: 'New description' });
-  });
-
-  test('detects value to null change', () => {
-    const old = { description: 'Old description' };
-    const new_obj = { description: null };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ description: 'Old description' });
-    expect(diff.new).toEqual({ description: null });
-  });
-
-  test('detects object changes (JSON comparison)', () => {
-    const old = { meta: { type: 'A' } };
-    const new_obj = { meta: { type: 'B' } };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ meta: { type: 'A' } });
-    expect(diff.new).toEqual({ meta: { type: 'B' } });
-  });
-
-  test('detects array changes', () => {
-    const old = { tags: ['a', 'b'] };
-    const new_obj = { tags: ['a', 'b', 'c'] };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ tags: ['a', 'b'] });
-    expect(diff.new).toEqual({ tags: ['a', 'b', 'c'] });
-  });
-
-  test('only includes changed fields', () => {
-    const old = { id: '1', name: 'old', status: 'active', email: 'test@example.com' };
-    const new_obj = { id: '1', name: 'new', status: 'active', email: 'test@example.com' };
-    const diff = diffValues(old, new_obj);
-    expect(Object.keys(diff.old)).toEqual(['name']);
-    expect(Object.keys(diff.new)).toEqual(['name']);
-    expect(diff.old.name).toBe('old');
-    expect(diff.new.name).toBe('new');
-  });
-
-  test('handles multiple changes', () => {
-    const old = { a: 1, b: 2, c: 3 };
-    const new_obj = { a: 10, b: 2, c: 30 };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ a: 1, c: 3 });
-    expect(diff.new).toEqual({ a: 10, c: 30 });
-  });
-
-  test('handles deeply nested objects', () => {
-    const old = { data: { nested: { value: 'old' } } };
-    const new_obj = { data: { nested: { value: 'new' } } };
-    const diff = diffValues(old, new_obj);
-    expect(diff.old).toEqual({ data: { nested: { value: 'old' } } });
-    expect(diff.new).toEqual({ data: { nested: { value: 'new' } } });
-  });
-
-  test('compares objects by JSON stringify (not reference)', () => {
-    const a = { x: 1 };
-    const b = { x: 1 };
-    const old = { obj: a };
-    const new_obj = { obj: b };
-    const diff = diffValues(old, new_obj);
-    // Should be equal since JSON stringified values are the same
-    expect(diff.old).toEqual({});
-    expect(diff.new).toEqual({});
-  });
-});

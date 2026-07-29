@@ -131,6 +131,15 @@ test('POST: 未認証 → 401', async () => {
   expect(res.status).toBe(401);
 });
 
+// 【2026年7月29日】認証チェックを zod バリデーションより先に実行する回帰防止。
+// body が不正（title欠落）でも、未認証なら zod の issues に触れず 401 を返すことを固定する
+// （順序が逆に戻ると、未認証のまま bodyの入力仕様の詳細まで得られる 400 に化ける）。
+test('POST: 未認証 + 不正なbody(title欠落) → 400ではなく401（認証がzodより先）', async () => {
+  mockGetUser.mockResolvedValue({ data: { user: null } });
+  const res = await POST(makePostRequest({ ...validJob(), title: undefined }));
+  expect(res.status).toBe(401);
+});
+
 test('POST: レートリミット → 429', async () => {
   (checkRateLimit as jest.Mock).mockResolvedValue(true);
   const res = await POST(makePostRequest(validJob()));

@@ -65,15 +65,19 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: '短時間に多くのリクエストがありました' }, { status: 429 });
     }
 
+    // 【2026年7月29日・恒久根治】CSRF/レートリミットの後、認証確認より先に zod バリデーションを
+    // 実行していたため、未認証のリクエストでも「入力値が不正です」+ issues（バリデーションルールの
+    // 詳細）を得られてしまっていた（withRoute 標準順序＝CSRF→RateLimit→認証→zod に反する）。
+    // 認証・権限チェックを zod より前に移動し、未認証者はバリデーション結果に触れずに 401 で弾く。
+    const { user, facilityIds } = await getOwnerFacilityIds();
+    if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
+    if (facilityIds.length === 0) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
+
     const body = await request.json().catch(() => null);
     const parsed = jobFormSchema.safeParse(body);
     if (!parsed.success) {
       return NextResponse.json({ error: '入力値が不正です', issues: parsed.error.issues }, { status: 400 });
     }
-
-    const { user, facilityIds } = await getOwnerFacilityIds();
-    if (!user) return NextResponse.json({ error: '認証が必要です' }, { status: 401 });
-    if (facilityIds.length === 0) return NextResponse.json({ error: '権限がありません' }, { status: 403 });
 
     // 投稿先施設を決定。複数施設の owner/admin の場合に facilityIds[0]（DB 返却順依存・非決定的）へ
     // 黙って書くと意図しない施設に求人が作られるため、リクエストの facility_id を所有施設集合で検証して使う。

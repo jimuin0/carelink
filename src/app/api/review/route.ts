@@ -90,6 +90,23 @@ export async function POST(request: Request) {
 
   const { data: { user } } = await authClient.auth.getUser();
 
+  // 【2026年7月29日・恒久根治】reviewer_name は body の自由入力文字列をそのまま保存しており、
+  // ログイン済みユーザーでも実在の他人の氏名を名乗って投稿できた（他人名義投稿・なりすまし）。
+  // 未ログイン投稿は仕様上の匿名口コミのため自由入力のまま維持しつつ、ログイン済みユーザーは
+  // 本人の profiles.display_name（設定済みの場合）を優先し、クライアント送信値を無視する。
+  // display_name 未設定ユーザーは元々名乗る本名を持たない状態のため、従来通り自由入力を許容する。
+  let effectiveReviewerName = parsed.data.reviewer_name;
+  if (user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('display_name')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (profile?.display_name) {
+      effectiveReviewerName = profile.display_name;
+    }
+  }
+
   // 24h内に同一施設への投稿チェック。
   // facility_reviews に user_id 列は存在しない（設計上一度も追加されていない）ため、
   // ログイン有無を問わず reviewer_ip で判定する（reviewer_ip は投稿時に常に保存される）。
@@ -134,7 +151,7 @@ export async function POST(request: Request) {
     .from('facility_reviews')
     .insert({
       facility_id: parsed.data.facility_id,
-      reviewer_name: parsed.data.reviewer_name,
+      reviewer_name: effectiveReviewerName,
       rating: avg,
       rating_skill: parsed.data.rating_skill,
       rating_service: parsed.data.rating_service,
@@ -240,7 +257,7 @@ export async function POST(request: Request) {
       reviewSideEffects.push(
         sendPushToFacilityOwners(parsed.data.facility_id, {
           title: '新しい口コミが投稿されました',
-          body: `${parsed.data.reviewer_name}様より★${avg}の口コミが届きました`,
+          body: `${effectiveReviewerName}様より★${avg}の口コミが届きました`,
           url: '/admin/reviews',
           tag: `review-${review.id}`,
         }).catch((e) => {
@@ -274,7 +291,7 @@ export async function POST(request: Request) {
             sendNewReviewNotification({
               facilityEmail,
               facilityName: facilityRow?.name ?? '',
-              reviewerName: parsed.data.reviewer_name,
+              reviewerName: effectiveReviewerName,
               rating: avg,
               comment: parsed.data.comment,
             }).then((ok) => {
