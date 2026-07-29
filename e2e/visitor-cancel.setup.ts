@@ -30,7 +30,7 @@ setup('provision visitor and a cancelable booking', async ({ page }) => {
 
   // 公開施設（予約のひも付け先）
   const { data: fac, error: fe } = await sb.from('facility_profiles').insert({
-    name: `E2E来院者店舗_${ts}`, slug: `e2e-visitor-${ts}`, business_type: 'hair_salon',
+    name: `E2E来院者店舗_${ts}`, slug: `e2e-visitor-${ts}`, business_type: 'ヘアサロン',
     prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
   }).select('id').single();
   if (fe) throw new Error('seed facility: ' + fe.message);

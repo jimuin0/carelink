@@ -25,7 +25,7 @@ setup('provision visitor and a published facility', async ({ page }) => {
 
   // 公開施設（お気に入り対象。/api/favorites は status='published' のみ受理）
   const { error: fe } = await sb.from('facility_profiles').insert({
-    name: `E2Eお気に入り店舗_${ts}`, slug, business_type: 'hair_salon',
+    name: `E2Eお気に入り店舗_${ts}`, slug, business_type: 'ヘアサロン',
     prefecture: '東京都', city: 'テスト市', address: 'テスト1-1-1', status: 'published',
   });
   if (fe) throw new Error('seed facility: ' + fe.message);
