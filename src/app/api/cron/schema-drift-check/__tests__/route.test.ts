@@ -286,6 +286,23 @@ describe('business_type の値ドリフト監視', () => {
     expect(json.businessTypeDrift).toEqual([]);
   });
 
+  // fetchAllPaged が maxRows(既定100000) 上限で打ち切られた場合。ページが常に満杯(pageSize=1000)
+  // であり続けるモックで100回転させ、truncated=true を発生させる。
+  test('facility_profiles が maxRows 上限で打ち切られた場合、打ち切り自体を警報する', async () => {
+    (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
+    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    const fullPage = Array.from({ length: 1000 }, () => ({ business_type: 'ヘアサロン' }));
+    mockBusinessTypeSelect.mockImplementation(() => Promise.resolve({ data: fullPage, error: null }));
+
+    const res = await GET(req());
+
+    expect(res.status).toBe(200);
+    expect(alertWarning).toHaveBeenCalledWith(
+      expect.stringContaining('maxRows 上限で打ち切られた'),
+      expect.anything(),
+    );
+  });
+
   // 監視自体が壊れても cron 本体は止めない（列・制約の監視は継続させる）。
   test('取得失敗時は警告を出しつつ本体は success を返す', async () => {
     (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
