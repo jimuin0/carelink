@@ -10,6 +10,7 @@ import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import Modal from '@/components/Modal';
 import LoadError from '@/components/admin/LoadError';
+import { isLineEnabled } from '@/lib/line-availability';
 import PageLoading from '@/components/PageLoading';
 import { useUnsavedGuard } from '@/hooks/useUnsavedGuard';
 
@@ -257,7 +258,10 @@ export default function ProfileEditPage() {
         </form>
       </div>
 
-      {/* LINE連携 */}
+      {/* LINE連携。ローンチ段階では LINE を設定しない方針のため、LIFF 未設定なら丸ごと出さない
+          （設定すれば自動で復活する。判定理由は lib/line-availability.ts）。
+          既に連携済みの人には必ず出す：解除手段を失って連携が外せなくなるのを防ぐ。 */}
+      {(isLineEnabled() || lineLinked) && (
       <div className="bg-white rounded-2xl shadow-lg p-6 sm:p-8">
         <h2 className="text-lg font-bold text-gray-800 mb-4">LINE連携</h2>
         {lineLinked ? (
@@ -295,6 +299,7 @@ export default function ProfileEditPage() {
           </div>
         )}
       </div>
+      )}
 
       {/* メール配信設定（v8.17。2026年7月6日: 予約確認・リマインドは取引メールのため常時送信に
           固定し、配信停止設定の対象はお知らせメール（クーポン等のマーケティング系）のみである

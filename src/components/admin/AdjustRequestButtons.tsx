@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { isLineEnabled } from '@/lib/line-availability';
 
 /**
  * 予約時間調整のお願い 送信ボタン（SB 予約詳細用）
@@ -39,8 +40,14 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
   return (
     <div className="bg-white rounded-xl shadow-sm p-6 mt-6">
       <h2 className="text-sm font-bold text-gray-800 mb-1">時間調整のお願い</h2>
+      {/* LINE 送信は、顧客側に LINE 連携の導線が無ければ有料オプションを買っても届かない。
+          ローンチ段階では LINE を設定しない方針のため、LIFF 未設定の間はボタンごと出さず、
+          説明文も無料のメール送信だけの内容にする（設定すれば自動で戻る。
+          判定理由は lib/line-availability.ts）。サーバ側の権利チェックは変更しない。 */}
       <p className="text-xs text-gray-500 mb-4">
-        ご予約時間の調整をお客様に依頼します。メール送信は無料、LINE送信は有料オプションです。
+        {isLineEnabled()
+          ? 'ご予約時間の調整をお客様に依頼します。メール送信は無料、LINE送信は有料オプションです。'
+          : 'ご予約時間の調整をお客様にメールで依頼します。送信は無料です。'}
       </p>
       <div className="flex gap-3">
         <button
@@ -51,14 +58,16 @@ export default function AdjustRequestButtons({ bookingId, status }: { bookingId:
         >
           {sending === 'email' ? '送信中...' : 'メールで送る（無料）'}
         </button>
-        <button
-          type="button"
-          onClick={() => send('line')}
-          disabled={sending !== null}
-          className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
-        >
-          {sending === 'line' ? '送信中...' : 'LINEで送る（有料）'}
-        </button>
+        {isLineEnabled() && (
+          <button
+            type="button"
+            onClick={() => send('line')}
+            disabled={sending !== null}
+            className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-sm transition-colors disabled:opacity-50"
+          >
+            {sending === 'line' ? '送信中...' : 'LINEで送る（有料）'}
+          </button>
+        )}
       </div>
       {result && (
         <p role="alert" className={`text-xs mt-3 ${result.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>

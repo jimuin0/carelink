@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import Toast from '@/components/Toast';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import { isLineEnabled } from '@/lib/line-availability';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -149,7 +150,10 @@ function SettingsContent() {
         )}
       </div>
 
-      {/* LINE連携 */}
+      {/* LINE連携。ローンチ段階では LINE を設定しない方針のため、LIFF 未設定なら丸ごと出さない
+          （設定すれば自動で復活する。判定理由は lib/line-availability.ts）。
+          既に連携済みの人には必ず出す：解除手段を失って連携が外せなくなるのを防ぐ。 */}
+      {(isLineEnabled() || lineLinked) && (
       <div className="bg-white rounded-2xl shadow-sm p-6">
         <h2 className="font-semibold text-gray-900 mb-1">LINE連携</h2>
         <p className="text-sm text-gray-500 mb-4">
@@ -182,6 +186,7 @@ function SettingsContent() {
           </p>
         )}
       </div>
+      )}
 
       {/* Notifications */}
       <div className="bg-white rounded-2xl shadow-sm p-6">

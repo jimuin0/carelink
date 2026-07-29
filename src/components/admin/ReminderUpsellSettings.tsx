@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import Toggle from '@/components/admin/Toggle';
+import { isLineEnabled } from '@/lib/line-availability';
 
 /**
  * リマインダー設定＋有料オプション（アップセル）セクション
@@ -41,12 +42,21 @@ const DEFAULT_SETTINGS: ReminderSettings = {
 };
 
 /** 設定行の定義: どのトグルがどのオプション購入を必要とするか */
-const ROWS: { key: keyof ReminderSettings; label: string; requires: string | null }[] = [
+const ALL_ROWS: { key: keyof ReminderSettings; label: string; requires: string | null }[] = [
   { key: 'remind_7d_email', label: '7日前リマインドメール', requires: null }, // 無料
   { key: 'remind_3d_email', label: '3日前リマインドメール', requires: 'reminder_email_3d' },
   { key: 'remind_7d_line', label: '7日前リマインドLINE', requires: 'reminder_line' },
   { key: 'remind_3d_line', label: '3日前リマインドLINE', requires: 'reminder_line' },
 ];
+
+/**
+ * LINE リマインドは、施設が課金しても顧客側に LINE 連携の導線が無ければ一通も届かない。
+ * ローンチ段階では LINE を設定しない方針のため、LIFF 未設定の間は行ごと出さない
+ * （設定すれば自動で戻る。判定理由は lib/line-availability.ts）。
+ * DB 列・cron 側の分岐は触らない：表示だけを実態に合わせ、後で有効化したときに
+ * 保存済みの設定がそのまま生きるようにする。
+ */
+const ROWS = ALL_ROWS.filter((r) => isLineEnabled() || !r.key.endsWith('_line'));
 
 export default function ReminderUpsellSettings({ facilityId }: { facilityId: string }) {
   const [settings, setSettings] = useState<ReminderSettings>(DEFAULT_SETTINGS);
