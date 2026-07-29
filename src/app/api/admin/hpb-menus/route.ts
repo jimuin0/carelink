@@ -13,6 +13,7 @@ import {
   updateHpbMenuOverride,
   type HpbMenuOverridePatch,
 } from '@/lib/hpb-menu';
+import { writeAuditLog } from '@/lib/audit-logger';
 
 // HPB 店舗ID(slnID)は英数字のみ(例 H000537368)。空文字は「未設定に戻す」。
 const slnSchema = z.object({
@@ -35,8 +36,8 @@ const overrideSchema = z.object({
 export const maxDuration = 60;
 export const dynamic = 'force-dynamic';
 
-/** 認可: ログインユーザーが facility_id の owner/admin か検証。可なら facilityId を返す。 */
-async function getAdminFacilityId(request: NextRequest): Promise<string | null> {
+/** 認可: ログインユーザーが facility_id の owner/admin か検証。可なら userId/facilityId を返す。 */
+async function getAdminFacilityId(request: NextRequest): Promise<{ userId: string; facilityId: string } | null> {
   const supabase = await createServerSupabaseAuthClient();
   const {
     data: { user },
@@ -54,7 +55,7 @@ async function getAdminFacilityId(request: NextRequest): Promise<string | null> 
     .in('role', ['owner', 'admin'])
     .single();
 
-  return data?.facility_id ?? null;
+  return data?.facility_id ? { userId: user.id, facilityId: data.facility_id } : null;
 }
 
 /** GET: facility の HPB メニュー一覧(手直し列含む)。 */
@@ -63,11 +64,11 @@ export async function GET(request: NextRequest) {
   if (await checkRateLimit(null, ip, 30, 60_000, 'hpb-menus-get')) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityId(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
-  const menus = await listHpbMenus(admin, facilityId);
+  const menus = await listHpbMenus(admin, auth.facilityId);
   if (menus === null) {
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
@@ -84,17 +85,29 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityId(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const admin = createServiceRoleClient();
-  const result = await scrapeAndSaveFacility(admin, facilityId);
+  const result = await scrapeAndSaveFacility(admin, auth.facilityId);
   if (!result.slnId) {
     return NextResponse.json(
       { error: 'この施設の HPB 店舗ID(hpb_sln_id)が未設定です。設定画面で登録してください。' },
       { status: 400 },
     );
   }
+
+  // HPB から取得したメニュー情報を hpb_menu_durations へ一括保存する重要操作のため監査ログに残す
+  // （apply/route.ts の facility_menus 反映と同型・fire-and-forget）。
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'hpb_menu_durations',
+    newValues: { sln_id: result.slnId, fetched: result.fetched, saved: result.ok, skipped: result.skipped, failed: result.failed },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({
     sln_id: result.slnId,
     fetched: result.fetched,
@@ -114,8 +127,8 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityId(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = slnSchema.safeParse(body);
@@ -125,8 +138,18 @@ export async function PUT(request: NextRequest) {
 
   const slnId = parsed.data.hpb_sln_id ? parsed.data.hpb_sln_id : null;
   const admin = createServiceRoleClient();
-  const ok = await setFacilitySlnId(admin, facilityId, slnId);
+  const ok = await setFacilitySlnId(admin, auth.facilityId, slnId);
   if (!ok) return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'facility_profiles',
+    newValues: { hpb_sln_id: slnId },
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ hpb_sln_id: slnId });
 }
 
@@ -140,8 +163,8 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'リクエストが多すぎます' }, { status: 429 });
   }
 
-  const facilityId = await getAdminFacilityId(request);
-  if (!facilityId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const auth = await getAdminFacilityId(request);
+  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await request.json().catch(() => null);
   const parsed = overrideSchema.safeParse(body);
@@ -161,12 +184,23 @@ export async function PATCH(request: NextRequest) {
   }
 
   const admin = createServiceRoleClient();
-  const result = await updateHpbMenuOverride(admin, facilityId, ref_id, patch);
+  const result = await updateHpbMenuOverride(admin, auth.facilityId, ref_id, patch);
   if (result.notFound) {
     return NextResponse.json({ error: 'メニューが見つかりません' }, { status: 404 });
   }
   if (!result.ok) {
     return NextResponse.json({ error: 'サーバーエラーが発生しました' }, { status: 500 });
   }
+
+  void writeAuditLog({
+    userId: auth.userId,
+    facilityId: auth.facilityId,
+    action: 'update',
+    tableName: 'hpb_menu_durations',
+    recordId: ref_id,
+    newValues: patch as unknown as Record<string, unknown>,
+    ipAddress: ip,
+  });
+
   return NextResponse.json({ ok: true });
 }
