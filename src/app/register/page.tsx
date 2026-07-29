@@ -46,6 +46,10 @@ export default function RegisterPage() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  // 【2026年7月29日】許認可・届出の表明保証（利用規約 第12条）。規約への一括同意とは別建てにする。
+  // 一括同意に埋めると「読んでいない・気づいていない」の余地が残り、責任分界の証跡として弱い。
+  // 独立したチェックにすることで、掲載者が届出義務を認識した上で登録した事実を明確に残す。
+  const [licenseWarranted, setLicenseWarranted] = useState(false);
 
   const { register, handleSubmit, trigger, setValue, watch, formState: { errors } } = useForm<SalonFormValues>({
     resolver: zodResolver(salonFullSchema),
@@ -374,6 +378,18 @@ export default function RegisterPage() {
               <label className="flex items-start gap-2 text-sm text-gray-600">
                 <input
                   type="checkbox"
+                  checked={licenseWarranted}
+                  onChange={(e) => setLicenseWarranted(e.target.checked)}
+                  className="mt-0.5 rounded border-gray-300"
+                />
+                <span>
+                  当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）を
+                  すべて完了しており、施術は必要な資格を有する者が提供することを表明します（必須）
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
                   checked={agreed}
                   onChange={(e) => setAgreed(e.target.checked)}
                   className="mt-0.5 rounded border-gray-300"
@@ -387,7 +403,7 @@ export default function RegisterPage() {
               </label>
               <div className="flex gap-4">
                 <button type="button" onClick={() => setStep(2)} className="btn-outline flex-1">戻る</button>
-                <button type="submit" disabled={submitting || !agreed} className="btn-primary flex-1 !py-3">
+                <button type="submit" disabled={submitting || !agreed || !licenseWarranted} className="btn-primary flex-1 !py-3">
                   {submitting ? <span className="flex items-center justify-center gap-2"><Spinner />送信中...</span> : '登録する'}
                 </button>
               </div>

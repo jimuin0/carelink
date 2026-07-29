@@ -17,6 +17,10 @@ function OnboardingContent() {
   const [facilityNameInput, setFacilityNameInput] = useState('');
   const [businessTypeInput, setBusinessTypeInput] = useState('');
   const [formError, setFormError] = useState('');
+  // 【2026年7月29日】許認可・届出の表明保証（利用規約 第12条）。
+  // /register を経由せず直接ここへ到達して施設を作れるため、/register と同じ表明をここでも取る
+  // （片方だけに置くと、表明のない施設が作れる抜け道が残る）。
+  const [licenseWarranted, setLicenseWarranted] = useState(false);
 
   useEffect(() => {
     const setup = async () => {
@@ -108,6 +112,10 @@ function OnboardingContent() {
       setFormError('業態を選択してください');
       return;
     }
+    if (!licenseWarranted) {
+      setFormError('許認可・届出に関する表明にチェックしてください');
+      return;
+    }
     setFormError('');
     setStatus('creating');
 
@@ -175,6 +183,18 @@ function OnboardingContent() {
               ))}
             </select>
           </div>
+          <label className="flex items-start gap-2 text-sm text-gray-600">
+            <input
+              type="checkbox"
+              checked={licenseWarranted}
+              onChange={(e) => setLicenseWarranted(e.target.checked)}
+              className="mt-0.5 rounded border-gray-300"
+            />
+            <span>
+              当施設の運営に法令上必要な許可・免許・届出（美容所開設届、施術所開設届、診療所開設届等）を
+              すべて完了しており、施術は必要な資格を有する者が提供することを表明します（必須）
+            </span>
+          </label>
           {formError && <p role="alert" className="text-sm text-red-600">{formError}</p>}
           <button type="button" onClick={handleFormSubmit} className="btn-primary w-full !py-3">
             施設を作成する
