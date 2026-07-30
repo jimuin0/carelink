@@ -82,8 +82,32 @@ export default async function AreaRankingPage(props: Props) {
             ))}
           </div>
         ) : (
+          /* 【2026年7月30日 是正】全国版 /ranking と同じく、口コミが集まるまで必ず空になる。
+             1行で終わると次に取れる行動が無い行き止まりになるため、そのエリアの施設一覧へ逃がす。 */
           <div className="bg-white rounded-2xl p-8 text-center">
-            <p className="text-gray-400">このエリアにランキングデータがありません</p>
+            <p className="text-gray-700 font-bold mb-1">
+              {area}はまだランキングを出せる口コミが集まっていません
+            </p>
+            <p className="text-gray-500 text-sm mb-6">
+              ランキングは実際に投稿された口コミの評価だけで作成しています。集まり次第ここに掲載します。
+            </p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <Link
+                /* /search が都道府県の絞り込みに読むクエリ名は `area`（page.tsx が
+                   searchParams.area を params.prefecture へ写している）。`prefecture=` で
+                   渡すと無視され、絞り込みなしの全件が出てしまうため誤らないこと。 */
+                href={`/search?area=${encodeURIComponent(area)}`}
+                className="px-5 py-2.5 bg-sky-700 text-white rounded-lg text-sm font-bold hover:bg-sky-800 transition-colors"
+              >
+                {area}の施設を見る
+              </Link>
+              <Link
+                href="/ranking"
+                className="px-5 py-2.5 bg-white border border-gray-200 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 transition-colors"
+              >
+                全国のランキングを見る
+              </Link>
+            </div>
           </div>
         )}
       </div>

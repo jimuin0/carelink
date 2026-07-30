@@ -6,6 +6,7 @@ import { checkCsrf } from '@/lib/csrf';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import crypto from 'crypto';
+import { isGoogleCalendarEnabled } from '@/lib/integration-availability';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -29,10 +30,14 @@ export async function GET(req: NextRequest) {
     .eq('user_id', user.id)
     .single();
 
-  if (!token) return NextResponse.json({ connected: false });
+  // 【2026年7月30日】GOOGLE_CLIENT_ID / SECRET が未設定だと OAuth が成立せず連携できない。
+  // 本番は両方とも未設定のまま、マイページに「Googleカレンダーと連携する」ボタンが出ていた。
+  // 表示側が設定を知る手段が無かったため、状態と一緒に返す（判定理由は lib/integration-availability.ts）。
+  const enabled = isGoogleCalendarEnabled();
+  if (!token) return NextResponse.json({ enabled, connected: false });
 
   const isExpired = new Date(token.expires_at) < new Date();
-  return NextResponse.json({ connected: true, isExpired, updatedAt: token.updated_at });
+  return NextResponse.json({ enabled, connected: true, isExpired, updatedAt: token.updated_at });
 }
 
 // POST /api/google-calendar — generate OAuth URL

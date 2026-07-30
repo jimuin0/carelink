@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import HomeSearchForm from '@/components/search/HomeSearchForm';
+import { isAiEnabled } from '@/lib/integration-availability';
 import { HomeBelowFold, StickySignupCta } from '@/components/home/DynamicHomeSections';
 import { getAvailableAreasAndTypes } from '@/lib/facilities';
 
@@ -30,6 +31,8 @@ export const revalidate = 3600;
 
 export default async function Home() {
   const { areas: availableAreas } = await getAvailableAreasAndTypes();
+  // AI 機能の鍵が入っていない間は AI 導線を出さない（押した先が 500 になるため）。
+  const aiEnabled = isAiEnabled();
 
   return (
     <div className="min-h-screen bg-white">
@@ -96,16 +99,19 @@ export default async function Home() {
               </p>
             )}
 
-            {/* AI症状チェッカー */}
-            <div className="mt-4">
-              <Link
-                href="/symptoms"
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/30 rounded-full text-white text-xs font-medium transition-all"
-              >
-                <span>🔍</span>
-                症状から施設を探す（AI）
-              </Link>
-            </div>
+            {/* AI症状チェッカー。ANTHROPIC_API_KEY 未設定の間は導線ごと出さない
+                （出すと客が押した先で 500 になる。判定理由は lib/integration-availability.ts）。 */}
+            {aiEnabled && (
+              <div className="mt-4">
+                <Link
+                  href="/symptoms"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 bg-white/15 hover:bg-white/25 border border-white/30 rounded-full text-white text-xs font-medium transition-all"
+                >
+                  <span>🔍</span>
+                  症状から施設を探す（AI）
+                </Link>
+              </div>
+            )}
 
             {/* ★施策1: ヒーロー内登録リンク */}
             <div className="mt-3">

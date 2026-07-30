@@ -5,6 +5,7 @@ import { GoogleAnalytics } from "@next/third-parties/google";
 import { headers } from "next/headers";
 import { SITE_URL } from "@/lib/constants";
 import LayoutSwitch from "@/components/LayoutSwitch";
+import { isAiEnabled } from "@/lib/integration-availability";
 import { Analytics, SpeedInsights, CookieConsent } from "@/components/DynamicRootComponents";
 import { safeJsonLd } from "@/lib/json-ld";
 
@@ -163,7 +164,7 @@ export default async function RootLayout({
             ]),
           }}
         />
-        <LayoutSwitch>{children}</LayoutSwitch>
+        <LayoutSwitch aiEnabled={isAiEnabled()}>{children}</LayoutSwitch>
         <CookieConsent />
         {/* External scripts: no inline body → compatible with CSP strict-dynamic */}
         <Script src="/sw-register.js" strategy="lazyOnload" />

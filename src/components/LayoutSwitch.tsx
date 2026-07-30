@@ -11,7 +11,12 @@ import { isValidPrefectureSlug } from '@/lib/seo-constants';
 const MobileBottomNav = dynamic(() => import('@/components/search/MobileBottomNav'), { ssr: false });
 const AiChatbot = dynamic(() => import('@/components/AiChatbot'), { ssr: false });
 
-export default function LayoutSwitch({ children }: { children: React.ReactNode }) {
+/**
+ * @param aiEnabled ANTHROPIC_API_KEY が設定されているか。サーバ（layout.tsx）で評価して渡す。
+ *   未設定のまま AI チャットボットを出すと、客が開いて 503（AIサービスに接続できませんでした）を
+ *   踏む。実際に本番でその状態だった（2026年7月30日 実測）。判定理由は lib/integration-availability.ts。
+ */
+export default function LayoutSwitch({ children, aiEnabled }: { children: React.ReactNode; aiEnabled: boolean }) {
   const pathname = usePathname();
 
   // Admin has its own layout
@@ -33,7 +38,7 @@ export default function LayoutSwitch({ children }: { children: React.ReactNode }
         <main id="main-content" className="flex-1 pb-14 lg:pb-0">{children}</main>
         <SearchFooter />
         <MobileBottomNav />
-        <AiChatbot />
+        {aiEnabled && <AiChatbot />}
       </>
     );
   }

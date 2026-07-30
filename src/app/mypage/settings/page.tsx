@@ -11,7 +11,7 @@ function SettingsContent() {
   const searchParams = useSearchParams();
   const gcalParam = searchParams.get('gcal');
 
-  const [gcal, setGcal] = useState<{ connected: boolean; updatedAt?: string } | null>(null);
+  const [gcal, setGcal] = useState<{ enabled?: boolean; connected: boolean; updatedAt?: string } | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [lineLinked, setLineLinked] = useState<boolean | null>(null);
   const [lineUnlinking, setLineUnlinking] = useState(false);
@@ -106,7 +106,11 @@ function SettingsContent() {
         </div>
       )}
 
-      {/* Google Calendar */}
+      {/* Google Calendar。GOOGLE_CLIENT_ID / SECRET が未設定なら OAuth が成立せず連携できないため
+          セクションごと出さない（設定すれば自動で復活する。判定は API が enabled で返す）。
+          既に連携済みの人には必ず出す：解除手段を失って連携が外せなくなるのを防ぐ。
+          取得失敗（gcalError）時も出す：エラーを隠して「機能が無い」と誤認させない。 */}
+      {(gcal === null || gcal.enabled !== false || gcal.connected || gcalError) && (
       <div className="bg-white rounded-2xl shadow-sm p-6">
         <h2 className="font-semibold text-gray-900 mb-1">Googleカレンダー連携</h2>
         <p className="text-sm text-gray-500 mb-4">
@@ -149,6 +153,7 @@ function SettingsContent() {
           </button>
         )}
       </div>
+      )}
 
       {/* LINE連携。ローンチ段階では LINE を設定しない方針のため、LIFF 未設定なら丸ごと出さない
           （設定すれば自動で復活する。判定理由は lib/line-availability.ts）。
