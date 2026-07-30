@@ -26,6 +26,8 @@ let mockRpc: jest.Mock;
 
 interface MockOpts {
   staffCount?: number;
+  /** facility_profiles.business_hours の戻り。null=未設定（ゲートしない）。 */
+  businessHours?: Record<string, unknown> | null;
   monthSlots?: number;        // 集約 RPC が各日に返す slots 値
   monthData?: unknown;        // 明示指定で monthRows を上書き（null テスト等）
   monthError?: { code?: string } | null;
@@ -39,6 +41,7 @@ function daysInMonth(year: number, month: number): number {
 function setupDefaultMocks(opts: MockOpts = {}) {
   const {
     staffCount = 2,
+    businessHours = null,
     monthSlots = 5,
     monthData,
     monthError = null,
@@ -73,8 +76,21 @@ function setupDefaultMocks(opts: MockOpts = {}) {
   });
 
   const { createServerSupabaseClient } = require('@/lib/supabase-server');
+  // facility_profiles（business_hours 取得）と staff_profiles で chain の形が違うため
+  // テーブル名で出し分ける。単一の from を返すと business_hours 取得が壊れ、
+  // ルート全体が catch されて 500 になる（休業日判定の追加で必要になった）。
   createServerSupabaseClient.mockReturnValue({
-    from: jest.fn().mockReturnValue({ select: mockStaffSelect }),
+    from: jest.fn((table: string) =>
+      table === 'facility_profiles'
+        ? {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: { business_hours: businessHours } }),
+              }),
+            }),
+          }
+        : { select: mockStaffSelect },
+    ),
     rpc: mockRpc,
   });
 }
@@ -181,7 +197,7 @@ describe('GET /api/availability', () => {
     expect(mockRpc).not.toHaveBeenCalled();
   });
 
-  test('past dates marked as full（過去月）', async () => {
+  test("past dates marked as 'past'（過去日は満席ではない）", async () => {
     const res = await GET(makeRequest(VALID_UUID, undefined, 2026, 5) as any);
     const json = await res.json();
     const todayMidnight = new Date();
@@ -189,9 +205,70 @@ describe('GET /api/availability', () => {
     Object.entries(json.dates).forEach(([date, info]: [string, any]) => {
       const dateObj = new Date(date + 'T00:00:00+09:00');
       if (dateObj < todayMidnight) {
-        expect(info.status).toBe('full');
+        expect(info.status).toBe('past');
         expect(info.slots).toBe(0);
       }
+    });
+  });
+
+  /**
+   * 【2026年7月30日 追加・休業日と満席の区別】
+   * 本番実測で、定休日（訪問専門 神原鍼灸院の木曜）の施設ページに赤字点滅で「本日満枠」と
+   * 出ていた。0 枠を一律 full にしていたため、休んでいる日が「人気で埋まっている」と読めた。
+   * business_hours の規約は get_available_slots（20260703000004）と同じにする。
+   */
+  describe('休業日（closed）の判定', () => {
+    // 実行時期に依存しないよう、未来の月から「その曜日の最初の日」を計算して使う。
+    // 固定日付を書くと年が変わった瞬間に曜日がずれ、時間経過でテストが壊れる。
+    const YEAR = FUTURE_YEAR, MONTH = 6;
+    const dayOf = (dow: number): string => {
+      for (let d = 1; d <= 28; d++) {
+        const iso = `${YEAR}-06-${String(d).padStart(2, '0')}`;
+        if (new Date(`${iso}T00:00:00Z`).getUTCDay() === dow) return iso;
+      }
+      throw new Error('該当曜日が見つからない');
+    };
+    const THU = dayOf(4), FRI = dayOf(5), SUN = dayOf(0);
+
+    test('曜日キーが存在して null → その曜日は closed（満席と区別する）', async () => {
+      setupDefaultMocks({ monthSlots: 0, businessHours: { thu: null, sun: null } });
+      const res = await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any);
+      const json = await res.json();
+      expect(json.dates[THU].status).toBe('closed');
+      expect(json.dates[SUN].status).toBe('closed');
+      expect(json.dates[FRI].status).toBe('full'); // 営業日で空きゼロは full のまま
+    });
+
+    test('営業日は枠があれば closed にならない', async () => {
+      setupDefaultMocks({ monthSlots: 5, businessHours: { thu: null } });
+      const res = await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any);
+      const json = await res.json();
+      expect(json.dates[THU].status).toBe('closed');
+      expect(json.dates[FRI].status).toBe('available');
+    });
+
+    test('business_hours 未設定 → ゲートしない（SQL 側と同じ後方互換）', async () => {
+      setupDefaultMocks({ monthSlots: 0, businessHours: null });
+      const res = await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any);
+      const json = await res.json();
+      expect(Object.values(json.dates).every((d: any) => d.status !== 'closed')).toBe(true);
+    });
+
+    test('曜日キーが無い → その曜日はゲートしない', async () => {
+      setupDefaultMocks({ monthSlots: 0, businessHours: { mon: { open: '09:00', close: '18:00' } } });
+      const res = await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any);
+      const json = await res.json();
+      expect(json.dates[THU].status).toBe('full');
+    });
+
+    test('フォールバック経路でも休業日を closed にする', async () => {
+      setupDefaultMocks({
+        monthError: { code: 'PGRST202' }, staffCount: 1, legacySlotsPerStaff: 0,
+        businessHours: { thu: null },
+      });
+      const res = await GET(makeRequest(VALID_UUID, undefined, YEAR, MONTH) as any);
+      const json = await res.json();
+      expect(json.dates[THU].status).toBe('closed');
     });
   });
 
@@ -291,7 +368,7 @@ describe('GET /api/availability', () => {
     expect(available).toBeDefined();
   });
 
-  test('フォールバック: 全日過去の月 → 過去日を full にする（line 104 / fallback isPast true 分岐）', async () => {
+  test("フォールバック: 全日過去の月 → 過去日を 'past' にする（fallback isPast true 分岐）", async () => {
     setupDefaultMocks({ monthError: { code: 'PGRST202' }, staffCount: 1, legacySlotsPerStaff: 1 });
     // currentYear-1 は検証内（year < currentYear-1 のみ 400）かつ全日が過去 → フォールバックの過去日分岐を通る
     const pastYear = new Date().getFullYear() - 1;
@@ -300,7 +377,7 @@ describe('GET /api/availability', () => {
     const json = await res.json();
     const all = Object.values(json.dates);
     expect(all.length).toBeGreaterThan(0);
-    expect(all.every((d: any) => d.status === 'full' && d.slots === 0)).toBe(true);
+    expect(all.every((d: any) => d.status === 'past' && d.slots === 0)).toBe(true);
     // 全日過去 → futureDates 空 → get_available_slots は呼ばれない
     expect(mockRpc.mock.calls.some((c) => c[0] === 'get_available_slots')).toBe(false);
   });
@@ -426,7 +503,19 @@ describe('GET /api/availability', () => {
   test('valid UUID staffId → staff fetch スキップ（line 38 true 分岐）', async () => {
     const STAFF_UUID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
     const { createServerSupabaseClient } = require('@/lib/supabase-server');
-    const fromMock = jest.fn();
+    // business_hours 取得のため facility_profiles は必ず引く。ここで検証したいのは
+    // 「staffId 指定時に staff_profiles を引かない」ことなので、テーブル名で判定する。
+    const fromMock = jest.fn((table: string) =>
+      table === 'facility_profiles'
+        ? {
+            select: jest.fn().mockReturnValue({
+              eq: jest.fn().mockReturnValue({
+                maybeSingle: jest.fn().mockResolvedValue({ data: { business_hours: null } }),
+              }),
+            }),
+          }
+        : { select: jest.fn() },
+    );
     createServerSupabaseClient.mockReturnValue({
       from: fromMock,
       rpc: jest.fn((fn: string, params: Record<string, number>) => {
@@ -442,7 +531,7 @@ describe('GET /api/availability', () => {
       }),
     });
     const res = await GET(makeRequest(VALID_UUID, STAFF_UUID) as any);
-    expect(fromMock).not.toHaveBeenCalled();
+    expect(fromMock.mock.calls.map((c) => c[0])).not.toContain('staff_profiles');
     expect(res.status).toBe(200);
   });
 });
