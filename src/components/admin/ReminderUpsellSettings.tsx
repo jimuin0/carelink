@@ -72,11 +72,16 @@ export default function ReminderUpsellSettings({ facilityId }: { facilityId: str
     const load = async () => {
       const supabase = createBrowserSupabaseClient();
 
-      const [{ data: settingsRow }, { data: catalogRows }, { data: entRows }] = await Promise.all([
+      // カタログは option_catalog を直接読まず /api/options/catalog を通す。
+      // 購入可否を決めるのはサーバの STRIPE_SECRET_KEY で、クライアントからは見えないため。
+      // 決済未設定の間、サーバが購入必須オプションを返さないので「買えない商品に値札と
+      // 購入ボタンを出して 503 を踏ませる」状態が構造的に起きない（2026年7月30日 是正）。
+      const [{ data: settingsRow }, catalogRes, { data: entRows }] = await Promise.all([
         supabase.from('facility_reminder_settings').select('*').eq('facility_id', facilityId).maybeSingle(),
-        supabase.from('option_catalog').select('key, name, description, monthly_price, contact_only, sort_order').eq('is_active', true).order('sort_order', { ascending: true }),
+        fetch('/api/options/catalog').then((r) => (r.ok ? r.json() : { options: [] })).catch(() => ({ options: [] })),
         supabase.from('facility_entitlements').select('option_key, status').eq('facility_id', facilityId).eq('status', 'active'),
       ]);
+      const catalogRows = (catalogRes as { options?: CatalogOption[] }).options ?? [];
 
       if (settingsRow) {
         setSettings({
