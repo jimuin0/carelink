@@ -18,9 +18,31 @@ function routeFetch(handler: (url: string) => { ok: boolean; status: number; bod
   }) as unknown as typeof fetch;
 }
 
-afterEach(() => jest.clearAllMocks());
+const originalLiffId = process.env.NEXT_PUBLIC_LIFF_ID;
 
-test('連携状態の取得失敗 → 「未連携」でなくエラーを明示する（gcal/line とも・回帰防止）', async () => {
+afterEach(() => {
+  jest.clearAllMocks();
+  if (originalLiffId === undefined) delete process.env.NEXT_PUBLIC_LIFF_ID;
+  else process.env.NEXT_PUBLIC_LIFF_ID = originalLiffId;
+});
+
+/**
+ * 【2026年7月29日】LINE はローンチ段階で設定しない方針になり、LIFF 未設定の間は
+ * LINE 連携セクションを丸ごと出さないようにした（lib/line-availability.ts）。
+ * そのため「取得失敗時のエラー表示」も LIFF の有無で本数が変わる。
+ * 隠したこと自体が意図どおりであることと、LIFF を入れれば元に戻ることの両方を固定する。
+ */
+test('LIFF 未設定 → LINE セクションごと出さない（取得失敗のエラーも gcal のみ）', async () => {
+  delete process.env.NEXT_PUBLIC_LIFF_ID;
+  routeFetch(() => ({ ok: false, status: 500, body: {} }));
+  render(<SettingsPage />);
+  const alerts = await screen.findAllByRole('alert');
+  expect(alerts.filter((a) => a.textContent?.includes('連携状態を取得できませんでした'))).toHaveLength(1);
+  expect(screen.queryByText('LINE連携')).not.toBeInTheDocument();
+});
+
+test('LIFF 設定済み → 取得失敗を「未連携」でなくエラーとして明示する（gcal/line とも・回帰防止）', async () => {
+  process.env.NEXT_PUBLIC_LIFF_ID = '1234567890-abcdefgh';
   routeFetch(() => ({ ok: false, status: 500, body: {} }));
   render(<SettingsPage />);
   const alerts = await screen.findAllByRole('alert');
@@ -28,7 +50,22 @@ test('連携状態の取得失敗 → 「未連携」でなくエラーを明示
   expect(alerts.filter((a) => a.textContent?.includes('連携状態を取得できませんでした'))).toHaveLength(2);
 });
 
+// LIFF を外しても、既に連携している人からは解除手段を奪わない。
+// ここが崩れると、連携済みの顧客が自分で連携を切れなくなる。
+test('LIFF 未設定でも連携済みなら LINE セクションを出す（解除手段を残す）', async () => {
+  delete process.env.NEXT_PUBLIC_LIFF_ID;
+  routeFetch((url) =>
+    url === '/api/google-calendar'
+      ? { ok: true, status: 200, body: { connected: false } }
+      : { ok: true, status: 200, body: { linked: true } },
+  );
+  render(<SettingsPage />);
+  expect(await screen.findByText('LINEと連携中')).toBeInTheDocument();
+  expect(screen.getByText('連携を解除する')).toBeInTheDocument();
+});
+
 test('取得成功 → 連携状態を正しく表示しエラーは出さない（正常系不変）', async () => {
+  process.env.NEXT_PUBLIC_LIFF_ID = '1234567890-abcdefgh';
   routeFetch((url) =>
     url === '/api/google-calendar'
       ? { ok: true, status: 200, body: { connected: true } }
