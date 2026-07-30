@@ -7,6 +7,15 @@ import { safeCaptureException } from '@/lib/safe';
 import { alertCaughtError } from '@/lib/alert';
 import { todayJst } from '@/lib/admin-date';
 
+/**
+ * カレンダー1日分の状態。
+ * - available / few / full … 営業日で、空き枠が 3以上 / 1〜2 / 0
+ * - closed … 施設の定休日（business_hours の当該曜日が null）。満席とは意味が違う
+ * - past   … 過ぎた日。予約できないが「満席」ではない
+ * 数値 slots は status 判定用に 3 で丸めた内部値であり、客に見せる残り枠数ではない。
+ */
+export type AvailabilityStatus = 'available' | 'few' | 'full' | 'closed' | 'past';
+
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: Request) {
@@ -70,14 +79,40 @@ export async function GET(request: Request) {
     const dateStrFor = (day: number) =>
       `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const isPast = (dateStr: string) => dateStr < todayStr;
-    // 旧実装はスタッフループの早期 break により slots を実質 3 前後に丸めていた。集約後も
-    // status 閾値（>=3 available / >=1 few / 0 full）と表示 regime（RemainingSlots）を一致させるため 3 で丸める。
-    const summarize = (total: number): { slots: number; status: 'available' | 'few' | 'full' } => {
+
+    // 【2026年7月30日 追加・休業日と満席の区別】
+    // 本番実測で、定休日（訪問専門 神原鍼灸院の木曜）の施設ページに赤字点滅で「本日満枠」と
+    // 表示されていた。休んでいる日を「満席＝人気で埋まっている」と見せるのは事実に反する。
+    // 原因は status に休業を表す状態が無く、0 枠を一律 full にしていたこと。
+    // get_available_slots（20260703000004）と同じ規約で business_hours を読み、定休日を分ける。
+    //   - business_hours 自体が未設定 → ゲートしない（SQL 側と同じ後方互換）
+    //   - 曜日キーが存在して値が null → 定休日
+    //   - 曜日キーが無い → ゲートしない
+    const { data: facRow } = await supabase
+      .from('facility_profiles')
+      .select('business_hours')
+      .eq('id', facilityId)
+      .maybeSingle();
+    const businessHours = (facRow?.business_hours ?? null) as Record<string, unknown> | null;
+    const DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const;
+    const isClosedOn = (dateStr: string): boolean => {
+      if (!businessHours) return false;
+      const key = DAY_KEYS[new Date(`${dateStr}T00:00:00Z`).getUTCDay()];
+      if (!(key in businessHours)) return false;
+      return businessHours[key] == null;
+    };
+
+    // slots は「status 判定用に 3 で丸めた内部値」であり、客に見せる残り枠数ではない。
+    // 実際に 45 枠空いている日でも 3 を返すため、この数値をそのまま「本日残り3枠」と
+    // 表示すると誤った希少性の演出になる（本番で発生していた）。表示側は status を使うこと。
+    const summarize = (total: number): { slots: number; status: AvailabilityStatus } => {
       const slots = Math.min(total, 3);
       return { slots, status: slots >= 3 ? 'available' : slots >= 1 ? 'few' : 'full' };
     };
+    const summarizeDay = (dateStr: string, total: number): { slots: number; status: AvailabilityStatus } =>
+      isClosedOn(dateStr) ? { slots: 0, status: 'closed' } : summarize(total);
 
-    const dates: Record<string, { slots: number; status: 'available' | 'few' | 'full' }> = {};
+    const dates: Record<string, { slots: number; status: AvailabilityStatus }> = {};
 
     // 集約 RPC で「月 × 全スタッフ」のスロット数を 1 ラウンドトリップで取得（N+1 解消）。
     // get_month_availability 未デプロイ時（PostgREST schema cache 未反映含む = PGRST202）のみ
@@ -97,7 +132,9 @@ export async function GET(request: Request) {
       }
       for (let day = 1; day <= daysInMonth; day++) {
         const dateStr = dateStrFor(day);
-        dates[dateStr] = isPast(dateStr) ? { slots: 0, status: 'full' } : summarize(slotMap.get(dateStr) ?? 0);
+        dates[dateStr] = isPast(dateStr)
+          ? { slots: 0, status: 'past' }
+          : summarizeDay(dateStr, slotMap.get(dateStr) ?? 0);
       }
       return NextResponse.json({ dates });
     }
@@ -114,7 +151,7 @@ export async function GET(request: Request) {
     for (let day = 1; day <= daysInMonth; day++) {
       const dateStr = dateStrFor(day);
       if (isPast(dateStr)) {
-        dates[dateStr] = { slots: 0, status: 'full' };
+        dates[dateStr] = { slots: 0, status: 'past' };
       } else {
         futureDates.push(dateStr);
       }
@@ -135,7 +172,7 @@ export async function GET(request: Request) {
           totalSlots += (data || []).length;
           if (totalSlots >= 3) break;
         }
-        dates[dateStr] = summarize(totalSlots);
+        dates[dateStr] = summarizeDay(dateStr, totalSlots);
       }));
     }
 
