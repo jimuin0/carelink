@@ -498,11 +498,49 @@ describe('GET /api/health の Resend 送信元ドメイン照合', () => {
    * コード側の許可リスト(RESEND_VERIFIED_DOMAINS)が Resend の実状態から乖離した場合も
    * ここで露見する。許可リストだけを信じると、ドメイン失効に気づけないため。
    */
-  it('許可リストにない未検証ドメインをEMAIL_FROMに設定しても、倒れた先が verified なら ok', async () => {
+  it('許可リスト上は妥当でも Resend 側で失効していれば NG にする', async () => {
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'failed' }] });
+    const json = await (await GET(makeReq())).json();
+    expect(json.deps.resend.ok).toBe(false);
+  });
+
+  /**
+   * 【2026年7月31日 追加・自分が作った盲点】未検証ドメインは検証済み既定値へ倒れるため、
+   * 送信ドメインの照合だけでは EMAIL_FROM の設定ミスを永久に検知できない
+   * （倒れた先は常に verified なので監視は必ず緑になる）。配信は救われるが設定は誤ったまま。
+   * 倒した事実そのものを NG にして、設定ミスが緑に隠れないことを固定する。
+   */
+  it('EMAIL_FROM が未検証ドメインなら、倒れて配信できても resend を NG にする', async () => {
     process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
     setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'verified' }] });
+    const res = await GET(makeReq());
+    const json = await res.json();
+    expect(json.deps.resend.ok).toBe(false);
+    expect(json.status).toBe('degraded');
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('resend'),
+      expect.stringContaining('misconfigured')
+    );
+  });
+
+  // 形式不正（@ が無い）は本番で実際に起きた設定ミス。ドメインを取り出せないため
+  // 診断メッセージが壊れないことも含めて固定する。
+  it('EMAIL_FROM が形式不正(@なし)でも NG にし、診断メッセージが壊れない', async () => {
+    process.env.EMAIL_FROM = 'carelink-jp.com';
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'verified' }] });
     const json = await (await GET(makeReq())).json();
-    // 本番では既定値(carelink-jp.com)に倒れるため、実際の送信元は verified。
+    expect(json.deps.resend.ok).toBe(false);
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('resend'),
+      expect.stringContaining('domain "none"')
+    );
+  });
+
+  it('EMAIL_FROM 未設定は誤設定ではないので緑のまま（既定値が妥当）', async () => {
+    delete process.env.EMAIL_FROM;
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'verified' }] });
+    const json = await (await GET(makeReq())).json();
     expect(json.deps.resend.ok).toBe(true);
   });
 

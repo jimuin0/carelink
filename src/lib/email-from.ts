@@ -80,11 +80,12 @@ export function fromEnv(): string {
 }
 
 /**
- * 本番として解決したときの送信元ドメイン。/api/health が Resend の verified 一覧と
- * 突き合わせるために使う。監視は常に本番基準で見る（開発の値で緑にしない）。
+ * 本番として解決した送信元。/api/health が Resend の verified 一覧との突き合わせと、
+ * 【既定値へ倒れたか（＝EMAIL_FROM の設定ミス）】の検出の両方に使う。
+ * 監視は常に本番基準で見る（開発の値で緑にしない）。
  */
-export function productionSendingDomain(): string {
-  return resolveFrom(process.env.EMAIL_FROM, true).sendingDomain;
+export function productionResolvedFrom(): ResolvedFrom {
+  return resolveFrom(process.env.EMAIL_FROM, true);
 }
 
 /** ニュースレター配信の送信元。EMAIL_FROM と同じ検証を通す。 */
