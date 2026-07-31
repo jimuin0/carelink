@@ -4,7 +4,7 @@ import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
 import { enqueueWebhook } from '@/lib/webhook-queue';
-import { resolveFrom, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
+import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -16,7 +16,7 @@ function getResend(): Resend | null {
 
 // 送信元の解決規則は email-from.ts が SSOT（/api/health の設定監視と必ず同じ規則を使う）。
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-const RESOLVED_FROM = resolveFrom(process.env.EMAIL_FROM, IS_PRODUCTION);
+const RESOLVED_FROM = resolvedFromEnv();
 const FROM = RESOLVED_FROM.from;
 const { rawDomain: RAW_DOMAIN, formatOk: FROM_FORMAT_OK, domainOk: FROM_DOMAIN_OK } = RESOLVED_FROM;
 

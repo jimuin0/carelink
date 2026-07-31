@@ -51,6 +51,51 @@ export interface ResolvedFrom {
 }
 
 /**
+ * ニュースレター既定の送信元。EMAIL_FROM とは別アドレスにして、配信停止の扱いを分ける。
+ * 検証済みドメインで構成する（未検証だと配信が丸ごと届かない）。
+ */
+export const DEFAULT_NEWSLETTER_FROM = `CareLink <newsletter@${DEFAULT_FROM_DOMAIN}>`;
+
+/**
+ * 環境変数から送信元を解決する【唯一の入口】。
+ *
+ * 【2026年7月31日・ガードの取りこぼしを塞ぐ】未検証ドメインへのフォールバックを
+ * email.ts に入れただけでは不十分だった。実際には cron 5本
+ * （review-request / waitlist-notify / customer-segment / birthday-coupon / webhook-retry）
+ * とニュースレター配信が `process.env.EMAIL_FROM || '...'` を各自で組み立てて
+ * resend.emails.send を直接呼んでおり、ガードを完全に迂回していた。
+ * これらは予約リマインドや口コミ依頼など【ローンチ直後に客へ最初に届くメール】そのものである。
+ *
+ * 対策として env の読み取り自体をこの関数に閉じ込め、呼び出し側が process.env.EMAIL_FROM に
+ * 触れないようにする。守り漏れは「どこかで env を直読みしていないか」という一点の検査に
+ * 還元でき、テストで機械的に禁止できる（email-from-callers.test.ts）。
+ */
+export function resolvedFromEnv(): ResolvedFrom {
+  return resolveFrom(process.env.EMAIL_FROM, process.env.NODE_ENV === 'production');
+}
+
+/** 実際に送信で使う from。全ての送信箇所はこれを使う。 */
+export function fromEnv(): string {
+  return resolvedFromEnv().from;
+}
+
+/**
+ * 本番として解決したときの送信元ドメイン。/api/health が Resend の verified 一覧と
+ * 突き合わせるために使う。監視は常に本番基準で見る（開発の値で緑にしない）。
+ */
+export function productionSendingDomain(): string {
+  return resolveFrom(process.env.EMAIL_FROM, true).sendingDomain;
+}
+
+/** ニュースレター配信の送信元。EMAIL_FROM と同じ検証を通す。 */
+export function newsletterFromEnv(): string {
+  return resolveFrom(
+    process.env.NEWSLETTER_EMAIL_FROM || DEFAULT_NEWSLETTER_FROM,
+    process.env.NODE_ENV === 'production'
+  ).from;
+}
+
+/**
  * 【2026年7月31日 恒久根治】旧実装は未検証ドメインを検知しても【警告するだけで、
  * 正しい値に倒していなかった】。コメント自身が「メール送信が全て失敗する可能性があります」と
  * 書いていたにもかかわらず、その失敗を防ぐ手当てが無かった。

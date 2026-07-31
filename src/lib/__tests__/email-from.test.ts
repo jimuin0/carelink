@@ -1,4 +1,9 @@
 import {
+  fromEnv,
+  newsletterFromEnv,
+  productionSendingDomain,
+  resolvedFromEnv,
+  DEFAULT_NEWSLETTER_FROM,
   resolveFrom,
   isValidFrom,
   domainOf,
@@ -92,5 +97,77 @@ describe('email-from.ts（送信元解決のSSOT）', () => {
       expect(r.from).toBe(DEFAULT_FROM);
       expect(r.fellBack).toBe(true);
     });
+  });
+});
+
+/**
+ * env を読む入口はここだけ。cron やニュースレターが自前で env を組み立てて
+ * ガードを迂回していた事故（2026年7月31日）の再発を、各入口の挙動で固定する。
+ */
+describe('env から解決する入口', () => {
+  const ORIGINAL = { from: process.env.EMAIL_FROM, news: process.env.NEWSLETTER_EMAIL_FROM, node: process.env.NODE_ENV };
+  const setNodeEnv = (v: string) => Object.defineProperty(process.env, 'NODE_ENV', { value: v, configurable: true });
+
+  afterEach(() => {
+    if (ORIGINAL.from === undefined) delete process.env.EMAIL_FROM; else process.env.EMAIL_FROM = ORIGINAL.from;
+    if (ORIGINAL.news === undefined) delete process.env.NEWSLETTER_EMAIL_FROM; else process.env.NEWSLETTER_EMAIL_FROM = ORIGINAL.news;
+    setNodeEnv(ORIGINAL.node as string);
+  });
+
+  it('fromEnv は本番の未検証ドメインを既定値へ倒す', () => {
+    setNodeEnv('production');
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    expect(fromEnv()).toBe(DEFAULT_FROM);
+  });
+
+  it('fromEnv は本番の検証済みドメインをそのまま使う', () => {
+    setNodeEnv('production');
+    process.env.EMAIL_FROM = 'CareLink 予約 <yoyaku@carelink-jp.com>';
+    expect(fromEnv()).toBe('CareLink 予約 <yoyaku@carelink-jp.com>');
+  });
+
+  it('resolvedFromEnv は診断情報つきで返す（email.ts のアラート判定に使う）', () => {
+    setNodeEnv('production');
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    const r = resolvedFromEnv();
+    expect(r.fellBack).toBe(true);
+    expect(r.rawDomain).toBe('resend.dev');
+    expect(r.domainOk).toBe(false);
+  });
+
+  /**
+   * ニュースレターも同じ検証を通す。ここが素通りだと、購読者への配信だけが
+   * 未検証ドメインで丸ごと不達になる（同じ穴が別経路に残る）。
+   */
+  it('newsletterFromEnv は未検証ドメインの指定を既定値へ倒す', () => {
+    setNodeEnv('production');
+    process.env.NEWSLETTER_EMAIL_FROM = 'CareLink <news@resend.dev>';
+    expect(newsletterFromEnv()).toBe(DEFAULT_FROM);
+  });
+
+  it('newsletterFromEnv は未設定なら検証済みの専用アドレスを使う', () => {
+    setNodeEnv('production');
+    delete process.env.NEWSLETTER_EMAIL_FROM;
+    expect(newsletterFromEnv()).toBe(DEFAULT_NEWSLETTER_FROM);
+    expect(domainOf(DEFAULT_NEWSLETTER_FROM)).toBe(DEFAULT_FROM_DOMAIN);
+  });
+
+  it('newsletterFromEnv は検証済みドメインの指定を尊重する', () => {
+    setNodeEnv('production');
+    process.env.NEWSLETTER_EMAIL_FROM = 'CareLink おしらせ <info@carelink-jp.com>';
+    expect(newsletterFromEnv()).toBe('CareLink おしらせ <info@carelink-jp.com>');
+  });
+
+  it('newsletterFromEnv は非本番では env 値を尊重する（サンドボックス送信）', () => {
+    setNodeEnv('test');
+    process.env.NEWSLETTER_EMAIL_FROM = 'CareLink <news@resend.dev>';
+    expect(newsletterFromEnv()).toBe('CareLink <news@resend.dev>');
+  });
+
+  /** 監視は常に本番基準で見る。開発の値で緑にすると設定ミスを見逃す。 */
+  it('productionSendingDomain は非本番実行でも本番基準で解決する', () => {
+    setNodeEnv('test');
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    expect(productionSendingDomain()).toBe(DEFAULT_FROM_DOMAIN);
   });
 });

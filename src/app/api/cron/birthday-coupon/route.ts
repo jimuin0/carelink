@@ -23,6 +23,7 @@ import { resolveLineUserIdForUser } from '@/lib/line-link';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { fetchAllPaged } from '@/lib/paginate';
+import { fromEnv } from '@/lib/email-from';
 
 export const dynamic = 'force-dynamic';
 // 全プラン安全な明示値（Hobby 上限60s / Pro 上限300s のいずれでも有効）。
@@ -37,7 +38,8 @@ export const maxDuration = 60;
 const SEND_BUDGET_MS = 50 * 1000;
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL || 'https://carelink-jp.com';
-const FROM = process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>';
+// 送信元は email-from.ts が SSOT（未検証ドメインは検証済み既定値へ倒れる）。
+// モジュール読み込み時に固定せず呼び出し時に解決する（テスト・再デプロイ間で env 変更を拾う）。
 const BIRTHDAY_POINTS = 100;
 
 export async function GET(request: Request) {
@@ -244,7 +246,7 @@ export async function GET(request: Request) {
           } else if (claimResult === 'claimed') {
             // claim 成功: このチャネルの送信権を獲得。実際に送信する。
             try {
-              await resend.emails.send({ from: FROM, to: profile.email, subject: emailSubject, html: emailHtml });
+              await resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml });
               notifiedSet.add(`${profile.id}:email`);
             } catch (err) {
               deliveryFailures++;
@@ -260,7 +262,7 @@ export async function GET(request: Request) {
           // ここに到達するのは初回付与時のみ（23505 側は notificationsTableReady=false だと
           // 上流で skip される）なので1通だけ送信され重複は生じない。
           try {
-            await resend.emails.send({ from: FROM, to: profile.email, subject: emailSubject, html: emailHtml });
+            await resend.emails.send({ from: fromEnv(), to: profile.email, subject: emailSubject, html: emailHtml });
             notifiedSet.add(`${profile.id}:email`);
           } catch (err) {
             deliveryFailures++;

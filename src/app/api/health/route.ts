@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { resolveFrom } from '@/lib/email-from';
+import { productionSendingDomain } from '@/lib/email-from';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -153,7 +153,7 @@ async function probeResend(): Promise<DepResult> {
       .map((d) => (d.name ?? '').toLowerCase());
 
     // 実際に送信に使われる from（email-from.ts が SSOT・email.ts と同一規則）で照合する。
-    const { sendingDomain } = resolveFrom(process.env.EMAIL_FROM, true);
+    const sendingDomain = productionSendingDomain();
     if (!verified.includes(sendingDomain)) {
       throw new Error(
         `sending domain "${sendingDomain}" is not verified in Resend (verified: ${verified.join(', ') || 'none'})`

@@ -15,6 +15,7 @@ import { escSubject } from '@/lib/email';
 import { fetchAllPaged } from '@/lib/paginate';
 import { isMissingColumnError, warnMissingColumnFallback, type DbError } from '@/lib/db-fallback';
 import { canonicalizeEmail } from '@/lib/email-canonical';
+import { fromEnv } from '@/lib/email-from';
 
 export const dynamic = 'force-dynamic';
 // 既定の低い上限を上書きし、下の時間予算ガードが確実に発火する既知の上限を与える。
@@ -327,7 +328,7 @@ export async function GET(request: Request) {
               let sendOk = false;
               try {
                 await resend.emails.send({
-                  from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+                  from: fromEnv(),
                   to: email,
                   subject: escSubject(`【${facilityInfo.name}】お久しぶりです！特別クーポンをお届けします`),
                   html: `<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:20px;">
