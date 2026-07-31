@@ -10,12 +10,13 @@ import { writeAuditLog, getRequestContext } from '@/lib/audit-logger';
 import { newsletterUnsubUrl } from '@/lib/newsletter-unsub';
 import { fetchAllPaged } from '@/lib/paginate';
 import { requirePlatformAdmin } from '@/lib/platform-admin';
+import { newsletterFromEnv } from '@/lib/email-from';
 
 // ニュースレター専用の差出人。EMAIL_FROM(email.ts の既定送信元 noreply@)とは意図的に
 // ローカル部を分けている（購読解除等の応答性を示す newsletter@）ため EMAIL_FROM を
 // 流用せず、専用の環境変数で本番ドメイン変更に追従できるようにする（未設定時は
 // 従来のハードコード値と同じ既定値にフォールバックし後方互換を維持）。
-const NEWSLETTER_FROM = process.env.NEWSLETTER_EMAIL_FROM || 'CareLink <newsletter@carelink-jp.com>';
+// 送信元は email-from.ts が SSOT（未検証ドメインは検証済み既定値へ倒れる）。
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -294,7 +295,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       for (let i = 0; i < emails.length; i += BATCH_SIZE) {
         const chunk = emails.slice(i, i + BATCH_SIZE);
         const messages = chunk.map((email) => ({
-          from: NEWSLETTER_FROM,
+          from: newsletterFromEnv(),
           to: [email],
           subject,
           html: campaign.html_content + `<br><br><hr><p style="font-size:11px;color:#999">配信停止は<a href="${newsletterUnsubUrl(email)}">こちら</a></p>`,

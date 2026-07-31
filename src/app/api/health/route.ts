@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { productionSendingDomain } from '@/lib/email-from';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -116,18 +117,48 @@ async function probeStripe(): Promise<DepResult> {
   });
 }
 
+/**
+ * Resend の疎通に加えて【送信元ドメインが Resend 側で verified か】まで照合する。
+ *
+ * 旧実装は API キーの有効性しか見ておらず、鍵が生きてさえいれば healthy と報告していた。
+ * だが実際にメールが客に届くかを決めるのは from のドメインが verified かどうかで、
+ * ここが未検証なら鍵が正常でも配信は成立しない。
+ *
+ * メール経路はローンチまで送信対象が 0 件で一度も実行されない（2026年7月31日 実データ確認）。
+ * 実際に送るまで誤りに気づけない経路のため、【送らずに設定の正しさを確かめられる】手段が要る。
+ * ここで照合しておけば、設定ミスは初めての一通目ではなく外形監視で先に露見する。
+ * コード側の許可リスト(RESEND_VERIFIED_DOMAINS)が Resend の実状態と乖離した場合も同時に検知できる。
+ */
 async function probeResend(): Promise<DepResult> {
   return probe('resend', async () => {
     const key = process.env.RESEND_API_KEY;
     if (!key) throw new Error('not configured');
     const res = await fetch('https://api.resend.com/domains', {
-      method: 'HEAD',
       headers: { Authorization: `Bearer ${key}` },
       signal: AbortSignal.timeout(DEP_TIMEOUT_MS),
     });
     // 401 は credential 異常で NG、200/404 は鍵自体は有効
     if (res.status === 401) throw new Error('unauthorized');
     if (res.status >= 500) throw new Error(`HTTP ${res.status}`);
+    if (!res.ok) return; // 404 等: 鍵は有効。ドメイン一覧が取れないので照合はスキップする。
+    // 開発・テストは Resend のサンドボックス(resend.dev)を送信元に使うのが正常系で、
+    // これは verified 一覧に載らない。照合は配信品質を守るべき本番だけで行う。
+    if (process.env.NODE_ENV !== 'production') return;
+
+    const body = (await res.json()) as { data?: { name?: string; status?: string }[] };
+    // 応答形状が想定と違う場合に「検証済み0件」と誤断定して誤報するのを避ける。
+    if (!Array.isArray(body?.data)) return;
+    const verified = body.data
+      .filter((d) => d.status === 'verified')
+      .map((d) => (d.name ?? '').toLowerCase());
+
+    // 実際に送信に使われる from（email-from.ts が SSOT・email.ts と同一規則）で照合する。
+    const sendingDomain = productionSendingDomain();
+    if (!verified.includes(sendingDomain)) {
+      throw new Error(
+        `sending domain "${sendingDomain}" is not verified in Resend (verified: ${verified.join(', ') || 'none'})`
+      );
+    }
   });
 }
 
