@@ -13,6 +13,7 @@ import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { alertDeliveryFailures } from '@/lib/alert';
 import { errorMessage } from '@/lib/err';
+import { fromEnv, resolveFrom } from '@/lib/email-from';
 
 export const dynamic = 'force-dynamic';
 
@@ -126,7 +127,8 @@ export async function GET(request: Request) {
           if (!resend) throw new Error('email skipped: RESEND_API_KEY not configured');
           const p = job.payload as { to: string; subject: string; html: string; from?: string };
           await resend.emails.send({
-            from: p.from || process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+            // payload の from は外部由来。未検証ドメインをそのまま使うと不達になるため必ず検証を通す。
+            from: p.from ? resolveFrom(p.from, process.env.NODE_ENV === 'production').from : fromEnv(),
             to: p.to,
             subject: p.subject,
             html: p.html,

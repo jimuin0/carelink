@@ -14,6 +14,7 @@ import { Resend } from 'resend';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { todayJst } from '@/lib/admin-date';
 import { escSubject, esc } from '@/lib/email';
+import { fromEnv } from '@/lib/email-from';
 
 export const dynamic = 'force-dynamic';
 // 監査X3: 他cron(booking-reminder/review-request/favorites-digest/weekly-report)と揃えて
@@ -157,7 +158,7 @@ export async function GET(request: Request) {
             const bookingUrl = `https://carelink-jp.com/facility/${facility.slug}/booking`;
             try {
               await resend.emails.send({
-                from: process.env.EMAIL_FROM || 'CareLink <noreply@carelink-jp.com>',
+                from: fromEnv(),
                 to: waiter.email,
                 subject: escSubject(`【空きが出ました】${facility.name} ${waiter.date} ${waiter.start_time}〜`),
                 html: `<p>${esc(waiter.customer_name)}様</p>

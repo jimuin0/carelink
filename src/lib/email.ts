@@ -4,6 +4,7 @@ import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
 import { enqueueWebhook } from '@/lib/webhook-queue';
+import { resolvedFromEnv, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -13,40 +14,24 @@ function getResend(): Resend | null {
   return _resend;
 }
 
-const DEFAULT_FROM = 'CareLink <noreply@carelink-jp.com>';
-
-// Resend が受理する from 形式は `email@example.com` または `Name <email@example.com>`。
-// 「email@domain.tld」の実体（@ の前後があり、ドメインに . がある）を含むかで妥当性を判定する。
-// 【2026年7月8日・本番診断で確定した恒久根治】本番 EMAIL_FROM が「carelink-jp.com」等の
-// 不正形式（@ を含まない＝メールアドレスでない）に設定されており、Resend が 422 validation_error で
-// 拒否 → safeSend が旧実装でエラーを握り潰し「送信成功」に化けていた。不正な env 値がコードの
-// 有効なデフォルトを上書きして送信全滅を招くため、妥当性を検査し不正なら DEFAULT_FROM に倒す。
-function isValidFrom(from: string): boolean {
-  return /[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+/.test(from);
-}
-
-const RAW_FROM = process.env.EMAIL_FROM || DEFAULT_FROM;
-const FROM = isValidFrom(RAW_FROM) ? RAW_FROM : DEFAULT_FROM;
-
-// Resend で verified 済みのドメインのみ許可（未検証ドメインは送信元として使うと Resend 側で
-// 拒否/制限される）。EMAIL_FROM の設定ミスは実際にメールが送られるまで気づけなかった
-// （本番でこの穴により口コミ通知メールが未達になった 2026年7月6日 の事例を踏まえた予防策）。
-const RESEND_VERIFIED_DOMAINS = ['carelink-jp.com'];
+// 送信元の解決規則は email-from.ts が SSOT（/api/health の設定監視と必ず同じ規則を使う）。
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const RESOLVED_FROM = resolvedFromEnv();
+const FROM = RESOLVED_FROM.from;
+const { rawDomain: RAW_DOMAIN, formatOk: FROM_FORMAT_OK, domainOk: FROM_DOMAIN_OK } = RESOLVED_FROM;
 
 (function validateFromDomain() {
   // 開発・テストでは Resend のサンドボックスドメイン(resend.dev 等)を使うのが正常系のため、
   // 本番実行時のみ検証する。
-  if (process.env.NODE_ENV !== 'production') return;
+  if (!IS_PRODUCTION) return;
   // 不正形式で DEFAULT_FROM に倒れた場合も、その事実を可視化する（設定ミスの早期検知）。
-  if (!isValidFrom(RAW_FROM)) {
+  if (!FROM_FORMAT_OK) {
     const msg = `EMAIL_FROM の形式が不正なため既定値にフォールバックしました。Resend の from 形式（Name <email@example.com>）で設定してください。`;
     console.error(`[email:from-format-guard]`, msg);
     postAlert({ level: 'error', message: msg, route: 'email:from-format-guard', env: process.env.VERCEL_ENV });
-  }
-  const match = FROM.match(/@([^>\s]+)/);
-  const domain = match?.[1]?.toLowerCase();
-  if (domain && !RESEND_VERIFIED_DOMAINS.includes(domain)) {
-    const msg = `EMAIL_FROM のドメイン "${domain}" が Resend 検証済みドメイン(${RESEND_VERIFIED_DOMAINS.join(', ')})に含まれていません。メール送信が全て失敗する可能性があります。`;
+  } else if (!FROM_DOMAIN_OK) {
+    // 倒した事実まで書く。「警告は出ていたが送信は死んでいた」を繰り返さないため。
+    const msg = `EMAIL_FROM のドメイン "${RAW_DOMAIN}" が Resend 検証済みドメイン(${RESEND_VERIFIED_DOMAINS.join(', ')})に含まれていません。送信全滅を避けるため既定値 "${DEFAULT_FROM}" で送信します。EMAIL_FROM を検証済みドメインのアドレスに直してください。`;
     console.error(`[email:from-domain-guard]`, msg);
     postAlert({ level: 'error', message: msg, route: 'email:from-domain-guard', env: process.env.VERCEL_ENV });
   }

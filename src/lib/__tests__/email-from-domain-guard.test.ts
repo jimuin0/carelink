@@ -70,6 +70,78 @@ describe('email.ts の EMAIL_FROM ドメインガード', () => {
     );
   });
 
+  /**
+   * 【2026年7月31日 追加・今回塞いだ穴】
+   * 旧実装は未検証ドメインを検知しても【警告するだけで送信元を差し替えなかった】。
+   * その結果 EMAIL_FROM が resend.dev（Resend のテスト専用・アカウント所有者本人にしか
+   * 届かない）のままだと、警告は出るのにメールは客へ一通も届かない。
+   * 本番の cron_logs は daily-summary が毎日 emailsSent:0 で、設定が正しいと確認できた
+   * 瞬間が一度も無かった。警告頼みでは間違っていても気づけないため、送信元自体を倒す。
+   */
+  it('本番かつ未検証ドメイン(resend.dev)なら、実際の送信は検証済みデフォルトfromで行う', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    const { sendNewReviewNotification } = require('../email');
+    await sendNewReviewNotification({
+      facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
+    });
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' })
+    );
+    // 倒したうえで、設定ミス自体は必ず可視化する（黙って直すと設定が誤ったまま残る）。
+    expect(mockPostAlert).toHaveBeenCalledWith(
+      expect.objectContaining({ level: 'error', route: 'email:from-domain-guard' })
+    );
+  });
+
+  it('本番かつ検証済みドメインなら env の値をそのまま送信元に使う（正常系を壊さない）', async () => {
+    process.env.NODE_ENV = 'production';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'CareLink 予約 <yoyaku@carelink-jp.com>';
+    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    const { sendNewReviewNotification } = require('../email');
+    await sendNewReviewNotification({
+      facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
+    });
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'CareLink 予約 <yoyaku@carelink-jp.com>' })
+    );
+    expect(mockPostAlert).not.toHaveBeenCalled();
+  });
+
+  // 開発・テストは Resend のサンドボックスを使うのが正常系。ここまで倒すと開発が壊れる。
+  it('非本番では未検証ドメインでも env の値をそのまま使う（サンドボックス送信を壊さない）', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    const { sendNewReviewNotification } = require('../email');
+    await sendNewReviewNotification({
+      facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
+    });
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'CareLink <onboarding@resend.dev>' })
+    );
+  });
+
+  it('非本番でも形式不正なら有効なデフォルトfromへ倒す（開発時のtypoでResend 422にしない）', async () => {
+    process.env.NODE_ENV = 'test';
+    process.env.RESEND_API_KEY = 'k';
+    process.env.EMAIL_FROM = 'carelink-jp.com';
+    mockSend.mockResolvedValue({ data: { id: 'em_1' }, error: null });
+    const { sendNewReviewNotification } = require('../email');
+    await sendNewReviewNotification({
+      facilityEmail: 'owner@example.com', facilityName: 'X', reviewerName: 'A', rating: 5, comment: null,
+    });
+    expect(mockSend).toHaveBeenCalledWith(
+      expect.objectContaining({ from: 'CareLink <noreply@carelink-jp.com>' })
+    );
+    // 非本番はドメイン検証をしない＝アラートも出さない（サンドボックス運用の正常系）。
+    expect(mockPostAlert).not.toHaveBeenCalled();
+  });
+
   it('不正形式のEMAIL_FROMでも実際の送信は有効なデフォルトfromで行う（設定ミスで送信全滅にしない）', async () => {
     process.env.NODE_ENV = 'production';
     process.env.RESEND_API_KEY = 'k';

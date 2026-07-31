@@ -93,7 +93,11 @@ function setupDefaultMocks(opts: {
       return new Response(JSON.stringify({}), { status: stripeOk ? 200 : 500 });
     }
     if (u.includes('resend.com')) {
-      return new Response(null, { status: resendOk ? 200 : 401 });
+      // /domains は検証済みドメイン一覧を返す。health は「送信元ドメインが verified か」まで見る。
+      return new Response(
+        JSON.stringify({ data: [{ name: 'carelink-jp.com', status: 'verified' }] }),
+        { status: resendOk ? 200 : 401 }
+      );
     }
     return new Response(null, { status: 200 });
   }) as unknown as typeof fetch;
@@ -434,5 +438,98 @@ describe('GET /api/health (multi-dep, Supabase-based rate_limit)', () => {
     } finally {
       consoleErrorSpy.mockRestore();
     }
+  });
+});
+
+/**
+ * 【2026年7月31日 追加】メール配信は送信対象が0件のためローンチまで一度も実行されない
+ * （本番実データ確認：opt-in施設0／完了予約0／明日以降の予約0）。
+ * 実際に送るまで誤りに気づけない経路なので、health が【送らずに設定の正しさを確かめる】。
+ * 旧実装は鍵の有効性しか見ておらず、未検証ドメインでも healthy と報告していた。
+ */
+describe('GET /api/health の Resend 送信元ドメイン照合', () => {
+  const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
+  let consoleErrorSpy: jest.SpyInstance;
+
+  const setResendDomains = (body: unknown, status = 200) => {
+    global.fetch = jest.fn(async (url: string | URL | Request) => {
+      const u = url.toString();
+      if (u.includes('resend.com')) return new Response(JSON.stringify(body), { status });
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as unknown as typeof fetch;
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    setupDefaultMocks();
+    mockCheckRateLimit.mockResolvedValue(false);
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'production', configurable: true });
+  });
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore();
+    Object.defineProperty(process.env, 'NODE_ENV', { value: ORIGINAL_NODE_ENV, configurable: true });
+    delete process.env.EMAIL_FROM;
+  });
+
+  it('本番で送信元ドメインが verified なら resend は ok', async () => {
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'verified' }] });
+    const json = await (await GET(makeReq())).json();
+    expect(json.deps.resend.ok).toBe(true);
+  });
+
+  it('Resend側で未検証(status=not_started)なら resend を NG にして degraded にする', async () => {
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'not_started' }] });
+    const res = await GET(makeReq());
+    const json = await res.json();
+    expect(json.deps.resend.ok).toBe(false);
+    expect(json.status).toBe('degraded');
+    // 実メッセージはログにのみ出す（無認証エンドポイントに内部詳細を出さない）。
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      expect.stringContaining('resend'),
+      expect.stringContaining('not verified')
+    );
+  });
+
+  /**
+   * コード側の許可リスト(RESEND_VERIFIED_DOMAINS)が Resend の実状態から乖離した場合も
+   * ここで露見する。許可リストだけを信じると、ドメイン失効に気づけないため。
+   */
+  it('許可リストにない未検証ドメインをEMAIL_FROMに設定しても、倒れた先が verified なら ok', async () => {
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'verified' }] });
+    const json = await (await GET(makeReq())).json();
+    // 本番では既定値(carelink-jp.com)に倒れるため、実際の送信元は verified。
+    expect(json.deps.resend.ok).toBe(true);
+  });
+
+  it('応答が想定形状でない(dataが配列でない)なら照合をスキップして誤報しない', async () => {
+    setResendDomains({ unexpected: true });
+    const json = await (await GET(makeReq())).json();
+    expect(json.deps.resend.ok).toBe(true);
+  });
+
+  it('404など一覧が取れない応答では鍵は有効とみなし照合をスキップする', async () => {
+    setResendDomains({}, 404);
+    const json = await (await GET(makeReq())).json();
+    expect(json.deps.resend.ok).toBe(true);
+  });
+
+  it('name欠落のドメイン行があっても落ちず、照合対象外として扱う', async () => {
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    setResendDomains({ data: [{ status: 'verified' }, { name: 'carelink-jp.com', status: 'verified' }] });
+    const json = await (await GET(makeReq())).json();
+    expect(json.deps.resend.ok).toBe(true);
+  });
+
+  it('非本番ではサンドボックス(resend.dev)送信が正常系のため照合しない', async () => {
+    Object.defineProperty(process.env, 'NODE_ENV', { value: 'test', configurable: true });
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    setResendDomains({ data: [{ name: 'carelink-jp.com', status: 'verified' }] });
+    const json = await (await GET(makeReq())).json();
+    expect(json.deps.resend.ok).toBe(true);
   });
 });
