@@ -13,14 +13,6 @@ export const revalidate = 0;
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const updated = new Date();
 
-  // 業種別グローバルページ（/type/[typeSlug]）
-  const businessTypeTopPages: MetadataRoute.Sitemap = allBusinessTypeSlugs.map((slug) => ({
-    url: `${SITE_URL}/type/${slug}`,
-    lastModified: updated,
-    changeFrequency: 'weekly' as const,
-    priority: 0.8,
-  }));
-
   // Static pages
   const staticPages: MetadataRoute.Sitemap = [
     { url: SITE_URL, lastModified: updated, changeFrequency: 'weekly', priority: 1 },
@@ -38,14 +30,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${SITE_URL}/salon/demo`, lastModified: updated, changeFrequency: 'monthly', priority: 0.6 },
   ];
 
-  // Prefecture pages (47 pages)
-  const prefecturePages: MetadataRoute.Sitemap = allPrefectureSlugs.map((slug) => ({
-    url: `${SITE_URL}/${slug}`,
-    lastModified: updated,
-    changeFrequency: 'daily' as const,
-    priority: 0.8,
-  }));
-
   const supabase = createServerSupabaseClient();
 
   // Dynamic facility pages（prefecture, business_type も取得して 0件エリアを除外）
@@ -56,11 +40,27 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // 施設が存在するエリアの Set を構築（薄いコンテンツページをサイトマップから除外）
   // 注: crossPages 生成より前に宣言する（TDZ 回避 — Cannot access before initialization 防止）
+  //
+  // 【2026年7月31日・実装漏れの是正】この「薄いコンテンツ除外」は元々
+  // 都道府県×業種・市区町村×業種にだけ効いており、その親である
+  // 都道府県ページ・市区町村ページ・業種トップは【無条件で全件掲載】していた。
+  // 本番実測では sitemap のエリアURL 334 件のうち 328 件が施設0件で、
+  // ローンチ直後に空ページを大量に Google へ提出する状態だった。
+  // 除外の判定軸を階層ごとに用意し、全階層へ同じ規則を適用する。
+  const occupiedPref = new Set<string>();
+  const occupiedType = new Set<string>();
+  const occupiedCity = new Set<string>();
   const occupiedPrefType = new Set<string>();
   const occupiedCityType = new Set<string>();
   for (const f of facilities || []) {
     const ps = getPrefectureSlug(f.prefecture);
     const ts = getBusinessTypeSlug(f.business_type);
+    if (ps) occupiedPref.add(ps);
+    if (ts) occupiedType.add(ts);
+    if (ps && f.city) {
+      const cs = getCitySlug(ps, f.city);
+      if (cs) occupiedCity.add(`${ps}/${cs}`);
+    }
     if (ps && ts) {
       occupiedPrefType.add(`${ps}/${ts}`);
       // f.city は DB の生の市区町村名。cityTypePages 側は citySlug で URL を作るため、
@@ -72,6 +72,26 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }
     }
   }
+
+  // 業種別グローバルページ（/type/[typeSlug]）— 施設が1件以上ある業種のみ掲載。
+  const businessTypeTopPages: MetadataRoute.Sitemap = allBusinessTypeSlugs
+    .filter((slug) => occupiedType.has(slug))
+    .map((slug) => ({
+      url: `${SITE_URL}/type/${slug}`,
+      lastModified: updated,
+      changeFrequency: 'weekly' as const,
+      priority: 0.8,
+    }));
+
+  // Prefecture pages — 施設が1件以上ある都道府県のみ掲載。
+  const prefecturePages: MetadataRoute.Sitemap = allPrefectureSlugs
+    .filter((slug) => occupiedPref.has(slug))
+    .map((slug) => ({
+      url: `${SITE_URL}/${slug}`,
+      lastModified: updated,
+      changeFrequency: 'daily' as const,
+      priority: 0.8,
+    }));
 
   // Prefecture x BusinessType pages — 施設が1件以上あるページのみ掲載（薄いコンテンツ除外）
   const crossPages: MetadataRoute.Sitemap = allPrefectureSlugs.flatMap((ps) =>
@@ -117,14 +137,16 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     })),
   ];
 
-  // City pages (283+ pages)
+  // City pages — 施設が1件以上ある市区町村のみ掲載（cityTypePages と同じ方針）。
   const allCities = getAllCitySlugs();
-  const cityPages: MetadataRoute.Sitemap = allCities.map((c) => ({
-    url: `${SITE_URL}/${c.prefectureSlug}/${c.citySlug}`,
-    lastModified: updated,
-    changeFrequency: 'daily' as const,
-    priority: 0.7,
-  }));
+  const cityPages: MetadataRoute.Sitemap = allCities
+    .filter((c) => occupiedCity.has(`${c.prefectureSlug}/${c.citySlug}`))
+    .map((c) => ({
+      url: `${SITE_URL}/${c.prefectureSlug}/${c.citySlug}`,
+      lastModified: updated,
+      changeFrequency: 'daily' as const,
+      priority: 0.7,
+    }));
 
   // City x BusinessType pages (top cities only)
   const majorPrefectures = ['tokyo', 'osaka', 'kanagawa', 'aichi', 'fukuoka', 'saitama', 'chiba', 'hyogo', 'kyoto', 'hokkaido'];
