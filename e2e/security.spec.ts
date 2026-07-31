@@ -89,11 +89,14 @@ test.describe('オープンリダイレクト防止', () => {
   test('外部URLへのリダイレクトが防止される', async ({ page }) => {
     // アプリは redirect を内部でサニタイズする（'/' 始まり以外は /mypage に丸める）。
     // page.url() は goto したアドレスそのもの（評価対象を含む）なので不適切。
-    // redirect を実際に消費する LINE ログインリンクの href がサニタイズされ、
-    // 外部URLを redirect 先として含まないことを検証する。
+    // redirect を実際に消費するリンクの href がサニタイズされ、外部URLを含まないことを検証する。
+    // 観測点には「新規登録はこちら」リンクを使う。旧実装は LINE ログインリンクを見ていたが、
+    // LINE は設定従属で非表示になり得る任意連携であり、任意連携の有無でセキュリティ検証が
+    // 空振りする（2026年7月31日に実際に発生）。常設の導線を観測点にする。
     await page.goto('/auth/login?redirect=https://evil.example.com');
-    const lineHref = await page.getByRole('link', { name: /LINE/ }).getAttribute('href');
-    expect(lineHref).not.toContain('evil.example.com');
+    const href = await page.locator('a[href^="/auth/signup?redirect="]').first().getAttribute('href');
+    expect(href).not.toContain('evil.example.com');
+    expect(href).toContain(encodeURIComponent('/mypage'));
   });
 
   test('javascript: スキームのリダイレクトが防止される', async ({ page }) => {
@@ -101,9 +104,9 @@ test.describe('オープンリダイレクト防止', () => {
     page.on('dialog', () => { alertTriggered = true; });
     await page.goto('/auth/login?redirect=javascript:alert(1)');
     // ダイアログが発火しない（javascript: が実行されない）こと、かつ redirect 消費先の
-    // LINE リンク href に javascript: が混入しないこと（サニタイズ）を検証する。
-    const lineHref = await page.getByRole('link', { name: /LINE/ }).getAttribute('href');
-    expect(lineHref).not.toContain('javascript:');
+    // href に javascript: が混入しないこと（サニタイズ）を検証する。
+    const href = await page.locator('a[href^="/auth/signup?redirect="]').first().getAttribute('href');
+    expect(href).not.toContain('javascript:');
     expect(alertTriggered).toBe(false);
   });
 });
