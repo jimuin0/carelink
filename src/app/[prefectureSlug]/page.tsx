@@ -15,6 +15,7 @@ import { searchFacilities } from '@/lib/facilities';
 import { getAreaSeoContent } from '@/lib/area-seo';
 import { getPrefectureSeo } from '@/data/prefecture-seo';
 import Breadcrumb from '@/components/Breadcrumb';
+import { createServerSupabaseClient } from '@/lib/supabase-server';
 import FacilityCard from '@/components/search/FacilityCard';
 import RelatedLinks from '@/components/seo/RelatedLinks';
 
@@ -36,6 +37,16 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const title = `${name}のサロン・クリニック一覧`;
   const description = `${name}の美容サロン・鍼灸院・整骨院・介護施設を口コミ・メニュー・写真で比較。ネット予約も24時間OK。CareLink で${name}のサロン・クリニックを探そう。`;
 
+  // 【2026年7月31日・階層間の不整合を是正】掲載0件のページを検索結果に載せない規則は
+  // 子（都道府県×業種・市区町村・市区町村×業種）にはあったが、親であるこのページだけ
+  // 抜けていた。本番実測では 46 都道府県が 0 件のまま index 可能だった。
+  // follow は残す（0件でも回遊先リンクは辿らせる）。掲載が増えれば自動で index に戻る。
+  const { count } = await createServerSupabaseClient()
+    .from('facility_profiles')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'published')
+    .eq('prefecture', name);
+
   return {
     title,
     description,
@@ -45,6 +56,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       images: [{ url: `${SITE_URL}/api/og?title=${encodeURIComponent(title)}` }],
     },
     alternates: { canonical: `/${prefectureSlug}` },
+    ...(count === 0 ? { robots: { index: false, follow: true } } : {}),
   };
 }
 
