@@ -47,6 +47,92 @@ describe('isLineEnabled', () => {
   });
 });
 
+/**
+ * 【2026年7月31日 追加】上の対応から漏れていた認証画面の是正を固定する。
+ *
+ * `/auth/signup` と `/auth/login` の「LINEで登録／LINEでログイン」は 2026年7月29日 の
+ * 対象から漏れ、本番で露出したままだった。ここは客も施設オーナーも必ず通る入口で、
+ * 押した先が成立しなければ登録そのものが止まる。
+ *
+ * LINE ログインは LIFF とは別チャネル（NEXT_PUBLIC_LINE_CHANNEL_ID）で動くため、
+ * どちらか片方だけを見る判定は誤る。製品判断（LIFF 設定＝LINE を出す）と
+ * 技術的前提（ログインチャネル設定）の両方が揃ったときだけ true になることを固定する。
+ */
+describe('isLineLoginEnabled', () => {
+  const originals = {
+    liff: process.env.NEXT_PUBLIC_LIFF_ID,
+    channel: process.env.NEXT_PUBLIC_LINE_CHANNEL_ID,
+  };
+
+  afterEach(() => {
+    for (const [key, value] of [
+      ['NEXT_PUBLIC_LIFF_ID', originals.liff],
+      ['NEXT_PUBLIC_LINE_CHANNEL_ID', originals.channel],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    jest.resetModules();
+  });
+
+  function load() {
+    let fn!: () => boolean;
+    jest.isolateModules(() => {
+      fn = require('@/lib/line-availability').isLineLoginEnabled;
+    });
+    return fn;
+  }
+
+  test.each([
+    ['両方未設定', undefined, undefined, false],
+    ['チャネルIDのみ設定（本番の実状態・LINEはローンチ対象外）', undefined, '2009692936', false],
+    ['LIFFのみ設定（ログイン用チャネルが無い）', '1234567890-abcdefgh', undefined, false],
+    ['両方設定（LINEをローンチに含めた状態）', '1234567890-abcdefgh', '2009692936', true],
+  ])('%s → %s', (_label, liff, channel, expected) => {
+    if (liff === undefined) delete process.env.NEXT_PUBLIC_LIFF_ID;
+    else process.env.NEXT_PUBLIC_LIFF_ID = liff;
+    if (channel === undefined) delete process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+    else process.env.NEXT_PUBLIC_LINE_CHANNEL_ID = channel;
+    expect(load()()).toBe(expected);
+  });
+});
+
+describe('認証画面の LINE ログインは isLineLoginEnabled に従属する', () => {
+  const { readFileSync } = require('fs') as typeof import('fs');
+  const { join } = require('path') as typeof import('path');
+  const read = (p: string) => readFileSync(join(process.cwd(), p), 'utf8');
+
+  const AUTH_PAGES = [
+    ['src/app/auth/signup/page.tsx', '新規登録'],
+    ['src/app/auth/login/page.tsx', 'ログイン'],
+  ] as const;
+
+  test.each(AUTH_PAGES)('%s（%s）が isLineLoginEnabled で囲っている', (path) => {
+    const src = read(path);
+    expect(src).toContain("from '@/lib/line-availability'");
+    expect(src).toContain('isLineLoginEnabled() && (');
+  });
+
+  /**
+   * 「関数を import しているか」だけでは、ガードの外に LINE リンクを1本足す改変を
+   * 検知できない。LINE へ飛ぶ導線が【必ず】ガード内にあることを直接確かめる。
+   */
+  test.each(AUTH_PAGES)('%s に無条件の /api/auth/line 導線が無い', (path) => {
+    const src = read(path);
+    const guardAt = src.indexOf('isLineLoginEnabled() && (');
+    const guardEnd = src.indexOf('</a>', guardAt);
+    for (const m of src.matchAll(/\/api\/auth\/line/g)) {
+      const at = m.index ?? -1;
+      expect(at).toBeGreaterThan(guardAt);
+      expect(at).toBeLessThan(guardEnd);
+    }
+  });
+
+  test.each(AUTH_PAGES)('%s に手動の隠しフラグが無い', (path) => {
+    expect(read(path)).not.toMatch(/LAUNCH_HIDDEN|HIDE_LINE|LINE_DISABLED/);
+  });
+});
+
 describe('LINE の表示箇所は必ず isLineEnabled を経由する', () => {
   const { readFileSync } = require('fs') as typeof import('fs');
   const { join } = require('path') as typeof import('path');
