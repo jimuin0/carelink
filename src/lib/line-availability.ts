@@ -28,3 +28,29 @@
 export function isLineEnabled(): boolean {
   return !!process.env.NEXT_PUBLIC_LIFF_ID;
 }
+
+/**
+ * LINE ログイン（ソーシャルログイン）を認証画面に出してよいかの判定。
+ *
+ * 【2026年7月31日・上記の判断から漏れていた箇所の是正】
+ * LINE を隠す対応（2026年7月29日）はマイページ・管理画面を対象にしたが、
+ * `/auth/signup` と `/auth/login` の「LINEで登録／LINEでログイン」ボタンは
+ * 対象から漏れ、本番で露出したままだった。ここは客も施設オーナーも必ず通る
+ * 入口であり、押した先が成立しなければ登録そのものが止まる。
+ *
+ * LINE ログインは LIFF とは別チャネル（NEXT_PUBLIC_LINE_CHANNEL_ID）で動くため、
+ * isLineEnabled だけでも、チャネル ID の有無だけでも判定として正しくない：
+ *   - チャネル ID だけで判定 → LINE をローンチ対象外とした判断に反して出てしまう
+ *     （実際、本番はチャネル ID が入っているため出続けていた）。
+ *   - LIFF ID だけで判定 → LINE ログインに不要な LIFF を強制することになる。
+ * そこで【製品判断（LINE を出す＝LIFF 設定済み）】と【技術的前提（ログイン用
+ * チャネル ID 設定済み）】の両方が揃ったときだけ出す。どちらも env に従属するので、
+ * 神原さんが値を入れた瞬間に自動で復活し、コード変更もフラグ戻しも要らない。
+ *
+ * 【安全側に倒す根拠】本番の LINE 経由ユーザーは 0 件
+ * （profiles.line_user_id 0件・line_user_links 0件・2026年7月31日 実データ確認）。
+ * 隠しても既存ユーザーのログイン手段は一つも失われない。
+ */
+export function isLineLoginEnabled(): boolean {
+  return isLineEnabled() && !!process.env.NEXT_PUBLIC_LINE_CHANNEL_ID;
+}

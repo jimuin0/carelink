@@ -9,6 +9,7 @@ import { createBrowserSupabaseClient } from '@/lib/supabase-browser';
 import { signupSchema, type SignupFormData } from '@/lib/validations-auth';
 import { prefectures } from '@/lib/constants';
 import Toast from '@/components/Toast';
+import { isLineLoginEnabled } from '@/lib/line-availability';
 
 export default function SignupPage() {
   // 見出し・カード外枠は Suspense の外（=SSR）で描画する（login と同様）。
@@ -209,16 +210,19 @@ function SignupContent() {
             </div>
           </div>
 
-          <a
-            href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
-            className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
-            style={{ backgroundColor: '#06C755' }}
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M24 10.304C24 4.612 18.624.11 12 .11S0 4.612 0 10.304c0 5.04 4.47 9.262 10.51 10.058.41.088.968.27 1.11.618.126.316.082.81.04 1.129l-.18 1.068c-.054.33-.252 1.286 1.126.701 1.378-.585 7.438-4.382 10.148-7.502C24.648 14.312 24 12.392 24 10.304" />
-            </svg>
-            LINEで登録
-          </a>
+          {/* LINE ログインは LINE をローンチ対象に含めた場合のみ出す（line-availability.ts が単一判定）。 */}
+          {isLineLoginEnabled() && (
+            <a
+              href={`/api/auth/line?redirect=${encodeURIComponent(redirect)}`}
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-lg text-white font-bold hover:opacity-90 transition-opacity"
+              style={{ backgroundColor: '#06C755' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M24 10.304C24 4.612 18.624.11 12 .11S0 4.612 0 10.304c0 5.04 4.47 9.262 10.51 10.058.41.088.968.27 1.11.618.126.316.082.81.04 1.129l-.18 1.068c-.054.33-.252 1.286 1.126.701 1.378-.585 7.438-4.382 10.148-7.502C24.648 14.312 24 12.392 24 10.304" />
+              </svg>
+              LINEで登録
+            </a>
+          )}
 
           <button
             type="button"
