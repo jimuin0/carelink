@@ -1,7 +1,7 @@
 import {
   fromEnv,
   newsletterFromEnv,
-  productionSendingDomain,
+  productionResolvedFrom,
   resolvedFromEnv,
   DEFAULT_NEWSLETTER_FROM,
   resolveFrom,
@@ -165,9 +165,27 @@ describe('env から解決する入口', () => {
   });
 
   /** 監視は常に本番基準で見る。開発の値で緑にすると設定ミスを見逃す。 */
-  it('productionSendingDomain は非本番実行でも本番基準で解決する', () => {
+  it('productionResolvedFrom は非本番実行でも本番基準で解決する', () => {
     setNodeEnv('test');
     process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
-    expect(productionSendingDomain()).toBe(DEFAULT_FROM_DOMAIN);
+    expect(productionResolvedFrom().sendingDomain).toBe(DEFAULT_FROM_DOMAIN);
+  });
+
+  /**
+   * 監視が「倒れた事実」を見分けられることを固定する。ドメインだけを返していた頃は、
+   * 未検証ドメインでも倒れた先が検証済みなので監視が必ず緑になり、設定ミスが隠れた。
+   */
+  it('productionResolvedFrom は EMAIL_FROM の設定ミスを fellBack で見分けられる', () => {
+    setNodeEnv('test');
+    process.env.EMAIL_FROM = 'CareLink <onboarding@resend.dev>';
+    expect(productionResolvedFrom().fellBack).toBe(true);
+    process.env.EMAIL_FROM = 'CareLink <noreply@carelink-jp.com>';
+    expect(productionResolvedFrom().fellBack).toBe(false);
+  });
+
+  it('EMAIL_FROM 未設定は誤設定ではない（既定値が妥当なので fellBack しない）', () => {
+    setNodeEnv('test');
+    delete process.env.EMAIL_FROM;
+    expect(productionResolvedFrom().fellBack).toBe(false);
   });
 });

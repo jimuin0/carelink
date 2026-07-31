@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { productionSendingDomain } from '@/lib/email-from';
+import { productionResolvedFrom } from '@/lib/email-from';
 import { createServerSupabaseClient, createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
@@ -153,10 +153,22 @@ async function probeResend(): Promise<DepResult> {
       .map((d) => (d.name ?? '').toLowerCase());
 
     // 実際に送信に使われる from（email-from.ts が SSOT・email.ts と同一規則）で照合する。
-    const sendingDomain = productionSendingDomain();
-    if (!verified.includes(sendingDomain)) {
+    const resolved = productionResolvedFrom();
+    if (!verified.includes(resolved.sendingDomain)) {
       throw new Error(
-        `sending domain "${sendingDomain}" is not verified in Resend (verified: ${verified.join(', ') || 'none'})`
+        `sending domain "${resolved.sendingDomain}" is not verified in Resend (verified: ${verified.join(', ') || 'none'})`
+      );
+    }
+
+    // 【2026年7月31日・自分が作った盲点を塞ぐ】上の照合だけでは EMAIL_FROM の設定ミスを
+    // 検知できない。未検証ドメインは検証済み既定値へ倒れる仕様のため、EMAIL_FROM が
+    // resend.dev のようなテスト専用ドメインでも sendingDomain は常に検証済みになり、
+    // 監視は必ず緑になる。配信は救われるが【設定は誤ったまま緑に隠れる】。
+    // 倒した事実そのものを NG として出し、設定ミスを外形監視で見えるようにする。
+    // 未設定は既定値がそのまま妥当なので fellBack=false＝誤設定ではない（緑のままで正しい）。
+    if (resolved.fellBack) {
+      throw new Error(
+        `EMAIL_FROM is misconfigured (domain "${resolved.rawDomain ?? 'none'}"); falling back to "${resolved.from}"`
       );
     }
   });
