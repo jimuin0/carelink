@@ -4,6 +4,7 @@ import { postAlert } from '@/lib/alert';
 import { bookingStatusLabel } from '@/lib/booking-status';
 import { SITE_URL } from '@/lib/constants';
 import { enqueueWebhook } from '@/lib/webhook-queue';
+import { resolveFrom, DEFAULT_FROM, RESEND_VERIFIED_DOMAINS } from '@/lib/email-from';
 import crypto from 'crypto';
 
 let _resend: Resend | null = null;
@@ -13,56 +14,11 @@ function getResend(): Resend | null {
   return _resend;
 }
 
-const DEFAULT_FROM = 'CareLink <noreply@carelink-jp.com>';
-
-// Resend が受理する from 形式は `email@example.com` または `Name <email@example.com>`。
-// 「email@domain.tld」の実体（@ の前後があり、ドメインに . がある）を含むかで妥当性を判定する。
-// 【2026年7月8日・本番診断で確定した恒久根治】本番 EMAIL_FROM が「carelink-jp.com」等の
-// 不正形式（@ を含まない＝メールアドレスでない）に設定されており、Resend が 422 validation_error で
-// 拒否 → safeSend が旧実装でエラーを握り潰し「送信成功」に化けていた。不正な env 値がコードの
-// 有効なデフォルトを上書きして送信全滅を招くため、妥当性を検査し不正なら DEFAULT_FROM に倒す。
-function isValidFrom(from: string): boolean {
-  return /[^<>@\s]+@[^<>@\s]+\.[^<>@\s]+/.test(from);
-}
-
-// Resend で verified 済みのドメインのみ許可（未検証ドメインは送信元として使うと Resend 側で
-// 拒否/制限される）。EMAIL_FROM の設定ミスは実際にメールが送られるまで気づけなかった
-// （本番でこの穴により口コミ通知メールが未達になった 2026年7月6日 の事例を踏まえた予防策）。
-const RESEND_VERIFIED_DOMAINS = ['carelink-jp.com'];
-
-/** from 文字列からドメイン部を取り出す（`Name <a@b.com>` と `a@b.com` の両形式に対応）。 */
-function domainOf(from: string): string | null {
-  return from.match(/@([^>\s]+)/)?.[1]?.toLowerCase() ?? null;
-}
-
-/**
- * 【2026年7月31日 恒久根治】旧実装は未検証ドメインを検知しても【警告するだけで送信を止めず、
- * 正しい値にも倒していなかった】。コメント自身が「メール送信が全て失敗する可能性があります」と
- * 書いていたにもかかわらず、その失敗を防ぐ手当てが無かった。
- *
- * 実害の裏付け（本番実データ・2026年7月31日 確認）:
- *   - ローカル .env の EMAIL_FROM は `CareLink <onboarding@resend.dev>`。
- *     Resend 公式ドキュメントいわく resend.dev はテスト専用で
- *     【アカウント所有者本人のアドレスにしか送れない】。客には届かない。
- *   - 本番の cron_logs は daily-summary が毎日 emailsSent:0、review-request /
- *     booking-reminder / birthday-coupon / onboarding-followup は全て skipped。
- *     つまり【本番で一度もメールが送られた記録がない】＝設定の正しさを実データで
- *     確認できた瞬間が一度も無い。警告頼みでは、間違っていても気づけない。
- *
- * そこで本番実行時は【未検証ドメインを検証済みの DEFAULT_FROM に倒す】。
- * 環境変数の設定ミスがそのまま送信全滅に直結する構造をなくす。
- * 開発・テストは Resend のサンドボックス(resend.dev)を使うのが正常系のため倒さない。
- */
-const RAW_FROM = process.env.EMAIL_FROM || DEFAULT_FROM;
+// 送信元の解決規則は email-from.ts が SSOT（/api/health の設定監視と必ず同じ規則を使う）。
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-const RAW_DOMAIN = domainOf(RAW_FROM);
-const FROM_FORMAT_OK = isValidFrom(RAW_FROM);
-const FROM_DOMAIN_OK = !!RAW_DOMAIN && RESEND_VERIFIED_DOMAINS.includes(RAW_DOMAIN);
-// 本番: 形式・ドメインの両方が妥当なときだけ env 値を使う。それ以外は検証済み既定値へ。
-// 非本番: 形式さえ妥当なら env 値をそのまま使う（サンドボックス送信を壊さない）。
-const FROM = IS_PRODUCTION
-  ? (FROM_FORMAT_OK && FROM_DOMAIN_OK ? RAW_FROM : DEFAULT_FROM)
-  : (FROM_FORMAT_OK ? RAW_FROM : DEFAULT_FROM);
+const RESOLVED_FROM = resolveFrom(process.env.EMAIL_FROM, IS_PRODUCTION);
+const FROM = RESOLVED_FROM.from;
+const { rawDomain: RAW_DOMAIN, formatOk: FROM_FORMAT_OK, domainOk: FROM_DOMAIN_OK } = RESOLVED_FROM;
 
 (function validateFromDomain() {
   // 開発・テストでは Resend のサンドボックスドメイン(resend.dev 等)を使うのが正常系のため、
