@@ -2,6 +2,7 @@ import { getRankedFacilities } from '@/lib/rankings';
 import FacilityCard from '@/components/search/FacilityCard';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
 import { prefectures } from '@/lib/constants';
 
 export const revalidate = 3600;
@@ -17,6 +18,12 @@ interface Props {
 export async function generateMetadata(props: Props): Promise<Metadata> {
   const params = await props.params;
   const area = decodeURIComponent(params.area);
+  // 【2026年7月30日 是正】旧実装は area を無検証で受け、任意の文字列がそのまま
+  // <title>{area}の人気ランキング</title> に反映されていた（/ranking/does-not-exist が
+  // 200 で「does-not-existの人気ランキング」を返す状態を実測で確認）。
+  // 無限に生成できるURLが CareLink ブランドのページとして成立し、任意文言を
+  // タイトルに載せられてしまう。実在する都道府県だけを受け付ける。
+  if (!prefectures.includes(area)) notFound();
   // ルート layout の title.template '%s | CareLink' が自動付与するため、
   // metadata.title には「| CareLink」を付けない（付けると二重化する）。openGraph.title はテンプレ非適用のため付与する。
   const title = `${area}の人気ランキング`;
@@ -32,6 +39,12 @@ export async function generateMetadata(props: Props): Promise<Metadata> {
 export default async function AreaRankingPage(props: Props) {
   const params = await props.params;
   const area = decodeURIComponent(params.area);
+  // 【2026年7月30日 是正】旧実装は area を無検証で受け、任意の文字列がそのまま
+  // <title>{area}の人気ランキング</title> に反映されていた（/ranking/does-not-exist が
+  // 200 で「does-not-existの人気ランキング」を返す状態を実測で確認）。
+  // 無限に生成できるURLが CareLink ブランドのページとして成立し、任意文言を
+  // タイトルに載せられてしまう。実在する都道府県だけを受け付ける。
+  if (!prefectures.includes(area)) notFound();
   const facilities = await getRankedFacilities(area);
 
   return (
