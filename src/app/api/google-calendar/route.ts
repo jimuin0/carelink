@@ -7,6 +7,7 @@ import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import crypto from 'crypto';
 import { isGoogleCalendarEnabled } from '@/lib/integration-availability';
+import { SITE_URL } from '@/lib/constants';
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.events',
@@ -70,7 +71,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Generate OAuth2 authorization URL with CSRF-safe state
-  const redirectUri = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
+    // OAuth の redirect_uri は認可要求と token 交換で完全一致が必須。NEXT_PUBLIC_APP_URL は
+  // 本番に未設定で、直参照すると "undefined/api/..." になり Google 側で必ず拒否される。
+  // 既定値を持つ SITE_URL（constants.ts が正規化・両ファイル共通）から組み立てる。
+  const redirectUri = `${SITE_URL}/api/google-calendar/callback`;
   const nonce = crypto.randomBytes(32).toString('hex');
   const state = Buffer.from(JSON.stringify({ userId: user.id, ts: Date.now(), nonce })).toString('base64url');
 

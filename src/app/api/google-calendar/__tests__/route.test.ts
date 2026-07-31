@@ -322,6 +322,28 @@ describe('POST /api/google-calendar', () => {
     expect(json.authUrl).toContain('test-client-id');
   });
 
+  /**
+   * 【2026年7月31日 追加】redirect_uri を NEXT_PUBLIC_APP_URL から直に組んでいたため、
+   * 同変数が未設定だと "undefined/api/google-calendar/callback" になり Google 側で必ず拒否される。
+   * 本番に同変数は登録されていない（実データ確認）。連携UI自体は GOOGLE_CLIENT_ID 未設定で
+   * 隠れているため現時点では踏まないが、後で鍵だけ入れると無言で壊れる。
+   * 既定値を持つ SITE_URL から組むことで、変数の有無に関わらず正しい URI になることを固定する。
+   */
+  test('NEXT_PUBLIC_APP_URL が未設定でも redirect_uri が本番URLになる', async () => {
+    const orig = process.env.NEXT_PUBLIC_APP_URL;
+    delete process.env.NEXT_PUBLIC_APP_URL;
+    try {
+      const res = await POST(makePostRequest({}) as any);
+      const json = await res.json();
+      const redirectUri = new URL(json.authUrl).searchParams.get('redirect_uri');
+      expect(redirectUri).toBe('https://carelink-jp.com/api/google-calendar/callback');
+      expect(redirectUri).not.toContain('undefined');
+    } finally {
+      if (orig === undefined) delete process.env.NEXT_PUBLIC_APP_URL;
+      else process.env.NEXT_PUBLIC_APP_URL = orig;
+    }
+  });
+
   test('OAuth URL includes required params (scope, access_type, response_type)', async () => {
     const res = await POST(makePostRequest({}) as any);
 

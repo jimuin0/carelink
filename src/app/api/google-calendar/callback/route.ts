@@ -5,12 +5,16 @@ import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { getClientIp } from '@/lib/client-ip';
 import { alertCaughtError } from '@/lib/alert';
+import { SITE_URL } from '@/lib/constants';
 
 export async function GET(req: NextRequest) {
   try {
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID!;
   const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET!;
-  const REDIRECT_URI = `${process.env.NEXT_PUBLIC_APP_URL}/api/google-calendar/callback`;
+    // OAuth の redirect_uri は認可要求と token 交換で完全一致が必須。NEXT_PUBLIC_APP_URL は
+  // 本番に未設定で、直参照すると "undefined/api/..." になり Google 側で必ず拒否される。
+  // 既定値を持つ SITE_URL（constants.ts が正規化・両ファイル共通）から組み立てる。
+  const REDIRECT_URI = `${SITE_URL}/api/google-calendar/callback`;
   const ip = getClientIp(req);
   if (await checkRateLimit(null, ip, 10, 60_000, 'gcal-callback')) {
     return NextResponse.redirect(new URL('/mypage/settings?gcal=error', req.url));
