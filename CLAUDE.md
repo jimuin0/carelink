@@ -263,7 +263,18 @@ npm run test:load           # k6 負荷（search-load）
 3. 🔴 **拡張が所有するオブジェクトは除外する**（postgis のバージョン差が誤報になる）。
 4. 🔴 **0 件同士の一致を緑と読み替えない。** `diffFingerprint` は 500 項目未満を
    `vacuous=true` として扱い、cron は「走査が空振り」として警報する。
-5. 除外（`scripts/schema-drift-allow.txt`）は **理由必須**。理由が空の行は無効。
+5. 🔴 **接続先プロジェクトを必ず確認してから実行する。** 本番 project ref は
+   `xzafxiupbflvgbarrihe`（URL: `supabase.com/dashboard/project/xzafxiupbflvgbarrihe`）。
+   2026年8月2日、指示に project を書かなかったため **soel(`lsrbeugmqqqklywmvjjs`) で
+   実行され**、soel のスキーマを CareLink の期待値と突合して
+   「RLS が 90 本欠落」という**存在しない事故を報告しかけた**。
+   数字が大きくズレたら、まず「同じ DB を見ているか」を疑うこと。
+6. 🔴 **bootstrap は Supabase の既定権限も再現する。** Supabase は
+   `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated,
+   service_role` を持つため、public の全テーブルに 3 ロール分の GRANT が自動で付く。
+   再現しないと **全テーブルの grant 行が差分**になる（実測: 再現前 16 行 → 再現後 290 行）。
+   `ALTER DEFAULT PRIVILEGES` は後続に作られるものにだけ効くので、**migration より前**に置く。
+7. 除外（`scripts/schema-drift-allow.txt`）は **理由必須**。理由が空の行は無効。
    除外してよいのは「Supabase が管理していて migration に現れないもの」だけ。
-6. migration を足したら `scripts/gen-schema-fingerprint.sh` を実行して結果をコミットする
+8. migration を足したら `scripts/gen-schema-fingerprint.sh` を実行して結果をコミットする
    （忘れると CI が赤くなる＝手で同期する余地を残さない）。

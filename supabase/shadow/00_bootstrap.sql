@@ -80,3 +80,19 @@ CREATE OR REPLACE FUNCTION storage.extension(name text) RETURNS text
   LANGUAGE sql IMMUTABLE AS $$ SELECT split_part(name, '.', -1) $$;
 
 GRANT USAGE ON SCHEMA public, auth, storage, extensions TO anon, authenticated, service_role;
+
+-- 🔴 Supabase の既定権限を再現する（2026年8月2日・実測で判明）。
+--   Supabase は新規プロジェクトで
+--     ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role
+--   を設定しており、**public の全テーブルに 3 ロール分の GRANT が自動で付く**。
+--   これを bootstrap に入れないと、shadow 側は migration が明示 GRANT した数本しか
+--   持たず、本番との突合で **全テーブルの grant 行が差分**になる＝大量の誤報になる。
+--   実測(soel 本番・56 テーブル): grant 行 168 = 56 × 3 ロール。shadow は 16 しか無かった。
+--   ⚠️ ALTER DEFAULT PRIVILEGES は【この文より後に作られる】テーブルにだけ効く。
+--     bootstrap は migration より前に走るので、全業務テーブルが対象になる（順序が本質）。
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON TABLES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON SEQUENCES TO anon, authenticated, service_role;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT ALL ON FUNCTIONS TO anon, authenticated, service_role;
