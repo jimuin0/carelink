@@ -82,49 +82,41 @@ export function computeDrift(
   return { contaminated, missing, colDrift };
 }
 
-export interface ConstraintRow {
-  table_name: string;
-  /** 'p' = PRIMARY KEY, 'u' = UNIQUE。 */
-  kind: string;
-  /** 制約対象列を attname 昇順でカンマ連結した文字列（例: "review_id,user_id"）。 */
-  columns: string;
-}
-
-export interface ConstraintDriftResult {
-  /** 本番に在るが期待に無い制約（= out-of-band 追加の疑い）。 */
+/** フィンガープリント突合の結果。 */
+export interface FingerprintDiffResult {
+  /** 本番にあるが migration に無い（out-of-band 追加）。 */
   extra: string[];
-  /** 期待に在るが本番に無い制約（= 削除 / migration 未適用の疑い）。 */
+  /** migration にはあるが本番に無い（未適用 / out-of-band 削除）。 */
   missing: string[];
-}
-
-/** 制約行を安定キー `table:kind(cols)` へ正規化する（順序非依存の集合比較用）。 */
-function constraintKey(r: ConstraintRow): string {
-  return `${r.table_name}:${r.kind}(${r.columns})`;
+  /** 走査が空振り（どちらかが極端に少ない）。true のとき extra/missing は信用しない。 */
+  vacuous: boolean;
 }
 
 /**
- * 期待制約スナップショット（schema-constraints-snapshot.json）と
- * 本番制約（RPC get_public_constraints の結果）を突合し、PK/UNIQUE の
- * out-of-band 追加（extra）/ 欠落（missing）を返す。
+ * 期待フィンガープリント（migration を使い捨て Postgres に全適用して生成）と
+ * 本番フィンガープリント（RPC get_schema_fingerprint）を突合する。
  *
- * テーブルレベルの computeDrift と同じく、PostGIS システム/バックアップ系は監視対象外。
+ * 🔴 なぜ手管理スナップショットをやめたか（2026年8月2日 実測）:
+ *   期待値を人が更新する方式は、migration が制約を変えた瞬間に取り残されて誤報になる。
+ *   実際 UNIQUE(facility_id,is_active) の意図的な DROP で毎日鳴り続けていた。
+ *   期待値を migration から毎回導出すれば、この class は構造的に消える。
+ *
+ * 空振り判定: 期待側・実測側のどちらかが VACUOUS_MIN_ITEMS 未満なら vacuous=true。
+ *   0 件同士の「一致」を緑と読み替えさせないため（監視が死んでいるのと区別できない）。
  */
-export function computeConstraintDrift(
-  expected: ConstraintRow[],
-  prod: ConstraintRow[],
-): ConstraintDriftResult {
-  const expSet = new Set<string>();
-  for (const r of expected) {
-    if (isIgnored(r.table_name)) continue;
-    expSet.add(constraintKey(r));
-  }
-  const prodSet = new Set<string>();
-  for (const r of prod) {
-    if (isIgnored(r.table_name)) continue;
-    prodSet.add(constraintKey(r));
+export const VACUOUS_MIN_ITEMS = 500;
+
+export function diffFingerprint(expected: string[], actual: string[]): FingerprintDiffResult {
+  const norm = (arr: string[]) =>
+    new Set((arr ?? []).map((l) => (l ?? '').trim()).filter(Boolean));
+  const exp = norm(expected);
+  const act = norm(actual);
+
+  if (exp.size < VACUOUS_MIN_ITEMS || act.size < VACUOUS_MIN_ITEMS) {
+    return { extra: [], missing: [], vacuous: true };
   }
 
-  const extra = [...prodSet].filter((k) => !expSet.has(k)).sort();
-  const missing = [...expSet].filter((k) => !prodSet.has(k)).sort();
-  return { extra, missing };
+  const missing = [...exp].filter((l) => !act.has(l)).sort();
+  const extra = [...act].filter((l) => !exp.has(l)).sort();
+  return { extra, missing, vacuous: false };
 }

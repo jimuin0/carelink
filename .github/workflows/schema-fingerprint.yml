@@ -1,0 +1,71 @@
+name: schema-fingerprint
+
+# 🔴 なぜこの job が要るか（2026年8月2日 実測）
+#   スキーマドリフト検知の「期待値」を人が JSON で手管理していたため、
+#   migration 20260722000005 が UNIQUE(facility_id,is_active) を意図的に DROP した際に
+#   src/lib/schema-constraints-snapshot.json だけ取り残され、
+#   **毎日「制約欠落1」を誤報し続けていた**（誤報は検知の死）。
+#
+#   この job は使い捨て Postgres に supabase/migrations/*.sql を全適用し、
+#   その結果から期待フィンガープリントを再生成して、コミット済みのものと一致するかを見る。
+#   ＝ 期待値の手管理を構造的に不可能にする。migration を足して再生成を忘れれば CI が赤。
+#
+# ⚠️ PostgreSQL のメジャーバージョンは本番(Supabase)と揃えること。
+#   pg_get_constraintdef / pg_get_indexdef / format_type の整形はバージョン間で
+#   変わり得るため、揃えないと「差分ではない差分」が出て誤報になる。
+#   本番の値は `SELECT current_setting('server_version_num')` で確認する。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-fingerprint-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # postgis 入り。素の postgres だと migration が CREATE EXTENSION postgis で落ちる。
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: psql を用意する
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql --version
+
+      - name: 本番とメジャーバージョンが揃っているかを記録する
+        # 揃っていないと整形差が誤報になる。値をログに残して後から追えるようにする。
+        run: psql -tAc "select current_setting('server_version_num'), version();"
+
+      - name: 期待フィンガープリントが migration と一致することを検証する
+        # --check は書き込まない。ズレていれば exit 1（＝再生成のコミット忘れを止める）。
+        run: bash scripts/gen-schema-fingerprint.sh --check
+
+      - name: RPC 本文が scripts/schema-fingerprint.sql と同一であることを検証する
+        # 両者がズレると本番と shadow で違う SQL を実行することになり、突合が無意味になる。
+        run: npx jest src/lib/__tests__/schema-fingerprint-rpc-parity.test.ts --ci

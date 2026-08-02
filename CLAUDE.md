@@ -218,3 +218,46 @@ npm run test:load           # k6 負荷（search-load）
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
 </content>
 </invoke>
+
+---
+
+## スキーマドリフト監視（2026年8月2日 全面刷新・手管理スナップショット廃止）
+
+**期待スキーマを人が持たない。** `supabase/migrations/*.sql` を使い捨て Postgres に
+全適用した結果（shadow）を期待値とし、本番と全面突合する。
+
+| | 旧方式（廃止） | 新方式 |
+|---|---|---|
+| 期待値 | `schema-constraints-snapshot.json`（**人が手管理**） | migration から毎回導出（`scripts/gen-schema-fingerprint.sh`） |
+| 見る範囲 | テーブル存在・列**名**・PK/UNIQUE | 列(型/NOT NULL/DEFAULT)・**全制約**・**インデックス(部分ユニーク含む)**・**RLS ポリシー**・トリガ・関数・enum・GRANT |
+| 実測項目数 | — | 2028 |
+
+🔴 **廃止した理由（実測）**: migration `20260722000005` が `UNIQUE(facility_id,is_active)` を
+**意図的に** DROP した（「非アクティブも施設あたり1件まで」という意図しない制約を、
+`uq_intake_active_per_facility`（部分ユニークインデックス）へ置換）のに JSON だけ取り残され、
+**毎日「制約欠落1」を誤報し続けていた**。しかも置換先の部分ユニークインデックスは
+`pg_constraint` に行を作らないため、旧方式では**構造的に検知不能**だった。
+さらに RLS ポリシー（実測 131 本＝施設間データ分離の実体）が **1 本も監視されていなかった**。
+
+### 構成
+- `supabase/shadow/00_bootstrap.sql` — Supabase 互換の最小 bootstrap（**本番には絶対に適用しない**）
+- `scripts/schema-fingerprint.sql` — introspection 本体（唯一の真実源）
+- `supabase/migrations/*_schema_fingerprint_rpc.sql` — 上記の**機械転記**。本番側 RPC
+- `scripts/gen-schema-fingerprint.sh [--check]` — 期待値の生成／陳腐化検査
+- `src/lib/schema-fingerprint.expected.json` — **生成物。手で編集しない**
+- `.github/workflows/schema-fingerprint.yml` — CI で `--check`（再生成忘れを止める）
+
+### 触るときの鉄則
+1. 🔴 **フィンガープリントは必ず RPC 経由で取る。** `scripts/schema-fingerprint.sql` を
+   psql で直実行すると `search_path` に public があるため `pg_get_constraintdef` /
+   `format_type` が名前を修飾せず、`SET search_path=''` の本番 RPC と食い違う。
+   **全 FK と全 geography 列が差分になる**（実測で踏んだ）。
+2. 🔴 **shadow と本番の PostgreSQL メジャーバージョンを揃える。** `pg_get_*` の整形は
+   バージョン間で変わり得るため、揃えないと「差分ではない差分」が出て誤報になる。
+3. 🔴 **拡張が所有するオブジェクトは除外する**（postgis のバージョン差が誤報になる）。
+4. 🔴 **0 件同士の一致を緑と読み替えない。** `diffFingerprint` は 500 項目未満を
+   `vacuous=true` として扱い、cron は「走査が空振り」として警報する。
+5. 除外（`scripts/schema-drift-allow.txt`）は **理由必須**。理由が空の行は無効。
+   除外してよいのは「Supabase が管理していて migration に現れないもの」だけ。
+6. migration を足したら `scripts/gen-schema-fingerprint.sh` を実行して結果をコミットする
+   （忘れると CI が赤くなる＝手で同期する余地を残さない）。

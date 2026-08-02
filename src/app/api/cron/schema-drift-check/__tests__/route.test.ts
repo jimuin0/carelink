@@ -13,7 +13,9 @@ jest.mock('@/lib/cron-logger', () => ({ logCronRun: jest.fn() }));
 jest.mock('@/lib/alert', () => ({ alertWarning: jest.fn() }));
 jest.mock('@/lib/schema-drift', () => ({
   computeDrift: jest.fn(),
-  computeConstraintDrift: jest.fn(),
+  // 2026年8月2日: 手管理スナップショット方式(computeConstraintDrift)を廃止し、
+  // migration から導出した期待フィンガープリントとの突合に置き換えた。
+  diffFingerprint: jest.fn(),
 }));
 
 const mockRpc = jest.fn();
@@ -65,7 +67,7 @@ import { GET } from '../route';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
-import { computeDrift, computeConstraintDrift } from '@/lib/schema-drift';
+import { computeDrift, diffFingerprint } from '@/lib/schema-drift';
 
 function req() {
   return new Request('http://localhost/api/cron/schema-drift-check', {
@@ -74,12 +76,12 @@ function req() {
 }
 
 const EMPTY_COL_DRIFT = { contaminated: [], missing: [], colDrift: [] };
-const EMPTY_CONSTRAINT_DRIFT = { extra: [], missing: [] };
+const EMPTY_FINGERPRINT_DRIFT = { extra: [], missing: [], vacuous: false };
 
-/** 列RPC(get_public_columns) と 制約RPC(get_public_constraints) を名前で出し分ける。 */
-function setRpc(cols: unknown, constraints: unknown) {
+/** 列RPC(get_public_columns) と フィンガープリントRPC(get_schema_fingerprint) を名前で出し分ける。 */
+function setRpc(cols: unknown, fingerprint: unknown) {
   mockRpc.mockImplementation((name: string) =>
-    Promise.resolve(name === 'get_public_columns' ? cols : constraints),
+    Promise.resolve(name === 'get_public_columns' ? cols : fingerprint),
   );
 }
 
@@ -87,7 +89,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   (checkCronAuth as jest.Mock).mockReturnValue(null);
   (computeDrift as jest.Mock).mockReturnValue(EMPTY_COL_DRIFT);
-  (computeConstraintDrift as jest.Mock).mockReturnValue(EMPTY_CONSTRAINT_DRIFT);
+  (diffFingerprint as jest.Mock).mockReturnValue(EMPTY_FINGERPRINT_DRIFT);
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://test.supabase.co';
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-key';
   // デフォルト: claim insert 成功・cleanup delete 成功（fail-open/deduped の各テストで上書きする）
@@ -127,7 +129,7 @@ test('列ドリフト有(data=配列) + 制約RPC成功・制約ドリフト無 
   const json = await res.json();
   expect(json.driftCount).toBe(1);
   expect(json.contaminated).toEqual(['evil']);
-  expect(json.constraintCheckSkipped).toBe(false);
+  expect(json.fingerprintCheckSkipped).toBe(false);
   expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
   expect((logCronRun as jest.Mock).mock.calls[0][1]).toBe('success');
   // claim insert が (job_name, claim_key) で呼ばれている
@@ -151,39 +153,56 @@ test('ドリフト無(列data=null / 制約data=null) → 無通知 + ok（claim
   const res = await GET(req());
   const json = await res.json();
   expect(json.driftCount).toBe(0);
-  expect(json.constraintCheckSkipped).toBe(false);
+  expect(json.fingerprintCheckSkipped).toBe(false);
   expect(alertWarning as jest.Mock).not.toHaveBeenCalled();
   expect(mockClaimInsert).not.toHaveBeenCalled();
   expect(mockClaimDeleteLt).not.toHaveBeenCalled();
 });
 
-test('制約RPC エラー → graceful skip（constraintCheckSkipped=true・cron は壊れない）+ 監視無効化を警報', async () => {
-  // C-8 根治: 制約RPC失敗は監視そのものが無効化される障害のため、従来の「無音skip」
-  // ではなく alertWarning で恒久検知する（列レベルの drift 監視は継続・cron は 'success'）。
+test('フィンガープリントRPC エラー → graceful skip（cron は壊れない）+ 監視無効化を警報', async () => {
+  // 監視そのものが無効化される障害は「無音skip」にしない。無音にすると
+  // 「緑＝正常」と読み替えられ、監視が死んだまま気づけなくなる。
   setRpc({ data: [], error: null }, { data: null, error: { message: 'function does not exist' } });
   const res = await GET(req());
   const json = await res.json();
   expect(json.driftCount).toBe(0);
-  expect(json.constraintCheckSkipped).toBe(true);
+  expect(json.fingerprintCheckSkipped).toBe(true);
   expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
-  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/制約ドリフト監視が無効化/);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/スキーマ全面監視が無効化/);
 });
 
-test('制約ドリフト有(extra/missing) → driftCount に算入 + claim成功 + alert', async () => {
-  setRpc(
-    { data: [], error: null },
-    { data: [{ table_name: 'review_helpful', kind: 'p', columns: 'review_id,user_id' }], error: null },
-  );
-  (computeConstraintDrift as jest.Mock).mockReturnValue({
-    extra: ['review_helpful:p(review_id,user_id)'],
-    missing: ['review_helpful:p(id)'],
+test('スキーマドリフト有(extra/missing) → driftCount に算入 + claim成功 + alert', async () => {
+  setRpc({ data: [], error: null }, { data: ['x'], error: null });
+  (diffFingerprint as jest.Mock).mockReturnValue({
+    extra: ['index|foo|idx_x|CREATE INDEX idx_x ON public.foo USING btree (a)'],
+    missing: ['policy|bar|p_read|cmd=r|permissive=PERMISSIVE|roles=PUBLIC|using=(true)|check='],
+    vacuous: false,
   });
   const res = await GET(req());
   const json = await res.json();
   expect(json.driftCount).toBe(2);
-  expect(json.constraintExtra).toEqual(['review_helpful:p(review_id,user_id)']);
-  expect(json.constraintMissing).toEqual(['review_helpful:p(id)']);
+  expect(json.driftExtra).toEqual([
+    'index|foo|idx_x|CREATE INDEX idx_x ON public.foo USING btree (a)',
+  ]);
+  expect(json.driftMissing).toEqual([
+    'policy|bar|p_read|cmd=r|permissive=PERMISSIVE|roles=PUBLIC|using=(true)|check=',
+  ]);
   expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
+});
+
+test('🔴 走査が空振り(vacuous) → ドリフト0件を「一致」と報告せず、監視無効化として警報する', async () => {
+  // 0 件同士の一致は「スキーマが正しい」ではなく「測れていない」。
+  // ここを緑にすると、RPC が空を返すようになった瞬間に監視が無音で死ぬ。
+  setRpc({ data: [], error: null }, { data: [], error: null });
+  (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [], vacuous: true });
+  const res = await GET(req());
+  const json = await res.json();
+  expect(json.driftCount).toBe(0);
+  expect(json.fingerprintCheckSkipped).toBe(true);
+  expect(json.driftExtra).toEqual([]);
+  expect(json.driftMissing).toEqual([]);
+  expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/走査が空振り/);
 });
 
 describe('claim-first 重複防止（三重化cronの同時発火対策）', () => {
@@ -258,7 +277,7 @@ describe('claim-first 重複防止（三重化cronの同時発火対策）', () 
 describe('business_type の値ドリフト監視', () => {
   test('正規タクソノミー外の値を検知して driftCount に加算する', async () => {
     (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
-    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [] });
     mockBusinessTypeSelect.mockResolvedValueOnce({
       data: [
         { business_type: 'ネイル・まつげサロン' }, // 正規（検知しない）
@@ -281,7 +300,7 @@ describe('business_type の値ドリフト監視', () => {
 
   test('全て正規タクソノミー内なら検知しない（誤検知しない）', async () => {
     (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
-    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [] });
     mockBusinessTypeSelect.mockResolvedValueOnce({
       data: [{ business_type: '鍼灸院・整骨院' }, { business_type: 'ヘアサロン' }],
       error: null,
@@ -296,7 +315,7 @@ describe('business_type の値ドリフト監視', () => {
 
   test('null の business_type は検知対象外（未設定を異常扱いしない）', async () => {
     (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
-    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [] });
     mockBusinessTypeSelect.mockResolvedValueOnce({
       data: [{ business_type: null }, { business_type: 'ヘアサロン' }],
       error: null,
@@ -312,7 +331,7 @@ describe('business_type の値ドリフト監視', () => {
   // であり続けるモックで100回転させ、truncated=true を発生させる。
   test('facility_profiles が maxRows 上限で打ち切られた場合、打ち切り自体を警報する', async () => {
     (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
-    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [] });
     const fullPage = Array.from({ length: 1000 }, () => ({ business_type: 'ヘアサロン' }));
     mockBusinessTypeSelect.mockImplementation(() => Promise.resolve({ data: fullPage, error: null }));
 
@@ -328,7 +347,7 @@ describe('business_type の値ドリフト監視', () => {
   // 監視自体が壊れても cron 本体は止めない（列・制約の監視は継続させる）。
   test('取得失敗時は警告を出しつつ本体は success を返す', async () => {
     (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
-    (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+    (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [] });
     mockBusinessTypeSelect.mockResolvedValueOnce({ data: null, error: { message: 'boom' } });
 
     const res = await GET(req());
@@ -345,7 +364,7 @@ describe('business_type の値ドリフト監視', () => {
 // ここで落ちると監視ごと止まるため、空配列として扱えることを固定する。
 test('business_type: data が null でも空配列として扱う', async () => {
   (computeDrift as jest.Mock).mockReturnValue({ contaminated: [], missing: [], colDrift: [] });
-  (computeConstraintDrift as jest.Mock).mockReturnValue({ extra: [], missing: [] });
+  (diffFingerprint as jest.Mock).mockReturnValue({ extra: [], missing: [] });
   mockBusinessTypeSelect.mockResolvedValueOnce({ data: null, error: null });
 
   const res = await GET(req());
@@ -366,7 +385,7 @@ describe('口コミ真正性の値監視', () => {
   beforeEach(() => {
     setRpc({ data: [], error: null }, { data: [], error: null });
     (computeDrift as jest.Mock).mockReturnValue(EMPTY_COL_DRIFT);
-    (computeConstraintDrift as jest.Mock).mockReturnValue(EMPTY_CONSTRAINT_DRIFT);
+    (diffFingerprint as jest.Mock).mockReturnValue(EMPTY_FINGERPRINT_DRIFT);
   });
 
   test('両方0件 → ドリフト無し・通知なし', async () => {
