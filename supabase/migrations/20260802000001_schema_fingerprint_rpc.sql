@@ -49,9 +49,20 @@ rels AS (
 --   副次効果として、整形の揺れ（改行位置・インデント）が差分にならなくなる＝誤報が減る。
 SELECT regexp_replace(line, '\s+', ' ', 'g') AS line FROM (
 
+  -- ── メタ: PostgreSQL のバージョン ─────────────────────────────────────
+  -- 🔴 これを**フィンガープリントの一部にする**（2026年8月2日）。
+  --   pg_get_constraintdef / pg_get_indexdef / format_type の整形はメジャーバージョン間で
+  --   変わり得る。shadow と本番のバージョンがズレていると「差分ではない差分」が大量に出て
+  --   誤報になる。注意書きで運用に頼ると必ず忘れるので、**バージョン自体を比較対象に含めて
+  --   食い違ったら必ず赤くなる**ようにする。
+  --   実際、本番は 150001(PG15.1) なのに shadow を 16 系で組みかけて踏みかけた。
+  SELECT format('meta|server_version_num|%s',
+                current_setting('server_version_num')) AS line
+
+  UNION ALL
   -- ── リレーション本体（種別と RLS の有効/強制） ──────────────────────────
   SELECT format('relation|%s|%s|rls=%s|force=%s',
-                r.relname, r.relkind, r.relrowsecurity, r.relforcerowsecurity) AS line
+                r.relname, r.relkind, r.relrowsecurity, r.relforcerowsecurity)
   FROM rels r
 
   UNION ALL

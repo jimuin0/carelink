@@ -34,8 +34,14 @@ jobs:
     timeout-minutes: 20
     services:
       postgres:
+        # 🔴 本番(Supabase)と**メジャーバージョンを揃える**こと。
+        #   実測 2026年8月2日: 本番の server_version_num = 150001（PostgreSQL 15.1）。
+        #   pg_get_* の整形はメジャーバージョン間で変わり得るため、揃えないと
+        #   「差分ではない差分」が大量に出て誤報になる。
+        #   揃っていることは meta|server_version_num 行が突合対象なので機械で担保される
+        #   （食い違えば必ず赤くなる。注意書きに頼らない）。
         # postgis 入り。素の postgres だと migration が CREATE EXTENSION postgis で落ちる。
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:15-3.4
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
@@ -64,7 +70,24 @@ jobs:
 
       - name: 期待フィンガープリントが migration と一致することを検証する
         # --check は書き込まない。ズレていれば exit 1（＝再生成のコミット忘れを止める）。
+        id: check
         run: bash scripts/gen-schema-fingerprint.sh --check
+
+      - name: ズレていたら正しい期待値を成果物として出す
+        # 🔴 「再生成してコミットしろ」と言うだけでは、手元に本番と同じ PostgreSQL が
+        #   無い人は従えない（実際、開発環境に PG15 を用意できず PG16 で生成したものを
+        #   コミットする事故が起きかけた）。**この job が正しいものを必ず出す**ようにして、
+        #   落としてコミットするだけで済む形にする。
+        if: failure() && steps.check.outcome == 'failure'
+        run: bash scripts/gen-schema-fingerprint.sh
+
+      - name: 正しい期待値をアップロードする
+        if: failure() && steps.check.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-fingerprint-expected
+          path: src/lib/schema-fingerprint.expected.json
+          if-no-files-found: error
 
       - name: RPC 本文が scripts/schema-fingerprint.sql と同一であることを検証する
         # 両者がズレると本番と shadow で違う SQL を実行することになり、突合が無意味になる。
