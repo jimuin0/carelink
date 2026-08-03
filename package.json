@@ -85,7 +85,7 @@
     "postcss": "$postcss",
     "qs": "^6.15.2",
     "sharp": "^0.35.0",
-    "brace-expansion": "^5.0.8"
+    "brace-expansion": "^5.0.9"
   },
   "lint-staged": {
     "*": [
