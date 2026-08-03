@@ -83,10 +83,11 @@ jobs:
         run: bash scripts/gen-schema-fingerprint.sh --check
 
       - name: ズレていたら正しい期待値を成果物として出す
-        # 🔴 「再生成してコミットしろ」と言うだけでは、手元に本番と同じ PostgreSQL が
-        #   無い人は従えない（実際、開発環境に PG15 を用意できず PG16 で生成したものを
-        #   コミットする事故が起きかけた）。**この job が正しいものを必ず出す**ようにして、
-        #   落としてコミットするだけで済む形にする。
+        # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
+        #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、
+        #   PG16 しか用意できない環境で生成したものをコミットしかけた。PG16 と PG17 は
+        #   MAINTAIN 権限の有無で grant 行が 290 件ズレるので、それは正しい期待値ではない）。
+        #   **この job が正しいものを必ず出す**ようにして、落としてコミットするだけで済む形にする。
         if: failure() && steps.check.outcome == 'failure'
         run: bash scripts/gen-schema-fingerprint.sh
 
@@ -110,6 +111,21 @@ jobs:
           cat src/lib/schema-fingerprint.expected.json
           echo '===== END schema-fingerprint.expected.json ====='
 
+      # 🔴 npm ci が要る（2026年8月3日・このガードが一度も動いていなかった）。
+      #   下の jest step は当初 `npx jest ...` だけで、node_modules が無いため
+      #   `Cannot find module 'next/jest'` で必ず落ちる実装だった。
+      #   それに気づけなかったのは、**手前の --check step が常に失敗していて
+      #   この step が一度も実行されていなかった**から（skipped は緑にも赤にも見えない）。
+      #   ＝「検知機構が実は一度も動いていない」形。手前を直した瞬間に露出した。
+      #   教訓: ガードを足したら、そのガードが**実際に実行された記録**を確認すること。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: 依存をインストールする
+        run: npm ci
+
       - name: RPC 本文が scripts/schema-fingerprint.sql と同一であることを検証する
         # 両者がズレると本番と shadow で違う SQL を実行することになり、突合が無意味になる。
+        # --ci かつ --passWithNoTests を付けない: ファイルが消えたら「0 件成功」ではなく赤にする。
         run: npx jest src/lib/__tests__/schema-fingerprint-rpc-parity.test.ts --ci
