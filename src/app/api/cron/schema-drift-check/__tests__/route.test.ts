@@ -454,3 +454,22 @@ describe('口コミ真正性の値監視', () => {
     );
   });
 });
+
+test('🔴 別DBと突合している疑い → 差分0件で「監視が成立していない」として警報する', async () => {
+  // 2026年8月2日に実際にやりかけた事故: CareLink の期待値を soel の本番と突合して
+  // 「RLS が 90 本欠落」という存在しない事故を報告しかけた。
+  // 別 DB の差分を driftExtra/driftMissing に載せてはいけない。
+  setRpc({ data: [], error: null }, { data: ['x'], error: null });
+  (diffFingerprint as jest.Mock).mockReturnValue({
+    extra: [], missing: [], vacuous: false,
+    differentDatabase: { overlap: 0, sharedRelations: 0, expectedRelations: 98, actualRelations: 56 },
+  });
+  const res = await GET(req());
+  const json = await res.json();
+  expect(json.driftCount).toBe(0);
+  expect(json.fingerprintCheckSkipped).toBe(true);
+  expect(json.driftExtra).toEqual([]);
+  expect(json.driftMissing).toEqual([]);
+  expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/別のデータベース/);
+});

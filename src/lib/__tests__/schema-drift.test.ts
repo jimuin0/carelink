@@ -125,3 +125,55 @@ describe('diffFingerprint', () => {
     expect(diffFingerprint(withNulls, a)).toEqual({ extra: [], missing: [], vacuous: false });
   });
 });
+
+describe('diffFingerprint: 別 DB と突合していないかの判定', () => {
+  /** 期待/実測を「リレーション名の集合」から組み立てる（VACUOUS 下限も満たす量にする）。 */
+  const build = (rels: string[], pad: string) => [
+    ...rels.map((r) => `relation|${r}|r|rls=t|force=f`),
+    ...Array.from({ length: 600 }, (_, i) => `column|${pad}${i}.c|text|notnull=f|default=|generated=`),
+  ];
+
+  it('同じ DB（テーブル名が一致）なら通常どおり差分を出す', () => {
+    const rels = Array.from({ length: 20 }, (_, i) => `t${i}`);
+    const r = diffFingerprint(build(rels, 'a'), build(rels, 'a'));
+    expect(r.differentDatabase).toBeUndefined();
+    expect(r.missing).toEqual([]);
+  });
+
+  it('🔴 別 DB（テーブル名が全く違う）なら差分を 1 件も主張しない', () => {
+    // 2026年8月2日に実際にやりかけた事故: CareLink の期待値を soel の本番と突合し、
+    // 「RLS 90 本欠落」という存在しない事故を報告しかけた。
+    const expRels = Array.from({ length: 20 }, (_, i) => `carelink_t${i}`);
+    const actRels = Array.from({ length: 20 }, (_, i) => `soel_t${i}`);
+    const r = diffFingerprint(build(expRels, 'a'), build(actRels, 'b'));
+    expect(r.differentDatabase).toBeDefined();
+    expect(r.differentDatabase?.overlap).toBe(0);
+    expect(r.missing).toEqual([]);
+    expect(r.extra).toEqual([]);
+  });
+
+  it('一部のテーブルが未適用でも（重なりが高ければ）別 DB とは判定しない', () => {
+    // migration 未適用で本番のテーブルが少ない状況は「同じ DB」。ここを別 DB 扱いすると
+    // 本物の未適用検知が丸ごと死ぬ。
+    const expRels = Array.from({ length: 20 }, (_, i) => `t${i}`);
+    const actRels = expRels.slice(0, 14); // 30% 欠けている
+    const r = diffFingerprint(build(expRels, 'a'), build(actRels, 'a'));
+    expect(r.differentDatabase).toBeUndefined();
+    expect(r.missing.length).toBeGreaterThan(0);
+  });
+
+  it('境界: 重なりちょうど 50% は別 DB としない / 下回ると別 DB', () => {
+    const expRels = Array.from({ length: 20 }, (_, i) => `t${i}`);
+    const half = [...expRels.slice(0, 10), ...Array.from({ length: 10 }, (_, i) => `x${i}`)];
+    expect(diffFingerprint(build(expRels, 'a'), build(half, 'a')).differentDatabase).toBeUndefined();
+    const below = [...expRels.slice(0, 9), ...Array.from({ length: 11 }, (_, i) => `x${i}`)];
+    expect(diffFingerprint(build(expRels, 'a'), build(below, 'a')).differentDatabase).toBeDefined();
+  });
+
+  it('空振り(vacuous)の判定が別 DB 判定より先に効く', () => {
+    // どちらも「差分を主張しない」が、原因の説明が違う。取り違えると調査が空回りする。
+    const r = diffFingerprint(['relation|a|r|rls=t|force=f'], ['relation|z|r|rls=t|force=f']);
+    expect(r.vacuous).toBe(true);
+    expect(r.differentDatabase).toBeUndefined();
+  });
+});

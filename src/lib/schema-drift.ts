@@ -90,6 +90,16 @@ export interface FingerprintDiffResult {
   missing: string[];
   /** 走査が空振り（どちらかが極端に少ない）。true のとき extra/missing は信用しない。 */
   vacuous: boolean;
+  /**
+   * 🔴 別の DB と突合している疑い。set されているとき extra/missing は空で、
+   * 差分を 1 件も主張しない（数千件の「差分」は本番の異常ではなく比較対象の誤り）。
+   */
+  differentDatabase?: {
+    overlap: number;
+    sharedRelations: number;
+    expectedRelations: number;
+    actualRelations: number;
+  };
 }
 
 /**
@@ -106,6 +116,38 @@ export interface FingerprintDiffResult {
  */
 export const VACUOUS_MIN_ITEMS = 500;
 
+/**
+ * 「同じ DB を見ているか」の判定しきい値（リレーション名の重なり率）。
+ *
+ * 🔴 なぜ要るか（2026年8月2日・実際にやりかけた事故）:
+ *   検証中、CareLink の期待値を **soel の本番 DB** と突合してしまい、
+ *   「RLS ポリシーが 90 本欠落」という**存在しない重大事故を報告しかけた**。
+ *   別 DB と突合すれば差分は数千件出るが、それは「本番が壊れている」ではなく
+ *   「比較対象を間違えている」。この 2 つを取り違えるのが最悪の誤報。
+ *
+ *   人の注意（「プロジェクトを確認すること」）では止まらなかった。実際に止まらなかった。
+ *   リレーション名の重なりが極端に低ければ **別の DB と判定**し、差分を 1 件も主張しない。
+ *
+ *   0.5 の根拠: 同一 DB なら未適用 migration があっても大半のテーブル名は共通する。
+ *   別プロダクトなら重なりはほぼ 0（soel と CareLink は共通テーブルが 1 件も無く 0.0）。
+ *   中間の値が出る状況は設計上考えにくいので、しきい値の精密さは問題にならない。
+ */
+export const SAME_DATABASE_MIN_OVERLAP = 0.5;
+
+/** `relation|<name>|...` からリレーション名だけを取り出す。 */
+function relationNames(lines: Set<string>): Set<string> {
+  const out = new Set<string>();
+  for (const l of lines) {
+    if (!l.startsWith('relation|')) continue;
+    // `?? ''` は書かない。'relation|' で始まる行の split('|')[1] は必ず string
+    // （区切りが在る以上 undefined にならない。'relation|' 単体でも '' が返る）で、
+    // 到達しない分岐を作るだけになる。空文字は下の delete がまとめて落とす。
+    out.add(l.split('|')[1]);
+  }
+  out.delete('');
+  return out;
+}
+
 export function diffFingerprint(expected: string[], actual: string[]): FingerprintDiffResult {
   const norm = (arr: string[]) =>
     new Set((arr ?? []).map((l) => (l ?? '').trim()).filter(Boolean));
@@ -114,6 +156,30 @@ export function diffFingerprint(expected: string[], actual: string[]): Fingerpri
 
   if (exp.size < VACUOUS_MIN_ITEMS || act.size < VACUOUS_MIN_ITEMS) {
     return { extra: [], missing: [], vacuous: true };
+  }
+
+  // 🔴 差分を数える【前に】「同じ DB か」を判定する。順序が本質。
+  //   別 DB の差分を missing/extra として報告すると、存在しない事故の報告になる。
+  const expRels = relationNames(exp);
+  const actRels = relationNames(act);
+  const denom = Math.min(expRels.size, actRels.size);
+  if (denom > 0) {
+    let shared = 0;
+    for (const r of actRels) if (expRels.has(r)) shared += 1;
+    const overlap = shared / denom;
+    if (overlap < SAME_DATABASE_MIN_OVERLAP) {
+      return {
+        extra: [],
+        missing: [],
+        vacuous: false,
+        differentDatabase: {
+          overlap,
+          sharedRelations: shared,
+          expectedRelations: expRels.size,
+          actualRelations: actRels.size,
+        },
+      };
+    }
   }
 
   const missing = [...exp].filter((l) => !act.has(l)).sort();

@@ -69,7 +69,20 @@ export async function GET(request: Request) {
     const fd = diffFingerprint(fingerprintExpected as string[], actual);
     driftExtra = fd.extra;
     driftMissing = fd.missing;
-    if (fd.vacuous) {
+    if (fd.differentDatabase) {
+      // 🔴 別 DB と突合している。差分は本番の異常ではなく比較対象の誤りなので、
+      //   1 件も主張せず「監視が成立していない」として鳴らす。
+      //   （2026年8月2日、CareLink の期待値を soel の本番と突合して
+      //     「RLS が 90 本欠落」という存在しない事故を報告しかけた）
+      fingerprintCheckSkipped = true;
+      driftExtra = [];
+      driftMissing = [];
+      const dd = fd.differentDatabase;
+      alertWarning(
+        `schema-drift-check: 別のデータベースと突合している疑い（テーブル名の重なり ${(dd.overlap * 100).toFixed(0)}%）`,
+        { route: '/api/cron/schema-drift-check', extra: dd },
+      );
+    } else if (fd.vacuous) {
       // 0 件同士は「一致」ではなく「測れていない」。緑と読み替えさせない。
       fingerprintCheckSkipped = true;
       driftExtra = [];
