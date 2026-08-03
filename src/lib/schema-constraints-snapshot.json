@@ -385,11 +385,6 @@
     "columns": "id"
   },
   {
-    "table_name": "intake_form_templates",
-    "kind": "u",
-    "columns": "facility_id,is_active"
-  },
-  {
     "table_name": "job_applications",
     "kind": "p",
     "columns": "id"
