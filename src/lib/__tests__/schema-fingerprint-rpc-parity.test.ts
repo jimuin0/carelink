@@ -96,3 +96,26 @@ describe('get_schema_fingerprint RPC と schema-fingerprint.sql の同一性', (
     expect(tampered).not.toBe(source);
   });
 });
+
+describe('照合順序に依存しない並び（誤報の構造的除去）', () => {
+  it('🔴 ORDER BY に COLLATE "C" が付いている', () => {
+    // 2026年8月2日: CI が実装欠陥を検出した。`ORDER BY line` は DB の LC_COLLATE に
+    // 依存し、ローカル shadow(C.UTF-8) と CI(en_US.utf8) で **中身が完全に同一なのに
+    // 218 行が並び順だけズレて差分**になった。本番 Supabase の照合順序は環境依存なので、
+    // 放置すれば永続的な誤報源になる。COLLATE "C" はバイト順で環境非依存。
+    const sql = readFileSync(FP_SQL, 'utf8');
+    expect(sql).toMatch(/ORDER BY line COLLATE "C"/);
+  });
+
+  it('🔴 RPC 側の jsonb_agg にも COLLATE "C" が付いている', () => {
+    // 片方だけだと本番と shadow で並びが変わり、同じ誤報が復活する。
+    const { text } = latestFingerprintMigration();
+    expect(text).toMatch(/jsonb_agg\(q\.line ORDER BY q\.line COLLATE "C"\)/);
+  });
+
+  it('🔴 生成器も取得時と比較時の両方で並びを C に固定している', () => {
+    const sh = readFileSync(join(ROOT, 'scripts', 'gen-schema-fingerprint.sh'), 'utf8');
+    expect(sh).toMatch(/ORDER BY value COLLATE/);
+    expect(sh).toMatch(/LC_ALL=C sort/);
+  });
+});

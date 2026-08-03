@@ -49,7 +49,7 @@ STABLE
 SECURITY DEFINER
 SET search_path = ''
 AS $fingerprint$
-  SELECT coalesce(jsonb_agg(q.line ORDER BY q.line), '[]'::jsonb)
+  SELECT coalesce(jsonb_agg(q.line ORDER BY q.line COLLATE "C"), '[]'::jsonb)
   FROM (
 -- >>> BEGIN scripts/schema-fingerprint.sql（自動転記・手で編集しない） >>>
 WITH ext_objs AS (
@@ -173,7 +173,13 @@ SELECT regexp_replace(line, '\s+', ' ', 'g') AS line FROM (
   GROUP BY r.relname, grantee.rolname
 
 ) s
-ORDER BY line
+-- 🔴 COLLATE "C" が必須（2026年8月2日・CI が実装欠陥を検出）。
+--   `ORDER BY line` はデータベースの照合順序(LC_COLLATE)に依存する。
+--   ローカル shadow が C.UTF-8、CI の postgis イメージが en_US.utf8 だったため、
+--   **中身が完全に同一なのに 218 行が並び順だけズレて差分になった**（実測）。
+--   本番 Supabase の照合順序は環境依存なので、放置すれば永続的な誤報源になる。
+--   COLLATE "C" はバイト順で、どの環境でも同一の並びになる（両ロケールで完全一致を実測）。
+ORDER BY line COLLATE "C"
 -- <<< END scripts/schema-fingerprint.sql <<<
   ) q;
 $fingerprint$;

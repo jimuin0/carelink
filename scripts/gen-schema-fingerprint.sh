@@ -54,7 +54,7 @@ fi
 #   2028 行中の FK/geography 行が全滅した）。両側とも RPC を呼べば構造的に一致する。
 TMP="$(mktemp)"
 psql -d "$DB" -tAc \
-  "SELECT string_agg(value, E'\n' ORDER BY value) FROM jsonb_array_elements_text(public.get_schema_fingerprint());" \
+  "SELECT string_agg(value, E'\n' ORDER BY value COLLATE \"C\") FROM jsonb_array_elements_text(public.get_schema_fingerprint());" \
   > "$TMP"
 
 lines=$(wc -l < "$TMP")
@@ -69,6 +69,11 @@ if [ "$MODE" = "--check" ]; then
 import json,sys
 print('\n'.join(json.load(open(sys.argv[1],encoding='utf-8'))))
 " "$OUT" > "$CUR"
+  # 🔴 比較前に両側を LC_ALL=C で並べ直す（2026年8月2日）。
+  #   SQL 側は COLLATE "C" で固定済みだが、シェルの sort/diff も環境ロケールに
+  #   引きずられ得る。二重に固定して「中身は同じなのに並びで差分」を構造的に潰す。
+  LC_ALL=C sort -o "$CUR" "$CUR"
+  LC_ALL=C sort -o "$TMP" "$TMP"
   if diff -u "$CUR" "$TMP" > /tmp/fingerprint.diff 2>&1; then
     echo "✅ コミット済みの期待フィンガープリントは最新（migration $applied 本 / $lines 項目）"
     exit 0
