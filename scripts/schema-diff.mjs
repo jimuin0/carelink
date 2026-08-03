@@ -21,6 +21,17 @@
  * 除外（allow）:
  *   Supabase が管理していて migration に現れないものだけを、**理由必須**で除外する。
  *   理由が空の行は無効（「印を付ければ通る」にしない）。
+ *
+ * 🔴 差分を数える【前】に、そもそも突合が成立しているかを 3 つ検査する（2026年8月3日）。
+ *   src/lib/schema-drift.ts の diffFingerprint と**同じ順序・同じしきい値**であること。
+ *   engine が 2 本あって安全側の挙動が食い違う状態そのものが欠陥なので、
+ *   src/lib/__tests__/schema-diff-allow.test.ts が両者の一致を機械で強制する。
+ *     1. 空振り（どちらかが極端に少ない）
+ *     2. 別 DB（リレーション名の重なりが低い）
+ *     3. PostgreSQL メジャーバージョン不一致（pg_get_* の整形差がノイズになる）
+ *   いずれも「本番のドリフト」ではなく「比較が成立していない」なので、
+ *   差分を 1 件も主張してはいけない。実際、2 を入れる前に CareLink の期待値を
+ *   soel の本番と突合して「RLS が 90 本欠落」という存在しない事故を報告しかけた。
  */
 import { readFileSync } from 'node:fs';
 
@@ -55,6 +66,61 @@ export function parseAllow(text) {
 /** allow にマッチするか（前方一致）。マッチした rule を返す。 */
 export function matchAllow(line, rules) {
   return rules.find((r) => line.startsWith(r.pattern)) ?? null;
+}
+
+/** 「同じ DB を見ているか」の判定しきい値（リレーション名の重なり率）。 */
+export const SAME_DATABASE_MIN_OVERLAP = 0.5;
+
+/** フィンガープリント内の PostgreSQL メジャーバージョン行の接頭辞。 */
+export const VERSION_LINE_PREFIX = 'meta|server_version_major|';
+
+/** `relation|<name>|...` からリレーション名だけを取り出す。 */
+export function relationNames(lines) {
+  const out = new Set();
+  for (const l of lines) {
+    if (!l.startsWith('relation|')) continue;
+    out.add(l.split('|')[1]);
+  }
+  out.delete('');
+  return out;
+}
+
+/** `meta|server_version_major|<n>` の値。行が無ければ null。昇順で最初の 1 件を採る。 */
+export function versionMajor(lines) {
+  const hits = [];
+  for (const l of lines) {
+    if (l.startsWith(VERSION_LINE_PREFIX)) hits.push(l.slice(VERSION_LINE_PREFIX.length));
+  }
+  hits.sort();
+  return hits.length > 0 ? hits[0] : null;
+}
+
+/**
+ * 突合が成立しているかを検査する。成立していなければ理由文字列、していなければ null。
+ * 順序は src/lib/schema-drift.ts の diffFingerprint と同じ（空振り → 別 DB → バージョン）。
+ */
+export function comparabilityProblem(exp, act, minLines) {
+  if (exp.size < minLines || act.size < minLines) {
+    return `走査が空振り（expected ${exp.size} 行 / actual ${act.size} 行・下限 ${minLines}）`;
+  }
+  const expRels = relationNames(exp);
+  const actRels = relationNames(act);
+  const denom = Math.min(expRels.size, actRels.size);
+  if (denom > 0) {
+    let shared = 0;
+    for (const r of actRels) if (expRels.has(r)) shared += 1;
+    const overlap = shared / denom;
+    if (overlap < SAME_DATABASE_MIN_OVERLAP) {
+      return `別のデータベースと突合している疑い（テーブル名の重なり ${(overlap * 100).toFixed(0)}%`
+        + ` / expected ${expRels.size} 表・actual ${actRels.size} 表）`;
+    }
+  }
+  const expVer = versionMajor(exp);
+  const actVer = versionMajor(act);
+  if (expVer !== actVer) {
+    return `PostgreSQL メジャーバージョン不一致（expected=${expVer ?? '不明'} / actual=${actVer ?? '不明'}）`;
+  }
+  return null;
 }
 
 /** フィンガープリント 2 つを突合する。 */
@@ -132,10 +198,13 @@ function main(argv) {
   const actual = readLines(actPath);
   const result = diffFingerprints(expected, actual, rules);
 
-  const vacuous = assertNotVacuous(result, minLines);
-  if (vacuous.length) {
-    console.error('🔴 走査が空振りしています（0 件一致を「正常」と読み替えない）:');
-    for (const v of vacuous) console.error(`   ${v}`);
+  // 🔴 差分を出力する【前】に、突合が成立しているかを見る。成立していないのに
+  //   missing/extra を出すと「存在しない事故」の報告になる。
+  const norm = (arr) => new Set(arr.map((l) => String(l ?? '').trim()).filter(Boolean));
+  const problem = comparabilityProblem(norm(expected), norm(actual), minLines);
+  if (problem) {
+    console.error('🔴 突合が成立していません（差分は 1 件も主張しません）:');
+    console.error(`   ${problem}`);
     return 1;
   }
 

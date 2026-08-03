@@ -258,6 +258,11 @@ npm run test:load           # k6 負荷（search-load）
    `meta|server_version_major|<n>` 行が含まれ、食い違うと `diffFingerprint` が
    `versionMismatch` を返して**差分を 1 件も主張せず**、cron が 1 件だけ警報する
    （整形差の数百件を「ドリフト」として報告しない）。
+   **【実測 2026年8月3日】この危険は仮説ではない。** 同一 migration 群を PG16 と PG17 の
+   shadow に全適用して突合したところ、**スキーマは 1 箇所も違わないのに 290 行が差分**に
+   なった（PostgreSQL 17 で権限 `MAINTAIN` が追加され、`GRANT ALL` の展開が
+   `DELETE,INSERT,REFERENCES,…` → `DELETE,INSERT,MAINTAIN,REFERENCES,…` に変わるため）。
+   ガードが無ければ「290 件のドリフト」という存在しない事故を毎日報告していた。
    ⚠️ **マイナー(パッチ)は比較対象に入れない。** 最初 `server_version_num` を丸ごと
    入れていたが、Supabase は本番のマイナーを随時上げ、CI の postgis イメージのタグも
    パッチを固定していないため、**スキーマが 1 文字も変わらなくても必ずいつか鳴る**
@@ -289,3 +294,16 @@ npm run test:load           # k6 負荷（search-load）
    除外してよいのは「Supabase が管理していて migration に現れないもの」だけ。
 8. migration を足したら `scripts/gen-schema-fingerprint.sh` を実行して結果をコミットする
    （忘れると CI が赤くなる＝手で同期する余地を残さない）。
+9. 🔴 **差分エンジンは 2 本ある。安全側の挙動を片方だけ直さない。**
+   `src/lib/schema-drift.ts` の `diffFingerprint`（cron が使う本番経路）と
+   `scripts/schema-diff.mjs` の `comparabilityProblem`（人が手で叩く調査用 CLI）。
+   障害調査で CLI を叩いた人が cron と違う結論（＝存在しないドリフト）に至る状態そのものが
+   欠陥なので、しきい値・判定順序（空振り → 別 DB → メジャーバージョン）の一致を
+   `src/lib/__tests__/schema-diff-allow.test.ts` が機械で強制する。
+   同テストは CLI を **実際にプロセス起動して**配線も確かめる（関数が在るだけで
+   `main()` から呼ばれていない状態を緑にしないため）。負の対照つき。
+10. ⚠️ **`scripts/schema-fingerprint.sql` はコメント 1 文字の変更でも本番 RPC の再適用が要る。**
+   フィンガープリントは自分自身の関数を `body_md5`（`prosrc` の md5）で見ているため。
+   これは不便ではなく正しい: 本番の RPC 本文がリポジトリとズレていれば
+   **両側で違う SQL を実行している**＝突合が無意味なので、必ず赤くならなければいけない。
+   手順は「SQL を編集 → 期待値を再生成 → 本番へ migration を再適用」の 3 点セット。
