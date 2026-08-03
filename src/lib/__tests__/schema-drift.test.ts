@@ -76,3 +76,48 @@ describe('computeConstraintDrift', () => {
     expect(computeConstraintDrift(rows, rows)).toEqual({ extra: [], missing: [] });
   });
 });
+
+describe('schema-constraints-snapshot.json（期待スナップショットの正しさ）', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const snapshot = require('../schema-constraints-snapshot.json') as Array<{
+    table_name: string;
+    kind: string;
+    columns: string;
+  }>;
+
+  test('意図的に撤去した intake_form_templates の UNIQUE(facility_id,is_active) を含まない', () => {
+    // 【2026年8月3日 恒久修正】この複合 UNIQUE は
+    // supabase/migrations/20260722000005_intake_active_partial_unique.sql で
+    // 意図的に DROP し、部分ユニークインデックス
+    // uq_intake_active_per_facility (facility_id) WHERE is_active に置換した
+    // （複合 UNIQUE は「非アクティブも施設あたり1件まで」になる設計欠陥だった）。
+    //
+    // ところが期待スナップショット側を更新し忘れたため、schema-drift-check が
+    // 毎回「制約欠落1」を Slack へ警報し続けていた（実例: 2026-08-03 02:40 の
+    // WARNING）。本番 DB は正しく、監視側だけが古い＝典型的な誤報である。
+    //
+    // 誤報は「またあの警告か」を生み、本物のドリフトを埋もれさせるため、
+    // スナップショットからの除去を回帰テストで固定する。
+    //
+    // なお置換先は UNIQUE INDEX であって pg_constraint の行を作らない
+    // （Postgres は部分ユニークを constraint として表現できない）。
+    // get_public_constraints RPC は pg_constraint のみを読むため、
+    // 代わりのエントリを足すことはできない＝削除が正しい対処。
+    const stale = snapshot.filter(
+      (r) =>
+        r.table_name === 'intake_form_templates' &&
+        r.kind === 'u' &&
+        r.columns === 'facility_id,is_active',
+    );
+    expect(stale).toEqual([]);
+  });
+
+  test('intake_form_templates の主キーは維持されている（過剰削除の防止）', () => {
+    const pk = snapshot.filter(
+      (r) => r.table_name === 'intake_form_templates' && r.kind === 'p',
+    );
+    expect(pk).toEqual([
+      { table_name: 'intake_form_templates', kind: 'p', columns: 'id' },
+    ]);
+  });
+});
