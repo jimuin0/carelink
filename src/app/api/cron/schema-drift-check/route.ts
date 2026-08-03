@@ -82,6 +82,19 @@ export async function GET(request: Request) {
         `schema-drift-check: 別のデータベースと突合している疑い（テーブル名の重なり ${(dd.overlap * 100).toFixed(0)}%）`,
         { route: '/api/cron/schema-drift-check', extra: dd },
       );
+    } else if (fd.versionMismatch) {
+      // 🔴 shadow(期待値の生成元)と本番の PostgreSQL メジャーバージョンが違う。
+      //   pg_get_* の整形がメジャー間で変わり得るため、この状態で出る差分は
+      //   「本番のドリフト」ではなく整形差のノイズ。1 件も主張せず、
+      //   「監視が成立していない設定不備」として鳴らす（🔴 ではなく 🟡 相当）。
+      fingerprintCheckSkipped = true;
+      driftExtra = [];
+      driftMissing = [];
+      const vm = fd.versionMismatch;
+      alertWarning(
+        `schema-drift-check: PostgreSQL メジャーバージョン不一致（期待値=${vm.expected ?? '不明'} / 本番=${vm.actual ?? '不明'}）。突合が成立していません`,
+        { route: '/api/cron/schema-drift-check', extra: vm },
+      );
     } else if (fd.vacuous) {
       // 0 件同士は「一致」ではなく「測れていない」。緑と読み替えさせない。
       fingerprintCheckSkipped = true;

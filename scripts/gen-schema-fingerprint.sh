@@ -13,10 +13,14 @@
 #   scripts/gen-schema-fingerprint.sh --check    # 生成物とコミット済みを比較（書かない）
 #
 # 前提: psql が PATH にあり、PGHOST/PGPORT/PGUSER 等で空の Postgres に接続できること。
-#   CI では postgis 入りイメージ（postgis/postgis:16-3.4）の service を使う。
+#   CI では postgis 入りイメージの service を使う（バージョンは
+#   .github/workflows/schema-fingerprint.yml が唯一の宣言箇所）。
 #   ⚠️ 本番と **PostgreSQL メジャーバージョンを揃えること**。pg_get_constraintdef /
 #     pg_get_indexdef / pg_get_expr の整形はバージョン間で変わり得るため、
 #     揃えないと「差分ではない差分」が出て誤報になる。
+#   ⚠️ 手元で再生成する場合、CI と違うメジャーで生成した結果をコミットしてはいけない
+#     （meta|server_version_major 行が食い違って CI が赤くなる）。用意できないときは
+#     CI を落として成果物 schema-fingerprint-expected か CI ログの出力をコミットする。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,7 +55,7 @@ fi
 #   一方、本番側は `SET search_path = ''` の SECURITY DEFINER 関数なので
 #   `public.facility_profiles` / `public.geography(Point,4326)` と修飾される。
 #   方式を混ぜると **全 FK と全 geography 列が差分になる**（実測: 直実行と RPC で
-#   2028 行中の FK/geography 行が全滅した）。両側とも RPC を呼べば構造的に一致する。
+#   FK/geography 行が全滅した）。両側とも RPC を呼べば構造的に一致する。
 TMP="$(mktemp)"
 psql -d "$DB" -tAc \
   "SELECT string_agg(value, E'\n' ORDER BY value COLLATE \"C\") FROM jsonb_array_elements_text(public.get_schema_fingerprint());" \

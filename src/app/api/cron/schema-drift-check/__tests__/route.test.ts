@@ -473,3 +473,45 @@ test('🔴 別DBと突合している疑い → 差分0件で「監視が成立�
   expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
   expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/別のデータベース/);
 });
+
+test('🔴 メジャーバージョン不一致 → 差分0件で「突合が成立していない」として警報する', async () => {
+  // pg_get_* の整形はメジャー間で変わり得るため、この状態の差分は本番のドリフトではなく
+  // 整形差のノイズ。数百件を「ドリフト」として報告すると存在しない事故の報告になる。
+  setRpc({ data: [], error: null }, { data: ['x'], error: null });
+  (diffFingerprint as jest.Mock).mockReturnValue({
+    extra: ['noise|1'], missing: ['noise|2'], vacuous: false,
+    versionMismatch: { expected: '17', actual: '16' },
+  });
+  const res = await GET(req());
+  const json = await res.json();
+  expect(json.driftCount).toBe(0);
+  expect(json.fingerprintCheckSkipped).toBe(true);
+  expect(json.driftExtra).toEqual([]);
+  expect(json.driftMissing).toEqual([]);
+  expect(alertWarning as jest.Mock).toHaveBeenCalledTimes(1);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/メジャーバージョン不一致/);
+  // 実測値が通知に載ること（これを見て CI の image を直す運用が成立する条件）。
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/期待値=17 \/ 本番=16/);
+});
+
+test('メジャーバージョンが片側だけ取れないときも「不明」と明示して警報する', async () => {
+  setRpc({ data: [], error: null }, { data: ['x'], error: null });
+  (diffFingerprint as jest.Mock).mockReturnValue({
+    extra: [], missing: [], vacuous: false,
+    versionMismatch: { expected: '17', actual: null },
+  });
+  const res = await GET(req());
+  expect((await res.json()).fingerprintCheckSkipped).toBe(true);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/期待値=17 \/ 本番=不明/);
+});
+
+test('メジャーバージョンが期待値側だけ取れないときも「不明」と明示して警報する', async () => {
+  setRpc({ data: [], error: null }, { data: ['x'], error: null });
+  (diffFingerprint as jest.Mock).mockReturnValue({
+    extra: [], missing: [], vacuous: false,
+    versionMismatch: { expected: null, actual: '16' },
+  });
+  const res = await GET(req());
+  expect((await res.json()).fingerprintCheckSkipped).toBe(true);
+  expect((alertWarning as jest.Mock).mock.calls[0][0]).toMatch(/期待値=不明 \/ 本番=16/);
+});

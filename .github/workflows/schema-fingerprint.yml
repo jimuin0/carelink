@@ -13,7 +13,9 @@ name: schema-fingerprint
 # ⚠️ PostgreSQL のメジャーバージョンは本番(Supabase)と揃えること。
 #   pg_get_constraintdef / pg_get_indexdef / format_type の整形はバージョン間で
 #   変わり得るため、揃えないと「差分ではない差分」が出て誤報になる。
-#   本番の値は `SELECT current_setting('server_version_num')` で確認する。
+#   揃っていることは注意書きではなく機械で担保される（フィンガープリントに
+#   meta|server_version_major 行が含まれ、食い違えば cron が
+#   「メジャーバージョン不一致」として鳴らし、差分は 1 件も主張しない）。
 
 on:
   push:
@@ -35,13 +37,20 @@ jobs:
     services:
       postgres:
         # 🔴 本番(Supabase)と**メジャーバージョンを揃える**こと。
-        #   実測 2026年8月2日: 本番の server_version_num = 150001（PostgreSQL 15.1）。
         #   pg_get_* の整形はメジャーバージョン間で変わり得るため、揃えないと
         #   「差分ではない差分」が大量に出て誤報になる。
-        #   揃っていることは meta|server_version_num 行が突合対象なので機械で担保される
-        #   （食い違えば必ず赤くなる。注意書きに頼らない）。
+        #
+        #   17 の根拠と、その限界（2026年8月3日・事実のみ）:
+        #     ・supabase/config.toml の major_version = 17。supabase CLI の規約上この値は
+        #       「リモート DB と同じでなければならない」もので、リポジトリ自身の宣言。
+        #     ・本番 CareLink(xzafxiupbflvgbarrihe) での **直接の実測は未取得**。
+        #       セッション中に得た 150001 はどのプロジェクトで実行されたか特定できず、
+        #       同時期に測った 170006 は soel(別プロジェクト)のものだった。
+        #       よって「本番は 15」とも「本番は 17」とも断定していない。
+        #   食い違っていた場合は cron が「メジャーバージョン不一致」として 1 件だけ鳴らし
+        #   （差分は主張しない）、その通知に本番の実測値が入る。それを見てここを直す。
         # postgis 入り。素の postgres だと migration が CREATE EXTENSION postgis で落ちる。
-        image: postgis/postgis:15-3.4
+        image: postgis/postgis:17-3.5
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
@@ -88,6 +97,18 @@ jobs:
           name: schema-fingerprint-expected
           path: src/lib/schema-fingerprint.expected.json
           if-no-files-found: error
+
+      - name: 正しい期待値をログにも出す
+        # 🔴 成果物だけだとブラウザからしか回収できない（2026年8月3日）。
+        #   手元に本番と同じメジャーの PostgreSQL を用意できない環境
+        #   （＝この検査が最も必要な環境）では、成果物を落とす手段が無いことがある。
+        #   ログに全文を出しておけば API 経由でも回収でき、修正ループが必ず閉じる。
+        #   失敗時にしか走らないので平時のログは汚れない。
+        if: failure() && steps.check.outcome == 'failure'
+        run: |
+          echo '===== BEGIN schema-fingerprint.expected.json ====='
+          cat src/lib/schema-fingerprint.expected.json
+          echo '===== END schema-fingerprint.expected.json ====='
 
       - name: RPC 本文が scripts/schema-fingerprint.sql と同一であることを検証する
         # 両者がズレると本番と shadow で違う SQL を実行することになり、突合が無意味になる。

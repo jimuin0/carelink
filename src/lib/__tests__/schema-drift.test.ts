@@ -3,7 +3,12 @@
  *
  * Tests for lib/schema-drift.ts (computeDrift / isIgnored) — branches 100%。
  */
-import { computeDrift, diffFingerprint, isIgnored } from '../schema-drift';
+import {
+  computeDrift,
+  diffFingerprint,
+  isIgnored,
+  VERSION_LINE_PREFIX,
+} from '../schema-drift';
 
 describe('isIgnored', () => {
   test('PostGIS システムは対象外', () => {
@@ -175,5 +180,94 @@ describe('diffFingerprint: 別 DB と突合していないかの判定', () => {
     const r = diffFingerprint(['relation|a|r|rls=t|force=f'], ['relation|z|r|rls=t|force=f']);
     expect(r.vacuous).toBe(true);
     expect(r.differentDatabase).toBeUndefined();
+  });
+});
+
+describe('diffFingerprint: PostgreSQL メジャーバージョンの一致判定', () => {
+  /** 期待/実測を「バージョン行 + 十分な件数」で組み立てる。 */
+  const build = (major: string | null) => [
+    ...(major === null ? [] : [`${VERSION_LINE_PREFIX}${major}`]),
+    ...Array.from({ length: 20 }, (_, i) => `relation|t${i}|r|rls=t|force=f`),
+    ...Array.from({ length: 600 }, (_, i) => `column|t.c${i}|text|notnull=f|default=|generated=`),
+  ];
+
+  it('メジャーが一致していれば通常どおり差分を出す', () => {
+    const r = diffFingerprint(build('17'), [...build('17'), 'index|t|leaked|CREATE INDEX']);
+    expect(r.versionMismatch).toBeUndefined();
+    expect(r.extra).toEqual(['index|t|leaked|CREATE INDEX']);
+  });
+
+  it('🔴 メジャーが違えば差分を 1 件も主張しない（整形差のノイズを事故として報告しない）', () => {
+    // pg_get_constraintdef / pg_get_indexdef / format_type の整形はメジャー間で変わり得る。
+    // その差を missing/extra として出すと「存在しないドリフト」の報告になる。
+    const r = diffFingerprint(build('17'), [...build('16'), 'index|t|leaked|CREATE INDEX']);
+    expect(r.versionMismatch).toEqual({ expected: '17', actual: '16' });
+    expect(r.extra).toEqual([]);
+    expect(r.missing).toEqual([]);
+    expect(r.vacuous).toBe(false);
+  });
+
+  it('🔴 片側にバージョン行が無い場合も不一致として扱う（本番 RPC が古い＝突合が成立していない）', () => {
+    expect(diffFingerprint(build('17'), build(null)).versionMismatch).toEqual({
+      expected: '17',
+      actual: null,
+    });
+    expect(diffFingerprint(build(null), build('17')).versionMismatch).toEqual({
+      expected: null,
+      actual: '17',
+    });
+  });
+
+  it('両側ともバージョン行が無ければ、この判定は何も主張しない（旧 RPC 同士の比較を殺さない）', () => {
+    const r = diffFingerprint(build(null), build(null));
+    expect(r.versionMismatch).toBeUndefined();
+    expect(r.missing).toEqual([]);
+  });
+
+  it('🔴 マイナー(パッチ)は比較対象に入らない — 同一メジャーなら差分ゼロ', () => {
+    // 2026年8月3日に直した欠陥の再発防止。server_version_num をそのまま入れていた頃は
+    // Supabase のマイナー更新や postgis イメージの再 pull だけで、スキーマが 1 文字も
+    // 変わらないのに必ず鳴った（誤報の確定装置）。
+    expect(diffFingerprint(build('17'), build('17'))).toEqual({
+      extra: [],
+      missing: [],
+      vacuous: false,
+    });
+  });
+
+  it('別 DB 判定がバージョン判定より先に効く（原因の説明を取り違えない）', () => {
+    const exp = [
+      `${VERSION_LINE_PREFIX}17`,
+      ...Array.from({ length: 20 }, (_, i) => `relation|carelink_t${i}|r|rls=t|force=f`),
+      ...Array.from({ length: 600 }, (_, i) => `column|a${i}.c|text|notnull=f|default=|generated=`),
+    ];
+    const act = [
+      `${VERSION_LINE_PREFIX}16`,
+      ...Array.from({ length: 20 }, (_, i) => `relation|soel_t${i}|r|rls=t|force=f`),
+      ...Array.from({ length: 600 }, (_, i) => `column|b${i}.c|text|notnull=f|default=|generated=`),
+    ];
+    const r = diffFingerprint(exp, act);
+    expect(r.differentDatabase).toBeDefined();
+    expect(r.versionMismatch).toBeUndefined();
+  });
+
+  it('空振り(vacuous)がバージョン判定より先に効く', () => {
+    const r = diffFingerprint([`${VERSION_LINE_PREFIX}17`], [`${VERSION_LINE_PREFIX}16`]);
+    expect(r.vacuous).toBe(true);
+    expect(r.versionMismatch).toBeUndefined();
+  });
+
+  it('バージョン行が重複しても決定的に振る舞う（Set の反復順に依存しない）', () => {
+    // 昇順で最初の値を採るので、入力の並びが変わっても結果は変わらない。
+    const dup = [`${VERSION_LINE_PREFIX}9`, ...build('17')];
+    const reversed = [...dup].reverse();
+    expect(diffFingerprint(build('9'), dup).versionMismatch).toEqual({
+      expected: '9',
+      actual: '17',
+    });
+    expect(diffFingerprint(build('9'), reversed).versionMismatch).toEqual({
+      expected: '9',
+      actual: '17',
+    });
   });
 });

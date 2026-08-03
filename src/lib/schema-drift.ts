@@ -100,6 +100,15 @@ export interface FingerprintDiffResult {
     expectedRelations: number;
     actualRelations: number;
   };
+  /**
+   * 🔴 shadow と本番の PostgreSQL メジャーバージョンが違う。set されているとき
+   * extra/missing は空で、差分を 1 件も主張しない（pg_get_* の整形がメジャー間で
+   * 変わり得るため、出てくる差分は「本番のドリフト」ではなく整形差のノイズ）。
+   */
+  versionMismatch?: {
+    expected: string | null;
+    actual: string | null;
+  };
 }
 
 /**
@@ -133,6 +142,25 @@ export const VACUOUS_MIN_ITEMS = 500;
  *   中間の値が出る状況は設計上考えにくいので、しきい値の精密さは問題にならない。
  */
 export const SAME_DATABASE_MIN_OVERLAP = 0.5;
+
+/** フィンガープリント内の PostgreSQL メジャーバージョン行の接頭辞。 */
+export const VERSION_LINE_PREFIX = 'meta|server_version_major|';
+
+/**
+ * `meta|server_version_major|<n>` から値を取り出す。行が無ければ null。
+ *
+ * null は「取れなかった」であって「一致」ではない。片側だけ null なら
+ * versionMismatch として扱う（本番 RPC が古い＝比較が成立していない状態を、
+ * missing 行に埋もれさせずに 1 件の明確な事象として出すため）。
+ */
+function versionMajor(lines: Set<string>): string | null {
+  const hits: string[] = [];
+  for (const l of lines) {
+    if (l.startsWith(VERSION_LINE_PREFIX)) hits.push(l.slice(VERSION_LINE_PREFIX.length));
+  }
+  hits.sort();
+  return hits.length > 0 ? hits[0] : null;
+}
 
 /** `relation|<name>|...` からリレーション名だけを取り出す。 */
 function relationNames(lines: Set<string>): Set<string> {
@@ -180,6 +208,21 @@ export function diffFingerprint(expected: string[], actual: string[]): Fingerpri
         },
       };
     }
+  }
+
+  // 🔴 差分を数える【前に】メジャーバージョンの一致を確認する（differentDatabase と同じ理屈）。
+  //   メジャーが違えば pg_get_constraintdef / pg_get_indexdef / format_type の整形が
+  //   変わり得るため、出てくる差分は「本番のドリフト」ではなく整形差のノイズになる。
+  //   数百件のノイズを missing/extra として報告するのは、存在しない事故の報告と同じ。
+  const expVer = versionMajor(exp);
+  const actVer = versionMajor(act);
+  if (expVer !== actVer) {
+    return {
+      extra: [],
+      missing: [],
+      vacuous: false,
+      versionMismatch: { expected: expVer, actual: actVer },
+    };
   }
 
   const missing = [...exp].filter((l) => !act.has(l)).sort();

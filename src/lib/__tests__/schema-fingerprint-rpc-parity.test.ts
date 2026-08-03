@@ -119,3 +119,57 @@ describe('照合順序に依存しない並び（誤報の構造的除去）', (
     expect(sh).toMatch(/LC_ALL=C sort/);
   });
 });
+
+describe('メジャーバージョン行の契約（マイナー差で鳴らさない）', () => {
+  // 🔴 2026年8月3日に直した欠陥の再発防止。
+  //   当初 `meta|server_version_num|<num>` を出しており、170006 と 170008 が別物として
+  //   差分になった。Supabase は本番のマイナーを随時上げ、CI の postgis イメージのタグも
+  //   パッチを固定していないため、**スキーマが 1 文字も変わらなくても必ずいつか鳴る**
+  //   ＝誤報の確定装置だった。整形が変わり得るのはメジャー間だけ。
+  const read = () => readFileSync(FP_SQL, 'utf8');
+
+  it('メジャーだけを出している（整数除算で 10000 で割っている）', () => {
+    expect(read()).toMatch(
+      /format\('meta\|server_version_major\|%s',\s*\(current_setting\('server_version_num'\)::int \/ 10000\)\)/,
+    );
+  });
+
+  it('🔴 フルの server_version_num をそのまま出力していない', () => {
+    // `format('meta|server_version_num|%s', current_setting(...))` の形が復活したら落とす。
+    expect(read()).not.toMatch(/meta\|server_version_num\|/);
+  });
+
+  it('RPC 側にも同じ行が転記されている', () => {
+    const { text } = latestFingerprintMigration();
+    expect(text).toContain('meta|server_version_major|%s');
+    expect(text).not.toContain('meta|server_version_num|');
+  });
+
+  it('期待フィンガープリントにメジャー行がちょうど 1 本ある', () => {
+    // 走査が空振りしていないことの下限 ＋ 「複数あって非決定になる」形を排除する。
+    const expected: string[] = JSON.parse(
+      readFileSync(join(ROOT, 'src', 'lib', 'schema-fingerprint.expected.json'), 'utf8'),
+    );
+    const hits = expected.filter((l) => l.startsWith('meta|server_version_major|'));
+    expect(hits).toHaveLength(1);
+    expect(hits[0]).toMatch(/^meta\|server_version_major\|\d+$/);
+  });
+
+  it('CI の postgis イメージのメジャーが、期待フィンガープリントのメジャーと一致している', () => {
+    // 🔴 ここがズレると CI の --check が毎回赤くなる（かつ原因が分かりにくい）。
+    //   ⚠️ 現状はズレている状態でコミットされ得る（手元に CI と同じメジャーの
+    //   PostgreSQL を用意できない場合）。その場合はこのテストが落ちて理由を示すので、
+    //   CI ログ/成果物から正しい期待値を回収してコミットすること。
+    const wf = readFileSync(
+      join(ROOT, '.github', 'workflows', 'schema-fingerprint.yml'),
+      'utf8',
+    );
+    const m = wf.match(/image:\s*postgis\/postgis:(\d+)-/);
+    expect(m).not.toBeNull();
+    const expected: string[] = JSON.parse(
+      readFileSync(join(ROOT, 'src', 'lib', 'schema-fingerprint.expected.json'), 'utf8'),
+    );
+    const line = expected.find((l) => l.startsWith('meta|server_version_major|'));
+    expect(line).toBe(`meta|server_version_major|${m![1]}`);
+  });
+});

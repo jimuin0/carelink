@@ -39,7 +39,7 @@ $guard$;
 --   両者が 1 文字でもズレると突合が無意味になるため、CI
 --   （src/lib/__tests__/schema-fingerprint-rpc-parity.test.ts）が同一性を強制する。
 --
--- 返却: 1 個の jsonb 配列（PostgREST の 1000 行上限を受けない集約返し。実測 2027 項目）。
+-- 返却: 1 個の jsonb 配列（PostgREST の 1000 行上限を受けない集約返し。実測 2303 項目）。
 -- 副作用なし（SELECT のみ）。anon/authenticated からは実行不可（service_role 限定）。
 
 CREATE OR REPLACE FUNCTION public.get_schema_fingerprint()
@@ -70,15 +70,26 @@ rels AS (
 --   副次効果として、整形の揺れ（改行位置・インデント）が差分にならなくなる＝誤報が減る。
 SELECT regexp_replace(line, '\s+', ' ', 'g') AS line FROM (
 
-  -- ── メタ: PostgreSQL のバージョン ─────────────────────────────────────
+  -- ── メタ: PostgreSQL の【メジャー】バージョン ────────────────────────────
   -- 🔴 これを**フィンガープリントの一部にする**（2026年8月2日）。
   --   pg_get_constraintdef / pg_get_indexdef / format_type の整形はメジャーバージョン間で
   --   変わり得る。shadow と本番のバージョンがズレていると「差分ではない差分」が大量に出て
   --   誤報になる。注意書きで運用に頼ると必ず忘れるので、**バージョン自体を比較対象に含めて
   --   食い違ったら必ず赤くなる**ようにする。
-  --   実際、本番は 150001(PG15.1) なのに shadow を 16 系で組みかけて踏みかけた。
-  SELECT format('meta|server_version_num|%s',
-                current_setting('server_version_num')) AS line
+  --
+  -- 🔴 マイナー(パッチ)まで含めてはいけない（2026年8月3日・最初そう書いていた欠陥を修正）。
+  --   server_version_num をそのまま出すと 170006 と 170008 が別物として差分になる。
+  --   ・Supabase は本番のマイナーを随時上げる
+  --   ・CI が使う postgis イメージのタグ（例 17-3.5）はパッチを固定していないので
+  --     再 pull しただけで値が動く
+  --   つまり**スキーマが 1 文字も変わっていないのに必ずいつか鳴る**＝誤報の確定装置だった。
+  --   整形が変わり得るのはメジャー間であり（PostgreSQL のマイナーリリースは
+  --   バグ修正のみで出力書式を変えない方針）、かつ万一変わったとしても
+  --   **整形が変わった行そのものが差分に出る**。この meta 行は検出器ではなく
+  --   「差分の原因がバージョン差だと即断できるようにする診断情報」なので、
+  --   メジャーだけで目的を完全に満たす。
+  SELECT format('meta|server_version_major|%s',
+                (current_setting('server_version_num')::int / 10000)) AS line
 
   UNION ALL
   -- ── リレーション本体（種別と RLS の有効/強制） ──────────────────────────
