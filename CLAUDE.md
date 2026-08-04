@@ -218,3 +218,91 @@ npm run test:load           # k6 負荷（search-load）
 | L7 | 構造化ログ + Slack + 外形監視 | ✅ | 2026-05-25 達成（A〜D 全基準） |
 </content>
 </invoke>
+
+---
+
+## スキーマドリフト監視（2026年8月2日 全面刷新・手管理スナップショット廃止）
+
+**期待スキーマを人が持たない。** `supabase/migrations/*.sql` を使い捨て Postgres に
+全適用した結果（shadow）を期待値とし、本番と全面突合する。
+
+| | 旧方式（廃止） | 新方式 |
+|---|---|---|
+| 期待値 | `schema-constraints-snapshot.json`（**人が手管理**） | migration から毎回導出（`scripts/gen-schema-fingerprint.sh`） |
+| 見る範囲 | テーブル存在・列**名**・PK/UNIQUE | 列(型/NOT NULL/DEFAULT)・**全制約**・**インデックス(部分ユニーク含む)**・**RLS ポリシー**・トリガ・関数・enum・GRANT |
+| 実測項目数 | — | 2028 |
+
+🔴 **廃止した理由（実測）**: migration `20260722000005` が `UNIQUE(facility_id,is_active)` を
+**意図的に** DROP した（「非アクティブも施設あたり1件まで」という意図しない制約を、
+`uq_intake_active_per_facility`（部分ユニークインデックス）へ置換）のに JSON だけ取り残され、
+**毎日「制約欠落1」を誤報し続けていた**。しかも置換先の部分ユニークインデックスは
+`pg_constraint` に行を作らないため、旧方式では**構造的に検知不能**だった。
+さらに RLS ポリシー（実測 131 本＝施設間データ分離の実体）が **1 本も監視されていなかった**。
+
+### 構成
+- `supabase/shadow/00_bootstrap.sql` — Supabase 互換の最小 bootstrap（**本番には絶対に適用しない**）
+- `scripts/schema-fingerprint.sql` — introspection 本体（唯一の真実源）
+- `supabase/migrations/*_schema_fingerprint_rpc.sql` — 上記の**機械転記**。本番側 RPC
+- `scripts/gen-schema-fingerprint.sh [--check]` — 期待値の生成／陳腐化検査
+- `src/lib/schema-fingerprint.expected.json` — **生成物。手で編集しない**
+- `.github/workflows/schema-fingerprint.yml` — CI で `--check`（再生成忘れを止める）
+
+### 触るときの鉄則
+1. 🔴 **フィンガープリントは必ず RPC 経由で取る。** `scripts/schema-fingerprint.sql` を
+   psql で直実行すると `search_path` に public があるため `pg_get_constraintdef` /
+   `format_type` が名前を修飾せず、`SET search_path=''` の本番 RPC と食い違う。
+   **全 FK と全 geography 列が差分になる**（実測で踏んだ）。
+2. 🔴 **shadow と本番の PostgreSQL メジャーバージョンを揃える。** `pg_get_*` の整形は
+   バージョン間で変わり得るため、揃えないと「差分ではない差分」が出て誤報になる。
+   これは注意書きではなく**機械強制**されている — フィンガープリントに
+   `meta|server_version_major|<n>` 行が含まれ、食い違うと `diffFingerprint` が
+   `versionMismatch` を返して**差分を 1 件も主張せず**、cron が 1 件だけ警報する
+   （整形差の数百件を「ドリフト」として報告しない）。
+   **【実測 2026年8月3日】この危険は仮説ではない。** 同一 migration 群を PG16 と PG17 の
+   shadow に全適用して突合したところ、**スキーマは 1 箇所も違わないのに 290 行が差分**に
+   なった（PostgreSQL 17 で権限 `MAINTAIN` が追加され、`GRANT ALL` の展開が
+   `DELETE,INSERT,REFERENCES,…` → `DELETE,INSERT,MAINTAIN,REFERENCES,…` に変わるため）。
+   ガードが無ければ「290 件のドリフト」という存在しない事故を毎日報告していた。
+   ⚠️ **マイナー(パッチ)は比較対象に入れない。** 最初 `server_version_num` を丸ごと
+   入れていたが、Supabase は本番のマイナーを随時上げ、CI の postgis イメージのタグも
+   パッチを固定していないため、**スキーマが 1 文字も変わらなくても必ずいつか鳴る**
+   誤報の確定装置だった（2026年8月3日に修正）。整形が変わり得るのはメジャー間で、
+   万一マイナーで変わっても整形が変わった行そのものが差分に出る。
+   ✅ **実測確定（2026年8月3日）: 本番は `server_version_num=170006`（PostgreSQL 17）**。
+   接続先ガードを通過した後の同一実行で得た値なので CareLink 本番のものと確定している。
+   CI の `postgis/postgis:17-3.5` はこの実測と一致する。将来メジャーが上がったら
+   上記 `versionMismatch` の通知に本番の実測値が入るので、それを見て CI を直す。
+   期待値を手元で再生成するときも CI と同じメジャーを使うこと
+   （用意できない場合は CI を失敗させ、成果物 `schema-fingerprint-expected`
+   または CI ログの `BEGIN schema-fingerprint.expected.json` 以降をコミットする）。
+3. 🔴 **拡張が所有するオブジェクトは除外する**（postgis のバージョン差が誤報になる）。
+4. 🔴 **0 件同士の一致を緑と読み替えない。** `diffFingerprint` は 500 項目未満を
+   `vacuous=true` として扱い、cron は「走査が空振り」として警報する。
+5. 🔴 **接続先プロジェクトを必ず確認してから実行する。** 本番 project ref は
+   `xzafxiupbflvgbarrihe`（URL: `supabase.com/dashboard/project/xzafxiupbflvgbarrihe`）。
+   2026年8月2日、指示に project を書かなかったため **soel(`lsrbeugmqqqklywmvjjs`) で
+   実行され**、soel のスキーマを CareLink の期待値と突合して
+   「RLS が 90 本欠落」という**存在しない事故を報告しかけた**。
+   数字が大きくズレたら、まず「同じ DB を見ているか」を疑うこと。
+6. 🔴 **bootstrap は Supabase の既定権限も再現する。** Supabase は
+   `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated,
+   service_role` を持つため、public の全テーブルに 3 ロール分の GRANT が自動で付く。
+   再現しないと **全テーブルの grant 行が差分**になる（実測: 再現前 16 行 → 再現後 290 行）。
+   `ALTER DEFAULT PRIVILEGES` は後続に作られるものにだけ効くので、**migration より前**に置く。
+7. 除外（`scripts/schema-drift-allow.txt`）は **理由必須**。理由が空の行は無効。
+   除外してよいのは「Supabase が管理していて migration に現れないもの」だけ。
+8. migration を足したら `scripts/gen-schema-fingerprint.sh` を実行して結果をコミットする
+   （忘れると CI が赤くなる＝手で同期する余地を残さない）。
+9. 🔴 **差分エンジンは 2 本ある。安全側の挙動を片方だけ直さない。**
+   `src/lib/schema-drift.ts` の `diffFingerprint`（cron が使う本番経路）と
+   `scripts/schema-diff.mjs` の `comparabilityProblem`（人が手で叩く調査用 CLI）。
+   障害調査で CLI を叩いた人が cron と違う結論（＝存在しないドリフト）に至る状態そのものが
+   欠陥なので、しきい値・判定順序（空振り → 別 DB → メジャーバージョン）の一致を
+   `src/lib/__tests__/schema-diff-allow.test.ts` が機械で強制する。
+   同テストは CLI を **実際にプロセス起動して**配線も確かめる（関数が在るだけで
+   `main()` から呼ばれていない状態を緑にしないため）。負の対照つき。
+10. ⚠️ **`scripts/schema-fingerprint.sql` はコメント 1 文字の変更でも本番 RPC の再適用が要る。**
+   フィンガープリントは自分自身の関数を `body_md5`（`prosrc` の md5）で見ているため。
+   これは不便ではなく正しい: 本番の RPC 本文がリポジトリとズレていれば
+   **両側で違う SQL を実行している**＝突合が無意味なので、必ず赤くならなければいけない。
+   手順は「SQL を編集 → 期待値を再生成 → 本番へ migration を再適用」の 3 点セット。

@@ -6,12 +6,11 @@ import { logCronRun } from '@/lib/cron-logger';
 import { alertWarning } from '@/lib/alert';
 import {
   computeDrift,
-  computeConstraintDrift,
+  diffFingerprint,
   type SchemaRow,
-  type ConstraintRow,
 } from '@/lib/schema-drift';
 import snapshot from '@/lib/schema-snapshot.json';
-import constraintsSnapshot from '@/lib/schema-constraints-snapshot.json';
+import fingerprintExpected from '@/lib/schema-fingerprint.expected.json';
 import { businessTypes } from '@/lib/constants';
 import { fetchAllPaged } from '@/lib/paginate';
 
@@ -42,27 +41,70 @@ export async function GET(request: Request) {
   const expected = snapshot as Record<string, string[]>;
   const { contaminated, missing, colDrift } = computeDrift(expected, rows);
 
-  // 制約レベル（PK/UNIQUE）ドリフト。RPC get_public_constraints が未適用の環境では
-  // graceful に skip し cron 本体を壊さない（本番 RPC 適用後に追加監視が自動で有効化）。
-  let constraintExtra: string[] = [];
-  let constraintMissing: string[] = [];
-  let constraintCheckSkipped = false;
-  const { data: cData, error: cError } = await admin.rpc('get_public_constraints');
-  if (cError) {
-    // 制約(PK/UNIQUE)ドリフト監視そのものが機能停止する障害。従来は meta フラグに
-    // 残すのみで無音だったため、RPC が恒久的に壊れても誰も気づけず監視が永久に
-    // 無効化されたまま cron_logs は 'success' で緑を保ち続けていた。恒久検知として
-    // Slack へ警報する（列レベルのドリフト監視 computeDrift は RPC 非依存で継続する）。
-    constraintCheckSkipped = true;
+  // ── スキーマ全面フィンガープリント突合（2026年8月2日・手管理スナップショットを廃止）──
+  // 🔴 旧実装は src/lib/schema-constraints-snapshot.json を【人が手で更新する】前提で、
+  //   pg_constraint の contype IN ('p','u') だけを見ていた。そのため
+  //   (a) migration 20260722000005 が UNIQUE(facility_id,is_active) を意図的に DROP した際、
+  //       JSON だけ取り残されて **毎日「制約欠落1」を誤報し続けていた**（誤報は検知の死）
+  //   (b) FK / CHECK / インデックス（部分ユニーク含む）/ RLS ポリシー（実測131本＝施設間
+  //       データ分離の実体）/ 列の型・NOT NULL・DEFAULT / トリガ / 関数本体 / enum / GRANT が
+  //       **一切監視されていなかった**
+  //   期待値は migration を使い捨て Postgres に全適用して生成する
+  //   （scripts/gen-schema-fingerprint.sh）。人が触らないので陳腐化しない。
+  //   CI が --check で「コミット済み期待値 == migration の結果」を強制する。
+  let driftExtra: string[] = [];
+  let driftMissing: string[] = [];
+  let fingerprintCheckSkipped = false;
+  const { data: fpData, error: fpError } = await admin.rpc('get_schema_fingerprint');
+  if (fpError) {
+    // 監視そのものが機能停止する障害。無音にすると「緑なのは正常だから」と
+    // 読み替えられてしまうので、必ず鳴らす（列レベルの computeDrift は RPC 非依存で継続）。
+    fingerprintCheckSkipped = true;
     alertWarning(
-      'schema-drift-check: get_public_constraints RPC 失敗（制約ドリフト監視が無効化）',
-      { route: '/api/cron/schema-drift-check', extra: { errorMessage: cError.message } },
+      'schema-drift-check: get_schema_fingerprint RPC 失敗（スキーマ全面監視が無効化）',
+      { route: '/api/cron/schema-drift-check', extra: { errorMessage: fpError.message } },
     );
   } else {
-    const cRows = (Array.isArray(cData) ? cData : []) as ConstraintRow[];
-    const cd = computeConstraintDrift(constraintsSnapshot as ConstraintRow[], cRows);
-    constraintExtra = cd.extra;
-    constraintMissing = cd.missing;
+    const actual = (Array.isArray(fpData) ? fpData : []) as string[];
+    const fd = diffFingerprint(fingerprintExpected as string[], actual);
+    driftExtra = fd.extra;
+    driftMissing = fd.missing;
+    if (fd.differentDatabase) {
+      // 🔴 別 DB と突合している。差分は本番の異常ではなく比較対象の誤りなので、
+      //   1 件も主張せず「監視が成立していない」として鳴らす。
+      //   （2026年8月2日、CareLink の期待値を soel の本番と突合して
+      //     「RLS が 90 本欠落」という存在しない事故を報告しかけた）
+      fingerprintCheckSkipped = true;
+      driftExtra = [];
+      driftMissing = [];
+      const dd = fd.differentDatabase;
+      alertWarning(
+        `schema-drift-check: 別のデータベースと突合している疑い（テーブル名の重なり ${(dd.overlap * 100).toFixed(0)}%）`,
+        { route: '/api/cron/schema-drift-check', extra: dd },
+      );
+    } else if (fd.versionMismatch) {
+      // 🔴 shadow(期待値の生成元)と本番の PostgreSQL メジャーバージョンが違う。
+      //   pg_get_* の整形がメジャー間で変わり得るため、この状態で出る差分は
+      //   「本番のドリフト」ではなく整形差のノイズ。1 件も主張せず、
+      //   「監視が成立していない設定不備」として鳴らす（🔴 ではなく 🟡 相当）。
+      fingerprintCheckSkipped = true;
+      driftExtra = [];
+      driftMissing = [];
+      const vm = fd.versionMismatch;
+      alertWarning(
+        `schema-drift-check: PostgreSQL メジャーバージョン不一致（期待値=${vm.expected ?? '不明'} / 本番=${vm.actual ?? '不明'}）。突合が成立していません`,
+        { route: '/api/cron/schema-drift-check', extra: vm },
+      );
+    } else if (fd.vacuous) {
+      // 0 件同士は「一致」ではなく「測れていない」。緑と読み替えさせない。
+      fingerprintCheckSkipped = true;
+      driftExtra = [];
+      driftMissing = [];
+      alertWarning(
+        `schema-drift-check: フィンガープリントが ${actual.length} 項目しか返らない（走査が空振り）`,
+        { route: '/api/cron/schema-drift-check', extra: { actualCount: actual.length } },
+      );
+    }
   }
 
   // 【2026年7月29日 追加・値ドリフト監視】
@@ -151,8 +193,8 @@ export async function GET(request: Request) {
     contaminated.length +
     missing.length +
     colDrift.length +
-    constraintExtra.length +
-    constraintMissing.length +
+    driftExtra.length +
+    driftMissing.length +
     businessTypeDrift.length +
     reviewAuthenticityDrift.length;
 
@@ -168,10 +210,10 @@ export async function GET(request: Request) {
   // 通知され、内容が変化すれば別キーとして再通知される。
   let alertDeduped = false;
   if (driftCount > 0) {
-    // drift 内容の安定した指紋。computeDrift/computeConstraintDrift は結果を常にソート済みで
+    // drift 内容の安定した指紋。computeDrift/diffFingerprint は結果を常にソート済みで
     // 返す純粋関数のため、同一ドリフトなら常に同じ JSON 文字列＝同じハッシュになる。
     const driftFingerprint = createHash('sha256')
-      .update(JSON.stringify({ contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift, reviewAuthenticityDrift }))
+      .update(JSON.stringify({ contaminated, missing, colDrift, driftExtra, driftMissing, businessTypeDrift, reviewAuthenticityDrift }))
       .digest('hex')
       .slice(0, 16);
     const claimDate = startedAt.toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
@@ -203,10 +245,10 @@ export async function GET(request: Request) {
 
     if (shouldAlert) {
       alertWarning(
-        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / 制約追加${constraintExtra.length} / 制約欠落${constraintMissing.length} / 業種値ドリフト${businessTypeDrift.length} / 口コミ真正性${reviewAuthenticityDrift.length}`,
+        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / スキーマ差分 追加${driftExtra.length}/欠落${driftMissing.length} / 業種値ドリフト${businessTypeDrift.length} / 口コミ真正性${reviewAuthenticityDrift.length}`,
         {
           route: '/api/cron/schema-drift-check',
-          extra: { contaminated, missing, colDrift, constraintExtra, constraintMissing, businessTypeDrift, reviewAuthenticityDrift },
+          extra: { contaminated, missing, colDrift, driftExtra, driftMissing, businessTypeDrift, reviewAuthenticityDrift },
         },
       );
     }
@@ -235,11 +277,11 @@ export async function GET(request: Request) {
       contaminated,
       missing,
       colDrift,
-      constraintExtra,
-      constraintMissing,
+      driftExtra,
+      driftMissing,
       businessTypeDrift,
       reviewAuthenticityDrift,
-      constraintCheckSkipped,
+      fingerprintCheckSkipped,
       alertDeduped,
     },
   });
@@ -249,10 +291,10 @@ export async function GET(request: Request) {
     contaminated,
     missing,
     colDrift,
-    constraintExtra,
-    constraintMissing,
+    driftExtra,
+    driftMissing,
     businessTypeDrift,
     reviewAuthenticityDrift,
-    constraintCheckSkipped,
+    fingerprintCheckSkipped,
   });
 }

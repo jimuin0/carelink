@@ -10,6 +10,8 @@
  *   - バックアップ: 接頭辞 `_backup_` のテーブル
  */
 
+import { isKnownProdOnlyLine } from './known-prod-only';
+
 const IGNORE = new Set<string>([
   'spatial_ref_sys',
   'geography_columns',
@@ -82,49 +84,159 @@ export function computeDrift(
   return { contaminated, missing, colDrift };
 }
 
-export interface ConstraintRow {
-  table_name: string;
-  /** 'p' = PRIMARY KEY, 'u' = UNIQUE。 */
-  kind: string;
-  /** 制約対象列を attname 昇順でカンマ連結した文字列（例: "review_id,user_id"）。 */
-  columns: string;
-}
-
-export interface ConstraintDriftResult {
-  /** 本番に在るが期待に無い制約（= out-of-band 追加の疑い）。 */
+/** フィンガープリント突合の結果。 */
+export interface FingerprintDiffResult {
+  /** 本番にあるが migration に無い（out-of-band 追加）。 */
   extra: string[];
-  /** 期待に在るが本番に無い制約（= 削除 / migration 未適用の疑い）。 */
+  /** migration にはあるが本番に無い（未適用 / out-of-band 削除）。 */
   missing: string[];
-}
-
-/** 制約行を安定キー `table:kind(cols)` へ正規化する（順序非依存の集合比較用）。 */
-function constraintKey(r: ConstraintRow): string {
-  return `${r.table_name}:${r.kind}(${r.columns})`;
+  /** 走査が空振り（どちらかが極端に少ない）。true のとき extra/missing は信用しない。 */
+  vacuous: boolean;
+  /**
+   * 🔴 別の DB と突合している疑い。set されているとき extra/missing は空で、
+   * 差分を 1 件も主張しない（数千件の「差分」は本番の異常ではなく比較対象の誤り）。
+   */
+  differentDatabase?: {
+    overlap: number;
+    sharedRelations: number;
+    expectedRelations: number;
+    actualRelations: number;
+  };
+  /**
+   * 🔴 shadow と本番の PostgreSQL メジャーバージョンが違う。set されているとき
+   * extra/missing は空で、差分を 1 件も主張しない（pg_get_* の整形がメジャー間で
+   * 変わり得るため、出てくる差分は「本番のドリフト」ではなく整形差のノイズ）。
+   */
+  versionMismatch?: {
+    expected: string | null;
+    actual: string | null;
+  };
 }
 
 /**
- * 期待制約スナップショット（schema-constraints-snapshot.json）と
- * 本番制約（RPC get_public_constraints の結果）を突合し、PK/UNIQUE の
- * out-of-band 追加（extra）/ 欠落（missing）を返す。
+ * 期待フィンガープリント（migration を使い捨て Postgres に全適用して生成）と
+ * 本番フィンガープリント（RPC get_schema_fingerprint）を突合する。
  *
- * テーブルレベルの computeDrift と同じく、PostGIS システム/バックアップ系は監視対象外。
+ * 🔴 なぜ手管理スナップショットをやめたか（2026年8月2日 実測）:
+ *   期待値を人が更新する方式は、migration が制約を変えた瞬間に取り残されて誤報になる。
+ *   実際 UNIQUE(facility_id,is_active) の意図的な DROP で毎日鳴り続けていた。
+ *   期待値を migration から毎回導出すれば、この class は構造的に消える。
+ *
+ * 空振り判定: 期待側・実測側のどちらかが VACUOUS_MIN_ITEMS 未満なら vacuous=true。
+ *   0 件同士の「一致」を緑と読み替えさせないため（監視が死んでいるのと区別できない）。
  */
-export function computeConstraintDrift(
-  expected: ConstraintRow[],
-  prod: ConstraintRow[],
-): ConstraintDriftResult {
-  const expSet = new Set<string>();
-  for (const r of expected) {
-    if (isIgnored(r.table_name)) continue;
-    expSet.add(constraintKey(r));
+export const VACUOUS_MIN_ITEMS = 500;
+
+/**
+ * 「同じ DB を見ているか」の判定しきい値（リレーション名の重なり率）。
+ *
+ * 🔴 なぜ要るか（2026年8月2日・実際にやりかけた事故）:
+ *   検証中、CareLink の期待値を **soel の本番 DB** と突合してしまい、
+ *   「RLS ポリシーが 90 本欠落」という**存在しない重大事故を報告しかけた**。
+ *   別 DB と突合すれば差分は数千件出るが、それは「本番が壊れている」ではなく
+ *   「比較対象を間違えている」。この 2 つを取り違えるのが最悪の誤報。
+ *
+ *   人の注意（「プロジェクトを確認すること」）では止まらなかった。実際に止まらなかった。
+ *   リレーション名の重なりが極端に低ければ **別の DB と判定**し、差分を 1 件も主張しない。
+ *
+ *   0.5 の根拠: 同一 DB なら未適用 migration があっても大半のテーブル名は共通する。
+ *   別プロダクトなら重なりはほぼ 0（soel と CareLink は共通テーブルが 1 件も無く 0.0）。
+ *   中間の値が出る状況は設計上考えにくいので、しきい値の精密さは問題にならない。
+ */
+export const SAME_DATABASE_MIN_OVERLAP = 0.5;
+
+/** フィンガープリント内の PostgreSQL メジャーバージョン行の接頭辞。 */
+export const VERSION_LINE_PREFIX = 'meta|server_version_major|';
+
+/**
+ * `meta|server_version_major|<n>` から値を取り出す。行が無ければ null。
+ *
+ * null は「取れなかった」であって「一致」ではない。片側だけ null なら
+ * versionMismatch として扱う（本番 RPC が古い＝比較が成立していない状態を、
+ * missing 行に埋もれさせずに 1 件の明確な事象として出すため）。
+ */
+function versionMajor(lines: Set<string>): string | null {
+  const hits: string[] = [];
+  for (const l of lines) {
+    if (l.startsWith(VERSION_LINE_PREFIX)) hits.push(l.slice(VERSION_LINE_PREFIX.length));
   }
-  const prodSet = new Set<string>();
-  for (const r of prod) {
-    if (isIgnored(r.table_name)) continue;
-    prodSet.add(constraintKey(r));
+  hits.sort();
+  return hits.length > 0 ? hits[0] : null;
+}
+
+/** `relation|<name>|...` からリレーション名だけを取り出す。 */
+function relationNames(lines: Set<string>): Set<string> {
+  const out = new Set<string>();
+  for (const l of lines) {
+    if (!l.startsWith('relation|')) continue;
+    // `?? ''` は書かない。'relation|' で始まる行の split('|')[1] は必ず string
+    // （区切りが在る以上 undefined にならない。'relation|' 単体でも '' が返る）で、
+    // 到達しない分岐を作るだけになる。空文字は下の delete がまとめて落とす。
+    out.add(l.split('|')[1]);
+  }
+  out.delete('');
+  return out;
+}
+
+export function diffFingerprint(expected: string[], actual: string[]): FingerprintDiffResult {
+  // 🔴 既知の本番専用テーブル（migration を持たないと把握・受容済み）に属する行は、
+  //   差分を数える前に両側から落とす（2026年8月3日）。台帳は
+  //   src/lib/known-prod-only.json が唯一の真実源で、契約テストと CLI も同じものを読む。
+  //   これを入れる前は、既知 7 テーブル由来の約 140 項目を毎日ドリフトとして報告していた。
+  const norm = (arr: string[]) =>
+    new Set(
+      (arr ?? [])
+        .map((l) => (l ?? '').trim())
+        .filter(Boolean)
+        .filter((l) => !isKnownProdOnlyLine(l)),
+    );
+  const exp = norm(expected);
+  const act = norm(actual);
+
+  if (exp.size < VACUOUS_MIN_ITEMS || act.size < VACUOUS_MIN_ITEMS) {
+    return { extra: [], missing: [], vacuous: true };
   }
 
-  const extra = [...prodSet].filter((k) => !expSet.has(k)).sort();
-  const missing = [...expSet].filter((k) => !prodSet.has(k)).sort();
-  return { extra, missing };
+  // 🔴 差分を数える【前に】「同じ DB か」を判定する。順序が本質。
+  //   別 DB の差分を missing/extra として報告すると、存在しない事故の報告になる。
+  const expRels = relationNames(exp);
+  const actRels = relationNames(act);
+  const denom = Math.min(expRels.size, actRels.size);
+  if (denom > 0) {
+    let shared = 0;
+    for (const r of actRels) if (expRels.has(r)) shared += 1;
+    const overlap = shared / denom;
+    if (overlap < SAME_DATABASE_MIN_OVERLAP) {
+      return {
+        extra: [],
+        missing: [],
+        vacuous: false,
+        differentDatabase: {
+          overlap,
+          sharedRelations: shared,
+          expectedRelations: expRels.size,
+          actualRelations: actRels.size,
+        },
+      };
+    }
+  }
+
+  // 🔴 差分を数える【前に】メジャーバージョンの一致を確認する（differentDatabase と同じ理屈）。
+  //   メジャーが違えば pg_get_constraintdef / pg_get_indexdef / format_type の整形が
+  //   変わり得るため、出てくる差分は「本番のドリフト」ではなく整形差のノイズになる。
+  //   数百件のノイズを missing/extra として報告するのは、存在しない事故の報告と同じ。
+  const expVer = versionMajor(exp);
+  const actVer = versionMajor(act);
+  if (expVer !== actVer) {
+    return {
+      extra: [],
+      missing: [],
+      vacuous: false,
+      versionMismatch: { expected: expVer, actual: actVer },
+    };
+  }
+
+  const missing = [...exp].filter((l) => !act.has(l)).sort();
+  const extra = [...act].filter((l) => !exp.has(l)).sort();
+  return { extra, missing, vacuous: false };
 }

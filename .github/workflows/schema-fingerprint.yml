@@ -1,0 +1,131 @@
+name: schema-fingerprint
+
+# 🔴 なぜこの job が要るか（2026年8月2日 実測）
+#   スキーマドリフト検知の「期待値」を人が JSON で手管理していたため、
+#   migration 20260722000005 が UNIQUE(facility_id,is_active) を意図的に DROP した際に
+#   src/lib/schema-constraints-snapshot.json だけ取り残され、
+#   **毎日「制約欠落1」を誤報し続けていた**（誤報は検知の死）。
+#
+#   この job は使い捨て Postgres に supabase/migrations/*.sql を全適用し、
+#   その結果から期待フィンガープリントを再生成して、コミット済みのものと一致するかを見る。
+#   ＝ 期待値の手管理を構造的に不可能にする。migration を足して再生成を忘れれば CI が赤。
+#
+# ⚠️ PostgreSQL のメジャーバージョンは本番(Supabase)と揃えること。
+#   pg_get_constraintdef / pg_get_indexdef / format_type の整形はバージョン間で
+#   変わり得るため、揃えないと「差分ではない差分」が出て誤報になる。
+#   揃っていることは注意書きではなく機械で担保される（フィンガープリントに
+#   meta|server_version_major 行が含まれ、食い違えば cron が
+#   「メジャーバージョン不一致」として鳴らし、差分は 1 件も主張しない）。
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-fingerprint-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # 🔴 本番(Supabase)と**メジャーバージョンを揃える**こと。
+        #   pg_get_* の整形はメジャーバージョン間で変わり得るため、揃えないと
+        #   「差分ではない差分」が大量に出て誤報になる。
+        #
+        #   【実測確定 2026年8月3日】本番 CareLink(xzafxiupbflvgbarrihe) の
+        #   server_version_num = 170006（PostgreSQL 17）。接続先ガード
+        #   (to_regclass('public.facility_profiles')) を通過した後の同一実行で取得した値なので、
+        #   CareLink 本番のものであることが確定している。
+        #   ⚠️ マイナー(170006)ではなくメジャー(17)だけを突合対象にしている。Supabase は
+        #   マイナーを随時上げ、postgis イメージのタグもパッチを固定していないため、
+        #   マイナーを見ると「スキーマが変わっていないのに必ずいつか鳴る」誤報装置になる。
+        #   将来メジャーが上がったら cron が「メジャーバージョン不一致」として 1 件だけ鳴らし
+        #   （差分は主張しない）、その通知に本番の実測値が入る。それを見てここを直す。
+        # postgis 入り。素の postgres だと migration が CREATE EXTENSION postgis で落ちる。
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: psql を用意する
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          psql --version
+
+      - name: 本番とメジャーバージョンが揃っているかを記録する
+        # 揃っていないと整形差が誤報になる。値をログに残して後から追えるようにする。
+        run: psql -tAc "select current_setting('server_version_num'), version();"
+
+      - name: 期待フィンガープリントが migration と一致することを検証する
+        # --check は書き込まない。ズレていれば exit 1（＝再生成のコミット忘れを止める）。
+        id: check
+        run: bash scripts/gen-schema-fingerprint.sh --check
+
+      - name: ズレていたら正しい期待値を成果物として出す
+        # 🔴 「再生成してコミットしろ」と言うだけでは、この job と同じメジャーの
+        #   PostgreSQL を手元に用意できない人は従えない（実際 2026年8月3日、
+        #   PG16 しか用意できない環境で生成したものをコミットしかけた。PG16 と PG17 は
+        #   MAINTAIN 権限の有無で grant 行が 290 件ズレるので、それは正しい期待値ではない）。
+        #   **この job が正しいものを必ず出す**ようにして、落としてコミットするだけで済む形にする。
+        if: failure() && steps.check.outcome == 'failure'
+        run: bash scripts/gen-schema-fingerprint.sh
+
+      - name: 正しい期待値をアップロードする
+        if: failure() && steps.check.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-fingerprint-expected
+          path: src/lib/schema-fingerprint.expected.json
+          if-no-files-found: error
+
+      - name: 正しい期待値をログにも出す
+        # 🔴 成果物だけだとブラウザからしか回収できない（2026年8月3日）。
+        #   手元に本番と同じメジャーの PostgreSQL を用意できない環境
+        #   （＝この検査が最も必要な環境）では、成果物を落とす手段が無いことがある。
+        #   ログに全文を出しておけば API 経由でも回収でき、修正ループが必ず閉じる。
+        #   失敗時にしか走らないので平時のログは汚れない。
+        if: failure() && steps.check.outcome == 'failure'
+        run: |
+          echo '===== BEGIN schema-fingerprint.expected.json ====='
+          cat src/lib/schema-fingerprint.expected.json
+          echo '===== END schema-fingerprint.expected.json ====='
+
+      # 🔴 npm ci が要る（2026年8月3日・このガードが一度も動いていなかった）。
+      #   下の jest step は当初 `npx jest ...` だけで、node_modules が無いため
+      #   `Cannot find module 'next/jest'` で必ず落ちる実装だった。
+      #   それに気づけなかったのは、**手前の --check step が常に失敗していて
+      #   この step が一度も実行されていなかった**から（skipped は緑にも赤にも見えない）。
+      #   ＝「検知機構が実は一度も動いていない」形。手前を直した瞬間に露出した。
+      #   教訓: ガードを足したら、そのガードが**実際に実行された記録**を確認すること。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: 依存をインストールする
+        run: npm ci
+
+      - name: RPC 本文が scripts/schema-fingerprint.sql と同一であることを検証する
+        # 両者がズレると本番と shadow で違う SQL を実行することになり、突合が無意味になる。
+        # --ci かつ --passWithNoTests を付けない: ファイルが消えたら「0 件成功」ではなく赤にする。
+        run: npx jest src/lib/__tests__/schema-fingerprint-rpc-parity.test.ts --ci
