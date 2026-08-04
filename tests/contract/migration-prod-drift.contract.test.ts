@@ -28,6 +28,7 @@
  */
 import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { KNOWN_PROD_ONLY } from '@/lib/known-prod-only';
 
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'supabase', 'migrations');
 const TYPES_FILE = join(__dirname, '..', '..', 'src', 'types', 'database.types.ts');
@@ -137,19 +138,9 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
  *   2026-06-03 時点で本番に先行適用済み（各 0 行）。PR #53 が main へマージされたら
  *   migrationTables に含まれるため、本リストの該当 3 行は削除すること（残すと無害だが陳腐化）。
  */
-const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set([
-  'spatial_ref_sys',
-  'facilities',
-  'recruits',
-  'blog_authors',
-  'booking_menus',
-  // PR #53 (feat/salon-board) 所有・main 未マージ → マージ時に削除
-  'facility_booking_suspensions',
-  'facility_daily_capacity',
-  'salon_customer_notes',
-  // 2026-07-04: _backup_facility_members_20260612（2026年6月12日の手動バックアップ残骸・0行）は
-  //   神原が本番で DROP 済み＝type/snapshot からも消えたため本リストから削除。
-]);
+// 台帳の実体は src/lib/known-prod-only.json（唯一の真実源）。経緯と運用ルールは
+// src/lib/known-prod-only.ts の docstring を参照。ここで再宣言しないこと
+// （2026年8月3日: 台帳が2箇所に在ったため、フィンガープリント監視が約140項目を誤報していた）。
 
 /**
  * 列レベルドリフトの既知例外（`table.column`）。

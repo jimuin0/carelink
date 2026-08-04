@@ -1,0 +1,65 @@
+/**
+ * 「本番には在るが migration が無い」既知の残存テーブル台帳。**唯一の真実源**。
+ *
+ * データ本体は `known-prod-only.json`（JSON にしてあるのは、TypeScript からも
+ * `scripts/schema-diff.mjs`（plain Node）からも同じ実体を読むため。台帳を
+ * 言語ごとに書き分けた時点で片方だけ更新される事故が確定する）。
+ *
+ * 🔴 なぜ 1 箇所に寄せるか（2026年8月3日）:
+ *   この台帳は元々 tests/contract/migration-prod-drift.contract.test.ts の中だけに在り、
+ *   新設したスキーマ・フィンガープリント監視はそれを知らなかった。結果、既知・受容済みの
+ *   7 テーブルに由来する **約 140 項目を毎日「ドリフト」として報告する**状態になった。
+ *   誤報は検知の死であり、「いつも鳴っているから見ない」に劣化する。
+ *   同日 soel 側でも「同じ除外規則を 2 箇所に書いて片方だけ直した」欠陥を実際に踏んでいる。
+ *
+ * 台帳の中身と経緯:
+ *   - spatial_ref_sys … PostGIS 所有。拡張オブジェクトなので introspection 側でも除外される
+ *   - facilities / recruits / blog_authors / booking_menus … 旧世代の未使用残存。
+ *     実測 2026年8月3日: いずれも RLS 有効、行数は facilities のみ 3 行（2026-03-20 作成）で
+ *     他は 0 行。アプリコードからの参照は 1 件も無い。
+ *   - facility_booking_suspensions / facility_daily_capacity / salon_customer_notes …
+ *     PR #53（feat/salon-board）所有。当該ブランチに CREATE TABLE migration とアプリコードが
+ *     在るが main 未マージのため、main 視点では migration-less に見える。本番へは先行適用済み。
+ *     **PR #53 が main へマージされたら、この 3 件を台帳から削除すること**（残すと無害だが陳腐化する）。
+ *
+ * ⚠️ ここへ足すのは「本番に在ることを把握し、受け入れると決めたもの」だけ。
+ *   足せばフィンガープリント監視の対象外になる＝そのテーブルに何が起きても鳴らなくなる。
+ */
+import registry from './known-prod-only.json';
+
+export const KNOWN_PROD_ONLY: ReadonlySet<string> = new Set(registry as string[]);
+
+/**
+ * フィンガープリント 1 行が「どのテーブルについての行か」を返す。無ければ null。
+ *
+ * 書式は `種別|対象|詳細…`。対象がテーブル名になる種別だけを解釈し、
+ * function / enum / meta のようにテーブルへ紐づかない行は null を返す
+ * （＝テーブル台帳では絶対に除外されない）。
+ */
+export function subjectTable(line: string): string | null {
+  const i = line.indexOf('|');
+  if (i < 0) return null;
+  const kind = line.slice(0, i);
+  const rest = line.slice(i + 1);
+  const j = rest.indexOf('|');
+  const first = j < 0 ? rest : rest.slice(0, j);
+
+  if (kind === 'column') {
+    // `column|<table>.<column>|…`
+    const dot = first.indexOf('.');
+    return dot > 0 ? first.slice(0, dot) : null;
+  }
+  if (
+    kind === 'relation' || kind === 'constraint' || kind === 'index' ||
+    kind === 'policy' || kind === 'trigger' || kind === 'grant'
+  ) {
+    return first === '' ? null : first;
+  }
+  return null;
+}
+
+/** 既知の本番専用テーブルに属する行か（＝突合対象から外す行か）。 */
+export function isKnownProdOnlyLine(line: string): boolean {
+  const t = subjectTable(line);
+  return t !== null && KNOWN_PROD_ONLY.has(t);
+}

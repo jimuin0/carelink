@@ -10,6 +10,8 @@
  *   - バックアップ: 接頭辞 `_backup_` のテーブル
  */
 
+import { isKnownProdOnlyLine } from './known-prod-only';
+
 const IGNORE = new Set<string>([
   'spatial_ref_sys',
   'geography_columns',
@@ -177,8 +179,17 @@ function relationNames(lines: Set<string>): Set<string> {
 }
 
 export function diffFingerprint(expected: string[], actual: string[]): FingerprintDiffResult {
+  // 🔴 既知の本番専用テーブル（migration を持たないと把握・受容済み）に属する行は、
+  //   差分を数える前に両側から落とす（2026年8月3日）。台帳は
+  //   src/lib/known-prod-only.json が唯一の真実源で、契約テストと CLI も同じものを読む。
+  //   これを入れる前は、既知 7 テーブル由来の約 140 項目を毎日ドリフトとして報告していた。
   const norm = (arr: string[]) =>
-    new Set((arr ?? []).map((l) => (l ?? '').trim()).filter(Boolean));
+    new Set(
+      (arr ?? [])
+        .map((l) => (l ?? '').trim())
+        .filter(Boolean)
+        .filter((l) => !isKnownProdOnlyLine(l)),
+    );
   const exp = norm(expected);
   const act = norm(actual);
 

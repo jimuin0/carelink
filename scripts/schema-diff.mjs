@@ -34,6 +34,40 @@
  *   soel の本番と突合して「RLS が 90 本欠落」という存在しない事故を報告しかけた。
  */
 import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+
+/** 既知の本番専用テーブル台帳。**実体は src/lib/known-prod-only.json のみ**。
+ *  TS 側(src/lib/known-prod-only.ts)と同じファイルを読むので、台帳が分裂しない。 */
+export const KNOWN_PROD_ONLY = new Set(
+  JSON.parse(readFileSync(join(__dir, '..', 'src', 'lib', 'known-prod-only.json'), 'utf8')),
+);
+
+/** フィンガープリント1行の「対象テーブル」。無ければ null（src/lib/known-prod-only.ts と同一規則）。 */
+export function subjectTable(line) {
+  const i = line.indexOf('|');
+  if (i < 0) return null;
+  const kind = line.slice(0, i);
+  const rest = line.slice(i + 1);
+  const j = rest.indexOf('|');
+  const first = j < 0 ? rest : rest.slice(0, j);
+  if (kind === 'column') {
+    const dot = first.indexOf('.');
+    return dot > 0 ? first.slice(0, dot) : null;
+  }
+  if (['relation', 'constraint', 'index', 'policy', 'trigger', 'grant'].includes(kind)) {
+    return first === '' ? null : first;
+  }
+  return null;
+}
+
+/** 既知の本番専用テーブルに属する行か。 */
+export function isKnownProdOnlyLine(line) {
+  const t = subjectTable(line);
+  return t !== null && KNOWN_PROD_ONLY.has(t);
+}
 
 const ALLOW_SEP = '##';
 
@@ -125,7 +159,9 @@ export function comparabilityProblem(exp, act, minLines) {
 
 /** フィンガープリント 2 つを突合する。 */
 export function diffFingerprints(expectedLines, actualLines, rules = []) {
-  const norm = (arr) => new Set(arr.map((l) => l.trim()).filter(Boolean));
+  // 既知の本番専用テーブルの行は両側から落とす（本番経路 diffFingerprint と同一）。
+  const norm = (arr) =>
+    new Set(arr.map((l) => l.trim()).filter(Boolean).filter((l) => !isKnownProdOnlyLine(l)));
   const exp = norm(expectedLines);
   const act = norm(actualLines);
 
@@ -200,7 +236,8 @@ function main(argv) {
 
   // 🔴 差分を出力する【前】に、突合が成立しているかを見る。成立していないのに
   //   missing/extra を出すと「存在しない事故」の報告になる。
-  const norm = (arr) => new Set(arr.map((l) => String(l ?? '').trim()).filter(Boolean));
+  const norm = (arr) =>
+    new Set(arr.map((l) => String(l ?? '').trim()).filter(Boolean).filter((l) => !isKnownProdOnlyLine(l)));
   const problem = comparabilityProblem(norm(expected), norm(actual), minLines);
   if (problem) {
     console.error('🔴 突合が成立していません（差分は 1 件も主張しません）:');
