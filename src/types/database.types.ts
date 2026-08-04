@@ -5884,6 +5884,7 @@ export type Database = {
       }
       get_public_columns: { Args: never; Returns: Json }
       get_public_constraints: { Args: never; Returns: Json }
+      get_schema_fingerprint: { Args: never; Returns: Json }
       get_unique_customers: {
         Args: { p_facility_id: string }
         Returns: {
