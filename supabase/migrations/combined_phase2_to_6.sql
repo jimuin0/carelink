@@ -51,15 +51,22 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- profiles 自動作成トリガー
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO profiles (id, display_name, email)
-  VALUES (NEW.id, COALESCE(NEW.raw_user_meta_data->>'display_name', ''), NEW.email);
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- 🔴 handle_new_user / get_available_slots の定義は本ファイルから撤去した（2026年8月5日）。
+--   why: 本ファイルは後続 migration が作る facility_reviews 等に依存するため【最後に適用する
+--     必要がある】。そのため古い定義をここに残すと **後続 migration の改良を毎回巻き戻す**。
+--     実測でそうなっていた:
+--       get_available_slots … booking_buffer / exclude_cancel_fee_paid /
+--         availability_security_definer / staff_facility_guard_and_symmetric_buffer /
+--         business_hours_slot_gate の 5 本ぶんの改良が fresh-apply のたびに消えていた。
+--         結果 CI(`supabase start`)の E2E は **営業時間ガードもバッファも無い版**を検証し続け、
+--         本番と別物をテストしていた。
+--       handle_new_user … oauth_displayname / signup_phone_prefecture_capture の改良が消え、
+--         ON CONFLICT も EXCEPTION ハンドラも無い版になっていた（profiles に行が既在すると
+--         一意制約違反でトリガが落ち **サインアップ全体が失敗する**）。
+--   いずれも先行する 20260323* が関数を作るので、撤去しても fresh-apply で欠落しない。
+--   最後に適用される定義が「最新の migration のもの」になるのが正しい。
+--   ⚠️ 本ファイルへ新しく CREATE OR REPLACE FUNCTION を足さないこと。同じ巻き戻しが再発する。
+--   （tests/contract/migration-prod-drift.contract.test.ts が機械で禁止している）
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -111,10 +118,9 @@ END $$;
 ALTER TABLE facility_profiles ADD COLUMN IF NOT EXISTS view_count INT DEFAULT 0;
 
 -- view_count インクリメント RPC
-CREATE OR REPLACE FUNCTION increment_view_count(facility_uuid UUID)
-RETURNS void AS $$
-  UPDATE facility_profiles SET view_count = view_count + 1 WHERE id = facility_uuid;
-$$ LANGUAGE sql SECURITY DEFINER;
+-- increment_view_count の定義は 20260323000001 にあるため本ファイルからは撤去した
+-- （同一定義であることを実測確認済み。上の🔴注記の理由で、最後に走る本ファイルに
+--   関数定義を置かない）。
 
 
 -- =============================================================================
@@ -318,67 +324,6 @@ CREATE INDEX IF NOT EXISTS idx_bookings_user ON bookings(user_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_staff_date ON bookings(staff_id, booking_date);
 CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(booking_date);
 
--- 空き枠計算RPC
-CREATE OR REPLACE FUNCTION get_available_slots(
-  p_facility_id UUID,
-  p_staff_id UUID,
-  p_date DATE,
-  p_duration_minutes INT
-)
-RETURNS TABLE(slot_start TIME, slot_end TIME)
-LANGUAGE plpgsql
-AS $$
-DECLARE
-  v_day_of_week INT;
-  v_work_start TIME;
-  v_work_end TIME;
-  v_is_holiday BOOLEAN;
-  v_current_start TIME;
-  v_current_end TIME;
-BEGIN
-  v_day_of_week := EXTRACT(DOW FROM p_date);
-
-  SELECT so.is_holiday, so.start_time, so.end_time
-  INTO v_is_holiday, v_work_start, v_work_end
-  FROM schedule_overrides so
-  WHERE so.staff_id = p_staff_id AND so.date = p_date;
-
-  IF FOUND AND v_is_holiday THEN
-    RETURN;
-  END IF;
-
-  IF v_work_start IS NULL THEN
-    SELECT ss.start_time, ss.end_time
-    INTO v_work_start, v_work_end
-    FROM staff_schedules ss
-    WHERE ss.staff_id = p_staff_id AND ss.day_of_week = v_day_of_week;
-  END IF;
-
-  IF v_work_start IS NULL THEN
-    RETURN;
-  END IF;
-
-  v_current_start := v_work_start;
-  WHILE v_current_start + (p_duration_minutes || ' minutes')::INTERVAL <= v_work_end LOOP
-    v_current_end := v_current_start + (p_duration_minutes || ' minutes')::INTERVAL;
-
-    IF NOT EXISTS (
-      SELECT 1 FROM bookings b
-      WHERE b.staff_id = p_staff_id
-        AND b.booking_date = p_date
-        AND b.status NOT IN ('cancelled', 'no_show')
-        AND b.start_time < v_current_end
-        AND b.end_time > v_current_start
-    ) THEN
-      slot_start := v_current_start;
-      slot_end := v_current_end;
-      RETURN NEXT;
-    END IF;
-
-    v_current_start := v_current_start + '30 minutes'::INTERVAL;
-  END LOOP;
-END;
-$$;
 
 
 -- =============================================================================
