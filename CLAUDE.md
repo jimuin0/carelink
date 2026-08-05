@@ -306,3 +306,37 @@ npm run test:load           # k6 負荷（search-load）
    これは不便ではなく正しい: 本番の RPC 本文がリポジトリとズレていれば
    **両側で違う SQL を実行している**＝突合が無意味なので、必ず赤くならなければいけない。
    手順は「SQL を編集 → 期待値を再生成 → 本番へ migration を再適用」の 3 点セット。
+
+### 現在の未解決差分（2026年8月4日時点・実測）
+
+初回突合で検出した差分の処理状況。**警報が鳴ったらまずここを見る**。
+
+| 検出内容 | 件数 | 状態 |
+|---|---|---|
+| 既知の本番専用テーブル7本に由来 | 143 | ✅ `known-prod-only.json` で除外済み |
+| 本番に無かったトリガ2本 | 2 | ✅ 本番へ適用して復旧（`20260803000001`） |
+| migration 側の旧オーバーロード2本 | 2 | ✅ 撤去（`20260804000001`・本番は no-op） |
+| **本番にだけ在る関数11本** | **11** | 🟡 **判断待ち** |
+
+🟡 **未解決の 11 本**（cron が毎日 `driftExtra` として報告する。これは誤報ではなく
+   「本当に本番にしか無いもの」なので、**黙らせずに決着させること**）:
+
+```
+booking_status_occupies, create_admin_booking_atomic, create_blog_author_atomic,
+get_facility_customers, get_user_points_balance, hpb_menu_durations_touch_updated_at,
+reorder_coupons, reorder_facility_menus, reorder_facility_photos,
+set_review_pickup_atomic, update_admin_booking_atomic
+```
+
+実測（2026年8月3日）: **11 本すべて、アプリコードからの参照が 1 件も無い**
+（`rpc('...')` 呼出・広めの grep ともにヒット 0）。migration にも定義が無い。
+
+選択肢は 3 つで、いずれも神原さんの判断が要る:
+- **DROP する** — 使っていないので筋は通るが**取り消せない**。実行前に
+  (a) 依存トリガの有無を確認し (b) `pg_get_functiondef` で定義を保存すること。
+  `DROP FUNCTION` は既定が RESTRICT なので、依存があれば失敗して何も消えない
+- **台帳に登録して監視対象外にする** — 安全だが、以後その関数に何が起きても鳴らなくなる
+- **migration に取り込む** — 使っていないものを正式スキーマに昇格させる形で、筋は悪い
+
+⚠️ **「いつも 11 件出ているから」で読み飛ばす状態にしないこと。** 未決の真陽性を
+放置すると、本物の新規ドリフトがその 11 件に紛れて見えなくなる（誤報の死と同じ帰結）。
