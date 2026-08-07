@@ -284,6 +284,16 @@ npm run test:load           # k6 負荷（search-load）
    実行され**、soel のスキーマを CareLink の期待値と突合して
    「RLS が 90 本欠落」という**存在しない事故を報告しかけた**。
    数字が大きくズレたら、まず「同じ DB を見ているか」を疑うこと。
+   ✅ **この形は現在コードで塞いである**（`src/lib/schema-drift.ts`）。期待側と実測側の
+   重なりが `SAME_DATABASE_MIN_OVERLAP = 0.5`（50%）を割ったら、差分を数える**前に**
+   `differentDatabase` として返す。CLI 側は `scripts/schema-diff.mjs` の
+   `comparabilityProblem` が同じ判定を持つ（項目 9 参照）。
+   ⚠️ ただし**手で SQL を叩くときは依然として無防備**。SQL Editor での調査は
+   `(to_regclass('public.facility_profiles') IS NOT NULL) AS is_carelink` を SELECT に
+   埋め込むこと。2026年8月5日、これを入れ忘れて soel の結果（relation=56 / 合計=1121）を
+   CareLink のものとして読む事故を起こした。migration 側は
+   `20260803000001_restore_missing_triggers.sql` 冒頭の `DO $guard$` が
+   `public.facility_profiles` の不在で例外を投げるため、誤った DB へ適用しても何も作らない。
 6. 🔴 **bootstrap は Supabase の既定権限も再現する。** Supabase は
    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated,
    service_role` を持つため、public の全テーブルに 3 ロール分の GRANT が自動で付く。
@@ -306,6 +316,22 @@ npm run test:load           # k6 負荷（search-load）
    これは不便ではなく正しい: 本番の RPC 本文がリポジトリとズレていれば
    **両側で違う SQL を実行している**＝突合が無意味なので、必ず赤くならなければいけない。
    手順は「SQL を編集 → 期待値を再生成 → 本番へ migration を再適用」の 3 点セット。
+   本番側の実体は RPC `public.get_schema_fingerprint()`（cron がこれを呼ぶ）。
+   **本番にこの RPC が無ければ突合は一度も成立しない**ので、初回導入時は本番への適用が必須。
+11. 🔴 **タイムスタンプ接頭辞の無い migration に関数定義を置かない。**
+   シェルの glob も `supabase start` も**辞書順**で適用するため、接頭辞の無いファイル
+   （`combined_phase2_to_6.sql`）は必ず `2026*` の**後**に走る。そこに
+   `CREATE OR REPLACE FUNCTION` があると、後続 migration の改良を毎回無条件で巻き戻す。
+   実測 2026年8月5日: `get_available_slots` が 5 本ぶん、`handle_new_user` が 2 本ぶんの
+   改良を fresh-apply のたびに失っていた。**実害は「新環境が古くなる」だけではない** —
+   CI は `supabase start` で fresh-apply した DB に E2E を回すため、
+   営業時間ガードもバッファも無い `get_available_slots` を検証し続けていた
+   （＝乖離を捕まえるためのゲートが本番と別物を検証していた）。
+   ⚠️ ファイル名を時系列に直す案は**不可**。実際に改名して試したところ
+   `ERROR: relation "facility_reviews" does not exist` で落ちた＝最後に走る必要がある。
+   真の予防は「最後に走るファイルへ関数定義を**置けなくする**」で、
+   `src/lib/__tests__/migration-last-file-guard.test.ts` が機械強制する（空振り下限 100 本）。
+   1 本ずつ気づいて消す運用は発火源の列挙で、次に足される定義を守らない。
 
 ### 現在の未解決差分（2026年8月5日時点・実測）
 
@@ -315,13 +341,19 @@ npm run test:load           # k6 負荷（search-load）
 
 | 内容 | 対処 |
 |---|---|
-| 既知の本番専用テーブル7本に由来する143項目 | `known-prod-only.json` で除外（#560） |
-| 本番に無かったトリガ2本 | 本番へ適用して復旧（`20260803000001`） |
-| migration 側の旧オーバーロード2本 | 撤去（`20260804000001`・#562） |
+| 既知の本番専用テーブル由来の約140項目 | `src/lib/known-prod-only.json` で除外（#560） |
+| 本番に無かったトリガ2本 | 本番へ適用して復旧（`20260803000001_restore_missing_triggers.sql`） |
+| migration 側の旧オーバーロード2本 | 撤去（`20260804000001_drop_stale_function_overloads.sql`・#562） |
 | **本番専用の関数11本** | **本番から DROP 済み**（依存なしを確認・定義を保存してから実行） |
 | **`line_logs`（RLS 無効・anon 全権限で LINE の user_id とメッセージが公開されていた）** | **RLS 有効化＋anon権限剥奪 → DROP 済み** |
-| 最後に走る migration が後続の改良を巻き戻していた | `combined_phase2_to_6.sql` から関数定義を撤去（#564） |
-| `handle_new_user` の両方向分岐 | 統合版を**本番へ適用済み** |
+| 最後に走る migration が後続の改良を巻き戻していた | `combined_phase2_to_6.sql` から関数定義を撤去＋機械強制（#564・上記手順 11） |
+| `handle_new_user` の両方向分岐 | 統合版（`20260805000001_handle_new_user_merge.sql`）を**本番へ適用済み** |
+
+⚠️ **台帳の登録数と「誤報していた項目数」は別**（混同しやすい）。
+`known-prod-only.json` の登録は **8 件**だが、そのうち `spatial_ref_sys` は PostGIS 所有＝
+`pg_depend deptype='e'` で introspection 側から既に落ちている（実測: 期待値 JSON に出現 0 回）。
+実際にドリフトとして毎日鳴っていたのは**残り 7 テーブル由来の約 140 項目**。
+台帳に残してあるのは二重の安全弁として。
 
 #### 🟡 未解消の乖離（種別ごと・実測 2026年8月5日）
 
