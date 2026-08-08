@@ -284,6 +284,16 @@ npm run test:load           # k6 負荷（search-load）
    実行され**、soel のスキーマを CareLink の期待値と突合して
    「RLS が 90 本欠落」という**存在しない事故を報告しかけた**。
    数字が大きくズレたら、まず「同じ DB を見ているか」を疑うこと。
+   ✅ **この形は現在コードで塞いである**（`src/lib/schema-drift.ts`）。期待側と実測側の
+   重なりが `SAME_DATABASE_MIN_OVERLAP = 0.5`（50%）を割ったら、差分を数える**前に**
+   `differentDatabase` として返す。CLI 側は `scripts/schema-diff.mjs` の
+   `comparabilityProblem` が同じ判定を持つ（項目 9 参照）。
+   ⚠️ ただし**手で SQL を叩くときは依然として無防備**。SQL Editor での調査は
+   `(to_regclass('public.facility_profiles') IS NOT NULL) AS is_carelink` を SELECT に
+   埋め込むこと。2026年8月5日、これを入れ忘れて soel の結果（relation=56 / 合計=1121）を
+   CareLink のものとして読む事故を起こした。migration 側は
+   `20260803000001_restore_missing_triggers.sql` 冒頭の `DO $guard$` が
+   `public.facility_profiles` の不在で例外を投げるため、誤った DB へ適用しても何も作らない。
 6. 🔴 **bootstrap は Supabase の既定権限も再現する。** Supabase は
    `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated,
    service_role` を持つため、public の全テーブルに 3 ロール分の GRANT が自動で付く。
@@ -306,37 +316,89 @@ npm run test:load           # k6 負荷（search-load）
    これは不便ではなく正しい: 本番の RPC 本文がリポジトリとズレていれば
    **両側で違う SQL を実行している**＝突合が無意味なので、必ず赤くならなければいけない。
    手順は「SQL を編集 → 期待値を再生成 → 本番へ migration を再適用」の 3 点セット。
+   本番側の実体は RPC `public.get_schema_fingerprint()`（cron がこれを呼ぶ）。
+   **本番にこの RPC が無ければ突合は一度も成立しない**ので、初回導入時は本番への適用が必須。
+11. 🔴 **タイムスタンプ接頭辞の無い migration に関数定義を置かない。**
+   シェルの glob も `supabase start` も**辞書順**で適用するため、接頭辞の無いファイル
+   （`combined_phase2_to_6.sql`）は必ず `2026*` の**後**に走る。そこに
+   `CREATE OR REPLACE FUNCTION` があると、後続 migration の改良を毎回無条件で巻き戻す。
+   実測 2026年8月5日: `get_available_slots` が 5 本ぶん、`handle_new_user` が 2 本ぶんの
+   改良を fresh-apply のたびに失っていた。**実害は「新環境が古くなる」だけではない** —
+   CI は `supabase start` で fresh-apply した DB に E2E を回すため、
+   営業時間ガードもバッファも無い `get_available_slots` を検証し続けていた
+   （＝乖離を捕まえるためのゲートが本番と別物を検証していた）。
+   ⚠️ ファイル名を時系列に直す案は**不可**。実際に改名して試したところ
+   `ERROR: relation "facility_reviews" does not exist` で落ちた＝最後に走る必要がある。
+   真の予防は「最後に走るファイルへ関数定義を**置けなくする**」で、
+   `src/lib/__tests__/migration-last-file-guard.test.ts` が機械強制する（空振り下限 100 本）。
+   1 本ずつ気づいて消す運用は発火源の列挙で、次に足される定義を守らない。
 
-### 現在の未解決差分（2026年8月4日時点・実測）
+### 現在の未解決差分（2026年8月5日時点・実測）
 
-初回突合で検出した差分の処理状況。**警報が鳴ったらまずここを見る**。
+**警報が鳴ったらまずここを見る。** 数値はすべて実測（推測なし）。
 
-| 検出内容 | 件数 | 状態 |
-|---|---|---|
-| 既知の本番専用テーブル7本に由来 | 143 | ✅ `known-prod-only.json` で除外済み |
-| 本番に無かったトリガ2本 | 2 | ✅ 本番へ適用して復旧（`20260803000001`） |
-| migration 側の旧オーバーロード2本 | 2 | ✅ 撤去（`20260804000001`・本番は no-op） |
-| **本番にだけ在る関数11本** | **11** | 🟡 **判断待ち** |
+#### ✅ 解消済み
 
-🟡 **未解決の 11 本**（cron が毎日 `driftExtra` として報告する。これは誤報ではなく
-   「本当に本番にしか無いもの」なので、**黙らせずに決着させること**）:
+| 内容 | 対処 |
+|---|---|
+| 既知の本番専用テーブル由来の約140項目 | `src/lib/known-prod-only.json` で除外（#560） |
+| 本番に無かったトリガ2本 | 本番へ適用して復旧（`20260803000001_restore_missing_triggers.sql`） |
+| migration 側の旧オーバーロード2本 | 撤去（`20260804000001_drop_stale_function_overloads.sql`・#562） |
+| **本番専用の関数11本** | **本番から DROP 済み**（依存なしを確認・定義を保存してから実行） |
+| **`line_logs`（RLS 無効・anon 全権限で LINE の user_id とメッセージが公開されていた）** | **RLS 有効化＋anon権限剥奪 → DROP 済み** |
+| 最後に走る migration が後続の改良を巻き戻していた | `combined_phase2_to_6.sql` から関数定義を撤去＋機械強制（#564・上記手順 11） |
+| `handle_new_user` の両方向分岐 | 統合版（`20260805000001_handle_new_user_merge.sql`）を**本番へ適用済み** |
 
-```
-booking_status_occupies, create_admin_booking_atomic, create_blog_author_atomic,
-get_facility_customers, get_user_points_balance, hpb_menu_durations_touch_updated_at,
-reorder_coupons, reorder_facility_menus, reorder_facility_photos,
-set_review_pickup_atomic, update_admin_booking_atomic
-```
+⚠️ **台帳の登録数と「誤報していた項目数」は別**（混同しやすい）。
+`known-prod-only.json` の登録は **8 件**だが、そのうち `spatial_ref_sys` は PostGIS 所有＝
+`pg_depend deptype='e'` で introspection 側から既に落ちている（実測: 期待値 JSON に出現 0 回）。
+実際にドリフトとして毎日鳴っていたのは**残り 7 テーブル由来の約 140 項目**。
+台帳に残してあるのは二重の安全弁として。
 
-実測（2026年8月3日）: **11 本すべて、アプリコードからの参照が 1 件も無い**
-（`rpc('...')` 呼出・広めの grep ともにヒット 0）。migration にも定義が無い。
+#### 🟡 未解消の乖離（種別ごと・実測 2026年8月5日）
 
-選択肢は 3 つで、いずれも神原さんの判断が要る:
-- **DROP する** — 使っていないので筋は通るが**取り消せない**。実行前に
-  (a) 依存トリガの有無を確認し (b) `pg_get_functiondef` で定義を保存すること。
-  `DROP FUNCTION` は既定が RESTRICT なので、依存があれば失敗して何も消えない
-- **台帳に登録して監視対象外にする** — 安全だが、以後その関数に何が起きても鳴らなくなる
-- **migration に取り込む** — 使っていないものを正式スキーマに昇格させる形で、筋は悪い
+既知の本番専用テーブルを除外したうえでの突合結果。
 
-⚠️ **「いつも 11 件出ているから」で読み飛ばす状態にしないこと。** 未決の真陽性を
-放置すると、本物の新規ドリフトがその 11 件に紛れて見えなくなる（誤報の死と同じ帰結）。
+| 種別 | 期待 | 本番 | 状態 |
+|---|---:|---:|---|
+| relation / trigger / grant / meta | — | — | ✅ **完全一致** |
+| column | 1042 | 1042 | ❌ 8テーブルで定義違い |
+| constraint | 340 | 341 | ❌ `blog_posts` |
+| function | 41 | 41 | ❌ 中身違いあり |
+| index | 343 | 340 | ❌ 25テーブルで違い |
+| policy | 131 | 147 | ❌ 6テーブルが本番のみ／21テーブルで違い |
+
+**column の対象8**: `area_seo_contents` `facility_jobs` `facility_qa` `facility_reviews`
+`feature_articles` `features` `job_postings` `review_helpful`
+
+**policy で本番のみ6**（migration に無い anon 公開ポリシー）:
+
+| テーブル | ポリシー | 行数 | 判定 |
+|---|---|---:|---|
+| `user_coupon_codes` | `anon_read_code` (SELECT using=true) | 0 | 🔴 削除推奨 |
+| `email_unsubscribe_tokens` | `anon_read_token` / `anon_update_token` | 0 | 🔴 削除推奨 |
+| `job_postings` | `Anyone can insert jobs` | 5 | 🟡 神原さん判断 |
+| `salons` | `Allow anonymous insert` + `anon_insert_salons`（**重複**） | 8 | 🟡 神原さん判断 |
+| `job_seekers` | `Allow anonymous insert` + `anon_insert_job_seekers`（**重複**） | 0 | 🟡 神原さん判断 |
+| `ab_test_events` | `ab_test_insert` | — | 🟢 migration へ取込 |
+
+実測で確認済み: **6テーブルとも anon 経路（`NEXT_PUBLIC_SUPABASE_ANON_KEY` を使う20ファイル・
+`'use client'` コンポーネント）からの参照はゼロ**。すべてサーバー側の service_role 経由なので、
+**anon ポリシーを削除してもアプリは壊れない**。
+
+⚠️ これらは今日作り込まれた欠陥ではなく、**以前から在って誰も見えていなかったもの**。
+旧監視は `pg_constraint` の `contype IN ('p','u')` しか見ておらず、RLS もインデックスも
+列の型も**一度も比較されたことがなかった**。
+
+#### 🔴 差分を調べるときの手順（この順で。逆をやると必ず間違える）
+
+1. **接続先の識別子を結果に埋め込む。** `(to_regclass('public.facility_profiles') IS NOT NULL)`
+   を SELECT に入れる。入れ忘れて soel の結果を CareLink として読む事故を**2回**起こした
+2. **件数差から内訳を語らない。** 「同じオブジェクトの定義違い」は extra と missing に
+   1件ずつ出て**件数差では相殺されて消える**。実際これで 2 回誤った結論を出した
+   （「差分148件の内訳」「11件になるはず」）
+3. 種別ごとの md5 → (種別, テーブル) ごとの md5 → 該当行、と**絞り込んでから**中身を見る
+4. 関数の `body_md5` 相違は**コメントや改行だけのことがある**。
+   `md5(regexp_replace(regexp_replace(prosrc,'--[^\n]*','','g'),'\s+',' ','g'))`
+   で比較すれば装飾差とロジック差を機械的に分けられる（実測で3本が装飾差だった）
+
