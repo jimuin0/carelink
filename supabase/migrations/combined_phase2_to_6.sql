@@ -368,29 +368,19 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_visits' AND policyname = 'customer_visits_member_read') THEN
-    CREATE POLICY "customer_visits_member_read" ON customer_visits FOR SELECT USING (
-      EXISTS (
-        SELECT 1 FROM facility_members fm
-        WHERE fm.facility_id = customer_visits.facility_id
-        AND fm.user_id = auth.uid()
-      )
-    );
-  END IF;
-END $$;
+-- "customer_visits_member_read" (施設メンバーであれば role 不問で許可する緩い版) は
+-- 2026-08-09 に除去した。20260722000004_customers_rls_owner_admin.sql が
+-- このポリシーを DROP した上で、role IN ('owner','admin') に限定した owner/admin 版を
+-- 同名で再 CREATE している。TS migration の最終状態は「存在（owner/admin 版）」なので、
+-- combined のこの IF NOT EXISTS ブロックは常に「既に存在する」と判定してスキップされる
+-- 死にコードだった（#568 の bookings 型＝巻き戻しとは異なり、これは巻き戻しには
+-- ならない）。ただし将来 20260722000004 の再 CREATE が消えると、この緩い版が
+-- fresh-apply の最後に発火して権限を巻き戻す潜在リスクがあるため、死にコードとして
+-- 除去する（fresh-apply の pg_policies 結果は除去前後で不変であることを実測済み）。
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'customer_visits' AND policyname = 'customer_visits_member_insert') THEN
-    CREATE POLICY "customer_visits_member_insert" ON customer_visits FOR INSERT WITH CHECK (
-      EXISTS (
-        SELECT 1 FROM facility_members fm
-        WHERE fm.facility_id = customer_visits.facility_id
-        AND fm.user_id = auth.uid()
-      )
-    );
-  END IF;
-END $$;
+-- "customer_visits_member_insert" (施設メンバーであれば role 不問で許可する緩い版) も
+-- 同じ理由（20260722000004 が DROP 後に role IN ('owner','admin') 版で再 CREATE 済み）で
+-- 2026-08-09 に除去した。
 
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bookings' AND policyname = 'bookings_facility_member_read') THEN
