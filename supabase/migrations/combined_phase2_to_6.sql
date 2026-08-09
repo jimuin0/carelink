@@ -304,17 +304,20 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bookings' AND policyname = 'bookings_insert') THEN
-    CREATE POLICY "bookings_insert" ON bookings FOR INSERT WITH CHECK (true);
-  END IF;
-END $$;
+-- "bookings_insert" (FOR INSERT WITH CHECK (true)) は 2026-08-09 に除去した。
+-- 後続の日付付き migration (20260420000015_booking_insert_rls_grants.sql /
+-- 20260608000001_drop_anon_insert_bookings_abtests_referral.sql) がこのポリシーを
+-- 「anon 直 INSERT を許す overbroad ポリシー」として明示的に DROP している
+-- （create_booking_atomic の SECURITY DEFINER RPC が全 INSERT を担うため不要）。
+-- combined は日付を持たず fresh-apply 順で【最後】に適用されるため、ここで
+-- CREATE すると後続 DROP を巻き戻し、脆弱な状態を復活させてしまう。PR#564 の
+-- 関数版巻き戻し根治と同種の対応（ポリシー版）。
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bookings' AND policyname = 'bookings_owner_update') THEN
-    CREATE POLICY "bookings_owner_update" ON bookings FOR UPDATE USING (auth.uid() = user_id);
-  END IF;
-END $$;
+-- "bookings_owner_update" (FOR UPDATE USING (auth.uid() = user_id)) は 2026-08-09 に除去した。
+-- 20260704000002_bookings_update_and_atomic_rpc_lockdown.sql (DB-1) がこのポリシーを
+-- WITH CHECK 無しで顧客が total_price/status/facility_id/staff_id を改竄できる脆弱ポリシー
+-- として明示的に DROP し、bookings への UPDATE 権限自体も anon/authenticated から REVOKE 済み。
+-- combined は最後に適用されるため、ここで CREATE すると同 migration の巻き戻しになる。
 
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_staff_schedules_staff ON staff_schedules(staff_id);
@@ -401,17 +404,11 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-DO $$ BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bookings' AND policyname = 'bookings_facility_member_update') THEN
-    CREATE POLICY "bookings_facility_member_update" ON bookings FOR UPDATE USING (
-      EXISTS (
-        SELECT 1 FROM facility_members fm
-        WHERE fm.facility_id = bookings.facility_id
-        AND fm.user_id = auth.uid()
-      )
-    );
-  END IF;
-END $$;
+-- "bookings_facility_member_update" (施設メンバー相関 USING) は 2026-08-09 に除去した。
+-- 20260704000002_bookings_update_and_atomic_rpc_lockdown.sql (DB-1) がこのポリシーも
+-- 同じ理由（WITH CHECK 無しで施設メンバーが total_price 等を改竄できる脆弱ポリシー）で
+-- 明示的に DROP し、bookings への UPDATE 権限自体も anon/authenticated から REVOKE 済み。
+-- combined は最後に適用されるため、ここで CREATE すると同 migration の巻き戻しになる。
 
 -- インデックス
 CREATE INDEX IF NOT EXISTS idx_facility_members_user ON facility_members(user_id);
