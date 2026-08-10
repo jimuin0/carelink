@@ -130,7 +130,10 @@ const KNOWN_PENDING_DEPLOYMENT: ReadonlySet<string> = new Set([
  * spatial_ref_sys は PostGIS のシステムテーブル（拡張機能が作成）。
  * features / job_postings は 20260320000002_prod_only_base_tables.sql で migration 追補済み
  *   （fresh-apply 再生可能化）。よって migration-less ではなくなったため本リストから除外。
- * facilities / recruits / blog_authors / booking_menus は旧世代の未使用残存。
+ * facilities / recruits / booking_menus は旧世代の未使用残存。
+ * blog_authors は同様の残存だったが 2026-08-11 に
+ *   supabase/migrations/20260811000003_backport_blog_authors_and_fk.sql で migration へ
+ *   back-port済み（migration-less ではなくなったため上記除外リストから削除済み）。
  * facility_booking_suspensions / facility_daily_capacity / salon_customer_notes は
  *   PR #53（feat/salon-board）所有のテーブル。当該ブランチに CREATE TABLE migration
  *   （20260602_booking_suspensions / 20260602_daily_capacity / 20260602_customer_notes）と
