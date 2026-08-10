@@ -10,6 +10,29 @@
  *   最大24時間後。本モジュールは PR 作成/更新の**その瞬間**に「これから本番へ
  *   手動適用が必要な migration」を人に見せるための検出ロジック。
  *
+ * 【検出方式: ステータス列挙 → 木の集合差分（プロパティベース）へ (#575 直後に修正)】
+ *   旧実装は `git diff --name-status` を1行ずつ読み、status フィールドが `A`
+ *   （新規追加）の行だけを migration として拾っていた。これには実害のある穴がある:
+ *   migration ディレクトリの外から `supabase/migrations/` へ **リネームで入ってきた**
+ *   ファイル（status=R）や **コピーで入ってきた**ファイル（status=C）は、diff 上では
+ *   "A" ではなく "R"/"C" として現れるため、旧ロジックでは一切検出されず、本番への
+ *   手動適用が黙って忘れられる。しかも「A/R/C を列挙して拾う」形で直しても、次に
+ *   git が生成しうる別のステータス文字（将来の git バージョンや設定次第で増減しうる）
+ *   が同じ穴を再び開ける。ステータス文字の列挙は「書いた時点の git の振る舞い」を
+ *   固定するだけで、次に増えるものを守らない。
+ *
+ *   そこで検出を「新規 migration とは何か」という**性質**で定義し直した:
+ *     HEAD のツリーに存在し、base のツリーには存在しない migration ファイル。
+ *   この定義はファイルがどう HEAD 側に現れたか（add / rename-in / copy-in のいずれか）
+ *   を一切問わない。add・rename-in・copy-in は性質上すべて「HEAD にあって base に
+ *   ない」を満たすので自動的に拾われ、逆に modify（両方に存在）・delete（base だけに
+ *   存在）は性質上すべて自動的に除外される。ステータス文字の分岐が消えるため、
+ *   将来 git 側の diff 表現が増えても穴が開かない。
+ *
+ *   入力は `git diff --name-status` ではなく `git ls-tree -r --name-only <ref> --
+ *   supabase/migrations/` の出力（base 側・head 側それぞれ）。集合差分は
+ *   `newMigrations()` が計算する。
+ *
  * 【scripts/ に置く理由】
  *   jest.config.js の collectCoverageFrom は `src/lib/**` と `src/app/api/**` のみを
  *   対象とし `scripts/**` を含まない（branches=100% ゲート対象外）。検出ロジックを
@@ -17,8 +40,6 @@
  *   ヘルパにその負担を強いることになる。既存の `scripts/schema-diff.mjs` と同じ
  *   置き場所に倣う（`src/lib/__tests__/schema-diff-allow.test.ts` が動的 import で
  *   テストする形と同じパターンをここでも使う）。
- *
- * 入力は `git diff --name-status <base>...<head>` の生テキスト。
  */
 
 /** migration ディレクトリのプレフィックス（末尾スラッシュ込み）。 */
@@ -39,43 +60,55 @@ export function isMigrationPath(path) {
 }
 
 /**
- * `git diff --name-status` の1行を { status, path } にパースする。
- *   通常:            "A\tsupabase/migrations/x.sql"
- *   リネーム/コピー: "R100\told/path.sql\tnew/path.sql"（末尾フィールドを新パスとして扱う）
- * 解釈できない行は null を返す（空行・ヘッダ等を黙って無視する）。
+ * `git ls-tree -r --name-only <ref> -- supabase/migrations/` の生テキストから、
+ * その ref のツリーに存在する migration ファイルのパス集合を返す（重複排除・ソート済み）。
+ *
+ * 【path の引用符について（未実行・意図的な仮定）】
+ *   git は `core.quotePath`（既定 true）の下で、パスに特殊文字（非ASCII・タブ等）が
+ *   含まれると `"..."` 形式でクォート＋エスケープして出力することがある。本プロジェクトの
+ *   migration ファイル名は `YYYYMMDDHHMMSS_snake_case.sql` の ASCII のみなので、
+ *   通常の運用では起こらない。万一クォートされたパスが渡ってきても、`isMigrationPath`
+ *   の `startsWith(MIGRATIONS_DIR_PREFIX)` チェックが `"supabase/migrations/...` の
+ *   ような形（先頭にダブルクォートが付く）に一致せず単純に弾かれるだけなので、
+ *   誤って migration と認識される事故（false positive）にはならない。シェル的な
+ *   アンクォート処理はあえて実装しない（過剰実装・別の攻撃面を増やすだけで、
+ *   本ゲートの安全側＝見逃さないより誤検知しないほうを壊しかねない）。
  */
-export function parseNameStatusLine(line) {
-  if (typeof line !== 'string') return null;
-  const trimmed = line.replace(/\r$/, '');
-  if (trimmed.trim().length === 0) return null;
-  const parts = trimmed.split('\t');
-  if (parts.length < 2) return null;
-  const statusField = parts[0].trim();
-  if (statusField.length === 0) return null;
-  const status = statusField[0];
-  const path = parts[parts.length - 1];
-  if (!path) return null;
-  return { status, path };
+export function migrationsInTree(lsTreeText) {
+  if (!lsTreeText) return [];
+  const lines = lsTreeText.split('\n');
+  const set = new Set();
+  for (const rawLine of lines) {
+    if (typeof rawLine !== 'string') continue;
+    const line = rawLine.replace(/\r$/, '').trim();
+    if (line.length === 0) continue;
+    if (!isMigrationPath(line)) continue;
+    set.add(line);
+  }
+  return Array.from(set).sort();
 }
 
 /**
- * `git diff --name-status` の全文から、**新規追加(status=A)**された migration ファイル
- * のパスだけを抽出する。順序は入力の出現順を保つ。
+ * base ツリーに存在せず、HEAD ツリーには存在する migration ファイルを返す
+ * （＝「新規に本番へ手動適用が必要な migration」）。
  *
- * 変更(M)・削除(D)・リネーム(R)・コピー(C) は対象外 ―― 「これから本番へ新規に手動適用
- * する必要がある」ことを示すのは新規追加のみのため（既存 migration の変更は別ガード
- * (`schema-fingerprint` 等)の領分で、本ゲートが重複して騒ぐと誤報になる）。
+ * ステータス文字（A/R/C/…）を一切見ない集合差分のため、add・rename-in・copy-in の
+ * いずれであっても機械的に検出される。逆に「両方に存在＝変更」「base のみ＝削除」は
+ * 性質上ここに現れない。
+ *
+ * 【意図した安全側の挙動: migrations 内リネーム】
+ *   `supabase/migrations/old.sql` → `supabase/migrations/renamed.sql` のような
+ *   ディレクトリ内リネームでは、`renamed.sql` は base ツリーに存在しないため
+ *   「新規」として報告される（`old.sql` 側は削除として扱われ、この関数の対象外）。
+ *   既に一度 PR で適用リマインドを経た migration をリネームするのは通常の運用では
+ *   起こりにくく稀なケースであり、それを「新規」として再度リマインドしても
+ *   過剰通知（安全側）に留まる。日次の schema-drift-check（フィンガープリント方式）
+ *   はファイル名ではなくスキーマの実体を見るため、このケースで誤って 🔴 を出すことは
+ *   ない。見逃す（under-report）よりリマインドし過ぎる（over-report）ほうが安全という
+ *   本ゲートの設計方針に合致する。
  */
-export function addedMigrations(nameStatusText) {
-  if (!nameStatusText) return [];
-  const lines = nameStatusText.split('\n');
-  const result = [];
-  for (const line of lines) {
-    const parsed = parseNameStatusLine(line);
-    if (!parsed) continue;
-    if (parsed.status !== 'A') continue;
-    if (!isMigrationPath(parsed.path)) continue;
-    result.push(parsed.path);
-  }
-  return result;
+export function newMigrations(baseLsTreeText, headLsTreeText) {
+  const baseSet = new Set(migrationsInTree(baseLsTreeText));
+  const headMigrations = migrationsInTree(headLsTreeText);
+  return headMigrations.filter((path) => !baseSet.has(path));
 }
