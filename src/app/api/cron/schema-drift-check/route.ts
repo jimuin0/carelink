@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { createServiceRoleClient } from '@/lib/supabase-server';
 import { checkCronAuth } from '@/lib/cron-auth';
 import { logCronRun } from '@/lib/cron-logger';
-import { alertWarning } from '@/lib/alert';
+import { alertWarning, alertError } from '@/lib/alert';
 import {
   computeDrift,
   diffFingerprint,
@@ -16,6 +16,73 @@ import { fetchAllPaged } from '@/lib/paginate';
 
 /** 古い claim 行の掃除しきい値（この期間より古い claim は削除対象）。 */
 const CLAIM_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
+/** claim-first の対象 severity。claim_key に埋め込み、🔴 と 🟡 を互いに独立して dedup する。 */
+type ClaimSeverity = 'critical' | 'warning';
+
+/**
+ * 1 severity 分の claim-first 送信（三重化cronの同時発火による重複 Slack 警報を防止）。
+ *
+ * why: cron は GitHub Actions + pg_cron + Render の三重化でほぼ同時発火するため、
+ * driftCount>0 のたびに無条件で送ると同一内容の警報が最大3通飛ぶ。送信直前に
+ * (job_name, claim_key) を INSERT して「送信権」を claim し、PRIMARY KEY 違反(23505)
+ * なら他 run が先取り済みとしてスキップする（birthday-coupon 等と同型・claim_key
+ * ドキュメントは 20260717000004_cron_alert_claims.sql 参照）。
+ *
+ * claim_key に severity を含めるのは、🔴 driftMissing 系と 🟡 driftExtra 系が同一 run で
+ * 同時に発生し得て、かつ独立に dedup されるべきため（🔴 が他 run に先取りされても
+ * 🟡 は別 run が拾えるように、また逆も同様）。job_name は両 severity で共有するため、
+ * 保持期限切れ claim の掃除（cleanup delete）は1回で両方をカバーする。
+ *
+ * when: claim insert が 23505 以外のエラー（例: migration 未適用の 42P01）で失敗した場合は
+ * fail-open（無音より重複の方が安全）で送信する。
+ *
+ * @returns この severity の送信が dedup（スキップ）されたか。
+ */
+async function claimAndAlert(
+  admin: ReturnType<typeof createServiceRoleClient>,
+  startedAt: Date,
+  severity: ClaimSeverity,
+  fingerprintPayload: unknown,
+  send: () => void,
+): Promise<boolean> {
+  const driftFingerprint = createHash('sha256')
+    .update(JSON.stringify(fingerprintPayload))
+    .digest('hex')
+    .slice(0, 16);
+  const claimDate = startedAt.toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
+  const claimKey = `${claimDate}:${severity}:${driftFingerprint}`;
+
+  const { error: claimError } = await admin.from('cron_alert_claims').insert({
+    job_name: 'schema-drift-check',
+    claim_key: claimKey,
+  });
+
+  let deduped = false;
+  let shouldAlert = true;
+  if (claimError) {
+    if ((claimError as { code?: string }).code === '23505') {
+      // 他スケジューラが同日・同内容・同 severity のドリフトを先に claim・通知済み。
+      shouldAlert = false;
+      deduped = true;
+      console.log('[schema-drift-check] alert claim already taken (deduped)', { claimKey, severity });
+    } else {
+      // claim 不能（migration 未適用の 42P01 含む）。fail-open：無音より重複の方が安全。
+      console.warn('[schema-drift-check] alert claim insert failed (fail-open: sending anyway)', {
+        claimKey,
+        severity,
+        code: (claimError as { code?: string }).code,
+        message: claimError.message,
+      });
+    }
+  }
+
+  if (shouldAlert) {
+    send();
+  }
+
+  return deduped;
+}
 
 // 本番スキーマ(RPC get_public_columns)と期待スキーマ(schema-snapshot.json)を突合し、
 // out-of-band な混入/欠落/列差分を発症前に Slack 通知する。読み取りのみ・副作用なし。
@@ -189,6 +256,29 @@ export async function GET(request: Request) {
     }
   }
 
+  // ── severity 分類（Pillar 2・2026年8月10日）──
+  // 🔴 critical = 本番が「期待（migration由来）より古い/欠けている」側。デプロイ済みコードが
+  //   前提とするスキーマ/データを本番が欠く可能性があり、実害に直結し得る：
+  //     - driftMissing（diffFingerprint）: migration にはあるが本番に無い定義
+  //       （未適用 migration の疑い、または out-of-band 削除）
+  //     - missing（computeDrift）: 期待テーブルが本番に無い（同じ「欠落」class）
+  //     - reviewAuthenticityDrift: 正規入口では原理的に発生しない値＝サイト外からの
+  //       不正投入の疑い（偽レビュー/PII混入）
+  // 🟡 warning = 本番側の「out-of-band な追加/値ズレ」。多くは残骸で、🔴 ほど急を要さない：
+  //     - contaminated（computeDrift）: 期待に無いテーブルが本番にある
+  //     - colDrift（computeDrift）: 列差分
+  //     - driftExtra（diffFingerprint）: migration には無いが本番にある定義
+  //     - businessTypeDrift: 正規タクソノミー外の値
+  const criticalCount = missing.length + driftMissing.length + reviewAuthenticityDrift.length;
+  const warningCount = contaminated.length + colDrift.length + driftExtra.length + businessTypeDrift.length;
+  // 🔴 driftCount の代入文は下のまま【1文】で維持する。review-authenticity-guard.test.ts が
+  //   driftCount への代入文に reviewAuthenticityDrift.length が含まれることをテキストで
+  //   固定しているため（正規表現でこの1文だけを抜き出して検査するので、この直前のコメントに
+  //   同じ字面を書くと誤って先にマッチする＝実際に踏んだ）。criticalCount 経由に畳むと、値は
+  //   数学的に同一でも文字列としての式から reviewAuthenticityDrift の項が消え、
+  //   「検知結果が driftCount に算入されなくなった」という実回帰をこのガードが
+  //   検出できなくなる。criticalCount/warningCount は severity 分類専用の別集計として
+  //   並行に持つ（driftCount と criticalCount+warningCount は数学的に同値）。
   const driftCount =
     contaminated.length +
     missing.length +
@@ -198,57 +288,54 @@ export async function GET(request: Request) {
     businessTypeDrift.length +
     reviewAuthenticityDrift.length;
 
-  // 【claim-first 設計・2026-07-17】
+  // 【claim-first 設計・2026-07-17、severity 分割は2026年8月10日】
   // cron は三重化（GitHub Actions + pg_cron + Render）で同一スケジュール(JST 02:40)に
-  // ほぼ同時発火するため、同一ドリフトに対して複数 run が同時に alertWarning を叩き、
-  // Slack へ重複警報が飛んでいた。alertWarning はスレッド集約のみで送信自体は毎回行う
-  // ため集約では防げない。事前 SELECT で確認してから送る方式は TOCTOU（確認後に別 run が
-  // 割り込む余地がある）を再導入するため使わない。birthday-coupon / review-request と
-  // 同型の claim-first：送信直前に (job_name, claim_key) を INSERT して「送信権」を claim し、
-  // PRIMARY KEY 違反(23505)なら他 run が先取り済みとして送信をスキップする。
-  // claim_key は「当日(UTC)＋drift内容の指紋」で構成するため、同日同内容の drift は1通だけ
-  // 通知され、内容が変化すれば別キーとして再通知される。
-  let alertDeduped = false;
+  // ほぼ同時発火するため、同一ドリフトに対して複数 run が同時に alertWarning/alertError を
+  // 叩き、Slack へ重複警報が飛んでいた。alertWarning/alertError はスレッド集約のみで送信
+  // 自体は毎回行うため集約では防げない。事前 SELECT で確認してから送る方式は TOCTOU（確認後
+  // に別 run が割り込む余地がある）を再導入するため使わない。birthday-coupon / review-request
+  // と同型の claim-first：送信直前に (job_name, claim_key) を INSERT して「送信権」を claim し、
+  // PRIMARY KEY 違反(23505)なら他 run が先取り済みとして送信をスキップする（claimAndAlert）。
+  //
+  // claim_key は「当日(UTC)＋severity＋drift内容の指紋」で構成する。severity を含めるのは、
+  // 🔴 と 🟡 が同一 run で同時に発生し得て、かつ互いに独立して dedup されるべきため
+  // （🔴 が他 run に先取りされても 🟡 は別 run が拾える。job_name は両 severity で共有する
+  // ため stale claim の掃除は1回で両方をカバーする）。
+  let criticalDeduped = false;
+  let warningDeduped = false;
   if (driftCount > 0) {
-    // drift 内容の安定した指紋。computeDrift/diffFingerprint は結果を常にソート済みで
-    // 返す純粋関数のため、同一ドリフトなら常に同じ JSON 文字列＝同じハッシュになる。
-    const driftFingerprint = createHash('sha256')
-      .update(JSON.stringify({ contaminated, missing, colDrift, driftExtra, driftMissing, businessTypeDrift, reviewAuthenticityDrift }))
-      .digest('hex')
-      .slice(0, 16);
-    const claimDate = startedAt.toISOString().slice(0, 10); // UTC日付(YYYY-MM-DD)
-    const claimKey = `${claimDate}:${driftFingerprint}`;
-
-    const { error: claimError } = await admin.from('cron_alert_claims').insert({
-      job_name: 'schema-drift-check',
-      claim_key: claimKey,
-    });
-
-    let shouldAlert = true;
-    if (claimError) {
-      if ((claimError as { code?: string }).code === '23505') {
-        // 他スケジューラが同日・同内容のドリフトを先に claim・通知済み。重複送信を避けてスキップ。
-        shouldAlert = false;
-        alertDeduped = true;
-        console.log('[schema-drift-check] alert claim already taken (deduped)', { claimKey });
-      } else {
-        // claim 不能（migration 未適用の 42P01 含む）。fail-open：無音より重複の方が安全なため
-        // 送信する。DDL 未適用期間はこの分岐に必ず落ち、claim 導入前と完全に同一の挙動になる
-        // （デプロイ順序非依存）。
-        console.warn('[schema-drift-check] alert claim insert failed (fail-open: sending anyway)', {
-          claimKey,
-          code: (claimError as { code?: string }).code,
-          message: claimError.message,
-        });
-      }
+    if (criticalCount > 0) {
+      criticalDeduped = await claimAndAlert(
+        admin,
+        startedAt,
+        'critical',
+        { missing, driftMissing, reviewAuthenticityDrift },
+        () => {
+          alertError(
+            `スキーマドリフト検知: 本番が migration より古い（未適用migrationの疑い）= 本番に無い定義: ${driftMissing.length}件 / 期待テーブル欠落: ${missing.length}件 / 口コミ真正性ドリフト: ${reviewAuthenticityDrift.length}件`,
+            {
+              route: '/api/cron/schema-drift-check',
+              extra: { missing, driftMissing, reviewAuthenticityDrift },
+            },
+          );
+        },
+      );
     }
 
-    if (shouldAlert) {
-      alertWarning(
-        `スキーマドリフト検知: 混入${contaminated.length} / 欠落${missing.length} / 列差分${colDrift.length} / スキーマ差分 追加${driftExtra.length}/欠落${driftMissing.length} / 業種値ドリフト${businessTypeDrift.length} / 口コミ真正性${reviewAuthenticityDrift.length}`,
-        {
-          route: '/api/cron/schema-drift-check',
-          extra: { contaminated, missing, colDrift, driftExtra, driftMissing, businessTypeDrift, reviewAuthenticityDrift },
+    if (warningCount > 0) {
+      warningDeduped = await claimAndAlert(
+        admin,
+        startedAt,
+        'warning',
+        { contaminated, colDrift, driftExtra, businessTypeDrift },
+        () => {
+          alertWarning(
+            `スキーマドリフト検知（out-of-band な追加/値ズレの疑い）: 混入${contaminated.length} / 列差分${colDrift.length} / スキーマ差分追加${driftExtra.length} / 業種値ドリフト${businessTypeDrift.length}`,
+            {
+              route: '/api/cron/schema-drift-check',
+              extra: { contaminated, colDrift, driftExtra, businessTypeDrift },
+            },
+          );
         },
       );
     }
@@ -257,6 +344,8 @@ export async function GET(request: Request) {
     // （テーブル肥大化の防止のみが目的で、失敗しても通知ロジックの正しさに影響しない）。
     // job_name を自ジョブに限定する：テーブルは (job_name, claim_key) 設計で将来他 cron と
     // 共有し得るため、無条件 delete だと他ジョブの claim 行を越境削除してしまう。
+    // job_name は critical/warning 共通（'schema-drift-check'）のため1回の delete で両方の
+    // stale claim をカバーする。
     const staleBefore = new Date(startedAt.getTime() - CLAIM_RETENTION_MS).toISOString();
     const { error: cleanupError } = await admin
       .from('cron_alert_claims')
@@ -282,12 +371,19 @@ export async function GET(request: Request) {
       businessTypeDrift,
       reviewAuthenticityDrift,
       fingerprintCheckSkipped,
-      alertDeduped,
+      criticalCount,
+      warningCount,
+      criticalDeduped,
+      warningDeduped,
+      // 後方互換：いずれかの severity が dedup されていれば true（旧フィールド名を維持）。
+      alertDeduped: criticalDeduped || warningDeduped,
     },
   });
   return NextResponse.json({
     ok: true,
     driftCount,
+    criticalCount,
+    warningCount,
     contaminated,
     missing,
     colDrift,
