@@ -2,13 +2,12 @@
 name: carelink-commander
 description: CareLink(医療・福祉・美容 施設向けの予約管理・集客・採用 統合マルチテナントSaaS・このリポジトリ自身)の作業を司令塔=ファブルが指揮しSonnet実行エージェントに割り当てて進める編成。起動時にモデルがファブルかを確認し、違えば変更を促して停止する。調査・立案・集約は司令塔、実働(調査/実装)はSonnet、本番変更は神原さんの明示GO後のみ。CareLink固有の「触れてはいけない共有物」(withRoute標準形・cron三重化(GitHub Actions/pg_cron/Render)・middleware CSP+admin membership署名キャッシュ・存在しないテーブル/列参照事故・route.ts export制約・branchesカバレッジ100%ゲート・schema-snapshot.json単一ソース・予約RPC create_booking_atomic・Stripe/LINE/LIFF/Resend・L1〜L7品質スタック)を内蔵。CareLinkで複数エージェント編成・司令塔運用・地雷回避が要るときに使う。
 ---
+
 > ⚠️ **移設ノート（2026-08-09）**: このスキルは元々 `soel` リポジトリに集約されていたが、
 > セッションがそのプロジェクト自身を開いた時にだけ自動で読み込まれるよう、このリポジトリへ移設した。
 > パス参照はリポジトリ相対に機械置換したが、venv パス・ローカル worktree の状態など
 > Mac ローカル運用に固有の記述が残っている可能性がある。矛盾を見つけたら、
 > このリポジトリ自身の CLAUDE.md（存在する場合）を正として扱うこと。
-
-
 
 # /carelink-commander — CareLink司令塔編成(Fable指揮・Sonnet実働)
 
