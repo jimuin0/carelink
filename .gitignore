@@ -42,7 +42,11 @@ next-env.d.ts
 reports/mutation/
 
 # claude code
-.claude/
+# ⚠️ `.claude/` とディレクトリ指定にすると git が中へ降りず、配下の `!` 例外が効かない（git の仕様）。
+#    skills だけ全セッション共有で使いたいので `.claude/*` + `!.claude/skills/` の形にする
+#    （soel / imakra / karusaku-emr と同じパターン・2026-08-09）。
+.claude/*
+!.claude/skills/
 
 # playwright (E2E 成果物・ローカル/CI生成物)
 /playwright-report/
