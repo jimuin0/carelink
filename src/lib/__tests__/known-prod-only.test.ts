@@ -78,7 +78,7 @@ describe('subjectTable — 行がどのテーブルの話か', () => {
 describe('isKnownProdOnlyLine', () => {
   it('台帳のテーブルに属する行だけ true', () => {
     expect(isKnownProdOnlyLine('column|facilities.id|uuid')).toBe(true);
-    expect(isKnownProdOnlyLine('grant|blog_authors|anon|SELECT')).toBe(true);
+    expect(isKnownProdOnlyLine('grant|recruits|anon|SELECT')).toBe(true);
     expect(isKnownProdOnlyLine('policy|recruits|p|cmd=r')).toBe(true);
   });
 
