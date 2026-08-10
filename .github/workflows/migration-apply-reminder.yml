@@ -40,36 +40,45 @@ jobs:
           # base ブランチ(origin/${{ github.base_ref }})との diff を取るため全履歴が要る。
           fetch-depth: 0
 
-      - name: Diff against base branch to find added migrations
+      - name: List migration files in base and HEAD trees
         id: diff
         run: |
           git fetch origin "${{ github.base_ref }}" --quiet
-          DIFF="$(git diff --name-status "origin/${{ github.base_ref }}...HEAD")"
-          # 区切りトークンは run_id で一意化する（diff の中身がたまたま固定文字列と
+          # base ブランチにまだ supabase/migrations/ が無い（極端に古い/特殊な base）
+          # 場合に備えて || true で空扱いにする。それ以外の git 側エラーは通常起こらない。
+          BASE_LIST="$(git ls-tree -r --name-only "origin/${{ github.base_ref }}" -- supabase/migrations/ || true)"
+          HEAD_LIST="$(git ls-tree -r --name-only HEAD -- supabase/migrations/)"
+          # 区切りトークンは run_id で一意化する（一覧の中身がたまたま固定文字列と
           # 一致してヒアドキュメントが早期終端する事故を避ける）。
-          DELIM="MIGRATION_DIFF_EOF_${GITHUB_RUN_ID}"
+          BASE_DELIM="MIGRATION_BASE_EOF_${GITHUB_RUN_ID}"
+          HEAD_DELIM="MIGRATION_HEAD_EOF_${GITHUB_RUN_ID}"
           {
-            echo "diff<<${DELIM}"
-            echo "$DIFF"
-            echo "${DELIM}"
+            echo "base-list<<${BASE_DELIM}"
+            echo "$BASE_LIST"
+            echo "${BASE_DELIM}"
+            echo "head-list<<${HEAD_DELIM}"
+            echo "$HEAD_LIST"
+            echo "${HEAD_DELIM}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Detect added migrations and upsert sticky PR comment
         uses: actions/github-script@v7
         env:
-          # 🔴 ${{ }} でスクリプト本文へ直接 diff テキストを埋め込まない。
-          #   diff にはブランチ由来の任意文字列（バッククォート・${ 等）が含まれ得るため、
+          # 🔴 ${{ }} でスクリプト本文へ直接一覧テキストを埋め込まない。
+          #   一覧にはブランチ由来の任意文字列（バッククォート・${ 等）が含まれ得るため、
           #   github-script の script: に textual に展開すると script injection になり得る
           #   （actions/github-script の既知の落とし穴）。env 経由で渡し process.env から読む。
-          MIGRATION_DIFF: ${{ steps.diff.outputs.diff }}
+          MIGRATION_BASE_LIST: ${{ steps.diff.outputs.base-list }}
+          MIGRATION_HEAD_LIST: ${{ steps.diff.outputs.head-list }}
         with:
           script: |
-            const { addedMigrations } = await import(
+            const { newMigrations } = await import(
               `${process.env.GITHUB_WORKSPACE}/scripts/detect-added-migrations.mjs`
             );
 
-            const nameStatus = process.env.MIGRATION_DIFF || '';
-            const added = addedMigrations(nameStatus);
+            const baseList = process.env.MIGRATION_BASE_LIST || '';
+            const headList = process.env.MIGRATION_HEAD_LIST || '';
+            const added = newMigrations(baseList, headList);
 
             const MARKER = '<!-- migration-apply-reminder -->';
             const { owner, repo } = context.repo;
